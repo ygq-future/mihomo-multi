@@ -103,4 +103,4 @@ Development is tracked via GitHub Issues:
 
 ## 📄 License
 
-Distributed under the [GPL-3.0 License](LICENSE).
+Distributed under the [MIT License](LICENSE).
