@@ -41,6 +41,45 @@ export interface NodeLatencyResult {
   error?: string
 }
 
+export type DriftStatus =
+  | 'healthy'
+  | 'node_missing'
+  | 'profile_missing'
+  | 'empty_profile'
+
+export interface PortDriftReport {
+  mappingId: string
+  port: number
+  profileId: string
+  profileName: string
+  nodeName: string
+  enabled: boolean
+  status: DriftStatus
+  message: string
+  fallbackAction: string
+  suggestions?: string[]
+}
+
+export interface AutoUpdateEventPayload {
+  profileId: string
+  profileName: string
+  success: boolean
+  previousNodeCount: number
+  newNodeCount: number
+  driftedPortsCount: number
+  timestamp: number
+  error?: string
+}
+
+export interface AutoUpdaterStatus {
+  running: boolean
+  autoUpdateEnabled: boolean
+  checkIntervalSecs: number
+  lastCheckTimestamp: number
+  totalManagedProfiles: number
+  eligibleProfilesCount: number
+}
+
 export interface CoreStatus {
   running: boolean
   pid?: number
@@ -57,6 +96,8 @@ export interface AppConfig {
   autoStartCore: boolean
   theme: string
   logLevel: string
+  autoUpdateEnabled: boolean
+  autoUpdateCheckIntervalSecs: number
 }
 
 export interface AppStatus {

@@ -1,10 +1,13 @@
+use crate::core::auto_updater::AutoUpdater;
+use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::is_port_available;
 use crate::models::{
-    AppConfig, AppStatus, CoreStatus, NodeLatencyResult, PortMapping, ProfileItem, ProxyNode,
+    AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, CoreStatus, DriftStatus,
+    NodeLatencyResult, PortDriftReport, PortMapping, ProfileItem, ProxyNode,
 };
 use crate::state::AppState;
 use std::process::Command;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
 pub async fn get_app_status(state: State<'_, AppState>) -> Result<AppStatus, String> {
@@ -250,13 +253,27 @@ pub async fn add_local_profile(
 }
 
 #[tauri::command]
-pub async fn update_profile(id: String, state: State<'_, AppState>) -> Result<ProfileItem, String> {
+pub async fn update_profile(
+    id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ProfileItem, String> {
     let item = state
         .profile_manager
         .update_profile(&id)
         .await
         .map_err(|err| err.to_string())?;
     let _ = state.sync_runtime_config().await;
+
+    let mappings = state.port_manager.get_port_mappings();
+    let drift_reports = DriftGuard::check_all(&mappings, &state.profile_manager);
+    let has_drift = drift_reports
+        .iter()
+        .any(|r| r.profile_id == id && r.status != DriftStatus::Healthy);
+    if has_drift {
+        let _ = app.emit("node-drift-detected", &drift_reports);
+    }
+
     Ok(item)
 }
 
@@ -277,13 +294,50 @@ pub async fn edit_profile(
 }
 
 #[tauri::command]
-pub async fn delete_profile(id: String, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn delete_profile(
+    id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     state
         .profile_manager
         .delete_profile(&id)
         .map_err(|err| err.to_string())?;
     let _ = state.sync_runtime_config().await;
+
+    let mappings = state.port_manager.get_port_mappings();
+    let drift_reports = DriftGuard::check_all(&mappings, &state.profile_manager);
+    let has_drift = drift_reports
+        .iter()
+        .any(|r| r.status != DriftStatus::Healthy);
+    if has_drift {
+        let _ = app.emit("node-drift-detected", &drift_reports);
+    }
+
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_drift_reports(state: State<'_, AppState>) -> Result<Vec<PortDriftReport>, String> {
+    let mappings = state.port_manager.get_port_mappings();
+    let reports = DriftGuard::check_all(&mappings, &state.profile_manager);
+    Ok(reports)
+}
+
+#[tauri::command]
+pub async fn get_auto_updater_status(
+    state: State<'_, AppState>,
+) -> Result<AutoUpdaterStatus, String> {
+    Ok(state.auto_updater.get_status(&state))
+}
+
+#[tauri::command]
+pub async fn trigger_auto_update_check(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<AutoUpdateEventPayload>, String> {
+    let results = AutoUpdater::check_and_update_eligible_profiles(&app, &state).await;
+    Ok(results)
 }
 
 #[tauri::command]

@@ -1,12 +1,13 @@
 import {
   AlertCircle,
-  Check,
+  AlertTriangle,
   Globe,
   Loader2,
   Network,
   Radio,
   Server,
   ShieldCheck,
+  Sparkles,
   X,
 } from 'lucide-react'
 import type React from 'react'
@@ -35,6 +36,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const {
     profiles,
     profileNodes,
+    driftReports,
     fetchProfileNodes,
     savePortMapping,
     fetchStatus,
@@ -53,6 +55,12 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const [submitting, setSubmitting] = useState(false)
 
   const isEditing = Boolean(initialMapping)
+
+  // Find if current mapping has a drift report
+  const currentDrift = useMemo(() => {
+    if (!initialMapping) return null
+    return driftReports.find((r) => r.mappingId === initialMapping.id) || null
+  }, [initialMapping, driftReports])
 
   // Initialize or reset fields when opened
   useEffect(() => {
@@ -237,14 +245,41 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           </div>
         )}
 
-        {success && (
-          <div className="p-3 text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 rounded-lg flex items-center gap-2">
-            <Check className="w-4 h-4" />
-            <span>
-              {isEditing
-                ? '端口映射规则修改成功'
-                : '端口绑定配置成功，已生效并热重载'}
-            </span>
+        {/* Drift Warning Banner if editing drifted port */}
+        {isEditing && currentDrift && currentDrift.status !== 'healthy' && (
+          <div className="p-3 text-xs bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-lg space-y-2">
+            <div className="flex items-center gap-2 font-medium">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+              <span>检测到节点漂移/失效 (DIRECT 兜底生效中)</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              {currentDrift.message}
+            </p>
+            {currentDrift.suggestions &&
+              currentDrift.suggestions.length > 0 && (
+                <div className="pt-1 space-y-1">
+                  <div className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-amber-500" />
+                    <span>系统智能推荐匹配节点（点击快捷选择）：</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {currentDrift.suggestions.map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        onClick={() => setSelectedNodeName(suggestion)}
+                        className={`px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
+                          selectedNodeName === suggestion
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-card hover:bg-accent border-border text-foreground'
+                        }`}
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
           </div>
         )}
 

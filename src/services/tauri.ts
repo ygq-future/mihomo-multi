@@ -2,8 +2,11 @@ import { invoke } from '@tauri-apps/api/core'
 import type {
   AppConfig,
   AppStatus,
+  AutoUpdateEventPayload,
+  AutoUpdaterStatus,
   CoreStatus,
   NodeLatencyResult,
+  PortDriftReport,
   PortMapping,
   ProfileItem,
   ProxyNode,
@@ -82,6 +85,8 @@ export async function getConfig(): Promise<AppConfig> {
       autoStartCore: true,
       theme: 'dark',
       logLevel: 'info',
+      autoUpdateEnabled: true,
+      autoUpdateCheckIntervalSecs: 60,
     }
   }
   return invoke<AppConfig>('get_config')
@@ -337,4 +342,38 @@ export async function testNodesDelayBatch(
     timeoutMs: timeoutMs || null,
     concurrency: concurrency || null,
   })
+}
+
+// ----------------------------------------------------------------------------
+// Drift Guard & Auto Updater API
+// ----------------------------------------------------------------------------
+
+export async function getDriftReports(): Promise<PortDriftReport[]> {
+  if (!isTauriEnvironment()) {
+    return []
+  }
+  return invoke<PortDriftReport[]>('get_drift_reports')
+}
+
+export async function getAutoUpdaterStatus(): Promise<AutoUpdaterStatus> {
+  if (!isTauriEnvironment()) {
+    return {
+      running: true,
+      autoUpdateEnabled: true,
+      checkIntervalSecs: 60,
+      lastCheckTimestamp: Math.floor(Date.now() / 1000),
+      totalManagedProfiles: 0,
+      eligibleProfilesCount: 0,
+    }
+  }
+  return invoke<AutoUpdaterStatus>('get_auto_updater_status')
+}
+
+export async function triggerAutoUpdateCheck(): Promise<
+  AutoUpdateEventPayload[]
+> {
+  if (!isTauriEnvironment()) {
+    return []
+  }
+  return invoke<AutoUpdateEventPayload[]>('trigger_auto_update_check')
 }

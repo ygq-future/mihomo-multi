@@ -14,6 +14,7 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Zap,
 } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
@@ -36,6 +37,8 @@ export const ProfileListView: React.FC = () => {
     deleteProfile,
     updatingProfileIds,
     profileLoading,
+    isCheckingAutoUpdates,
+    triggerAutoUpdateCheck,
     openAppDataDir,
     openFileInFolder,
   } = useAppStore()
@@ -99,6 +102,25 @@ export const ProfileListView: React.FC = () => {
     } catch (err) {
       showToast(
         `刷新失败：${err instanceof Error ? err.message : String(err)}`,
+        'error',
+      )
+    }
+  }
+
+  const handleCheckAllUpdates = async () => {
+    try {
+      const results = await triggerAutoUpdateCheck()
+      const updatedCount = results.filter((r) => r.success).length
+      if (results.length === 0) {
+        showToast('所有远程订阅均未到达设定的自动更新周期')
+      } else {
+        showToast(
+          `检查完成：已更新 ${updatedCount} 个订阅，共扫描 ${results.length} 个配置`,
+        )
+      }
+    } catch (err) {
+      showToast(
+        `检查更新失败：${err instanceof Error ? err.message : String(err)}`,
         'error',
       )
     }
@@ -211,6 +233,18 @@ export const ProfileListView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {profiles.some((p) => p.type === 'remote') && (
+            <Button
+              variant="outline"
+              size="sm"
+              loading={isCheckingAutoUpdates}
+              onClick={handleCheckAllUpdates}
+              icon={<Zap className="w-3.5 h-3.5 text-amber-500" />}
+            >
+              检查更新
+            </Button>
+          )}
+
           <Button
             variant="outline"
             size="sm"

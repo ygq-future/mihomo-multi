@@ -54,6 +54,11 @@ pub fn run() {
                 });
             }
 
+            // Start background profile auto-updater
+            app_state
+                .auto_updater
+                .start(app_handle.clone(), app_state.clone());
+
             app.manage(app_state);
             Ok(())
         })
@@ -82,6 +87,9 @@ pub fn run() {
             get_all_nodes,
             test_node_delay,
             test_nodes_delay_batch,
+            get_drift_reports,
+            get_auto_updater_status,
+            trigger_auto_update_check,
             open_app_data_dir,
             open_file_in_folder,
             get_app_dir,
@@ -90,7 +98,8 @@ pub fn run() {
             if matches!(event, tauri::WindowEvent::Destroyed)
                 && let Some(state) = window.try_state::<AppState>()
             {
-                info!("Window destroyed, ensuring sidecar process is terminated");
+                info!("Window destroyed, ensuring sidecar process and background services are terminated");
+                state.auto_updater.stop();
                 let _ = state.supervisor.stop();
             }
         })

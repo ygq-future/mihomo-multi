@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  AlertTriangle,
   Check,
   ChevronDown,
   Copy,
@@ -16,13 +17,14 @@ import {
   Sparkles,
   Terminal,
   Trash2,
+  Wrench,
   X,
   Zap,
 } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../../stores/appStore'
-import type { InboundProtocol, PortMapping } from '../../types'
+import type { InboundProtocol, PortDriftReport, PortMapping } from '../../types'
 import { getLatencyColor } from '../../utils/proxy'
 import { Badge, Button, Input, Modal, Select, Switch } from '../common'
 import { AddPortModal } from '../ports/AddPortModal'
@@ -133,6 +135,7 @@ const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
 export const PortTableView: React.FC = () => {
   const {
     portMappings,
+    driftReports,
     testingPortIds,
     isTestingAllPorts,
     portError,
@@ -185,6 +188,23 @@ export const PortTableView: React.FC = () => {
     }, 2500)
   }
 
+  // Drift map for easy lookup
+  const driftMap = useMemo(() => {
+    const map: Record<string, PortDriftReport> = {}
+    for (const r of driftReports) {
+      map[r.mappingId] = r
+    }
+    return map
+  }, [driftReports])
+
+  // Count of active ports with drift
+  const driftedActiveCount = useMemo(() => {
+    return portMappings.filter((m) => {
+      const report = driftMap[m.id]
+      return m.enabled && report && report.status !== 'healthy'
+    }).length
+  }, [portMappings, driftMap])
+
   // Profile map for easy name lookup
   const profileMap = useMemo(() => {
     const map: Record<string, string> = {}
@@ -197,6 +217,9 @@ export const PortTableView: React.FC = () => {
   // Filtered port mappings
   const filteredMappings = useMemo(() => {
     return portMappings.filter((m) => {
+      const drift = driftMap[m.id]
+      const isDrifted = drift && drift.status !== 'healthy'
+
       // Protocol filter
       if (selectedProtocol !== 'all' && m.protocol !== selectedProtocol) {
         return false
@@ -205,6 +228,7 @@ export const PortTableView: React.FC = () => {
       // Status filter
       if (selectedStatus === 'enabled' && !m.enabled) return false
       if (selectedStatus === 'disabled' && m.enabled) return false
+      if (selectedStatus === 'drifted' && !isDrifted) return false
 
       // Search query filter (port, node_name, profile_name, description)
       if (searchQuery.trim()) {
@@ -224,7 +248,14 @@ export const PortTableView: React.FC = () => {
 
       return true
     })
-  }, [portMappings, selectedProtocol, selectedStatus, searchQuery, profileMap])
+  }, [
+    portMappings,
+    driftMap,
+    selectedProtocol,
+    selectedStatus,
+    searchQuery,
+    profileMap,
+  ])
 
   const totalPorts = portMappings.length
   const activePorts = portMappings.filter((m) => m.enabled).length
@@ -370,7 +401,7 @@ export const PortTableView: React.FC = () => {
           </div>
 
           {/* Status Filter */}
-          <div className="w-32">
+          <div className="w-36">
             <Select
               value={selectedStatus}
               onChange={(val) => setSelectedStatus(String(val))}
@@ -378,9 +409,44 @@ export const PortTableView: React.FC = () => {
                 { value: 'all', label: '全部状态' },
                 { value: 'enabled', label: '仅已启用' },
                 { value: 'disabled', label: '仅已停用' },
+                {
+                  value: 'drifted',
+                  label: `⚠️ 异常漂移 (${driftReports.filter((r) => r.status !== 'healthy').length})`,
+                },
               ]}
             />
           </div>
+        </div>
+      )}
+
+      {/* Node Drift Alert Banner */}
+      {driftedActiveCount > 0 && (
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 text-foreground space-y-2 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5 font-semibold text-amber-600 dark:text-amber-400 text-xs">
+              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+              <span>
+                检测到 {driftedActiveCount}{' '}
+                个已启用端口的绑定节点在订阅更新后发生漂移/失效
+              </span>
+            </div>
+            {selectedStatus !== 'drifted' && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs h-7 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
+                onClick={() => setSelectedStatus('drifted')}
+                icon={<Filter className="w-3 h-3" />}
+              >
+                仅查看异常端口
+              </Button>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            为严格保障多环境隔离（如指纹浏览器）与出口 IP
+            确定性，系统已自动为失效端口激活 <b>DIRECT 直连安全兜底</b>
+            ，严禁模糊轮询或流量污染。请点击「编辑」或「修复」按钮重新绑定最新节点。
+          </p>
         </div>
       )}
 
@@ -463,16 +529,18 @@ export const PortTableView: React.FC = () => {
                 {filteredMappings.map((m) => {
                   const isTesting = testingPortIds[m.id] || false
                   const profileName = profileMap[m.profileId] || '未知订阅'
-                  const currentNodes = profileNodes[m.profileId] || []
-                  const isNodeValid =
-                    currentNodes.length === 0 ||
-                    currentNodes.some((n) => n.name === m.nodeName)
+                  const drift = driftMap[m.id]
+                  const isDrifted = drift && drift.status !== 'healthy'
 
                   return (
                     <tr
                       key={m.id}
                       className={`hover:bg-accent/40 transition-colors ${
-                        !m.enabled ? 'opacity-65 bg-secondary/10' : ''
+                        !m.enabled
+                          ? 'opacity-65 bg-secondary/10'
+                          : isDrifted
+                            ? 'bg-amber-500/5 dark:bg-amber-500/10 border-l-2 border-l-amber-500'
+                            : ''
                       }`}
                     >
                       {/* Port Number & Copy */}
@@ -516,20 +584,34 @@ export const PortTableView: React.FC = () => {
 
                       {/* Bound Proxy Node */}
                       <td className="py-3.5 px-4">
-                        <div className="space-y-1 min-w-[180px]">
-                          <div className="flex items-center gap-1.5 font-medium text-foreground">
+                        <div className="space-y-1 min-w-[200px]">
+                          <div className="flex items-center gap-1.5 font-medium text-foreground flex-wrap">
                             <Radio className="w-3.5 h-3.5 text-primary shrink-0" />
-                            <span className="truncate" title={m.nodeName}>
+                            <span
+                              className="truncate max-w-[180px]"
+                              title={m.nodeName}
+                            >
                               {m.nodeName}
                             </span>
-                            {!isNodeValid && (
+                            {isDrifted && (
                               <Badge
-                                variant="danger"
+                                variant={
+                                  drift?.status === 'empty_profile'
+                                    ? 'warning'
+                                    : 'danger'
+                                }
                                 size="sm"
                                 dot
-                                title="该节点在订阅中未找到，流量已安全直连"
+                                title={
+                                  drift?.message ||
+                                  '节点在订阅中不存在，流量已安全直连 (DIRECT)'
+                                }
                               >
-                                节点已失效
+                                {drift?.status === 'profile_missing'
+                                  ? '订阅已删 (DIRECT)'
+                                  : drift?.status === 'empty_profile'
+                                    ? '订阅无节点 (DIRECT)'
+                                    : '节点漂移 (DIRECT)'}
                               </Badge>
                             )}
                           </div>
@@ -539,6 +621,29 @@ export const PortTableView: React.FC = () => {
                               {profileName}
                             </span>
                           </div>
+
+                          {/* Quick Suggestion Pill */}
+                          {isDrifted &&
+                            drift?.suggestions &&
+                            drift.suggestions.length > 0 && (
+                              <div className="flex items-center gap-1 pt-0.5 text-[10px] text-muted-foreground">
+                                <span className="flex items-center gap-0.5 text-amber-500 font-medium">
+                                  <Sparkles className="w-3 h-3" />
+                                  建议:
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingMapping(m)
+                                    setIsAddModalOpen(true)
+                                  }}
+                                  className="text-foreground hover:text-primary underline truncate max-w-[160px]"
+                                  title={`点击修复并选择建议节点「${drift.suggestions[0]}」`}
+                                >
+                                  {drift.suggestions[0]}
+                                </button>
+                              </div>
+                            )}
                         </div>
                       </td>
 
@@ -606,6 +711,21 @@ export const PortTableView: React.FC = () => {
                             protocol={m.protocol}
                             onCopySuccess={showToast}
                           />
+
+                          {/* Quick Repair Button if drifted */}
+                          {isDrifted && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingMapping(m)
+                                setIsAddModalOpen(true)
+                              }}
+                              className="p-1.5 rounded-md hover:bg-amber-500/15 text-amber-500 transition-colors"
+                              title="修复漂移/失效的节点绑定"
+                            >
+                              <Wrench className="w-3.5 h-3.5" />
+                            </button>
+                          )}
 
                           {/* Edit Button */}
                           <button

@@ -1,9 +1,10 @@
 import type { StateCreator } from 'zustand'
 import * as api from '../services/tauri'
-import type { NodeLatencyResult, PortMapping } from '../types'
+import type { NodeLatencyResult, PortDriftReport, PortMapping } from '../types'
 
 export interface PortSlice {
   portMappings: PortMapping[]
+  driftReports: PortDriftReport[]
   portLoading: boolean
   testingPortIds: Record<string, boolean>
   isTestingAllPorts: boolean
@@ -12,6 +13,7 @@ export interface PortSlice {
   isPortModalOpen: boolean
 
   fetchPortMappings: () => Promise<void>
+  fetchDriftReports: () => Promise<PortDriftReport[]>
   savePortMapping: (mapping: PortMapping) => Promise<PortMapping>
   deletePortMapping: (id: string) => Promise<void>
   togglePortMapping: (id: string, enabled: boolean) => Promise<PortMapping>
@@ -27,6 +29,7 @@ export interface PortSlice {
   setEditingPortMapping: (mapping: PortMapping | null) => void
   setIsPortModalOpen: (open: boolean) => void
   setPortError: (error: string | null) => void
+  setDriftReports: (reports: PortDriftReport[]) => void
 }
 
 export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
@@ -34,6 +37,7 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
   get,
 ) => ({
   portMappings: [],
+  driftReports: [],
   portLoading: false,
   testingPortIds: {},
   isTestingAllPorts: false,
@@ -44,8 +48,11 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
   fetchPortMappings: async () => {
     set({ portLoading: true })
     try {
-      const portMappings = await api.getPortMappings()
-      set({ portMappings, portLoading: false, portError: null })
+      const [portMappings, driftReports] = await Promise.all([
+        api.getPortMappings(),
+        api.getDriftReports(),
+      ])
+      set({ portMappings, driftReports, portLoading: false, portError: null })
     } catch (err) {
       set({
         portLoading: false,
@@ -54,10 +61,23 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
     }
   },
 
+  fetchDriftReports: async () => {
+    try {
+      const driftReports = await api.getDriftReports()
+      set({ driftReports })
+      return driftReports
+    } catch {
+      return []
+    }
+  },
+
+  setDriftReports: (driftReports) => set({ driftReports }),
+
   savePortMapping: async (mapping) => {
     set({ portLoading: true, portError: null })
     try {
       const saved = await api.savePortMapping(mapping)
+      const driftReports = await api.getDriftReports().catch(() => [])
       set((state) => {
         const index = state.portMappings.findIndex((p) => p.id === saved.id)
         const updated =
@@ -66,6 +86,7 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
             : [...state.portMappings, saved]
         return {
           portMappings: updated,
+          driftReports,
           portLoading: false,
           isPortModalOpen: false,
           editingPortMapping: null,
@@ -85,8 +106,10 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
     set({ portLoading: true, portError: null })
     try {
       await api.deletePortMapping(id)
+      const driftReports = await api.getDriftReports().catch(() => [])
       set((state) => ({
         portMappings: state.portMappings.filter((p) => p.id !== id),
+        driftReports,
         portLoading: false,
       }))
     } catch (err) {

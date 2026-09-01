@@ -83,6 +83,56 @@ pub struct NodeLatencyResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DriftStatus {
+    Healthy,
+    NodeMissing,
+    ProfileMissing,
+    EmptyProfile,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PortDriftReport {
+    pub mapping_id: String,
+    pub port: u16,
+    pub profile_id: String,
+    pub profile_name: String,
+    pub node_name: String,
+    pub enabled: bool,
+    pub status: DriftStatus,
+    pub message: String,
+    pub fallback_action: String,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub suggestions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoUpdateEventPayload {
+    pub profile_id: String,
+    pub profile_name: String,
+    pub success: bool,
+    pub previous_node_count: usize,
+    pub new_node_count: usize,
+    pub drifted_ports_count: usize,
+    pub timestamp: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoUpdaterStatus {
+    pub running: bool,
+    pub auto_update_enabled: bool,
+    pub check_interval_secs: u64,
+    pub last_check_timestamp: u64,
+    pub total_managed_profiles: usize,
+    pub eligible_profiles_count: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CoreStatus {
@@ -103,6 +153,18 @@ pub struct AppConfig {
     pub auto_start_core: bool,
     pub theme: String,
     pub log_level: String,
+    #[serde(default = "default_true")]
+    pub auto_update_enabled: bool,
+    #[serde(default = "default_check_interval_secs")]
+    pub auto_update_check_interval_secs: u64,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_check_interval_secs() -> u64 {
+    60
 }
 
 impl Default for AppConfig {
@@ -113,6 +175,8 @@ impl Default for AppConfig {
             auto_start_core: true,
             theme: "system".to_string(),
             log_level: "info".to_string(),
+            auto_update_enabled: true,
+            auto_update_check_interval_secs: 60,
         }
     }
 }

@@ -1,13 +1,17 @@
 import {
+  AlertTriangle,
+  Check,
   CheckCircle2,
   Cpu,
   FolderOpen,
   Play,
   RefreshCw,
   Save,
+  ShieldAlert,
   ShieldCheck,
   Square,
   Terminal,
+  Zap,
 } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
@@ -23,16 +27,33 @@ const logLevelOptions = [
   { value: 'silent', label: 'Silent (静默)' },
 ]
 
+const intervalOptions = [
+  { value: '30', label: '每 30 秒轮询一次' },
+  { value: '60', label: '每 1 分钟轮询一次 (默认)' },
+  { value: '300', label: '每 5 分钟轮询一次' },
+  { value: '600', label: '每 10 分钟轮询一次' },
+]
+
 export const SettingView: React.FC = () => {
   const {
     coreStatus,
     config,
+    autoUpdaterStatus,
+    driftReports,
+    portMappings,
+    profiles,
+    isCheckingAutoUpdates,
     startCore,
     stopCore,
     restartCore,
     fetchConfig,
     saveConfig,
     openAppDataDir,
+    fetchAutoUpdaterStatus,
+    triggerAutoUpdateCheck,
+    fetchDriftReports,
+    fetchPortMappings,
+    setActiveTab,
     loading,
     error,
   } = useAppStore()
@@ -40,22 +61,38 @@ export const SettingView: React.FC = () => {
   const [controllerPort, setControllerPort] = useState<number>(9999)
   const [logLevel, setLogLevel] = useState<string>('info')
   const [autoStart, setAutoStart] = useState<boolean>(true)
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState<boolean>(true)
+  const [autoUpdateIntervalSecs, setAutoUpdateIntervalSecs] =
+    useState<string>('60')
   const [appDataDir, setAppDataDir] = useState<string>('')
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false)
+  const [updateToast, setUpdateToast] = useState<string | null>(null)
 
   useEffect(() => {
     fetchConfig()
+    fetchAutoUpdaterStatus()
+    fetchDriftReports()
+    fetchPortMappings()
     api
       .getAppDir()
       .then(setAppDataDir)
       .catch(() => {})
-  }, [fetchConfig])
+  }, [
+    fetchConfig,
+    fetchAutoUpdaterStatus,
+    fetchDriftReports,
+    fetchPortMappings,
+  ])
 
   useEffect(() => {
     if (config) {
       setControllerPort(config.controllerPort)
       setLogLevel(config.logLevel)
       setAutoStart(config.autoStartCore)
+      setAutoUpdateEnabled(config.autoUpdateEnabled ?? true)
+      setAutoUpdateIntervalSecs(
+        String(config.autoUpdateCheckIntervalSecs ?? 60),
+      )
     }
   }, [config])
 
@@ -66,15 +103,60 @@ export const SettingView: React.FC = () => {
       controllerPort: Number(controllerPort),
       logLevel: logLevel,
       autoStartCore: autoStart,
+      autoUpdateEnabled,
+      autoUpdateCheckIntervalSecs: Number(autoUpdateIntervalSecs),
     })
+    fetchAutoUpdaterStatus()
     setSavedSuccess(true)
     setTimeout(() => setSavedSuccess(false), 2500)
   }
 
+  const handleManualCheckUpdates = async () => {
+    try {
+      const results = await triggerAutoUpdateCheck()
+      const updatedCount = results.filter((r) => r.success).length
+      if (results.length === 0) {
+        setUpdateToast('当前无到达更新周期的远程订阅')
+      } else {
+        setUpdateToast(
+          `检查完成：已更新 ${updatedCount} 个订阅，共检测 ${results.length} 个配置`,
+        )
+      }
+      setTimeout(() => setUpdateToast(null), 3000)
+    } catch (err) {
+      setUpdateToast(
+        `检查更新失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      setTimeout(() => setUpdateToast(null), 3000)
+    }
+  }
+
+  const formatTimestamp = (timestamp: number) => {
+    if (!timestamp) return '尚未执行'
+    const date = new Date(timestamp * 1000)
+    return date.toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+  }
+
   const isRunning = coreStatus?.running ?? false
+  const totalPorts = portMappings.length
+  const driftedPorts = driftReports.filter((r) => r.status !== 'healthy').length
 
   return (
     <div className="p-6 space-y-6 max-w-4xl">
+      {/* Toast Notification */}
+      {updateToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-foreground text-background text-xs font-medium px-3.5 py-2 rounded-lg shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <Check className="w-3.5 h-3.5 text-emerald-400" />
+          <span>{updateToast}</span>
+        </div>
+      )}
+
       {/* Error Alert */}
       {error && (
         <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs">
@@ -193,6 +275,158 @@ export const SettingView: React.FC = () => {
             <span className="font-mono truncate">{coreStatus.sidecarPath}</span>
           </div>
         )}
+      </div>
+
+      {/* Auto-Updater & Node Drift Safety Guard Card */}
+      <div className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm">
+        <div className="flex items-center justify-between pb-3 border-b border-border">
+          <div className="flex items-center gap-2.5">
+            <RefreshCw className="w-5 h-5 text-emerald-500" />
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
+                后台自动更新与节点漂移安全防护
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                基于 Tokio 异步定时轮询拉取最新订阅，自动执行 1:1
+                确定性漂移检测与 DIRECT 兜底
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              loading={isCheckingAutoUpdates}
+              onClick={handleManualCheckUpdates}
+              icon={<Zap className="w-3.5 h-3.5 text-amber-500" />}
+            >
+              立即检查全部更新
+            </Button>
+          </div>
+        </div>
+
+        {/* Status Metrics Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
+            <span className="text-muted-foreground">工作器状态</span>
+            <div className="flex items-center gap-1.5 font-medium">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  autoUpdaterStatus?.autoUpdateEnabled
+                    ? 'bg-emerald-500 animate-pulse'
+                    : 'bg-muted-foreground'
+                }`}
+              />
+              <span
+                className={
+                  autoUpdaterStatus?.autoUpdateEnabled
+                    ? 'text-emerald-500'
+                    : 'text-muted-foreground'
+                }
+              >
+                {autoUpdaterStatus?.autoUpdateEnabled
+                  ? '运行中 (Active)'
+                  : '已暂停'}
+              </span>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
+            <span className="text-muted-foreground">自动托管订阅</span>
+            <div className="font-mono font-medium text-foreground">
+              {autoUpdaterStatus?.eligibleProfilesCount ?? 0} /{' '}
+              {profiles.length} 个
+            </div>
+          </div>
+
+          <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
+            <span className="text-muted-foreground">节点健康状态</span>
+            <div className="font-medium flex items-center gap-1.5">
+              {driftedPorts > 0 ? (
+                <span className="text-amber-500 flex items-center gap-1 font-mono">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  {driftedPorts} 异常 / {totalPorts} 端口
+                </span>
+              ) : (
+                <span className="text-emerald-500 flex items-center gap-1 font-mono">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  全部健康 ({totalPorts})
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
+            <span className="text-muted-foreground">上次轮询时间</span>
+            <div className="text-[11px] font-mono text-muted-foreground truncate">
+              {formatTimestamp(autoUpdaterStatus?.lastCheckTimestamp ?? 0)}
+            </div>
+          </div>
+        </div>
+
+        {/* Drift Status Banner */}
+        {driftedPorts > 0 && (
+          <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs flex items-center justify-between">
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+              <ShieldAlert className="w-4 h-4 shrink-0 text-amber-500" />
+              <span>
+                检测到 {driftedPorts} 个监听端口绑定的节点已失效，DIRECT
+                直连兜底已生效。
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-7 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+              onClick={() => setActiveTab('ports')}
+            >
+              前往端口管理查看
+            </Button>
+          </div>
+        )}
+
+        {/* Config Toggles */}
+        <div className="space-y-4 pt-2">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-xs font-medium text-foreground">
+                启用后台订阅定时静默自动更新
+              </span>
+              <p className="text-[11px] text-muted-foreground">
+                到达设定周期（如 12h、24h）后自动静默拉取最新 YAML
+                并热重载内核配置
+              </p>
+            </div>
+            <Switch
+              checked={autoUpdateEnabled}
+              onChange={(checked) => setAutoUpdateEnabled(checked)}
+              size="md"
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <label
+                htmlFor="check-interval-select"
+                className="text-xs font-medium text-foreground"
+              >
+                后台更新检查轮询频率
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                后台定时工作器唤醒并检查各订阅是否满足更新间隔的周期
+              </p>
+            </div>
+            <div className="w-56 shrink-0">
+              <Select
+                id="check-interval-select"
+                value={autoUpdateIntervalSecs}
+                onChange={(val) => setAutoUpdateIntervalSecs(String(val))}
+                options={intervalOptions}
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Storage & Directories Card */}
@@ -340,7 +574,11 @@ export const SettingView: React.FC = () => {
           </li>
           <li>
             <b>进程守护安全</b>：崩溃或退出时由 Windows JobObject /
-            信号处理彻底回收内核进程，无孤儿进程残留。
+            信号处理彻底回收内核进程，无孤儿进程残留；
+          </li>
+          <li>
+            <b>节点漂移防护</b>：订阅更新后若节点不存在，自动触发 DIRECT
+            兜底，禁止隐式模糊路由切换。
           </li>
         </ul>
       </div>

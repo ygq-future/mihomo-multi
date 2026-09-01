@@ -1,6 +1,11 @@
 import type { StateCreator } from 'zustand'
 import * as api from '../services/tauri'
-import type { ProfileItem, ProxyNode } from '../types'
+import type {
+  AutoUpdateEventPayload,
+  AutoUpdaterStatus,
+  ProfileItem,
+  ProxyNode,
+} from '../types'
 
 export interface ProfileSlice {
   profiles: ProfileItem[]
@@ -8,6 +13,8 @@ export interface ProfileSlice {
   profileNodes: Record<string, ProxyNode[]>
   profileLoading: boolean
   updatingProfileIds: Record<string, boolean>
+  autoUpdaterStatus: AutoUpdaterStatus | null
+  isCheckingAutoUpdates: boolean
 
   fetchProfiles: () => Promise<void>
   addRemoteProfile: (
@@ -28,6 +35,8 @@ export interface ProfileSlice {
   setSelectedProfileId: (id: string | null) => void
   openAppDataDir: () => Promise<void>
   openFileInFolder: (filePath: string) => Promise<void>
+  fetchAutoUpdaterStatus: () => Promise<void>
+  triggerAutoUpdateCheck: () => Promise<AutoUpdateEventPayload[]>
 }
 
 export const createProfileSlice: StateCreator<
@@ -41,6 +50,8 @@ export const createProfileSlice: StateCreator<
   profileNodes: {},
   profileLoading: false,
   updatingProfileIds: {},
+  autoUpdaterStatus: null,
+  isCheckingAutoUpdates: false,
 
   fetchProfiles: async () => {
     set({ profileLoading: true })
@@ -49,6 +60,29 @@ export const createProfileSlice: StateCreator<
       set({ profiles, profileLoading: false })
     } catch {
       set({ profileLoading: false })
+    }
+  },
+
+  fetchAutoUpdaterStatus: async () => {
+    try {
+      const status = await api.getAutoUpdaterStatus()
+      set({ autoUpdaterStatus: status })
+    } catch {
+      // Ignored
+    }
+  },
+
+  triggerAutoUpdateCheck: async () => {
+    set({ isCheckingAutoUpdates: true })
+    try {
+      const results = await api.triggerAutoUpdateCheck()
+      await get().fetchProfiles()
+      await get().fetchAutoUpdaterStatus()
+      set({ isCheckingAutoUpdates: false })
+      return results
+    } catch (err) {
+      set({ isCheckingAutoUpdates: false })
+      throw err
     }
   },
 

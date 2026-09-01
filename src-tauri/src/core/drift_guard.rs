@@ -1,0 +1,338 @@
+use crate::core::profile_manager::ProfileManager;
+use crate::models::{DriftStatus, PortDriftReport, PortMapping};
+use std::collections::HashSet;
+
+pub struct DriftGuard;
+
+impl DriftGuard {
+    /// Inspects all port mappings and returns drift reports for each mapping.
+    pub fn check_all(
+        mappings: &[PortMapping],
+        profile_manager: &ProfileManager,
+    ) -> Vec<PortDriftReport> {
+        let profiles = profile_manager.get_profiles();
+        let profile_map: std::collections::HashMap<String, String> =
+            profiles.into_iter().map(|p| (p.id, p.name)).collect();
+
+        mappings
+            .iter()
+            .map(|m| Self::check_single_internal(m, profile_manager, &profile_map))
+            .collect()
+    }
+
+    /// Inspects a single port mapping and returns its drift report.
+    pub fn check_single(
+        mapping: &PortMapping,
+        profile_manager: &ProfileManager,
+    ) -> PortDriftReport {
+        let profile_name = profile_manager
+            .get_profile_by_id(&mapping.profile_id)
+            .map(|p| p.name)
+            .unwrap_or_else(|| "未知订阅".to_string());
+
+        let mut profile_map = std::collections::HashMap::new();
+        profile_map.insert(mapping.profile_id.clone(), profile_name);
+
+        Self::check_single_internal(mapping, profile_manager, &profile_map)
+    }
+
+    fn check_single_internal(
+        mapping: &PortMapping,
+        profile_manager: &ProfileManager,
+        profile_map: &std::collections::HashMap<String, String>,
+    ) -> PortDriftReport {
+        let profile_name = profile_map
+            .get(&mapping.profile_id)
+            .cloned()
+            .unwrap_or_else(|| "未知订阅".to_string());
+
+        // 1. Check if profile exists
+        let profile = profile_manager.get_profile_by_id(&mapping.profile_id);
+        if profile.is_none() {
+            return PortDriftReport {
+                mapping_id: mapping.id.clone(),
+                port: mapping.port,
+                profile_id: mapping.profile_id.clone(),
+                profile_name,
+                node_name: mapping.node_name.clone(),
+                enabled: mapping.enabled,
+                status: DriftStatus::ProfileMissing,
+                message: format!(
+                    "关联的订阅配置 (ID: {}) 已被移除，端口流量已安全直连 (DIRECT)",
+                    mapping.profile_id
+                ),
+                fallback_action: "DIRECT".to_string(),
+                suggestions: Vec::new(),
+            };
+        }
+
+        // 2. Fetch all nodes for this profile
+        let nodes_res = profile_manager.get_profile_nodes(&mapping.profile_id);
+        let nodes = match nodes_res {
+            Ok(nodes) => nodes,
+            Err(err) => {
+                return PortDriftReport {
+                    mapping_id: mapping.id.clone(),
+                    port: mapping.port,
+                    profile_id: mapping.profile_id.clone(),
+                    profile_name: profile_name.clone(),
+                    node_name: mapping.node_name.clone(),
+                    enabled: mapping.enabled,
+                    status: DriftStatus::EmptyProfile,
+                    message: format!(
+                        "读取订阅「{}」节点失败 ({})，端口流量已安全直连 (DIRECT)",
+                        profile_name, err
+                    ),
+                    fallback_action: "DIRECT".to_string(),
+                    suggestions: Vec::new(),
+                };
+            }
+        };
+
+        if nodes.is_empty() {
+            return PortDriftReport {
+                mapping_id: mapping.id.clone(),
+                port: mapping.port,
+                profile_id: mapping.profile_id.clone(),
+                profile_name: profile_name.clone(),
+                node_name: mapping.node_name.clone(),
+                enabled: mapping.enabled,
+                status: DriftStatus::EmptyProfile,
+                message: format!(
+                    "订阅「{}」中无可用代理节点，端口流量已安全直连 (DIRECT)",
+                    profile_name
+                ),
+                fallback_action: "DIRECT".to_string(),
+                suggestions: Vec::new(),
+            };
+        }
+
+        // 3. Check if exact node name exists
+        let exact_match = nodes.iter().any(|n| n.name == mapping.node_name);
+        if exact_match {
+            return PortDriftReport {
+                mapping_id: mapping.id.clone(),
+                port: mapping.port,
+                profile_id: mapping.profile_id.clone(),
+                profile_name,
+                node_name: mapping.node_name.clone(),
+                enabled: mapping.enabled,
+                status: DriftStatus::Healthy,
+                message: "节点正常绑定".to_string(),
+                fallback_action: "NONE".to_string(),
+                suggestions: Vec::new(),
+            };
+        }
+
+        // 4. Node is missing / drifted -> calculate similarity suggestions
+        let candidate_names: Vec<String> = nodes.into_iter().map(|n| n.name).collect();
+        let suggestions = Self::find_candidate_suggestions(&mapping.node_name, &candidate_names);
+
+        PortDriftReport {
+            mapping_id: mapping.id.clone(),
+            port: mapping.port,
+            profile_id: mapping.profile_id.clone(),
+            profile_name: profile_name.clone(),
+            node_name: mapping.node_name.clone(),
+            enabled: mapping.enabled,
+            status: DriftStatus::NodeMissing,
+            message: format!(
+                "绑定节点「{}」在订阅「{}」中已失效或被重命名，端口流量已安全直连 (DIRECT)",
+                mapping.node_name, profile_name
+            ),
+            fallback_action: "DIRECT".to_string(),
+            suggestions,
+        }
+    }
+
+    /// Finds candidate suggestions for a drifted node name from available nodes in the profile.
+    pub fn find_candidate_suggestions(
+        target: &str,
+        candidate_names: &[String],
+    ) -> Vec<String> {
+        if target.trim().is_empty() || candidate_names.is_empty() {
+            return Vec::new();
+        }
+
+        let target_lower = target.to_lowercase();
+        let target_tokens: HashSet<&str> = target_lower
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let mut scored_candidates: Vec<(&String, u32)> = Vec::new();
+
+        for candidate in candidate_names {
+            let cand_lower = candidate.to_lowercase();
+            let mut score = 0u32;
+
+            // Exact case-insensitive match
+            if cand_lower == target_lower {
+                score += 1000;
+            }
+
+            // Substring containment
+            if cand_lower.contains(&target_lower) || target_lower.contains(&cand_lower) {
+                score += 200;
+            }
+
+            // Token overlap
+            let cand_tokens: HashSet<&str> = cand_lower
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            let common_tokens = target_tokens.intersection(&cand_tokens).count();
+            score += (common_tokens as u32) * 50;
+
+            // Prefix matching
+            if cand_lower.starts_with(&target_lower[..std::cmp::min(3, target_lower.len())]) {
+                score += 30;
+            }
+
+            if score > 0 {
+                scored_candidates.push((candidate, score));
+            }
+        }
+
+        // Sort by score descending
+        scored_candidates.sort_by_key(|b| std::cmp::Reverse(b.1));
+
+        scored_candidates
+            .into_iter()
+            .take(5)
+            .map(|(c, _)| c.clone())
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::InboundProtocol;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_candidate_suggestions() {
+        let candidates = vec![
+            "HK-Shadowsocks-01-V2".to_string(),
+            "HK-Shadowsocks-02".to_string(),
+            "US-VMess-01".to_string(),
+            "JP-Trojan-01".to_string(),
+            "[0.5x] HK-Shadowsocks-01".to_string(),
+        ];
+
+        let suggestions = DriftGuard::find_candidate_suggestions("HK-Shadowsocks-01", &candidates);
+        assert!(!suggestions.is_empty());
+        assert!(suggestions.contains(&"[0.5x] HK-Shadowsocks-01".to_string()));
+        assert!(suggestions.contains(&"HK-Shadowsocks-01-V2".to_string()));
+    }
+
+    #[test]
+    fn test_drift_guard_healthy_and_drift_detection() {
+        let temp_dir = std::env::temp_dir().join(format!("mihomo_test_drift_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).expect("Create temp dir failed");
+
+        let yaml = r#"
+proxies:
+  - name: "HK-01"
+    type: ss
+    server: 1.1.1.1
+    port: 8388
+  - name: "JP-02"
+    type: trojan
+    server: 2.2.2.2
+    port: 443
+"#;
+        let source_file = temp_dir.join("source.yaml");
+        std::fs::write(&source_file, yaml).expect("Write source yaml failed");
+
+        let manager = ProfileManager::new(temp_dir.clone());
+        let profile = manager
+            .add_local_profile("TestAirport".to_string(), source_file.to_string_lossy().to_string())
+            .expect("Add local profile failed");
+
+        // 1. Healthy mapping
+        let healthy_mapping = PortMapping {
+            id: "m-1".to_string(),
+            port: 7891,
+            protocol: InboundProtocol::Mixed,
+            profile_id: profile.id.clone(),
+            node_name: "HK-01".to_string(),
+            enabled: true,
+            latency: None,
+            description: None,
+        };
+
+        // 2. Drifted mapping (Node missing)
+        let drifted_mapping = PortMapping {
+            id: "m-2".to_string(),
+            port: 7892,
+            protocol: InboundProtocol::Mixed,
+            profile_id: profile.id.clone(),
+            node_name: "HK-Old-01".to_string(),
+            enabled: true,
+            latency: None,
+            description: None,
+        };
+
+        // 3. Drifted mapping (Profile missing)
+        let missing_profile_mapping = PortMapping {
+            id: "m-3".to_string(),
+            port: 7893,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "non-existent-profile".to_string(),
+            node_name: "HK-01".to_string(),
+            enabled: true,
+            latency: None,
+            description: None,
+        };
+
+        let mappings = vec![
+            healthy_mapping.clone(),
+            drifted_mapping.clone(),
+            missing_profile_mapping.clone(),
+        ];
+
+        let reports = DriftGuard::check_all(&mappings, &manager);
+        assert_eq!(reports.len(), 3);
+
+        assert_eq!(reports[0].status, DriftStatus::Healthy);
+        assert_eq!(reports[0].fallback_action, "NONE");
+
+        assert_eq!(reports[1].status, DriftStatus::NodeMissing);
+        assert_eq!(reports[1].fallback_action, "DIRECT");
+        assert_eq!(reports[1].profile_name, "TestAirport");
+        assert!(!reports[1].suggestions.is_empty());
+
+        assert_eq!(reports[2].status, DriftStatus::ProfileMissing);
+        assert_eq!(reports[2].fallback_action, "DIRECT");
+
+        // 4. Test empty profile drift
+        let empty_yaml = "rules:\n  - MATCH,DIRECT\n";
+        let empty_source_file = temp_dir.join("empty.yaml");
+        std::fs::write(&empty_source_file, empty_yaml).expect("Write empty yaml");
+
+        let empty_profile = manager
+            .add_local_profile("EmptyAirport".to_string(), empty_source_file.to_string_lossy().to_string())
+            .expect("Add empty profile");
+
+        let empty_mapping = PortMapping {
+            id: "m-4".to_string(),
+            port: 7894,
+            protocol: InboundProtocol::Mixed,
+            profile_id: empty_profile.id.clone(),
+            node_name: "AnyNode".to_string(),
+            enabled: true,
+            latency: None,
+            description: None,
+        };
+
+        let single_report = DriftGuard::check_single(&empty_mapping, &manager);
+        assert_eq!(single_report.status, DriftStatus::EmptyProfile);
+        assert_eq!(single_report.fallback_action, "DIRECT");
+        assert_eq!(single_report.profile_name, "EmptyAirport");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+}

@@ -1,3 +1,4 @@
+use crate::core::auto_updater::AutoUpdater;
 use crate::core::clash_client::ClashApiClient;
 use crate::core::config_generator::MinimalRuntimeConfig;
 use crate::core::port_manager::PortManager;
@@ -16,6 +17,7 @@ pub struct AppState {
     pub supervisor: CoreSupervisor,
     pub profile_manager: Arc<ProfileManager>,
     pub port_manager: Arc<PortManager>,
+    pub auto_updater: Arc<AutoUpdater>,
     pub config: Arc<RwLock<AppConfig>>,
     pub app_dir: PathBuf,
 }
@@ -26,6 +28,7 @@ impl AppState {
         let supervisor = CoreSupervisor::new(work_dir);
         let profile_manager = Arc::new(ProfileManager::new(app_dir.clone()));
         let port_manager = Arc::new(PortManager::new(app_dir.clone()));
+        let auto_updater = Arc::new(AutoUpdater::new());
 
         let config_path = app_dir.join("config.json");
         let initial_config = if config_path.exists() {
@@ -47,6 +50,7 @@ impl AppState {
             supervisor,
             profile_manager,
             port_manager,
+            auto_updater,
             config,
             app_dir,
         }
