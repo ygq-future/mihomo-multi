@@ -41,7 +41,7 @@ pub fn run() {
                 let supervisor = app_state.supervisor.clone();
                 let handle = app_handle.clone();
                 let config = app_state.config.read().clone();
-                tokio::spawn(async move {
+                tauri::async_runtime::spawn(async move {
                     if let Err(err) = supervisor.start(&handle, &config) {
                         error!("Failed to auto-start Mihomo core: {}", err);
                     } else {

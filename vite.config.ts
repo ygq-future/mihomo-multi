@@ -11,6 +11,9 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  optimizeDeps: {
+    entries: ['index.html', 'src/**/*.{ts,tsx}'],
+  },
   clearScreen: false,
   server: {
     port: 1420,
@@ -24,7 +27,7 @@ export default defineConfig({
         }
       : undefined,
     watch: {
-      ignored: ['**/src-tauri/**'],
+      ignored: ['**/src-tauri/**', '**/clash-verge-rev/**'],
     },
   },
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
