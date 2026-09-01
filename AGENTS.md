@@ -50,6 +50,9 @@
 3. **UI 风格与设计系统**：
    * 视觉风格对齐 **Clash Verge Rev**：现代暗黑/明亮主题自适应、精致圆角（`rounded-lg`）、紧凑表格与卡片质感、Lucide 图标。
    * 交互反馈：网络测速、配置热重载、订阅刷新等耗时操作必须有清晰的 Loading 状态与 Toast/Notification 反馈。
+4. **基础组件通用性与复用原则 (Common Components First)**：
+   * 编写 UI 代码时，必须前置评估交互元素的通用性与原子性（如按钮 `Button`、输入框 `Input`、下拉选择器 `Select`、弹窗模态框 `Modal`、数字框、开关、空状态等）。
+   * 凡是具备通用形态、可能在两处及以上复用的基础控件，必须统一下沉封装至 `src/components/common/` 模块中。严禁在业务视图中直接使用粗糙的原生控件（如原生 `<select>`、原生带箭头的 `input[type=number]`）或在不同业务页面拷贝粘贴相似的 UI 结构代码。
 
 ---
 
