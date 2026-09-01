@@ -329,6 +329,41 @@ impl ProfileManager {
         Ok(updated_item)
     }
 
+    pub fn edit_profile(
+        &self,
+        id: &str,
+        name: String,
+        url: Option<String>,
+        auto_update_interval_mins: u32,
+    ) -> AppResult<ProfileItem> {
+        let trimmed_name = name.trim().to_string();
+        if trimmed_name.is_empty() {
+            return Err(AppError::InvalidConfig("Profile name cannot be empty".to_string()));
+        }
+
+        let updated_item = {
+            let mut guard = self.profiles.write();
+            let item = guard
+                .iter_mut()
+                .find(|p| p.id == id)
+                .ok_or_else(|| AppError::ProfileNotFound(format!("Profile with ID '{}' not found", id)))?;
+
+            item.name = trimmed_name;
+            if let Some(u) = url {
+                let trimmed_url = u.trim().to_string();
+                if !trimmed_url.is_empty() {
+                    item.url = Some(trimmed_url);
+                }
+            }
+            item.auto_update_interval_mins = auto_update_interval_mins;
+            item.clone()
+        };
+
+        self.persist_metadata()?;
+        info!("Profile '{}' (ID: {}) edited successfully", updated_item.name, id);
+        Ok(updated_item)
+    }
+
     pub fn delete_profile(&self, id: &str) -> AppResult<()> {
         let removed = {
             let mut guard = self.profiles.write();
@@ -519,11 +554,18 @@ rules:
         assert_eq!(loaded_profiles[0].name, "Test Local Profile");
         assert_eq!(loaded_profiles[0].node_count, 4);
 
-        // 6. Delete profile
+        // 6. Test edit profile
+        let edited = manager2
+            .edit_profile(&profile.id, "Renamed Local Profile".to_string(), None, 360)
+            .expect("Edit profile failed");
+        assert_eq!(edited.name, "Renamed Local Profile");
+        assert_eq!(edited.auto_update_interval_mins, 360);
+
+        // 7. Delete profile
         manager2.delete_profile(&profile.id).expect("Delete profile failed");
         assert_eq!(manager2.get_profiles().len(), 0);
 
-        // 7. Cleanup temp dir
+        // 8. Cleanup temp dir
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

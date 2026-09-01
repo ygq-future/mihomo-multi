@@ -1,8 +1,9 @@
-import { Compass, Loader2, Radio, Server, X } from 'lucide-react'
+import { Compass, Loader2, Radio, Server } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../../stores/appStore'
 import type { ProfileItem, ProxyNode } from '../../types'
+import { Button, Input, Modal } from '../common'
 
 interface ProfileNodesModalProps {
   profile: ProfileItem | null
@@ -26,7 +27,7 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
     }
   }, [isOpen, profile, fetchProfileNodes])
 
-  if (!isOpen || !profile) return null
+  if (!profile) return null
 
   const nodes: ProxyNode[] = profileNodes[profile.id] || []
   const filteredNodes = nodes.filter(
@@ -56,45 +57,26 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-md bg-primary/10 text-primary flex items-center justify-center">
-              <Compass className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">
-                {profile.name} — 包含节点列表
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                共解析到 {nodes.length} 个可用代理节点
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`${profile.name} — 包含节点列表`}
+      subtitle={`共解析到 ${nodes.length} 个可用代理节点`}
+      icon={<Compass className="w-4 h-4" />}
+      maxWidth="2xl"
+    >
+      <div className="flex flex-col h-full">
         {/* Search Bar */}
         <div className="px-5 py-3 border-b border-border bg-card/50">
-          <input
-            type="text"
+          <Input
             placeholder="搜索节点名称、协议或服务器地址..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full px-3 py-1.5 rounded-md bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-2">
+        <div className="flex-1 overflow-y-auto p-5 max-h-[60vh]">
           {loading ? (
             <div className="py-16 flex flex-col items-center justify-center text-center space-y-2 text-muted-foreground">
               <Loader2 className="w-6 h-6 animate-spin text-primary" />
@@ -111,7 +93,7 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
               {filteredNodes.map((node) => (
                 <div
                   key={`${node.name}-${node.server}-${node.port}`}
-                  className="p-3 rounded-lg border border-border bg-background/50 hover:bg-background/80 transition-colors flex items-center justify-between gap-3 text-xs"
+                  className="p-3 rounded-xl border border-border bg-background/50 hover:bg-background/80 transition-colors flex items-center justify-between gap-3 text-xs"
                 >
                   <div className="min-w-0 space-y-1">
                     <div className="font-medium text-foreground truncate flex items-center gap-1.5">
@@ -146,15 +128,11 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
           <span>
             展示 {filteredNodes.length} / {nodes.length} 个节点
           </span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3.5 py-1.5 rounded-md border border-border bg-background text-foreground hover:bg-accent transition-colors"
-          >
+          <Button variant="outline" size="sm" onClick={onClose}>
             关闭
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

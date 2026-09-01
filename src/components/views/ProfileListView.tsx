@@ -1,12 +1,16 @@
 import {
   AlertCircle,
+  Check,
   CheckCircle2,
   Clock,
+  Copy,
   FileCode,
+  FolderOpen,
   Globe,
   Layers,
   ListFilter,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -15,8 +19,10 @@ import type React from 'react'
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../../stores/appStore'
 import type { ProfileItem } from '../../types'
+import { Button, Modal } from '../common'
 import { AddLocalModal } from '../profiles/AddLocalModal'
 import { AddRemoteModal } from '../profiles/AddRemoteModal'
+import { EditProfileModal } from '../profiles/EditProfileModal'
 import { ProfileNodesModal } from '../profiles/ProfileNodesModal'
 
 export const ProfileListView: React.FC = () => {
@@ -26,18 +32,23 @@ export const ProfileListView: React.FC = () => {
     addRemoteProfile,
     addLocalProfile,
     updateProfile,
+    editProfile,
     deleteProfile,
     updatingProfileIds,
     profileLoading,
+    openAppDataDir,
+    openFileInFolder,
   } = useAppStore()
 
   const [isRemoteModalOpen, setIsRemoteModalOpen] = useState(false)
   const [isLocalModalOpen, setIsLocalModalOpen] = useState(false)
+  const [editingProfile, setEditingProfile] = useState<ProfileItem | null>(null)
   const [nodesModalProfile, setNodesModalProfile] =
     useState<ProfileItem | null>(null)
   const [deletingProfile, setDeletingProfile] = useState<ProfileItem | null>(
     null,
   )
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   const [toastMessage, setToastMessage] = useState<{
     text: string
@@ -69,6 +80,16 @@ export const ProfileListView: React.FC = () => {
     showToast(`本地配置「${name}」已成功导入`)
   }
 
+  const handleEditProfile = async (
+    id: string,
+    name: string,
+    url: string | undefined,
+    intervalMins: number,
+  ) => {
+    await editProfile(id, name, url, intervalMins)
+    showToast(`订阅「${name}」配置已成功更新`)
+  }
+
   const handleRefresh = async (profile: ProfileItem) => {
     try {
       const updated = await updateProfile(profile.id)
@@ -78,6 +99,43 @@ export const ProfileListView: React.FC = () => {
     } catch (err) {
       showToast(
         `刷新失败：${err instanceof Error ? err.message : String(err)}`,
+        'error',
+      )
+    }
+  }
+
+  const handleCopyLink = async (profile: ProfileItem) => {
+    const textToCopy = profile.url || profile.filePath
+    try {
+      await navigator.clipboard.writeText(textToCopy)
+      setCopiedId(profile.id)
+      showToast('链接/路径已成功复制到剪贴板')
+      setTimeout(
+        () => setCopiedId((id) => (id === profile.id ? null : id)),
+        2000,
+      )
+    } catch {
+      showToast('复制失败，请手动复制', 'error')
+    }
+  }
+
+  const handleOpenFolder = async (profile: ProfileItem) => {
+    try {
+      await openFileInFolder(profile.filePath)
+    } catch (err) {
+      showToast(
+        `打开文件所在目录失败：${err instanceof Error ? err.message : String(err)}`,
+        'error',
+      )
+    }
+  }
+
+  const handleOpenDataDirectory = async () => {
+    try {
+      await openAppDataDir()
+    } catch (err) {
+      showToast(
+        `打开数据目录失败：${err instanceof Error ? err.message : String(err)}`,
         'error',
       )
     }
@@ -125,14 +183,14 @@ export const ProfileListView: React.FC = () => {
       {/* Toast Notification */}
       {toastMessage && (
         <div
-          className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-lg border text-xs font-medium animate-in fade-in slide-in-from-bottom-3 duration-200 ${
+          className={`fixed bottom-6 right-6 z-[1000] flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-xl border text-xs font-medium animate-in fade-in slide-in-from-bottom-3 duration-200 ${
             toastMessage.type === 'success'
-              ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-              : 'bg-destructive/10 text-destructive border-destructive/20'
+              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+              : 'bg-destructive/15 text-destructive border-destructive/30'
           }`}
         >
           {toastMessage.type === 'success' ? (
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
           ) : (
             <AlertCircle className="w-4 h-4 shrink-0" />
           )}
@@ -153,23 +211,32 @@ export const ProfileListView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsLocalModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-secondary text-secondary-foreground text-xs font-medium hover:bg-accent transition-colors"
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleOpenDataDirectory}
+            icon={<FolderOpen className="w-3.5 h-3.5" />}
           >
-            <FileCode className="w-3.5 h-3.5" />
-            <span>导入本地 YAML</span>
-          </button>
+            打开数据目录
+          </Button>
 
-          <button
-            type="button"
-            onClick={() => setIsRemoteModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors shadow-sm"
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setIsLocalModalOpen(true)}
+            icon={<FileCode className="w-3.5 h-3.5" />}
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>添加远程订阅</span>
-          </button>
+            导入本地 YAML
+          </Button>
+
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => setIsRemoteModalOpen(true)}
+            icon={<Plus className="w-3.5 h-3.5" />}
+          >
+            添加远程订阅
+          </Button>
         </div>
       </div>
 
@@ -195,14 +262,13 @@ export const ProfileListView: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-2 pt-2">
-            <button
-              type="button"
+            <Button
+              variant="primary"
               onClick={() => setIsRemoteModalOpen(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+              icon={<Plus className="w-3.5 h-3.5" />}
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>立即添加远程订阅</span>
-            </button>
+              立即添加远程订阅
+            </Button>
           </div>
         </div>
       ) : (
@@ -210,6 +276,7 @@ export const ProfileListView: React.FC = () => {
           {profiles.map((profile) => {
             const isUpdating = updatingProfileIds[profile.id] ?? false
             const isRemote = profile.type === 'remote'
+            const isCopied = copiedId === profile.id
 
             return (
               <div
@@ -257,17 +324,27 @@ export const ProfileListView: React.FC = () => {
                     </span>
                   </div>
 
-                  {/* URL / Path Preview */}
-                  <div className="text-[11px] text-muted-foreground font-mono bg-background/60 border border-border/60 rounded-md px-2.5 py-1.5 truncate">
-                    {profile.url ? (
-                      <span className="truncate" title={profile.url}>
-                        {profile.url}
-                      </span>
-                    ) : (
-                      <span className="truncate" title={profile.filePath}>
-                        {profile.filePath}
-                      </span>
-                    )}
+                  {/* URL / Path Preview with Quick Copy */}
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground font-mono bg-background/60 border border-border/60 rounded-lg px-2.5 py-1.5">
+                    <span
+                      className="truncate flex-1"
+                      title={profile.url || profile.filePath}
+                    >
+                      {profile.url || profile.filePath}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopyLink(profile)}
+                      title="复制链接或文件路径"
+                      className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
+                    >
+                      {isCopied ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
                   </div>
 
                   {/* Metadata Row */}
@@ -288,30 +365,50 @@ export const ProfileListView: React.FC = () => {
 
                 {/* Card Actions */}
                 <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => setNodesModalProfile(profile)}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-secondary text-secondary-foreground text-xs hover:bg-accent transition-colors"
+                    icon={<ListFilter className="w-3.5 h-3.5" />}
                   >
-                    <ListFilter className="w-3.5 h-3.5" />
-                    <span>查看节点 ({profile.nodeCount})</span>
-                  </button>
+                    查看节点 ({profile.nodeCount})
+                  </Button>
 
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     <button
                       type="button"
+                      onClick={() => handleOpenFolder(profile)}
+                      title="在文件资源管理器中定位此配置文件"
+                      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditingProfile(profile)}
+                      title="编辑订阅配置"
+                      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       disabled={isUpdating}
                       onClick={() => handleRefresh(profile)}
-                      title="刷新/重拉订阅"
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-secondary text-secondary-foreground text-xs hover:bg-accent transition-colors disabled:opacity-50"
+                      title="刷新/重新拉取订阅"
+                      icon={
+                        <RefreshCw
+                          className={`w-3.5 h-3.5 ${
+                            isUpdating ? 'animate-spin text-primary' : ''
+                          }`}
+                        />
+                      }
                     >
-                      <RefreshCw
-                        className={`w-3.5 h-3.5 ${
-                          isUpdating ? 'animate-spin text-primary' : ''
-                        }`}
-                      />
-                      <span>{isUpdating ? '更新中' : '刷新'}</span>
-                    </button>
+                      {isUpdating ? '更新中' : '刷新'}
+                    </Button>
 
                     <button
                       type="button"
@@ -342,6 +439,13 @@ export const ProfileListView: React.FC = () => {
         onSubmit={handleAddLocal}
       />
 
+      <EditProfileModal
+        profile={editingProfile}
+        isOpen={Boolean(editingProfile)}
+        onClose={() => setEditingProfile(null)}
+        onSubmit={handleEditProfile}
+      />
+
       <ProfileNodesModal
         profile={nodesModalProfile}
         isOpen={Boolean(nodesModalProfile)}
@@ -350,23 +454,16 @@ export const ProfileListView: React.FC = () => {
 
       {/* Delete Confirmation Modal */}
       {deletingProfile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-          <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-5 space-y-4 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-destructive/10 text-destructive flex items-center justify-center shrink-0">
-                <Trash2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">
-                  确认删除订阅配置？
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  此操作将移除该订阅及其所有关联节点缓存。
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3 rounded-md bg-background border border-border text-xs">
+        <Modal
+          isOpen={Boolean(deletingProfile)}
+          onClose={() => setDeletingProfile(null)}
+          title="确认删除订阅配置？"
+          subtitle="此操作将永久移除该订阅及其所有关联节点缓存"
+          icon={<Trash2 className="w-4 h-4 text-destructive" />}
+          maxWidth="sm"
+        >
+          <div className="p-5 space-y-4">
+            <div className="p-3 rounded-lg bg-background border border-border text-xs">
               <span className="font-semibold text-foreground">
                 {deletingProfile.name}
               </span>
@@ -375,24 +472,20 @@ export const ProfileListView: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-border">
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setDeletingProfile(null)}
-                className="px-3.5 py-1.5 rounded-md border border-border bg-background text-foreground text-xs hover:bg-accent transition-colors"
               >
                 取消
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteConfirm}
-                className="px-3.5 py-1.5 rounded-md bg-destructive text-destructive-foreground text-xs font-medium hover:bg-destructive/90 transition-colors shadow-sm"
-              >
+              </Button>
+              <Button variant="danger" size="sm" onClick={handleDeleteConfirm}>
                 确认删除
-              </button>
+              </Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )

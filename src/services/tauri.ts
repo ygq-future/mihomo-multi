@@ -158,6 +158,32 @@ export async function updateProfile(id: string): Promise<ProfileItem> {
   return invoke<ProfileItem>('update_profile', { id })
 }
 
+export async function editProfile(
+  id: string,
+  name: string,
+  url: string | undefined,
+  intervalMins: number,
+): Promise<ProfileItem> {
+  if (!isTauriEnvironment()) {
+    return {
+      id,
+      name,
+      type: url ? 'remote' : 'local',
+      url,
+      filePath: `profiles/${id}.yaml`,
+      autoUpdateIntervalMins: intervalMins,
+      lastUpdatedAt: Math.floor(Date.now() / 1000),
+      nodeCount: 5,
+    }
+  }
+  return invoke<ProfileItem>('edit_profile', {
+    id,
+    name,
+    url: url || null,
+    intervalMins,
+  })
+}
+
 export async function deleteProfile(id: string): Promise<void> {
   if (!isTauriEnvironment()) return
   return invoke<void>('delete_profile', { id })
@@ -168,4 +194,21 @@ export async function getProfileNodes(profileId: string): Promise<ProxyNode[]> {
     return []
   }
   return invoke<ProxyNode[]>('get_profile_nodes', { profileId })
+}
+
+export async function openAppDataDir(): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('open_app_data_dir')
+}
+
+export async function openFileInFolder(filePath: string): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('open_file_in_folder', { filePath })
+}
+
+export async function getAppDir(): Promise<string> {
+  if (!isTauriEnvironment()) {
+    return 'D:\\Users\\sheepyu\\AppData\\Local\\com.mihomo.multi'
+  }
+  return invoke<string>('get_app_dir')
 }

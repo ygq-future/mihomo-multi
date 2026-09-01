@@ -11,7 +11,17 @@ import {
 } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
+import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
+import { Button, Input, Select } from '../common'
+
+const logLevelOptions = [
+  { value: 'info', label: 'Info (标准信息)' },
+  { value: 'warning', label: 'Warning (警告)' },
+  { value: 'error', label: 'Error (仅错误)' },
+  { value: 'debug', label: 'Debug (详细调试)' },
+  { value: 'silent', label: 'Silent (静默)' },
+]
 
 export const SettingView: React.FC = () => {
   const {
@@ -22,6 +32,7 @@ export const SettingView: React.FC = () => {
     restartCore,
     fetchConfig,
     saveConfig,
+    openAppDataDir,
     loading,
     error,
   } = useAppStore()
@@ -29,10 +40,15 @@ export const SettingView: React.FC = () => {
   const [controllerPort, setControllerPort] = useState<number>(9999)
   const [logLevel, setLogLevel] = useState<string>('info')
   const [autoStart, setAutoStart] = useState<boolean>(true)
+  const [appDataDir, setAppDataDir] = useState<string>('')
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false)
 
   useEffect(() => {
     fetchConfig()
+    api
+      .getAppDir()
+      .then(setAppDataDir)
+      .catch(() => {})
   }, [fetchConfig])
 
   useEffect(() => {
@@ -61,7 +77,7 @@ export const SettingView: React.FC = () => {
     <div className="p-6 space-y-6 max-w-4xl">
       {/* Error Alert */}
       {error && (
-        <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+        <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs">
           <b>错误：</b> {error}
         </div>
       )}
@@ -84,38 +100,42 @@ export const SettingView: React.FC = () => {
 
           <div className="flex items-center gap-2">
             {isRunning ? (
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={loading}
                 onClick={() => stopCore()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-rose-500/10 text-rose-500 border border-rose-500/20 text-xs font-medium hover:bg-rose-500/20 transition-colors disabled:opacity-50"
+                className="text-rose-500 hover:bg-rose-500/10 border-rose-500/20"
+                icon={<Square className="w-3.5 h-3.5 fill-current" />}
               >
-                <Square className="w-3.5 h-3.5 fill-current" />
-                <span>停止</span>
-              </button>
+                停止
+              </Button>
             ) : (
-              <button
-                type="button"
+              <Button
+                variant="primary"
+                size="sm"
                 disabled={loading}
                 onClick={() => startCore()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-500 text-white text-xs font-medium hover:bg-emerald-600 transition-colors disabled:opacity-50"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                icon={<Play className="w-3.5 h-3.5 fill-current" />}
               >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                <span>启动</span>
-              </button>
+                启动
+              </Button>
             )}
 
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="sm"
               disabled={loading}
               onClick={() => restartCore()}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-secondary text-secondary-foreground text-xs font-medium hover:bg-accent transition-colors disabled:opacity-50"
+              icon={
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`}
+                />
+              }
             >
-              <RefreshCw
-                className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`}
-              />
-              <span>重启</span>
-            </button>
+              重启
+            </Button>
           </div>
         </div>
 
@@ -175,6 +195,38 @@ export const SettingView: React.FC = () => {
         )}
       </div>
 
+      {/* Storage & Directories Card */}
+      <div className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm">
+        <div className="flex items-center justify-between pb-3 border-b border-border">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">
+              应用数据与订阅存储路径
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              所有订阅 YAML 文件与元数据均保存在本地应用独立目录中
+            </p>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => openAppDataDir()}
+            icon={<FolderOpen className="w-3.5 h-3.5" />}
+          >
+            在资源管理器中打开
+          </Button>
+        </div>
+
+        <div className="p-3 rounded-lg bg-background/50 border border-border text-xs space-y-1">
+          <span className="text-muted-foreground">
+            当前运行数据目录 (app_local_data_dir)
+          </span>
+          <div className="font-mono text-foreground break-all select-all">
+            {appDataDir || '正在读取...'}
+          </div>
+        </div>
+      </div>
+
       {/* General Settings Card */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
         <div className="pb-3 border-b border-border">
@@ -187,7 +239,7 @@ export const SettingView: React.FC = () => {
         </div>
 
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <label
                 htmlFor="controller-port-input"
@@ -199,18 +251,20 @@ export const SettingView: React.FC = () => {
                 Mihomo 暴露的 RESTful 接口端口，用于热重载与测速（默认 9999）
               </p>
             </div>
-            <input
-              id="controller-port-input"
-              type="number"
-              min={1024}
-              max={65535}
-              value={controllerPort}
-              onChange={(e) => setControllerPort(Number(e.target.value))}
-              className="w-28 px-3 py-1.5 rounded-md bg-background border border-border text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary text-right"
-            />
+            <div className="w-32 shrink-0">
+              <Input
+                id="controller-port-input"
+                type="number"
+                min={1024}
+                max={65535}
+                value={controllerPort}
+                onChange={(e) => setControllerPort(Number(e.target.value))}
+                className="text-right font-mono"
+              />
+            </div>
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <label
                 htmlFor="log-level-select"
@@ -222,18 +276,13 @@ export const SettingView: React.FC = () => {
                 Mihomo 运行时的日志输出详细程度
               </p>
             </div>
-            <select
-              id="log-level-select"
-              value={logLevel}
-              onChange={(e) => setLogLevel(e.target.value)}
-              className="w-28 px-2 py-1.5 rounded-md bg-background border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-            >
-              <option value="info">Info</option>
-              <option value="warning">Warning</option>
-              <option value="error">Error</option>
-              <option value="debug">Debug</option>
-              <option value="silent">Silent</option>
-            </select>
+            <div className="w-48 shrink-0">
+              <Select
+                value={logLevel}
+                onChange={(val) => setLogLevel(String(val))}
+                options={logLevelOptions}
+              />
+            </div>
           </div>
 
           <div className="flex items-center justify-between">
@@ -268,15 +317,14 @@ export const SettingView: React.FC = () => {
               设置已成功保存
             </span>
           )}
-          <button
+          <Button
             type="button"
             disabled={loading}
             onClick={handleSave}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50"
+            icon={<Save className="w-3.5 h-3.5" />}
           >
-            <Save className="w-3.5 h-3.5" />
-            <span>保存设置</span>
-          </button>
+            保存设置
+          </Button>
         </div>
       </div>
 

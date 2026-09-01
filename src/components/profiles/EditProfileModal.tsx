@@ -1,12 +1,19 @@
-import { AlertCircle, Globe } from 'lucide-react'
+import { AlertCircle, Pencil } from 'lucide-react'
 import type React from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import type { ProfileItem } from '../../types'
 import { Button, Input, Modal, Select } from '../common'
 
-interface AddRemoteModalProps {
+interface EditProfileModalProps {
+  profile: ProfileItem | null
   isOpen: boolean
   onClose: () => void
-  onSubmit: (name: string, url: string, intervalMins: number) => Promise<void>
+  onSubmit: (
+    id: string,
+    name: string,
+    url: string | undefined,
+    intervalMins: number,
+  ) => Promise<void>
 }
 
 const intervalOptions = [
@@ -16,7 +23,8 @@ const intervalOptions = [
   { value: 1440, label: '每 24 小时 (1天) 自动更新' },
 ]
 
-export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
+export const EditProfileModal: React.FC<EditProfileModalProps> = ({
+  profile,
   isOpen,
   onClose,
   onSubmit,
@@ -27,6 +35,19 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (profile) {
+      setName(profile.name)
+      setUrl(profile.url || '')
+      setIntervalMins(profile.autoUpdateIntervalMins)
+      setError(null)
+    }
+  }, [profile])
+
+  if (!profile) return null
+
+  const isRemote = profile.type === 'remote'
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) {
@@ -34,8 +55,9 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
       return
     }
     if (
-      !url.trim() ||
-      (!url.startsWith('http://') && !url.startsWith('https://'))
+      isRemote &&
+      (!url.trim() ||
+        (!url.startsWith('http://') && !url.startsWith('https://')))
     ) {
       setError('请输入有效的 http:// 或 https:// 订阅链接')
       return
@@ -44,10 +66,12 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
     setLoading(true)
     setError(null)
     try {
-      await onSubmit(name.trim(), url.trim(), Number(intervalMins))
-      setName('')
-      setUrl('')
-      setIntervalMins(0)
+      await onSubmit(
+        profile.id,
+        name.trim(),
+        isRemote ? url.trim() : undefined,
+        Number(intervalMins),
+      )
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -60,9 +84,9 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="添加远程订阅"
-      subtitle="导入标准 Clash / Mihomo 远程订阅链接"
-      icon={<Globe className="w-4 h-4" />}
+      title="编辑订阅配置"
+      subtitle={profile.name}
+      icon={<Pencil className="w-4 h-4" />}
       maxWidth="md"
     >
       <form onSubmit={handleSubmit} className="p-5 space-y-4">
@@ -74,31 +98,40 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
         )}
 
         <Input
-          id="remote-name"
+          id="edit-profile-name"
           label="订阅名称"
           required
-          placeholder="例如：机场主力节点"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          placeholder="例如：机场主力节点"
           disabled={loading}
-          autoFocus
         />
 
-        <Input
-          id="remote-url"
-          label="订阅链接 URL"
-          required
-          type="url"
-          placeholder="https://subscribe.example.com/api/v1/client/subscribe?token=..."
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          disabled={loading}
-          helperText="请求将自动携带标准 Clash User-Agent 进行兼容拉取"
-        />
+        {isRemote ? (
+          <Input
+            id="edit-profile-url"
+            label="订阅链接 URL"
+            required
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://..."
+            disabled={loading}
+          />
+        ) : (
+          <div className="space-y-1.5">
+            <span className="text-xs font-medium text-foreground">
+              本地配置文件路径
+            </span>
+            <div className="px-3 py-2 rounded-lg bg-background/50 border border-border text-xs font-mono text-muted-foreground truncate">
+              {profile.filePath}
+            </div>
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <label
-            htmlFor="remote-interval"
+            htmlFor="edit-profile-interval"
             className="text-xs font-medium text-foreground"
           >
             自动更新周期
@@ -121,7 +154,7 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
             取消
           </Button>
           <Button type="submit" loading={loading}>
-            {loading ? '正在拉取解析...' : '确认添加'}
+            保存修改
           </Button>
         </div>
       </form>

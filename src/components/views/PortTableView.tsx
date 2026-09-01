@@ -1,9 +1,10 @@
 import { Network, Plus, ShieldAlert, Sparkles } from 'lucide-react'
 import type React from 'react'
+import { Button } from '../common'
 
 export const PortTableView: React.FC = () => {
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 max-w-6xl">
       {/* Top Banner / Actions */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -16,13 +17,13 @@ export const PortTableView: React.FC = () => {
           </span>
         </div>
 
-        <button
-          type="button"
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors shadow-sm"
+        <Button
+          variant="primary"
+          size="sm"
+          icon={<Plus className="w-3.5 h-3.5" />}
         >
-          <Plus className="w-3.5 h-3.5" />
-          <span>添加端口映射</span>
-        </button>
+          添加端口映射
+        </Button>
       </div>
 
       {/* Empty State Card */}

@@ -1,6 +1,7 @@
 use crate::core::port_probe::is_port_available;
 use crate::models::{AppConfig, AppStatus, CoreStatus, ProfileItem, ProxyNode};
 use crate::state::AppState;
+use std::process::Command;
 use tauri::{AppHandle, State};
 
 #[tauri::command]
@@ -99,6 +100,20 @@ pub async fn update_profile(id: String, state: State<'_, AppState>) -> Result<Pr
 }
 
 #[tauri::command]
+pub async fn edit_profile(
+    id: String,
+    name: String,
+    url: Option<String>,
+    interval_mins: u32,
+    state: State<'_, AppState>,
+) -> Result<ProfileItem, String> {
+    state
+        .profile_manager
+        .edit_profile(&id, name, url, interval_mins)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub async fn delete_profile(id: String, state: State<'_, AppState>) -> Result<(), String> {
     state
         .profile_manager
@@ -112,4 +127,73 @@ pub async fn get_profile_nodes(profile_id: String, state: State<'_, AppState>) -
         .profile_manager
         .get_profile_nodes(&profile_id)
         .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn open_app_data_dir(state: State<'_, AppState>) -> Result<(), String> {
+    let dir = &state.app_dir;
+    if !dir.exists() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open directory: {}", e))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open directory: {}", e))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open directory: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_file_in_folder(file_path: String) -> Result<(), String> {
+    let path = std::path::PathBuf::from(&file_path);
+    if !path.exists() {
+        return Err(format!("File does not exist: {}", file_path));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .spawn()
+            .map_err(|e| format!("Failed to open explorer: {}", e))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open finder: {}", e))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let parent = path.parent().unwrap_or(&path);
+        Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(|e| format!("Failed to open directory: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_app_dir(state: State<'_, AppState>) -> Result<String, String> {
+    Ok(state.app_dir.to_string_lossy().to_string())
 }

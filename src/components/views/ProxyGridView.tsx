@@ -3,6 +3,7 @@ import type React from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../../stores/appStore'
 import type { ProxyNode } from '../../types'
+import { Button, Input, Select } from '../common'
 
 export const ProxyGridView: React.FC = () => {
   const {
@@ -81,48 +82,49 @@ export const ProxyGridView: React.FC = () => {
     }
   }
 
+  const profileFilterOptions = useMemo(() => {
+    return [
+      { value: 'all', label: `全部订阅 (${allNodes.length})` },
+      ...profiles.map((p) => ({
+        value: p.id,
+        label: `${p.name} (${p.nodeCount})`,
+      })),
+    ]
+  }, [profiles, allNodes.length])
+
   return (
     <div className="p-6 space-y-6 max-w-6xl">
       {/* Search & Batch Actions */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-2 flex-1 max-w-md">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
+        <div className="flex items-center gap-2 flex-1 max-w-lg">
+          <div className="flex-1">
+            <Input
               placeholder="搜索节点名称、类型、服务器..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-md bg-card border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              prefixIcon={<Search className="w-4 h-4" />}
             />
           </div>
 
           {profiles.length > 0 && (
-            <div className="flex items-center gap-1">
-              <select
+            <div className="w-52 shrink-0">
+              <Select
                 value={selectedProfileFilter}
-                onChange={(e) => setSelectedProfileFilter(e.target.value)}
-                className="px-2.5 py-2 rounded-md bg-card border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                <option value="all">全部订阅 ({allNodes.length})</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.nodeCount})
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setSelectedProfileFilter(String(val))}
+                options={profileFilterOptions}
+              />
             </div>
           )}
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-secondary text-secondary-foreground text-xs font-medium hover:bg-accent transition-colors"
+          <Button
+            variant="secondary"
+            size="md"
+            icon={<Gauge className="w-3.5 h-3.5" />}
           >
-            <Gauge className="w-3.5 h-3.5" />
-            <span>全量并发测速</span>
-          </button>
+            全量并发测速
+          </Button>
         </div>
       </div>
 
@@ -140,14 +142,13 @@ export const ProxyGridView: React.FC = () => {
               请前往「配置订阅」页面导入远程订阅链接或本地 Clash YAML 配置文件。
             </p>
           </div>
-          <button
-            type="button"
+          <Button
+            variant="primary"
             onClick={() => setActiveTab('profiles')}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+            icon={<Layers className="w-3.5 h-3.5" />}
           >
-            <Layers className="w-3.5 h-3.5" />
-            <span>前往配置订阅</span>
-          </button>
+            前往配置订阅
+          </Button>
         </div>
       ) : (
         <div className="space-y-3">

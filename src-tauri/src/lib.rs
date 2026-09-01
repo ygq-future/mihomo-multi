@@ -66,8 +66,12 @@ pub fn run() {
             add_remote_profile,
             add_local_profile,
             update_profile,
+            edit_profile,
             delete_profile,
             get_profile_nodes,
+            open_app_data_dir,
+            open_file_in_folder,
+            get_app_dir,
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed)

@@ -17,9 +17,17 @@ export interface ProfileSlice {
   ) => Promise<ProfileItem>
   addLocalProfile: (name: string, filePath: string) => Promise<ProfileItem>
   updateProfile: (id: string) => Promise<ProfileItem>
+  editProfile: (
+    id: string,
+    name: string,
+    url: string | undefined,
+    intervalMins: number,
+  ) => Promise<ProfileItem>
   deleteProfile: (id: string) => Promise<void>
   fetchProfileNodes: (profileId: string) => Promise<ProxyNode[]>
   setSelectedProfileId: (id: string | null) => void
+  openAppDataDir: () => Promise<void>
+  openFileInFolder: (filePath: string) => Promise<void>
 }
 
 export const createProfileSlice: StateCreator<
@@ -97,6 +105,21 @@ export const createProfileSlice: StateCreator<
     }
   },
 
+  editProfile: async (id, name, url, intervalMins) => {
+    set({ profileLoading: true })
+    try {
+      const updated = await api.editProfile(id, name, url, intervalMins)
+      set((state) => ({
+        profiles: state.profiles.map((p) => (p.id === id ? updated : p)),
+        profileLoading: false,
+      }))
+      return updated
+    } catch (err) {
+      set({ profileLoading: false })
+      throw err
+    }
+  },
+
   deleteProfile: async (id) => {
     set({ profileLoading: true })
     try {
@@ -130,4 +153,12 @@ export const createProfileSlice: StateCreator<
   },
 
   setSelectedProfileId: (selectedProfileId) => set({ selectedProfileId }),
+
+  openAppDataDir: async () => {
+    await api.openAppDataDir()
+  },
+
+  openFileInFolder: async (filePath) => {
+    await api.openFileInFolder(filePath)
+  },
 })

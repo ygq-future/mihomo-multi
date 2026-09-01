@@ -1,6 +1,7 @@
 import { Play, RefreshCw, Square } from 'lucide-react'
 import type React from 'react'
 import { useAppStore } from '../../stores/appStore'
+import { Button } from '../common'
 
 const tabTitles: Record<string, { title: string; subtitle: string }> = {
   ports: {
@@ -28,7 +29,7 @@ export const Header: React.FC = () => {
   const isRunning = coreStatus?.running ?? false
 
   return (
-    <header className="h-16 px-6 border-b border-border bg-card/50 flex items-center justify-between select-none">
+    <header className="h-16 px-6 border-b border-border bg-card/50 flex items-center justify-between select-none shrink-0">
       <div>
         <h2 className="text-base font-semibold text-foreground">
           {info.title}
@@ -38,38 +39,41 @@ export const Header: React.FC = () => {
 
       <div className="flex items-center gap-2">
         {isRunning ? (
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
             disabled={loading}
             onClick={() => stopCore()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-rose-500/10 text-rose-500 border border-rose-500/20 text-xs font-medium hover:bg-rose-500/20 transition-colors disabled:opacity-50"
+            className="text-rose-500 hover:bg-rose-500/10 border-rose-500/20"
+            icon={<Square className="w-3.5 h-3.5 fill-current" />}
           >
-            <Square className="w-3.5 h-3.5 fill-current" />
-            <span>停止内核</span>
-          </button>
+            停止内核
+          </Button>
         ) : (
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             disabled={loading}
             onClick={() => startCore()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-500 text-white text-xs font-medium hover:bg-emerald-600 transition-colors disabled:opacity-50 shadow-sm"
+            className="bg-emerald-600 hover:bg-emerald-500 text-white"
+            icon={<Play className="w-3.5 h-3.5 fill-current" />}
           >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            <span>启动内核</span>
-          </button>
+            启动内核
+          </Button>
         )}
 
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="sm"
           disabled={loading}
           onClick={() => restartCore()}
           title="热重载 / 重启内核"
-          className="p-2 rounded-md bg-secondary text-secondary-foreground hover:bg-accent transition-colors disabled:opacity-50"
-        >
-          <RefreshCw
-            className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`}
-          />
-        </button>
+          icon={
+            <RefreshCw
+              className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`}
+            />
+          }
+        />
       </div>
     </header>
   )

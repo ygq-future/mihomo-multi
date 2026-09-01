@@ -1,6 +1,7 @@
 import { Compass, Layers, Network, RefreshCw, Settings } from 'lucide-react'
 import type React from 'react'
 import { type TabType, useAppStore } from '../../stores/appStore'
+import { Button } from '../common'
 
 const navItems: { id: TabType; label: string; icon: React.ElementType }[] = [
   { id: 'ports', label: '端口映射', icon: Network },
@@ -16,7 +17,7 @@ export const Sidebar: React.FC = () => {
   const isRunning = coreStatus?.running ?? false
 
   return (
-    <aside className="w-56 bg-card border-r border-border flex flex-col justify-between select-none">
+    <aside className="w-56 bg-card border-r border-border flex flex-col justify-between select-none shrink-0">
       <div>
         {/* App Branding */}
         <div className="h-16 px-5 flex items-center gap-3 border-b border-border">
@@ -43,7 +44,7 @@ export const Sidebar: React.FC = () => {
                 key={item.id}
                 type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-medium transition-colors ${
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium transition-colors ${
                   active
                     ? 'bg-primary text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
@@ -58,7 +59,7 @@ export const Sidebar: React.FC = () => {
       </div>
 
       {/* Core Supervisor Status Widget */}
-      <div className="p-3 m-3 rounded-lg border border-border bg-background/50 space-y-2.5">
+      <div className="p-3 m-3 rounded-xl border border-border bg-background/50 space-y-2.5">
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-medium text-muted-foreground">
             Mihomo 内核
@@ -86,15 +87,18 @@ export const Sidebar: React.FC = () => {
           </div>
         )}
 
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="sm"
           disabled={loading}
           onClick={() => restartCore()}
-          className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md bg-secondary text-secondary-foreground text-xs hover:bg-accent transition-colors disabled:opacity-50"
+          className="w-full"
+          icon={
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+          }
         >
-          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
-          <span>重启内核</span>
-        </button>
+          重启内核
+        </Button>
       </div>
     </aside>
   )
