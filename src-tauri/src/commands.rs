@@ -1,5 +1,5 @@
 use crate::core::port_probe::is_port_available;
-use crate::models::{AppConfig, AppStatus, CoreStatus, ProfileItem, ProxyNode};
+use crate::models::{AppConfig, AppStatus, CoreStatus, NodeLatencyResult, ProfileItem, ProxyNode};
 use crate::state::AppState;
 use std::process::Command;
 use tauri::{AppHandle, State};
@@ -196,4 +196,38 @@ pub async fn open_file_in_folder(file_path: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn get_app_dir(state: State<'_, AppState>) -> Result<String, String> {
     Ok(state.app_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn get_all_nodes(state: State<'_, AppState>) -> Result<Vec<ProxyNode>, String> {
+    Ok(state.profile_manager.get_all_nodes())
+}
+
+#[tauri::command]
+pub async fn test_node_delay(
+    node_name: String,
+    test_url: Option<String>,
+    timeout_ms: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<u32, String> {
+    let client = state.clash_client();
+    client
+        .test_delay(&node_name, test_url.as_deref(), timeout_ms)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn test_nodes_delay_batch(
+    node_names: Vec<String>,
+    test_url: Option<String>,
+    timeout_ms: Option<u32>,
+    concurrency: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<Vec<NodeLatencyResult>, String> {
+    let client = state.clash_client();
+    let results = client
+        .test_nodes_delay_batch(&node_names, test_url.as_deref(), timeout_ms, concurrency)
+        .await;
+    Ok(results)
 }

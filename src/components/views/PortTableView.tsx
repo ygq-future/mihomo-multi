@@ -1,8 +1,12 @@
 import { Network, Plus, ShieldAlert, Sparkles } from 'lucide-react'
 import type React from 'react'
+import { useState } from 'react'
 import { Button } from '../common'
+import { AddPortModal } from '../ports/AddPortModal'
 
 export const PortTableView: React.FC = () => {
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+
   return (
     <div className="p-6 space-y-6 max-w-6xl">
       {/* Top Banner / Actions */}
@@ -20,6 +24,7 @@ export const PortTableView: React.FC = () => {
         <Button
           variant="primary"
           size="sm"
+          onClick={() => setIsAddModalOpen(true)}
           icon={<Plus className="w-3.5 h-3.5" />}
         >
           添加端口映射
@@ -52,6 +57,11 @@ export const PortTableView: React.FC = () => {
           </span>
         </div>
       </div>
+
+      <AddPortModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+      />
     </div>
   )
 }

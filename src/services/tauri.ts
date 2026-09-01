@@ -3,6 +3,7 @@ import type {
   AppConfig,
   AppStatus,
   CoreStatus,
+  NodeLatencyResult,
   ProfileItem,
   ProxyNode,
 } from '../types'
@@ -211,4 +212,48 @@ export async function getAppDir(): Promise<string> {
     return 'D:\\Users\\sheepyu\\AppData\\Local\\com.mihomo.multi'
   }
   return invoke<string>('get_app_dir')
+}
+
+export async function getAllNodes(): Promise<ProxyNode[]> {
+  if (!isTauriEnvironment()) {
+    return []
+  }
+  return invoke<ProxyNode[]>('get_all_nodes')
+}
+
+export async function testNodeDelay(
+  nodeName: string,
+  testUrl?: string,
+  timeoutMs?: number,
+): Promise<number> {
+  if (!isTauriEnvironment()) {
+    await new Promise((r) => setTimeout(r, 200 + Math.random() * 300))
+    return Math.floor(25 + Math.random() * 120)
+  }
+  return invoke<number>('test_node_delay', {
+    nodeName,
+    testUrl: testUrl || null,
+    timeoutMs: timeoutMs || null,
+  })
+}
+
+export async function testNodesDelayBatch(
+  nodeNames: string[],
+  testUrl?: string,
+  timeoutMs?: number,
+  concurrency?: number,
+): Promise<NodeLatencyResult[]> {
+  if (!isTauriEnvironment()) {
+    await new Promise((r) => setTimeout(r, 600))
+    return nodeNames.map((name) => ({
+      name,
+      latency: Math.floor(20 + Math.random() * 200),
+    }))
+  }
+  return invoke<NodeLatencyResult[]>('test_nodes_delay_batch', {
+    nodeNames,
+    testUrl: testUrl || null,
+    timeoutMs: timeoutMs || null,
+    concurrency: concurrency || null,
+  })
 }

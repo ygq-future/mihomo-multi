@@ -32,6 +32,12 @@ export interface ProxyNode {
   latency?: number
 }
 
+export interface NodeLatencyResult {
+  name: string
+  latency?: number
+  error?: string
+}
+
 export interface CoreStatus {
   running: boolean
   pid?: number

@@ -1,3 +1,4 @@
+import { X } from 'lucide-react'
 import type React from 'react'
 
 export interface InputProps
@@ -7,6 +8,8 @@ export interface InputProps
   helperText?: string
   prefixIcon?: React.ReactNode
   suffixIcon?: React.ReactNode
+  clearable?: boolean
+  onClear?: () => void
   required?: boolean
 }
 
@@ -16,11 +19,16 @@ export const Input: React.FC<InputProps> = ({
   helperText,
   prefixIcon,
   suffixIcon,
+  clearable = false,
+  onClear,
   required,
   className = '',
   id,
+  value,
   ...props
 }) => {
+  const showClear = clearable && Boolean(value) && onClear
+
   return (
     <div className="space-y-1.5 w-full">
       {label && (
@@ -42,9 +50,10 @@ export const Input: React.FC<InputProps> = ({
 
         <input
           id={id}
+          value={value}
           className={`w-full py-2 rounded-lg bg-background border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-all disabled:opacity-50 ${
             prefixIcon ? 'pl-9' : 'pl-3'
-          } ${suffixIcon ? 'pr-9' : 'pr-3'} ${
+          } ${suffixIcon || showClear ? 'pr-9' : 'pr-3'} ${
             error
               ? 'border-destructive focus:ring-destructive'
               : 'border-border'
@@ -52,10 +61,20 @@ export const Input: React.FC<InputProps> = ({
           {...props}
         />
 
-        {suffixIcon && (
-          <div className="absolute right-3 text-muted-foreground">
-            {suffixIcon}
-          </div>
+        {showClear ? (
+          <button
+            type="button"
+            onClick={onClear}
+            className="absolute right-2.5 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        ) : (
+          suffixIcon && (
+            <div className="absolute right-3 text-muted-foreground">
+              {suffixIcon}
+            </div>
+          )
         )}
       </div>
 

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import * as api from '../services/tauri'
 import type { AppConfig, AppStatus, CoreStatus } from '../types'
 import { type ProfileSlice, createProfileSlice } from './profileSlice'
+import { type ProxySlice, createProxySlice } from './proxySlice'
 
 export type TabType = 'ports' | 'proxies' | 'profiles' | 'settings'
 
@@ -22,10 +23,11 @@ export interface BaseAppState {
   saveConfig: (config: AppConfig) => Promise<void>
 }
 
-export type RootStore = BaseAppState & ProfileSlice
+export type RootStore = BaseAppState & ProfileSlice & ProxySlice
 
 export const useAppStore = create<RootStore>()((set, get, store) => ({
   ...createProfileSlice(set, get, store),
+  ...createProxySlice(set, get, store),
 
   activeTab: 'ports',
   appStatus: null,

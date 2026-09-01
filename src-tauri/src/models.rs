@@ -70,6 +70,15 @@ pub struct ProxyNode {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct NodeLatencyResult {
+    pub name: String,
+    pub latency: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct CoreStatus {
     pub running: bool,
     pub pid: Option<u32>,

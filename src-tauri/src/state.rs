@@ -1,3 +1,4 @@
+use crate::core::clash_client::ClashApiClient;
 use crate::core::profile_manager::ProfileManager;
 use crate::core::supervisor::CoreSupervisor;
 use crate::models::AppConfig;
@@ -25,5 +26,10 @@ impl AppState {
             config,
             app_dir,
         }
+    }
+
+    pub fn clash_client(&self) -> ClashApiClient {
+        let cfg = self.config.read();
+        ClashApiClient::new(cfg.controller_port, &cfg.controller_secret)
     }
 }

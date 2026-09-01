@@ -10,6 +10,7 @@ export interface SelectOption<T = string | number> {
 }
 
 export interface SelectProps<T = string | number> {
+  id?: string
   value: T
   onChange: (value: T) => void
   options: SelectOption<T>[]
@@ -17,9 +18,11 @@ export interface SelectProps<T = string | number> {
   disabled?: boolean
   className?: string
   width?: string
+  prefixIcon?: React.ReactNode
 }
 
 export function Select<T extends string | number = string | number>({
+  id,
   value,
   onChange,
   options,
@@ -27,6 +30,7 @@ export function Select<T extends string | number = string | number>({
   disabled = false,
   className = '',
   width = 'w-full',
+  prefixIcon,
 }: SelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -64,13 +68,14 @@ export function Select<T extends string | number = string | number>({
     <div ref={containerRef} className={`relative ${width} ${className}`}>
       {/* Trigger Button */}
       <button
+        id={id}
         type="button"
         disabled={disabled}
         onClick={() => setIsOpen(!isOpen)}
         className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-background border border-border text-xs text-foreground hover:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary transition-all disabled:opacity-50 disabled:pointer-events-none select-none text-left"
       >
         <div className="flex items-center gap-2 truncate">
-          {selectedOption?.icon}
+          {prefixIcon || selectedOption?.icon}
           <span className="truncate">
             {selectedOption ? selectedOption.label : placeholder}
           </span>
