@@ -7,7 +7,8 @@ pub enum ProfileType {
     Local,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ProfileItem {
     pub id: String,
     pub name: String,
@@ -40,7 +41,8 @@ impl std::fmt::Display for InboundProtocol {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct PortMapping {
     pub id: String,
     pub port: u16,
@@ -54,7 +56,8 @@ pub struct PortMapping {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ProxyNode {
     pub name: String,
     #[serde(rename = "type")]
@@ -65,7 +68,8 @@ pub struct ProxyNode {
     pub latency: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct CoreStatus {
     pub running: bool,
     pub pid: Option<u32>,
@@ -76,7 +80,8 @@ pub struct CoreStatus {
     pub sidecar_path: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub controller_port: u16,
     pub controller_secret: String,
@@ -97,7 +102,8 @@ impl Default for AppConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct AppStatus {
     pub core: CoreStatus,
     pub total_ports: usize,

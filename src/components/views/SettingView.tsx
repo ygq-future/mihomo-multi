@@ -37,9 +37,9 @@ export const SettingView: React.FC = () => {
 
   useEffect(() => {
     if (config) {
-      setControllerPort(config.controller_port)
-      setLogLevel(config.log_level)
-      setAutoStart(config.auto_start_core)
+      setControllerPort(config.controllerPort)
+      setLogLevel(config.logLevel)
+      setAutoStart(config.autoStartCore)
     }
   }, [config])
 
@@ -47,9 +47,9 @@ export const SettingView: React.FC = () => {
     if (!config) return
     await saveConfig({
       ...config,
-      controller_port: Number(controllerPort),
-      log_level: logLevel,
-      auto_start_core: autoStart,
+      controllerPort: Number(controllerPort),
+      logLevel: logLevel,
+      autoStartCore: autoStart,
     })
     setSavedSuccess(true)
     setTimeout(() => setSavedSuccess(false), 2500)
@@ -146,15 +146,15 @@ export const SettingView: React.FC = () => {
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
             <span className="text-muted-foreground">外部控制器 (REST API)</span>
             <div className="font-mono font-medium text-foreground">
-              127.0.0.1:{coreStatus?.controller_port ?? 9999}
+              127.0.0.1:{coreStatus?.controllerPort ?? 9999}
             </div>
           </div>
 
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
             <span className="text-muted-foreground">运行时间 (Uptime)</span>
             <div className="font-mono font-medium text-foreground">
-              {coreStatus?.uptime_seconds
-                ? `${coreStatus.uptime_seconds} 秒`
+              {coreStatus?.uptimeSeconds
+                ? `${coreStatus.uptimeSeconds} 秒`
                 : '0 秒'}
             </div>
           </div>
@@ -167,12 +167,10 @@ export const SettingView: React.FC = () => {
           </div>
         )}
 
-        {coreStatus?.sidecar_path && (
+        {coreStatus?.sidecarPath && (
           <div className="text-[11px] text-muted-foreground flex items-center gap-2">
             <FolderOpen className="w-3.5 h-3.5" />
-            <span className="font-mono truncate">
-              {coreStatus.sidecar_path}
-            </span>
+            <span className="font-mono truncate">{coreStatus.sidecarPath}</span>
           </div>
         )}
       </div>

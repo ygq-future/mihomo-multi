@@ -82,7 +82,7 @@ export const Sidebar: React.FC = () => {
         {isRunning && (
           <div className="text-[11px] text-muted-foreground space-y-0.5 font-mono">
             <div>PID: {coreStatus?.pid ?? '-'}</div>
-            <div>端口: {coreStatus?.controller_port ?? 9999}</div>
+            <div>端口: {coreStatus?.controllerPort ?? 9999}</div>
           </div>
         )}
 

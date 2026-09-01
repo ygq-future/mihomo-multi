@@ -62,6 +62,12 @@ pub fn run() {
             check_port_available,
             get_config,
             save_config,
+            get_profiles,
+            add_remote_profile,
+            add_local_profile,
+            update_profile,
+            delete_profile,
+            get_profile_nodes,
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed)

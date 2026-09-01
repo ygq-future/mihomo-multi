@@ -1,5 +1,11 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AppConfig, AppStatus, CoreStatus } from '../types'
+import type {
+  AppConfig,
+  AppStatus,
+  CoreStatus,
+  ProfileItem,
+  ProxyNode,
+} from '../types'
 
 function isTauriEnvironment(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -11,16 +17,16 @@ export async function getAppStatus(): Promise<AppStatus> {
       core: {
         running: true,
         pid: 12345,
-        controller_port: 9999,
+        controllerPort: 9999,
         secret: 'mock-secret',
         version: 'Mihomo Meta v1.19.30 (Mock)',
-        uptime_seconds: 42,
-        sidecar_path: 'mock/path/mihomo.exe',
+        uptimeSeconds: 42,
+        sidecarPath: 'mock/path/mihomo.exe',
       },
-      total_ports: 0,
-      active_ports: 0,
-      total_profiles: 0,
-      total_nodes: 0,
+      totalPorts: 0,
+      activePorts: 0,
+      totalProfiles: 0,
+      totalNodes: 0,
       version: '0.1.0',
     }
   }
@@ -32,11 +38,11 @@ export async function getCoreStatus(): Promise<CoreStatus> {
     return {
       running: true,
       pid: 12345,
-      controller_port: 9999,
+      controllerPort: 9999,
       secret: 'mock-secret',
       version: 'Mihomo Meta v1.19.30 (Mock)',
-      uptime_seconds: 42,
-      sidecar_path: 'mock/path/mihomo.exe',
+      uptimeSeconds: 42,
+      sidecarPath: 'mock/path/mihomo.exe',
     }
   }
   return invoke<CoreStatus>('get_core_status')
@@ -69,11 +75,11 @@ export async function checkPortAvailable(port: number): Promise<boolean> {
 export async function getConfig(): Promise<AppConfig> {
   if (!isTauriEnvironment()) {
     return {
-      controller_port: 9999,
-      controller_secret: 'mock-secret',
-      auto_start_core: true,
+      controllerPort: 9999,
+      controllerSecret: 'mock-secret',
+      autoStartCore: true,
       theme: 'dark',
-      log_level: 'info',
+      logLevel: 'info',
     }
   }
   return invoke<AppConfig>('get_config')
@@ -82,4 +88,84 @@ export async function getConfig(): Promise<AppConfig> {
 export async function saveConfig(config: AppConfig): Promise<void> {
   if (!isTauriEnvironment()) return
   return invoke<void>('save_config', { config })
+}
+
+// Profile & Subscription Management API
+export async function getProfiles(): Promise<ProfileItem[]> {
+  if (!isTauriEnvironment()) {
+    return []
+  }
+  return invoke<ProfileItem[]>('get_profiles')
+}
+
+export async function addRemoteProfile(
+  name: string,
+  url: string,
+  intervalMins: number,
+): Promise<ProfileItem> {
+  if (!isTauriEnvironment()) {
+    return {
+      id: 'mock-remote-1',
+      name,
+      type: 'remote',
+      url,
+      filePath: 'profiles/mock-remote-1.yaml',
+      autoUpdateIntervalMins: intervalMins,
+      lastUpdatedAt: Math.floor(Date.now() / 1000),
+      nodeCount: 5,
+    }
+  }
+  return invoke<ProfileItem>('add_remote_profile', {
+    name,
+    url,
+    intervalMins,
+  })
+}
+
+export async function addLocalProfile(
+  name: string,
+  filePath: string,
+): Promise<ProfileItem> {
+  if (!isTauriEnvironment()) {
+    return {
+      id: 'mock-local-1',
+      name,
+      type: 'local',
+      filePath,
+      autoUpdateIntervalMins: 0,
+      lastUpdatedAt: Math.floor(Date.now() / 1000),
+      nodeCount: 3,
+    }
+  }
+  return invoke<ProfileItem>('add_local_profile', {
+    name,
+    filePath,
+  })
+}
+
+export async function updateProfile(id: string): Promise<ProfileItem> {
+  if (!isTauriEnvironment()) {
+    return {
+      id,
+      name: 'Updated Profile',
+      type: 'remote',
+      filePath: `profiles/${id}.yaml`,
+      autoUpdateIntervalMins: 0,
+      lastUpdatedAt: Math.floor(Date.now() / 1000),
+      nodeCount: 5,
+    }
+  }
+  return invoke<ProfileItem>('update_profile', { id })
+}
+
+export async function deleteProfile(id: string): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('delete_profile', { id })
+}
+
+export async function getProfileNodes(profileId: string): Promise<ProxyNode[]> {
+  if (!isTauriEnvironment()) {
+    return []
+  }
+  return invoke<ProxyNode[]>('get_profile_nodes', { profileId })
 }

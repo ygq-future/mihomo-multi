@@ -35,26 +35,26 @@ export interface ProxyNode {
 export interface CoreStatus {
   running: boolean
   pid?: number
-  controller_port: number
+  controllerPort: number
   secret: string
   version?: string
-  uptime_seconds: number
-  sidecar_path: string
+  uptimeSeconds: number
+  sidecarPath: string
 }
 
 export interface AppConfig {
-  controller_port: number
-  controller_secret: string
-  auto_start_core: boolean
+  controllerPort: number
+  controllerSecret: string
+  autoStartCore: boolean
   theme: string
-  log_level: string
+  logLevel: string
 }
 
 export interface AppStatus {
   core: CoreStatus
-  total_ports: number
-  active_ports: number
-  total_profiles: number
-  total_nodes: number
+  totalPorts: number
+  activePorts: number
+  totalProfiles: number
+  totalNodes: number
   version: string
 }
