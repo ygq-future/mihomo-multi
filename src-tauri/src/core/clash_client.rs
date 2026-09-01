@@ -152,6 +152,12 @@ impl ClashApiClient {
             join_set.spawn(async move {
                 let _permit = permit.acquire().await.ok();
 
+                // Stagger requests to prevent connection bursts and queueing latency
+                if index > 0 {
+                    let stagger_ms = ((index % 8) as u64) * 25;
+                    tokio::time::sleep(Duration::from_millis(stagger_ms)).await;
+                }
+
                 let res = client
                     .test_delay(&node_name, url_opt.as_deref(), timeout_ms)
                     .await;
