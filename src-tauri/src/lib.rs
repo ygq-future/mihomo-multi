@@ -1,3 +1,5 @@
+#![allow(linker_messages)]
+
 pub mod commands;
 pub mod core;
 pub mod error;
