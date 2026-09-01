@@ -57,7 +57,12 @@ pub async fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String>
 
 #[tauri::command]
 pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Result<(), String> {
-    *state.config.write() = config;
+    *state.config.write() = config.clone();
+    let config_path = state.app_dir.join("config.json");
+    if let Ok(json) = serde_json::to_string_pretty(&config) {
+        let _ = std::fs::write(config_path, json);
+    }
+    let _ = state.sync_runtime_config().await;
     Ok(())
 }
 

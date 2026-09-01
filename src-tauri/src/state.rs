@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn};
 
+#[derive(Clone)]
 pub struct AppState {
     pub supervisor: CoreSupervisor,
     pub profile_manager: Arc<ProfileManager>,
@@ -21,7 +22,22 @@ impl AppState {
         let work_dir = app_dir.join("core");
         let supervisor = CoreSupervisor::new(work_dir);
         let profile_manager = Arc::new(ProfileManager::new(app_dir.clone()));
-        let config = Arc::new(RwLock::new(AppConfig::default()));
+
+        let config_path = app_dir.join("config.json");
+        let initial_config = if config_path.exists() {
+            match std::fs::read_to_string(&config_path) {
+                Ok(content) => serde_json::from_str::<AppConfig>(&content).unwrap_or_default(),
+                Err(_) => AppConfig::default(),
+            }
+        } else {
+            let cfg = AppConfig::default();
+            if let Ok(json) = serde_json::to_string_pretty(&cfg) {
+                let _ = std::fs::write(&config_path, json);
+            }
+            cfg
+        };
+
+        let config = Arc::new(RwLock::new(initial_config));
 
         Self {
             supervisor,
