@@ -30,6 +30,9 @@ export interface ProxyNode {
   server: string
   port: number
   latency?: number
+  profileId?: string
+  profileName?: string
+  runtimeName?: string
 }
 
 export interface NodeLatencyResult {

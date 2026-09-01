@@ -66,6 +66,12 @@ pub struct ProxyNode {
     pub port: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latency: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -78,6 +78,9 @@ pub fn parse_nodes_from_yaml(yaml_content: &str) -> AppResult<Vec<ProxyNode>> {
                 server,
                 port,
                 latency: None,
+                profile_id: None,
+                profile_name: None,
+                runtime_name: None,
             });
         }
     }
@@ -398,7 +401,15 @@ impl ProfileManager {
         }
 
         let yaml_content = std::fs::read_to_string(&file_path).map_err(AppError::Io)?;
-        parse_nodes_from_yaml(&yaml_content)
+        let mut nodes = parse_nodes_from_yaml(&yaml_content)?;
+
+        for node in &mut nodes {
+            node.profile_id = Some(profile.id.clone());
+            node.profile_name = Some(profile.name.clone());
+            node.runtime_name = Some(format!("[{}] {}", profile.name, node.name));
+        }
+
+        Ok(nodes)
     }
 
     pub fn get_all_nodes(&self) -> Vec<ProxyNode> {
@@ -417,20 +428,32 @@ impl ProfileManager {
     pub fn get_raw_proxies_for_all_profiles(&self) -> Vec<serde_yaml_ng::Value> {
         let profiles = self.get_profiles();
         let mut all_proxies = Vec::new();
-        let mut seen_names = std::collections::HashSet::new();
+        let mut seen_runtime_names = std::collections::HashSet::new();
 
         for profile in profiles {
             let file_path = PathBuf::from(&profile.file_path);
             if let Ok(content) = std::fs::read_to_string(&file_path)
                 && let Ok(raw_proxies) = extract_raw_proxies_from_yaml(&content)
             {
-                for proxy in raw_proxies {
-                    if let Some(name) = proxy
-                        .get(serde_yaml_ng::Value::String("name".to_string()))
-                        .and_then(|v| v.as_str())
-                    {
-                        let trimmed = name.trim();
-                        if !trimmed.is_empty() && seen_names.insert(trimmed.to_string()) {
+                for mut proxy in raw_proxies {
+                    if let Some(map) = proxy.as_mapping_mut() {
+                        let original_name = map
+                            .get(serde_yaml_ng::Value::String("name".to_string()))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
+
+                        if original_name.is_empty() {
+                            continue;
+                        }
+
+                        let runtime_name = format!("[{}] {}", profile.name, original_name);
+                        if seen_runtime_names.insert(runtime_name.clone()) {
+                            map.insert(
+                                serde_yaml_ng::Value::String("name".to_string()),
+                                serde_yaml_ng::Value::String(runtime_name),
+                            );
                             all_proxies.push(proxy);
                         }
                     }

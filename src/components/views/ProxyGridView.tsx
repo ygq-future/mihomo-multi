@@ -164,8 +164,10 @@ export const ProxyGridView: React.FC = () => {
 
     // Sorting
     return filtered.sort((a, b) => {
-      const latA = latencies[a.name]
-      const latB = latencies[b.name]
+      const keyA = a.runtimeName || a.name
+      const keyB = b.runtimeName || b.name
+      const latA = latencies[keyA]
+      const latB = latencies[keyB]
 
       if (sortBy === 'latency-asc') {
         // Known latencies first, lowest to highest; timeouts/untested last
@@ -195,7 +197,7 @@ export const ProxyGridView: React.FC = () => {
   // Batch speed test handler
   const handleBatchSpeedTest = async () => {
     if (processedNodes.length === 0 || isTestingAll) return
-    const namesToTest = processedNodes.map((n) => n.name)
+    const namesToTest = processedNodes.map((n) => n.runtimeName || n.name)
     await testAllNodesDelay(namesToTest)
   }
 
@@ -459,8 +461,9 @@ export const ProxyGridView: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {processedNodes.map((node) => {
-              const latency = latencies[node.name]
-              const isTesting = !!testingNodeNames[node.name]
+              const nodeKey = node.runtimeName || node.name
+              const latency = latencies[nodeKey]
+              const isTesting = !!testingNodeNames[nodeKey]
               const latencyProps = getLatencyBadgeProps(latency, isTesting)
               const protocolProps = getProtocolBadgeProps(node.type)
 
@@ -513,10 +516,10 @@ export const ProxyGridView: React.FC = () => {
                     </span>
 
                     <div className="flex items-center gap-2">
-                      {/* Latency Badge */}
+                      {/* Latency Badge (Clickable for Single Speed Test) */}
                       <button
                         type="button"
-                        onClick={() => testNodeDelay(node.name)}
+                        onClick={() => testNodeDelay(nodeKey)}
                         disabled={isTesting || isTestingAll}
                         className="group/ping focus:outline-none"
                         title="点击单独测速"
@@ -538,21 +541,6 @@ export const ProxyGridView: React.FC = () => {
                         </Badge>
                       </button>
 
-                      {/* Single Test Button */}
-                      <button
-                        type="button"
-                        onClick={() => testNodeDelay(node.name)}
-                        disabled={isTesting || isTestingAll}
-                        className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                        title="单独测速"
-                      >
-                        <Zap
-                          className={`w-3.5 h-3.5 ${
-                            isTesting ? 'animate-pulse text-amber-500' : ''
-                          }`}
-                        />
-                      </button>
-
                       {/* Quick Bind Button */}
                       <Button
                         variant="secondary"
@@ -561,7 +549,7 @@ export const ProxyGridView: React.FC = () => {
                         onClick={() =>
                           setQuickBindNode({
                             profileId: node.profileId,
-                            nodeName: node.name,
+                            nodeName: node.runtimeName || node.name,
                           })
                         }
                         icon={<Network className="w-3 h-3" />}

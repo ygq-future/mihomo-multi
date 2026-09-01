@@ -46,7 +46,11 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
     }))
 
     try {
-      const latency = await api.testNodeDelay(nodeName, testUrl, timeoutMs)
+      const latency = await api.testNodeDelay(
+        nodeName,
+        testUrl,
+        timeoutMs || 5000,
+      )
       set((state) => ({
         latencies: { ...state.latencies, [nodeName]: latency },
         testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
@@ -66,7 +70,7 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
   testAllNodesDelay: async (nodeNames, testUrl, timeoutMs) => {
     if (nodeNames.length === 0) return []
 
-    // Mark all given nodes as testing
+    // Mark all target nodes as testing
     const testingMap: Record<string, boolean> = {}
     for (const name of nodeNames) {
       testingMap[name] = true
@@ -78,44 +82,51 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
       proxyError: null,
     })
 
-    try {
-      const results = await api.testNodesDelayBatch(
-        nodeNames,
-        testUrl,
-        timeoutMs,
-      )
-      const nextLatencies: Record<string, number | null> = {}
-      const clearedTesting: Record<string, boolean> = {}
+    const concurrency = Math.min(6, nodeNames.length)
+    let nextIndex = 0
+    const results: NodeLatencyResult[] = []
 
-      for (const res of results) {
-        nextLatencies[res.name] = res.latency ?? null
-        clearedTesting[res.name] = false
+    const worker = async () => {
+      while (nextIndex < nodeNames.length) {
+        const currentIndex = nextIndex++
+        const nodeName = nodeNames[currentIndex]
+        if (!nodeName) break
+
+        try {
+          if (currentIndex > 0) {
+            await new Promise((r) => setTimeout(r, (currentIndex % 6) * 20))
+          }
+
+          const latency = await api.testNodeDelay(
+            nodeName,
+            testUrl,
+            timeoutMs || 5000,
+          )
+          results.push({ name: nodeName, latency })
+
+          // Real-time per-node streaming update
+          set((state) => ({
+            latencies: { ...state.latencies, [nodeName]: latency },
+            testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
+          }))
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          results.push({ name: nodeName, error: errMsg })
+
+          set((state) => ({
+            latencies: { ...state.latencies, [nodeName]: null },
+            testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
+            proxyError: errMsg.includes('未运行') ? errMsg : state.proxyError,
+          }))
+        }
       }
-
-      set((state) => ({
-        latencies: { ...state.latencies, ...nextLatencies },
-        testingNodeNames: { ...state.testingNodeNames, ...clearedTesting },
-        isTestingAll: false,
-      }))
-
-      return results
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      const fallbackLatencies: Record<string, number | null> = {}
-      const clearedTesting: Record<string, boolean> = {}
-      for (const name of nodeNames) {
-        fallbackLatencies[name] = null
-        clearedTesting[name] = false
-      }
-
-      set((state) => ({
-        latencies: { ...state.latencies, ...fallbackLatencies },
-        testingNodeNames: { ...state.testingNodeNames, ...clearedTesting },
-        isTestingAll: false,
-        proxyError: errMsg,
-      }))
-      return []
     }
+
+    const workers = Array.from({ length: concurrency }, () => worker())
+    await Promise.all(workers)
+
+    set({ isTestingAll: false })
+    return results
   },
 
   clearLatencies: () => set({ latencies: {}, proxyError: null }),

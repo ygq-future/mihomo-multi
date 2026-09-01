@@ -8,7 +8,7 @@ use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
 pub const DEFAULT_TEST_URL: &str = "http://cp.cloudflare.com/generate_204";
-pub const DEFAULT_TEST_TIMEOUT_MS: u32 = 3000;
+pub const DEFAULT_TEST_TIMEOUT_MS: u32 = 5000;
 pub const DEFAULT_BATCH_CONCURRENCY: usize = 10;
 
 #[derive(Clone)]
