@@ -235,6 +235,13 @@ export function getLatencyBadgeProps(
   }
 }
 
+export function getLatencyColor(latency?: number | null): string {
+  if (latency === undefined || latency === null) return 'text-muted-foreground'
+  if (latency < 150) return 'text-emerald-500'
+  if (latency <= 300) return 'text-amber-500'
+  return 'text-rose-500'
+}
+
 export function getProtocolBadgeProps(type: string): {
   label: string
   className: string

@@ -1,10 +1,12 @@
 use crate::core::clash_client::ClashApiClient;
 use crate::core::config_generator::MinimalRuntimeConfig;
+use crate::core::port_manager::PortManager;
 use crate::core::profile_manager::ProfileManager;
 use crate::core::supervisor::CoreSupervisor;
 use crate::error::{AppError, AppResult};
 use crate::models::AppConfig;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -13,6 +15,7 @@ use tracing::{info, warn};
 pub struct AppState {
     pub supervisor: CoreSupervisor,
     pub profile_manager: Arc<ProfileManager>,
+    pub port_manager: Arc<PortManager>,
     pub config: Arc<RwLock<AppConfig>>,
     pub app_dir: PathBuf,
 }
@@ -22,6 +25,7 @@ impl AppState {
         let work_dir = app_dir.join("core");
         let supervisor = CoreSupervisor::new(work_dir);
         let profile_manager = Arc::new(ProfileManager::new(app_dir.clone()));
+        let port_manager = Arc::new(PortManager::new(app_dir.clone()));
 
         let config_path = app_dir.join("config.json");
         let initial_config = if config_path.exists() {
@@ -42,6 +46,7 @@ impl AppState {
         Self {
             supervisor,
             profile_manager,
+            port_manager,
             config,
             app_dir,
         }
@@ -52,17 +57,25 @@ impl AppState {
         ClashApiClient::new(cfg.controller_port, &cfg.controller_secret)
     }
 
-    /// Synchronizes all proxy nodes into runtime.yaml and triggers a hot reload if the core is running
+    /// Synchronizes all active port listeners and proxy nodes into runtime.yaml and triggers a hot reload if the core is running
     pub async fn sync_runtime_config(&self) -> AppResult<PathBuf> {
         let raw_proxies = self.profile_manager.get_raw_proxies_for_all_profiles();
+        let profiles = self.profile_manager.get_profiles();
+        let profile_map: HashMap<String, String> = profiles
+            .into_iter()
+            .map(|p| (p.id, p.name))
+            .collect();
+
+        let mappings = self.port_manager.get_port_mappings();
         let cfg = self.config.read().clone();
 
         let runtime_config = MinimalRuntimeConfig::with_mappings(
             cfg.controller_port,
             &cfg.controller_secret,
             &cfg.log_level,
-            &[],
+            &mappings,
             raw_proxies,
+            &profile_map,
         );
 
         let work_dir = self.app_dir.join("core");
@@ -77,7 +90,7 @@ impl AppState {
             if let Err(err) = client.reload_config(&path_str).await {
                 warn!("Hot-reloading Mihomo config after sync failed: {}", err);
             } else {
-                info!("Mihomo configuration reloaded with updated profile proxies");
+                info!("Mihomo configuration reloaded with updated port listeners and proxies");
             }
         }
 

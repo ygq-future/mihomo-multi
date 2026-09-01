@@ -4,6 +4,7 @@ import type {
   AppStatus,
   CoreStatus,
   NodeLatencyResult,
+  PortMapping,
   ProfileItem,
   ProxyNode,
 } from '../types'
@@ -91,7 +92,87 @@ export async function saveConfig(config: AppConfig): Promise<void> {
   return invoke<void>('save_config', { config })
 }
 
+// ----------------------------------------------------------------------------
+// Port Mapping Management API
+// ----------------------------------------------------------------------------
+
+export async function getPortMappings(): Promise<PortMapping[]> {
+  if (!isTauriEnvironment()) {
+    return []
+  }
+  return invoke<PortMapping[]>('get_port_mappings')
+}
+
+export async function savePortMapping(
+  mapping: PortMapping,
+): Promise<PortMapping> {
+  if (!isTauriEnvironment()) {
+    return {
+      ...mapping,
+      id: mapping.id || `mock-port-${Date.now()}`,
+    }
+  }
+  return invoke<PortMapping>('save_port_mapping', { mapping })
+}
+
+export async function deletePortMapping(id: string): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('delete_port_mapping', { id })
+}
+
+export async function togglePortMapping(
+  id: string,
+  enabled: boolean,
+): Promise<PortMapping> {
+  if (!isTauriEnvironment()) {
+    return {
+      id,
+      port: 7891,
+      protocol: 'mixed',
+      profileId: 'mock-profile',
+      nodeName: 'mock-node',
+      enabled,
+    }
+  }
+  return invoke<PortMapping>('toggle_port_mapping', { id, enabled })
+}
+
+export async function testPortMappingDelay(
+  id: string,
+  testUrl?: string,
+  timeoutMs?: number,
+): Promise<number> {
+  if (!isTauriEnvironment()) {
+    await new Promise((r) => setTimeout(r, 200 + Math.random() * 300))
+    return Math.floor(25 + Math.random() * 120)
+  }
+  return invoke<number>('test_port_mapping_delay', {
+    id,
+    testUrl: testUrl || null,
+    timeoutMs: timeoutMs || null,
+  })
+}
+
+export async function testAllPortMappingsDelay(
+  testUrl?: string,
+  timeoutMs?: number,
+  concurrency?: number,
+): Promise<NodeLatencyResult[]> {
+  if (!isTauriEnvironment()) {
+    await new Promise((r) => setTimeout(r, 600))
+    return []
+  }
+  return invoke<NodeLatencyResult[]>('test_all_port_mappings_delay', {
+    testUrl: testUrl || null,
+    timeoutMs: timeoutMs || null,
+    concurrency: concurrency || null,
+  })
+}
+
+// ----------------------------------------------------------------------------
 // Profile & Subscription Management API
+// ----------------------------------------------------------------------------
+
 export async function getProfiles(): Promise<ProfileItem[]> {
   if (!isTauriEnvironment()) {
     return []

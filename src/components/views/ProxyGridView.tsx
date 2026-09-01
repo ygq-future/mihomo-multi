@@ -549,7 +549,7 @@ export const ProxyGridView: React.FC = () => {
                         onClick={() =>
                           setQuickBindNode({
                             profileId: node.profileId,
-                            nodeName: node.runtimeName || node.name,
+                            nodeName: node.name,
                           })
                         }
                         icon={<Network className="w-3 h-3" />}

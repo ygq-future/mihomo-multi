@@ -13,7 +13,7 @@ import type React from 'react'
 import { useEffect, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
-import { Button, Input, Select } from '../common'
+import { Button, Input, Select, Switch } from '../common'
 
 const logLevelOptions = [
   { value: 'info', label: 'Info (标准信息)' },
@@ -294,19 +294,11 @@ export const SettingView: React.FC = () => {
                 主程序就绪后自动启动 Mihomo Sidecar 并监听端口
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setAutoStart(!autoStart)}
-              className={`w-10 h-5 rounded-full transition-colors relative ${
-                autoStart ? 'bg-primary' : 'bg-muted'
-              }`}
-            >
-              <span
-                className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform ${
-                  autoStart ? 'right-0.5' : 'left-0.5'
-                }`}
-              />
-            </button>
+            <Switch
+              checked={autoStart}
+              onChange={(checked) => setAutoStart(checked)}
+              size="md"
+            />
           </div>
         </div>
 

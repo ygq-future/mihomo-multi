@@ -1,9 +1,11 @@
 use crate::error::{AppError, AppResult};
 use crate::models::PortMapping;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use tracing::warn;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimeListener {
     pub name: String,
     #[serde(rename = "type")]
@@ -55,9 +57,21 @@ impl MinimalRuntimeConfig {
         log_level: &str,
         mappings: &[PortMapping],
         proxies: Vec<serde_yaml_ng::Value>,
+        profile_names: &HashMap<String, String>,
     ) -> Self {
         let mut listeners = Vec::new();
         let mut rules = Vec::new();
+
+        let available_proxy_names: HashSet<String> = proxies
+            .iter()
+            .filter_map(|p| {
+                p.as_mapping().and_then(|m| {
+                    m.get(serde_yaml_ng::Value::String("name".to_string()))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+            })
+            .collect();
 
         for m in mappings.iter().filter(|m| m.enabled) {
             listeners.push(RuntimeListener {
@@ -67,7 +81,31 @@ impl MinimalRuntimeConfig {
                 listen: "127.0.0.1".to_string(),
             });
 
-            rules.push(format!("IN-PORT,{},{}", m.port, m.node_name));
+            // Resolve target proxy name
+            let candidate_namespaced = profile_names
+                .get(&m.profile_id)
+                .map(|pname| format!("[{}] {}", pname, m.node_name));
+
+            let target_node = if let Some(ref ns_name) = candidate_namespaced
+                && available_proxy_names.contains(ns_name)
+            {
+                Some(ns_name.clone())
+            } else if available_proxy_names.contains(&m.node_name) {
+                Some(m.node_name.clone())
+            } else {
+                None
+            };
+
+            if let Some(target) = target_node {
+                rules.push(format!("IN-PORT,{},{}", m.port, target));
+            } else {
+                // Safety fallback: if node is missing/invalid, fallback to DIRECT
+                warn!(
+                    "Port mapping {} for node '{}' (profile '{}') not found in active proxies. Falling back to DIRECT.",
+                    m.port, m.node_name, m.profile_id
+                );
+                rules.push(format!("IN-PORT,{},DIRECT", m.port));
+            }
         }
 
         // Invariant: Always end with MATCH,DIRECT fallback
@@ -107,8 +145,8 @@ mod tests {
     use crate::models::InboundProtocol;
 
     #[test]
-    fn test_runtime_config_generation() {
-        let mapping = PortMapping {
+    fn test_runtime_config_generation_with_namespaces() {
+        let mapping1 = PortMapping {
             id: "test-1".to_string(),
             port: 7891,
             protocol: InboundProtocol::Mixed,
@@ -116,15 +154,70 @@ mod tests {
             node_name: "HK-Node-01".to_string(),
             enabled: true,
             latency: None,
-            description: Some("Test Mapping".to_string()),
+            description: Some("Test Mapping 1".to_string()),
         };
 
-        let config = MinimalRuntimeConfig::with_mappings(9999, "secret123", "info", &[mapping], Vec::new());
+        let mapping2 = PortMapping {
+            id: "test-2".to_string(),
+            port: 7892,
+            protocol: InboundProtocol::Socks5,
+            profile_id: "prof-1".to_string(),
+            node_name: "Missing-Node".to_string(),
+            enabled: true,
+            latency: None,
+            description: Some("Missing Node Mapping".to_string()),
+        };
+
+        let mapping_disabled = PortMapping {
+            id: "test-3".to_string(),
+            port: 7893,
+            protocol: InboundProtocol::Http,
+            profile_id: "prof-1".to_string(),
+            node_name: "HK-Node-01".to_string(),
+            enabled: false,
+            latency: None,
+            description: Some("Disabled".to_string()),
+        };
+
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let raw_proxy_yaml = r#"
+name: "[AirportA] HK-Node-01"
+type: ss
+server: 1.1.1.1
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let proxy_val: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml).unwrap();
+        let proxies = vec![proxy_val];
+
+        let config = MinimalRuntimeConfig::with_mappings(
+            9999,
+            "secret123",
+            "info",
+            &[mapping1, mapping2, mapping_disabled],
+            proxies,
+            &profile_map,
+        );
 
         let yaml = config.to_yaml().expect("YAML serialize failed");
         assert!(yaml.contains("external-controller: 127.0.0.1:9999"));
         assert!(yaml.contains("secret: secret123"));
-        assert!(yaml.contains("IN-PORT,7891,HK-Node-01"));
+        // Port 7891 with existing namespaced node
+        assert!(yaml.contains("IN-PORT,7891,[AirportA] HK-Node-01"));
+        // Port 7892 with missing node falls back to DIRECT
+        assert!(yaml.contains("IN-PORT,7892,DIRECT"));
+        // Disabled port 7893 should NOT be in listeners or rules
+        assert!(!yaml.contains("7893"));
+        // MATCH,DIRECT is always present
         assert!(yaml.contains("MATCH,DIRECT"));
+
+        assert_eq!(config.listeners.len(), 2);
+        assert_eq!(config.listeners[0].port, 7891);
+        assert_eq!(config.listeners[0].listener_type, "mixed");
+        assert_eq!(config.listeners[1].port, 7892);
+        assert_eq!(config.listeners[1].listener_type, "socks5");
     }
 }

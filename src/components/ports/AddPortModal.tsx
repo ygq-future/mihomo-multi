@@ -13,7 +13,7 @@ import type React from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
-import type { InboundProtocol } from '../../types'
+import type { InboundProtocol, PortMapping } from '../../types'
 import { getProtocolBadgeProps } from '../../utils/proxy'
 import { Button, Input, Modal, Select } from '../common'
 
@@ -22,6 +22,7 @@ export interface AddPortModalProps {
   onClose: () => void
   initialProfileId?: string
   initialNodeName?: string
+  initialMapping?: PortMapping | null
 }
 
 export const AddPortModal: React.FC<AddPortModalProps> = ({
@@ -29,9 +30,16 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   onClose,
   initialProfileId,
   initialNodeName,
+  initialMapping,
 }) => {
-  const { profiles, profileNodes, fetchProfileNodes, setActiveTab } =
-    useAppStore()
+  const {
+    profiles,
+    profileNodes,
+    fetchProfileNodes,
+    savePortMapping,
+    fetchStatus,
+    setActiveTab,
+  } = useAppStore()
 
   const [port, setPort] = useState<string>('7891')
   const [protocol, setProtocol] = useState<InboundProtocol>('mixed')
@@ -42,20 +50,33 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const [isPortAvailable, setIsPortAvailable] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+
+  const isEditing = Boolean(initialMapping)
 
   // Initialize or reset fields when opened
   useEffect(() => {
     if (isOpen) {
       setError(null)
       setSuccess(false)
-      const profId = initialProfileId || (profiles[0] ? profiles[0].id : '')
-      setSelectedProfileId(profId)
-      setSelectedNodeName(initialNodeName || '')
-      setPort('7891')
-      setProtocol('mixed')
-      setDescription('')
+      setSubmitting(false)
+
+      if (initialMapping) {
+        setPort(String(initialMapping.port))
+        setProtocol(initialMapping.protocol)
+        setSelectedProfileId(initialMapping.profileId)
+        setSelectedNodeName(initialMapping.nodeName)
+        setDescription(initialMapping.description || '')
+      } else {
+        const profId = initialProfileId || (profiles[0] ? profiles[0].id : '')
+        setSelectedProfileId(profId)
+        setSelectedNodeName(initialNodeName || '')
+        setPort('7891')
+        setProtocol('mixed')
+        setDescription('')
+      }
     }
-  }, [isOpen, initialProfileId, initialNodeName, profiles])
+  }, [isOpen, initialProfileId, initialNodeName, initialMapping, profiles])
 
   // Ensure nodes for selected profile are loaded
   useEffect(() => {
@@ -69,6 +90,18 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     const portNum = Number.parseInt(port, 10)
     if (!portNum || portNum < 1024 || portNum > 65535) {
       setIsPortAvailable(null)
+      return
+    }
+
+    // If editing and port hasn't changed, it's considered valid
+    if (
+      isEditing &&
+      initialMapping &&
+      portNum === initialMapping.port &&
+      initialMapping.enabled
+    ) {
+      setIsPortAvailable(true)
+      setIsCheckingPort(false)
       return
     }
 
@@ -94,7 +127,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       isMounted = false
       clearTimeout(timer)
     }
-  }, [port])
+  }, [port, isEditing, initialMapping])
 
   const availableNodes = useMemo(() => {
     if (!selectedProfileId) return []
@@ -119,7 +152,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     }))
   }, [availableNodes])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
 
@@ -135,7 +168,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     }
 
     if (!selectedProfileId) {
-      setError('请选择所属订阅')
+      setError('请选择所属订阅配置')
       return
     }
 
@@ -144,20 +177,47 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       return
     }
 
-    setSuccess(true)
-    setTimeout(() => {
-      onClose()
-      setActiveTab('ports')
-    }, 500)
+    setSubmitting(true)
+    try {
+      await savePortMapping({
+        id: isEditing && initialMapping ? initialMapping.id : '',
+        port: portNum,
+        protocol,
+        profileId: selectedProfileId,
+        nodeName: selectedNodeName,
+        enabled: isEditing && initialMapping ? initialMapping.enabled : true,
+        description: description.trim() || undefined,
+      })
+
+      fetchStatus().catch(() => {})
+      setSuccess(true)
+      setTimeout(() => {
+        onClose()
+        setActiveTab('ports')
+      }, 400)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setSubmitting(false)
+    }
   }
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="快速绑定到端口监听"
-      subtitle="分配独立本地入站监听端口并 1:1 绑定至指定代理节点"
-      icon={<Network className="w-4 h-4" />}
+      title={
+        isEditing
+          ? '编辑端口监听规则'
+          : initialNodeName
+            ? '快速绑定到端口监听'
+            : '添加端口映射'
+      }
+      subtitle={
+        isEditing
+          ? '修改入站监听端口及 1:1 绑定的代理节点'
+          : '分配独立本地入站监听端口并 1:1 绑定至指定代理节点'
+      }
+      icon={<Network className="w-4 h-4 text-primary" />}
       maxWidth="md"
     >
       <form onSubmit={handleSubmit} className="p-5 space-y-4">
@@ -180,7 +240,11 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         {success && (
           <div className="p-3 text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 rounded-lg flex items-center gap-2">
             <Check className="w-4 h-4" />
-            <span>端口绑定配置成功，已跳转至端口管理列表</span>
+            <span>
+              {isEditing
+                ? '端口映射规则修改成功'
+                : '端口绑定配置成功，已生效并热重载'}
+            </span>
           </div>
         )}
 
@@ -345,7 +409,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             variant="outline"
             size="sm"
             onClick={onClose}
-            disabled={success}
+            disabled={submitting || success}
           >
             取消
           </Button>
@@ -353,11 +417,16 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             type="submit"
             variant="primary"
             size="sm"
+            loading={submitting}
             disabled={
-              success || !selectedNodeName || !port || isPortAvailable === false
+              submitting ||
+              success ||
+              !selectedNodeName ||
+              !port ||
+              isPortAvailable === false
             }
           >
-            确认创建
+            {isEditing ? '保存修改' : '确认创建'}
           </Button>
         </div>
       </form>

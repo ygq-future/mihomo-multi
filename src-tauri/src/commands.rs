@@ -1,5 +1,7 @@
 use crate::core::port_probe::is_port_available;
-use crate::models::{AppConfig, AppStatus, CoreStatus, NodeLatencyResult, ProfileItem, ProxyNode};
+use crate::models::{
+    AppConfig, AppStatus, CoreStatus, NodeLatencyResult, PortMapping, ProfileItem, ProxyNode,
+};
 use crate::state::AppState;
 use std::process::Command;
 use tauri::{AppHandle, State};
@@ -11,10 +13,14 @@ pub async fn get_app_status(state: State<'_, AppState>) -> Result<AppStatus, Str
     let total_profiles = profiles.len();
     let total_nodes = profiles.iter().map(|p| p.node_count).sum();
 
+    let port_mappings = state.port_manager.get_port_mappings();
+    let total_ports = port_mappings.len();
+    let active_ports = port_mappings.iter().filter(|p| p.enabled).count();
+
     Ok(AppStatus {
         core,
-        total_ports: 0,
-        active_ports: 0,
+        total_ports,
+        active_ports,
         total_profiles,
         total_nodes,
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -65,6 +71,148 @@ pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Resul
     let _ = state.sync_runtime_config().await;
     Ok(())
 }
+
+// ----------------------------------------------------------------------------
+// Port Mapping Management Commands
+// ----------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn get_port_mappings(state: State<'_, AppState>) -> Result<Vec<PortMapping>, String> {
+    Ok(state.port_manager.get_port_mappings())
+}
+
+#[tauri::command]
+pub async fn save_port_mapping(
+    mapping: PortMapping,
+    state: State<'_, AppState>,
+) -> Result<PortMapping, String> {
+    let saved = state
+        .port_manager
+        .save_port_mapping(mapping)
+        .map_err(|err| err.to_string())?;
+    let _ = state.sync_runtime_config().await;
+    Ok(saved)
+}
+
+#[tauri::command]
+pub async fn delete_port_mapping(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .port_manager
+        .delete_port_mapping(&id)
+        .map_err(|err| err.to_string())?;
+    let _ = state.sync_runtime_config().await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn toggle_port_mapping(
+    id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<PortMapping, String> {
+    let toggled = state
+        .port_manager
+        .toggle_port_mapping(&id, enabled)
+        .map_err(|err| err.to_string())?;
+    let _ = state.sync_runtime_config().await;
+    Ok(toggled)
+}
+
+#[tauri::command]
+pub async fn test_port_mapping_delay(
+    id: String,
+    test_url: Option<String>,
+    timeout_ms: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<u32, String> {
+    let status = state.supervisor.get_status();
+    if !status.running {
+        return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
+    }
+
+    let mapping = state
+        .port_manager
+        .get_port_mapping_by_id(&id)
+        .ok_or_else(|| format!("未找到 ID 为 '{}' 的端口映射", id))?;
+
+    let profile = state.profile_manager.get_profile_by_id(&mapping.profile_id);
+    let runtime_name = if let Some(prof) = profile {
+        format!("[{}] {}", prof.name, mapping.node_name)
+    } else {
+        mapping.node_name.clone()
+    };
+
+    let client = state.clash_client();
+    let res = client
+        .test_delay(&runtime_name, test_url.as_deref(), timeout_ms)
+        .await;
+
+    match res {
+        Ok(delay) => {
+            let _ = state.port_manager.update_port_latency(&id, Some(delay));
+            Ok(delay)
+        }
+        Err(err) => {
+            let _ = state.port_manager.update_port_latency(&id, None);
+            Err(err.to_string())
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn test_all_port_mappings_delay(
+    test_url: Option<String>,
+    timeout_ms: Option<u32>,
+    concurrency: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<Vec<NodeLatencyResult>, String> {
+    let status = state.supervisor.get_status();
+    if !status.running {
+        return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
+    }
+
+    let mappings = state.port_manager.get_port_mappings();
+    if mappings.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let profiles = state.profile_manager.get_profiles();
+    let profile_map: std::collections::HashMap<String, String> = profiles
+        .into_iter()
+        .map(|p| (p.id, p.name))
+        .collect();
+
+    let mut mapping_nodes = Vec::with_capacity(mappings.len());
+    for m in &mappings {
+        let runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
+            format!("[{}] {}", pname, m.node_name)
+        } else {
+            m.node_name.clone()
+        };
+        mapping_nodes.push((m.id.clone(), runtime_name));
+    }
+
+    let names_to_test: Vec<String> = mapping_nodes.iter().map(|(_, rname)| rname.clone()).collect();
+    let client = state.clash_client();
+    let results = client
+        .test_nodes_delay_batch(&names_to_test, test_url.as_deref(), timeout_ms, concurrency)
+        .await;
+
+    // Update latencies back into port_manager
+    for (idx, (mapping_id, _)) in mapping_nodes.iter().enumerate() {
+        if let Some(res) = results.get(idx) {
+            let _ = state
+                .port_manager
+                .update_port_latency(mapping_id, res.latency);
+        }
+    }
+
+    Ok(results)
+}
+
+// ----------------------------------------------------------------------------
+// Profile Management Commands
+// ----------------------------------------------------------------------------
 
 #[tauri::command]
 pub async fn get_profiles(state: State<'_, AppState>) -> Result<Vec<ProfileItem>, String> {
