@@ -28,6 +28,7 @@ pub async fn get_core_status(state: State<'_, AppState>) -> Result<CoreStatus, S
 
 #[tauri::command]
 pub async fn start_core(app: AppHandle, state: State<'_, AppState>) -> Result<CoreStatus, String> {
+    let _ = state.sync_runtime_config().await;
     let config = state.config.read().clone();
     state.supervisor.start(&app, &config).map_err(|err| err.to_string())
 }
@@ -39,6 +40,7 @@ pub async fn stop_core(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn restart_core(app: AppHandle, state: State<'_, AppState>) -> Result<CoreStatus, String> {
+    let _ = state.sync_runtime_config().await;
     let config = state.config.read().clone();
     state.supervisor.restart(&app, &config).map_err(|err| err.to_string())
 }
@@ -71,11 +73,13 @@ pub async fn add_remote_profile(
     interval_mins: u32,
     state: State<'_, AppState>,
 ) -> Result<ProfileItem, String> {
-    state
+    let item = state
         .profile_manager
         .add_remote_profile(name, url, interval_mins)
         .await
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+    let _ = state.sync_runtime_config().await;
+    Ok(item)
 }
 
 #[tauri::command]
@@ -84,19 +88,23 @@ pub async fn add_local_profile(
     file_path: String,
     state: State<'_, AppState>,
 ) -> Result<ProfileItem, String> {
-    state
+    let item = state
         .profile_manager
         .add_local_profile(name, file_path)
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+    let _ = state.sync_runtime_config().await;
+    Ok(item)
 }
 
 #[tauri::command]
 pub async fn update_profile(id: String, state: State<'_, AppState>) -> Result<ProfileItem, String> {
-    state
+    let item = state
         .profile_manager
         .update_profile(&id)
         .await
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+    let _ = state.sync_runtime_config().await;
+    Ok(item)
 }
 
 #[tauri::command]
@@ -107,10 +115,12 @@ pub async fn edit_profile(
     interval_mins: u32,
     state: State<'_, AppState>,
 ) -> Result<ProfileItem, String> {
-    state
+    let item = state
         .profile_manager
         .edit_profile(&id, name, url, interval_mins)
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+    let _ = state.sync_runtime_config().await;
+    Ok(item)
 }
 
 #[tauri::command]
@@ -118,7 +128,9 @@ pub async fn delete_profile(id: String, state: State<'_, AppState>) -> Result<()
     state
         .profile_manager
         .delete_profile(&id)
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+    let _ = state.sync_runtime_config().await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -210,6 +222,11 @@ pub async fn test_node_delay(
     timeout_ms: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<u32, String> {
+    let status = state.supervisor.get_status();
+    if !status.running {
+        return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
+    }
+
     let client = state.clash_client();
     client
         .test_delay(&node_name, test_url.as_deref(), timeout_ms)
@@ -225,6 +242,11 @@ pub async fn test_nodes_delay_batch(
     concurrency: Option<usize>,
     state: State<'_, AppState>,
 ) -> Result<Vec<NodeLatencyResult>, String> {
+    let status = state.supervisor.get_status();
+    if !status.running {
+        return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
+    }
+
     let client = state.clash_client();
     let results = client
         .test_nodes_delay_batch(&node_names, test_url.as_deref(), timeout_ms, concurrency)

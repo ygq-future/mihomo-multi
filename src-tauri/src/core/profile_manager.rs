@@ -417,13 +417,24 @@ impl ProfileManager {
     pub fn get_raw_proxies_for_all_profiles(&self) -> Vec<serde_yaml_ng::Value> {
         let profiles = self.get_profiles();
         let mut all_proxies = Vec::new();
+        let mut seen_names = std::collections::HashSet::new();
 
         for profile in profiles {
             let file_path = PathBuf::from(&profile.file_path);
             if let Ok(content) = std::fs::read_to_string(&file_path)
                 && let Ok(raw_proxies) = extract_raw_proxies_from_yaml(&content)
             {
-                all_proxies.extend(raw_proxies);
+                for proxy in raw_proxies {
+                    if let Some(name) = proxy
+                        .get(serde_yaml_ng::Value::String("name".to_string()))
+                        .and_then(|v| v.as_str())
+                    {
+                        let trimmed = name.trim();
+                        if !trimmed.is_empty() && seen_names.insert(trimmed.to_string()) {
+                            all_proxies.push(proxy);
+                        }
+                    }
+                }
             }
         }
 

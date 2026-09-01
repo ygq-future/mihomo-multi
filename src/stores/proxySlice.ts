@@ -8,6 +8,7 @@ export interface ProxySlice {
   isTestingAll: boolean
   quickBindTarget: { profileId: string; nodeName: string } | null
   isAddPortModalOpen: boolean
+  proxyError: string | null
 
   testNodeDelay: (
     nodeName: string,
@@ -24,6 +25,7 @@ export interface ProxySlice {
     target: { profileId: string; nodeName: string } | null,
   ) => void
   setIsAddPortModalOpen: (open: boolean) => void
+  setProxyError: (error: string | null) => void
 }
 
 export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
@@ -35,10 +37,12 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
   isTestingAll: false,
   quickBindTarget: null,
   isAddPortModalOpen: false,
+  proxyError: null,
 
   testNodeDelay: async (nodeName, testUrl, timeoutMs) => {
     set((state) => ({
       testingNodeNames: { ...state.testingNodeNames, [nodeName]: true },
+      proxyError: null,
     }))
 
     try {
@@ -48,10 +52,12 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
         testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
       }))
       return latency
-    } catch {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
       set((state) => ({
         latencies: { ...state.latencies, [nodeName]: null },
         testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
+        proxyError: errMsg.includes('未运行') ? errMsg : state.proxyError,
       }))
       return null
     }
@@ -69,6 +75,7 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
     set({
       isTestingAll: true,
       testingNodeNames: { ...get().testingNodeNames, ...testingMap },
+      proxyError: null,
     })
 
     try {
@@ -92,7 +99,8 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
       }))
 
       return results
-    } catch {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
       const fallbackLatencies: Record<string, number | null> = {}
       const clearedTesting: Record<string, boolean> = {}
       for (const name of nodeNames) {
@@ -104,14 +112,17 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
         latencies: { ...state.latencies, ...fallbackLatencies },
         testingNodeNames: { ...state.testingNodeNames, ...clearedTesting },
         isTestingAll: false,
+        proxyError: errMsg,
       }))
       return []
     }
   },
 
-  clearLatencies: () => set({ latencies: {} }),
+  clearLatencies: () => set({ latencies: {}, proxyError: null }),
 
   setQuickBindTarget: (quickBindTarget) => set({ quickBindTarget }),
 
   setIsAddPortModalOpen: (isAddPortModalOpen) => set({ isAddPortModalOpen }),
+
+  setProxyError: (proxyError) => set({ proxyError }),
 })

@@ -1,4 +1,5 @@
 import {
+  AlertCircle,
   ArrowUpDown,
   Compass,
   Gauge,
@@ -9,6 +10,7 @@ import {
   RotateCcw,
   Search,
   Server,
+  X,
   Zap,
 } from 'lucide-react'
 import type React from 'react'
@@ -44,6 +46,8 @@ export const ProxyGridView: React.FC = () => {
     testNodeDelay,
     testAllNodesDelay,
     clearLatencies,
+    proxyError,
+    setProxyError,
   } = useAppStore()
 
   const [search, setSearch] = useState('')
@@ -212,6 +216,35 @@ export const ProxyGridView: React.FC = () => {
 
   return (
     <div className="p-6 space-y-5 max-w-6xl">
+      {/* Error Alert Banner */}
+      {proxyError && (
+        <div className="p-3.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center justify-between gap-3 animate-in fade-in duration-150">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span className="truncate">{proxyError}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {proxyError.includes('未运行') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveTab('settings')}
+                className="!text-[11px] !py-0.5 !px-2 h-6"
+              >
+                前往设置
+              </Button>
+            )}
+            <button
+              type="button"
+              onClick={() => setProxyError(null)}
+              className="text-destructive hover:opacity-80 p-0.5"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Search & Actions Bar */}
       <div className="flex flex-col gap-3.5">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -282,49 +315,53 @@ export const ProxyGridView: React.FC = () => {
           </div>
         </div>
 
-        {/* Region & Protocol Filter Pills */}
+        {/* Region & Protocol Filter Pills (2 distinct rows) */}
         {allNodes.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-[11px] text-muted-foreground mr-1 flex items-center gap-1">
-              <Globe className="w-3 h-3" />
-              地区:
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedRegionFilter('all')}
-              className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${
-                selectedRegionFilter === 'all'
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'bg-secondary/70 text-muted-foreground hover:bg-secondary hover:text-foreground'
-              }`}
-            >
-              全部 ({allNodes.length})
-            </button>
-            {availableRegions.map((r) => (
+          <div className="space-y-2 pt-1 border-t border-border/50">
+            {/* Row 1: Region Filters */}
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-[11px] font-medium text-muted-foreground mr-1 flex items-center gap-1 min-w-[48px] shrink-0">
+                <Globe className="w-3.5 h-3.5 text-primary" />
+                地区:
+              </span>
               <button
-                key={r.code}
                 type="button"
-                onClick={() =>
-                  setSelectedRegionFilter(
-                    selectedRegionFilter === r.code ? 'all' : r.code,
-                  )
-                }
-                className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors flex items-center gap-1 ${
-                  selectedRegionFilter === r.code
+                onClick={() => setSelectedRegionFilter('all')}
+                className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${
+                  selectedRegionFilter === 'all'
                     ? 'bg-primary text-primary-foreground shadow-sm'
                     : 'bg-secondary/70 text-muted-foreground hover:bg-secondary hover:text-foreground'
                 }`}
               >
-                <span>{r.flag}</span>
-                <span>{r.code}</span>
-                <span className="opacity-70 text-[10px]">({r.count})</span>
+                全部 ({allNodes.length})
               </button>
-            ))}
+              {availableRegions.map((r) => (
+                <button
+                  key={r.code}
+                  type="button"
+                  onClick={() =>
+                    setSelectedRegionFilter(
+                      selectedRegionFilter === r.code ? 'all' : r.code,
+                    )
+                  }
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors flex items-center gap-1 ${
+                    selectedRegionFilter === r.code
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'bg-secondary/70 text-muted-foreground hover:bg-secondary hover:text-foreground'
+                  }`}
+                >
+                  <span>{r.flag}</span>
+                  <span>{r.code}</span>
+                  <span className="opacity-70 text-[10px]">({r.count})</span>
+                </button>
+              ))}
+            </div>
 
-            {availableProtocols.length > 1 && (
-              <>
-                <span className="text-border mx-1">|</span>
-                <span className="text-[11px] text-muted-foreground mr-1">
+            {/* Row 2: Protocol Filters */}
+            {availableProtocols.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-[11px] font-medium text-muted-foreground mr-1 flex items-center gap-1 min-w-[48px] shrink-0">
+                  <Zap className="w-3.5 h-3.5 text-amber-500" />
                   协议:
                 </span>
                 <button
@@ -359,7 +396,7 @@ export const ProxyGridView: React.FC = () => {
                     </span>
                   </button>
                 ))}
-              </>
+              </div>
             )}
           </div>
         )}

@@ -1,9 +1,20 @@
-import { Check, Loader2, Network, ShieldCheck, X } from 'lucide-react'
+import {
+  AlertCircle,
+  Check,
+  Globe,
+  Loader2,
+  Network,
+  Radio,
+  Server,
+  ShieldCheck,
+  X,
+} from 'lucide-react'
 import type React from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import type { InboundProtocol } from '../../types'
+import { getProtocolBadgeProps } from '../../utils/proxy'
 import { Button, Input, Modal, Select } from '../common'
 
 export interface AddPortModalProps {
@@ -90,6 +101,10 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     return profileNodes[selectedProfileId] || []
   }, [selectedProfileId, profileNodes])
 
+  const selectedNode = useMemo(() => {
+    return availableNodes.find((n) => n.name === selectedNodeName)
+  }, [availableNodes, selectedNodeName])
+
   const profileOptions = useMemo(() => {
     return profiles.map((p) => ({
       value: p.id,
@@ -133,7 +148,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     setTimeout(() => {
       onClose()
       setActiveTab('ports')
-    }, 600)
+    }, 500)
   }
 
   return (
@@ -141,12 +156,17 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title="快速绑定到端口监听"
+      subtitle="分配独立本地入站监听端口并 1:1 绑定至指定代理节点"
+      icon={<Network className="w-4 h-4" />}
       maxWidth="md"
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="p-5 space-y-4">
         {error && (
           <div className="p-3 text-xs bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-center justify-between">
-            <span>{error}</span>
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
             <button
               type="button"
               onClick={() => setError(null)}
@@ -164,13 +184,14 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           </div>
         )}
 
+        {/* Port and Protocol Grid */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label
               htmlFor="port-input"
-              className="block text-xs font-medium text-muted-foreground mb-1.5"
+              className="block text-xs font-medium text-foreground mb-1.5"
             >
-              本地监听端口
+              本地监听端口 <span className="text-destructive">*</span>
             </label>
             <div className="relative">
               <Input
@@ -206,12 +227,15 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
                 ) : null}
               </div>
             </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              建议范围: 1024 ~ 65535 (如 7891, 7892)
+            </p>
           </div>
 
           <div>
             <label
               htmlFor="protocol-select"
-              className="block text-xs font-medium text-muted-foreground mb-1.5"
+              className="block text-xs font-medium text-foreground mb-1.5"
             >
               入站协议
             </label>
@@ -225,15 +249,19 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
                 { value: 'socks5', label: 'SOCKS5 代理' },
               ]}
             />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Mixed 可同时响应 HTTP 与 SOCKS5
+            </p>
           </div>
         </div>
 
+        {/* Profile Select */}
         <div>
           <label
             htmlFor="profile-select"
-            className="block text-xs font-medium text-muted-foreground mb-1.5"
+            className="block text-xs font-medium text-foreground mb-1.5"
           >
-            所属订阅配置
+            所属订阅配置 <span className="text-destructive">*</span>
           </label>
           <Select
             id="profile-select"
@@ -244,15 +272,17 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             }}
             options={profileOptions}
             placeholder="选择订阅配置"
+            prefixIcon={<Globe className="w-3.5 h-3.5 text-muted-foreground" />}
           />
         </div>
 
+        {/* Node Select */}
         <div>
           <label
             htmlFor="node-select"
-            className="block text-xs font-medium text-muted-foreground mb-1.5"
+            className="block text-xs font-medium text-foreground mb-1.5"
           >
-            绑定代理节点
+            绑定代理节点 <span className="text-destructive">*</span>
           </label>
           <Select
             id="node-select"
@@ -261,16 +291,42 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             options={nodeOptions}
             placeholder={
               availableNodes.length === 0
-                ? '该订阅暂无节点'
+                ? '该订阅暂无可用节点'
                 : '选择要绑定的节点'
             }
+            prefixIcon={<Radio className="w-3.5 h-3.5 text-primary" />}
           />
         </div>
 
+        {/* Pre-selected node preview card */}
+        {selectedNode && (
+          <div className="p-3 rounded-lg bg-secondary/50 border border-border flex items-center justify-between text-xs">
+            <div className="space-y-0.5 min-w-0 flex-1">
+              <div className="font-medium text-foreground truncate">
+                {selectedNode.name}
+              </div>
+              <div className="text-[11px] text-muted-foreground font-mono truncate flex items-center gap-1">
+                <Server className="w-3 h-3 shrink-0" />
+                <span>
+                  {selectedNode.server}:{selectedNode.port}
+                </span>
+              </div>
+            </div>
+            <span
+              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium border uppercase shrink-0 ${
+                getProtocolBadgeProps(selectedNode.type).className
+              }`}
+            >
+              {selectedNode.type}
+            </span>
+          </div>
+        )}
+
+        {/* Description Input */}
         <div>
           <label
             htmlFor="desc-input"
-            className="block text-xs font-medium text-muted-foreground mb-1.5"
+            className="block text-xs font-medium text-foreground mb-1.5"
           >
             备注描述 (可选)
           </label>
@@ -278,14 +334,15 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             id="desc-input"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="例如：用于指纹浏览器环境 01"
+            placeholder="例如：指纹浏览器窗口 01"
           />
         </div>
 
-        <div className="pt-2 flex items-center justify-end gap-2 border-t border-border">
+        {/* Footer Actions */}
+        <div className="pt-3 flex items-center justify-end gap-2 border-t border-border">
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={onClose}
             disabled={success}
