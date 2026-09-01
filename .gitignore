@@ -1,0 +1,59 @@
+# Sample Code / Reference Repositories
+clash-verge-rev/
+_samples/
+samples/
+
+# Dependencies & Package Managers
+node_modules/
+.pnpm-store/
+.yarn/
+dist/
+dist-ssr/
+build/
+*.local
+
+# Rust & Cargo & Tauri
+target/
+src-tauri/target/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+*.pdb
+
+# Logs & Temporary Files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# AI IDEs & Code Editors
+.vscode/
+!.vscode/extensions.json
+.idea/
+.cursor/
+.windsurf/
+.trae/
+.claude/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
