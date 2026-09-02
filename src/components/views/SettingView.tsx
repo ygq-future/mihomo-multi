@@ -61,6 +61,7 @@ export const SettingView: React.FC = () => {
   } = useAppStore()
 
   const [controllerPortInput, setControllerPortInput] = useState<string>('9999')
+  const [isSavingPort, setIsSavingPort] = useState<boolean>(false)
   const [portError, setPortError] = useState<string | null>(null)
   const [logLevel, setLogLevel] = useState<string>('info')
   const [allowLan, setAllowLan] = useState<boolean>(false)
@@ -293,6 +294,7 @@ export const SettingView: React.FC = () => {
     }
 
     if (config && config.controllerPort !== portNum) {
+      setIsSavingPort(true)
       try {
         await saveConfig({
           ...config,
@@ -304,6 +306,8 @@ export const SettingView: React.FC = () => {
         setPortError(errMsg)
         setControllerPortInput(String(config.controllerPort))
         setTimeout(() => setPortError(null), 4000)
+      } finally {
+        setIsSavingPort(false)
       }
     }
   }
@@ -461,6 +465,7 @@ export const SettingView: React.FC = () => {
                 type="number"
                 min={1024}
                 max={65535}
+                loading={isSavingPort}
                 value={controllerPortInput}
                 onChange={(e) => setControllerPortInput(e.target.value)}
                 onBlur={handlePortBlur}

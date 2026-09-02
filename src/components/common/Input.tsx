@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { Loader2, X } from 'lucide-react'
 import type React from 'react'
 
 export interface InputProps
@@ -11,6 +11,7 @@ export interface InputProps
   clearable?: boolean
   onClear?: () => void
   required?: boolean
+  loading?: boolean
 }
 
 export const Input: React.FC<InputProps> = ({
@@ -22,13 +23,15 @@ export const Input: React.FC<InputProps> = ({
   clearable = false,
   onClear,
   required,
+  loading = false,
   className = '',
   id,
   value,
+  disabled,
   onFocus,
   ...props
 }) => {
-  const showClear = clearable && Boolean(value) && onClear
+  const showClear = clearable && Boolean(value) && onClear && !loading
 
   const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     // Automatically move cursor to the end of text on focus
@@ -62,6 +65,7 @@ export const Input: React.FC<InputProps> = ({
         <input
           id={id}
           value={value}
+          disabled={disabled || loading}
           onFocus={handleFocus}
           autoComplete="off"
           autoCorrect="off"
@@ -69,7 +73,7 @@ export const Input: React.FC<InputProps> = ({
           spellCheck={false}
           className={`w-full py-2 rounded-lg bg-background border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none transition-colors duration-150 disabled:opacity-50 ${
             prefixIcon ? 'pl-9' : 'pl-3'
-          } ${suffixIcon || showClear ? 'pr-9' : 'pr-3'} ${
+          } ${suffixIcon || showClear || loading ? 'pr-8' : 'pr-3'} ${
             error
               ? 'border-destructive focus:border-destructive focus:ring-2 focus:ring-destructive/20'
               : 'border-border focus:border-primary focus:ring-2 focus:ring-primary/20'
@@ -77,7 +81,11 @@ export const Input: React.FC<InputProps> = ({
           {...props}
         />
 
-        {showClear ? (
+        {loading ? (
+          <div className="absolute right-2.5 text-muted-foreground pointer-events-none">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          </div>
+        ) : showClear ? (
           <button
             type="button"
             onClick={onClear}
@@ -87,7 +95,7 @@ export const Input: React.FC<InputProps> = ({
           </button>
         ) : (
           suffixIcon && (
-            <div className="absolute right-3 text-muted-foreground">
+            <div className="absolute right-3 text-muted-foreground pointer-events-none">
               {suffixIcon}
             </div>
           )

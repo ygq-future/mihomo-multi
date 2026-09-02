@@ -1,6 +1,6 @@
 import { Compass, Layers, Network, RefreshCw, Settings } from 'lucide-react'
 import type React from 'react'
-import appLogo from '../../assets/icon.png'
+import appLogo from '../../../src-tauri/icons/icon.png'
 import { type TabType, useAppStore } from '../../stores/appStore'
 import { Button } from '../common'
 
