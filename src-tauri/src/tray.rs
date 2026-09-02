@@ -63,14 +63,17 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             }
         });
 
-    // Load default icon from bundle if available
-    let tray = if let Some(icon) = app.default_window_icon() {
+    // Load 32x32 crisp tray icon directly from embedded assets
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).ok();
+    let tray_builder = if let Some(icon) = tray_icon {
+        tray_builder.icon(icon)
+    } else if let Some(icon) = app.default_window_icon() {
         tray_builder.icon(icon.clone())
     } else {
         tray_builder
     };
 
-    tray.build(app)?;
+    tray_builder.build(app)?;
     info!("System tray created successfully");
     Ok(())
 }

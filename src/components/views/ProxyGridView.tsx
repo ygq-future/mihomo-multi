@@ -276,7 +276,7 @@ export const ProxyGridView: React.FC = () => {
   }, [profiles, allNodes.length])
 
   return (
-    <div className="h-full flex flex-col p-6 space-y-4 max-w-6xl overflow-hidden">
+    <div className="h-full flex flex-col p-6 space-y-4 w-full overflow-hidden">
       {/* Error Alert Banner */}
       {proxyError && (
         <div className="p-3.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center justify-between gap-3 animate-in fade-in duration-150 shrink-0">

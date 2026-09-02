@@ -26,6 +26,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_window_state::Builder::new().build())
         .setup(|app| {
             let app_handle = app.handle();
             let app_dir = app_handle
@@ -43,12 +44,17 @@ pub fn run() {
                 error!("Failed to create system tray: {}", e);
             }
 
-            // Silent start check
+            // Silent start check and window presentation
             let args: Vec<String> = std::env::args().collect();
             let is_silent = args.iter().any(|a| a == "--silent" || a == "-s") || app_state.config.read().silent_start;
-            if is_silent && let Some(main_win) = app_handle.get_webview_window("main") {
-                let _ = main_win.hide();
-                info!("Silent start mode: main window minimized to tray on launch");
+            if let Some(main_win) = app_handle.get_webview_window("main") {
+                if is_silent {
+                    let _ = main_win.hide();
+                    info!("Silent start mode: main window minimized to tray on launch");
+                } else {
+                    let _ = main_win.show();
+                    let _ = main_win.set_focus();
+                }
             }
 
             // Auto-start core on application launch

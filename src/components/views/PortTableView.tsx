@@ -287,7 +287,7 @@ export const PortTableView: React.FC = () => {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl">
+    <div className="p-6 space-y-6 w-full">
       {/* Error Alert Banner */}
       {portError && (
         <div className="p-3 text-xs bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-center justify-between">

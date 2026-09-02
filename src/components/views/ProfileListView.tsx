@@ -150,7 +150,7 @@ export const ProfileListView: React.FC = () => {
   const totalNodes = profiles.reduce((acc, p) => acc + p.nodeCount, 0)
 
   return (
-    <div className="h-full flex flex-col p-6 space-y-4 max-w-6xl overflow-hidden">
+    <div className="h-full flex flex-col p-6 space-y-4 w-full overflow-hidden">
       {/* Top Sticky Header Card */}
       <div className="bg-card border border-border rounded-xl p-4 shadow-sm shrink-0 flex items-center justify-between gap-4">
         <div className="flex items-center gap-4 text-xs text-muted-foreground">

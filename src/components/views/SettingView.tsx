@@ -319,7 +319,7 @@ export const SettingView: React.FC = () => {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl">
+    <div className="p-6 space-y-6 w-full">
       {/* 1. Unified Mihomo Core & Controller Card */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
         <div className="flex items-center justify-between pb-3 border-b border-border">
