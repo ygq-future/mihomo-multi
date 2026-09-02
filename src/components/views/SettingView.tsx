@@ -455,7 +455,7 @@ export const SettingView: React.FC = () => {
                 </p>
               )}
             </div>
-            <div className="w-32 shrink-0">
+            <div className="w-24 shrink-0">
               <Input
                 id="controller-port-input"
                 type="number"
@@ -465,7 +465,7 @@ export const SettingView: React.FC = () => {
                 onChange={(e) => setControllerPortInput(e.target.value)}
                 onBlur={handlePortBlur}
                 onKeyDown={handlePortKeyDown}
-                className="text-right font-mono"
+                className="text-center font-mono"
               />
             </div>
           </div>
@@ -482,7 +482,7 @@ export const SettingView: React.FC = () => {
                 Mihomo 运行时的日志输出详细程度（修改后即时热重载生效）
               </p>
             </div>
-            <div className="w-48 shrink-0">
+            <div className="w-36 shrink-0">
               <Select
                 id="log-level-select"
                 value={logLevel}
