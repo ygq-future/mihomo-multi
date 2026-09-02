@@ -20,7 +20,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const baseStyles =
-    'inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-1 focus:ring-primary select-none disabled:opacity-50 disabled:pointer-events-none'
+    'inline-flex items-center justify-center font-medium rounded-lg whitespace-nowrap shrink-0 min-w-fit transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 select-none disabled:opacity-50 disabled:pointer-events-none'
 
   const variantStyles = {
     primary: 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm',

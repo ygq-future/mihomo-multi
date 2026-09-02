@@ -1,7 +1,6 @@
 import {
   AlertCircle,
   AlertTriangle,
-  Check,
   ChevronDown,
   Copy,
   Edit2,
@@ -26,7 +25,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../../stores/appStore'
 import type { InboundProtocol, PortDriftReport, PortMapping } from '../../types'
 import { getLatencyColor } from '../../utils/proxy'
-import { Badge, Button, Input, Modal, Select, Switch } from '../common'
+import { Badge, Button, Input, Modal, Select, Switch, toast } from '../common'
 import { AddPortModal } from '../ports/AddPortModal'
 
 interface QuickCopyMenuProps {
@@ -164,9 +163,6 @@ export const PortTableView: React.FC = () => {
   const [selectedProtocol, setSelectedProtocol] = useState<string>('all')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
 
-  // Toast / Feedback state
-  const [toastMessage, setToastMessage] = useState<string | null>(null)
-
   useEffect(() => {
     fetchPortMappings().catch(() => {})
     fetchProfiles().catch(() => {})
@@ -180,13 +176,6 @@ export const PortTableView: React.FC = () => {
       }
     }
   }, [portMappings, profileNodes, fetchProfileNodes])
-
-  const showToast = (message: string) => {
-    setToastMessage(message)
-    setTimeout(() => {
-      setToastMessage(null)
-    }, 2500)
-  }
 
   // Drift map for easy lookup
   const driftMap = useMemo(() => {
@@ -264,7 +253,7 @@ export const PortTableView: React.FC = () => {
     try {
       await togglePortMapping(m.id, checked)
       fetchStatus().catch(() => {})
-      showToast(`端口 ${m.port} 已${checked ? '启用' : '禁用'}`)
+      toast.success(`端口 ${m.port} 已${checked ? '启用' : '禁用'}`)
     } catch {
       // Error handled in store
     }
@@ -276,7 +265,7 @@ export const PortTableView: React.FC = () => {
     try {
       await deletePortMapping(deletingMapping.id)
       fetchStatus().catch(() => {})
-      showToast(`端口 ${deletingMapping.port} 映射已删除`)
+      toast.success(`端口 ${deletingMapping.port} 映射已删除`)
       setDeletingMapping(null)
     } catch {
       // Error handled in store
@@ -288,25 +277,17 @@ export const PortTableView: React.FC = () => {
   const handleSingleDelayTest = async (id: string, port: number) => {
     const latency = await testPortDelay(id)
     if (latency !== null && latency !== undefined) {
-      showToast(`端口 ${port} 测速完成: ${latency} ms`)
+      toast.success(`端口 ${port} 测速完成: ${latency} ms`)
     }
   }
 
   const handleBatchDelayTest = async () => {
     await testAllPortsDelay()
-    showToast('全部已启用端口测速完成')
+    toast.success('全部已启用端口测速完成')
   }
 
   return (
     <div className="p-6 space-y-6 max-w-6xl">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-foreground text-background text-xs font-medium px-3.5 py-2 rounded-lg shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-150">
-          <Check className="w-3.5 h-3.5 text-emerald-400" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
-
       {/* Error Alert Banner */}
       {portError && (
         <div className="p-3 text-xs bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-center justify-between">
@@ -555,7 +536,7 @@ export const PortTableView: React.FC = () => {
                               navigator.clipboard
                                 .writeText(`127.0.0.1:${m.port}`)
                                 .catch(() => {})
-                              showToast(`已复制 127.0.0.1:${m.port}`)
+                              toast.success(`已复制 127.0.0.1:${m.port}`)
                             }}
                             className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                             title="复制 127.0.0.1:<port>"
@@ -709,7 +690,7 @@ export const PortTableView: React.FC = () => {
                           <QuickCopyMenu
                             port={m.port}
                             protocol={m.protocol}
-                            onCopySuccess={showToast}
+                            onCopySuccess={toast.success}
                           />
 
                           {/* Quick Repair Button if drifted */}

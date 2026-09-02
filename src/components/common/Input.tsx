@@ -25,9 +25,20 @@ export const Input: React.FC<InputProps> = ({
   className = '',
   id,
   value,
+  onFocus,
   ...props
 }) => {
   const showClear = clearable && Boolean(value) && onClear
+
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    // Automatically move cursor to the end of text on focus
+    const val = e.currentTarget.value
+    if (typeof val === 'string' || typeof val === 'number') {
+      const len = String(val).length
+      e.currentTarget.setSelectionRange(len, len)
+    }
+    onFocus?.(e)
+  }
 
   return (
     <div className="space-y-1.5 w-full">
@@ -51,12 +62,13 @@ export const Input: React.FC<InputProps> = ({
         <input
           id={id}
           value={value}
-          className={`w-full py-2 rounded-lg bg-background border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-all disabled:opacity-50 ${
+          onFocus={handleFocus}
+          className={`w-full py-2 rounded-lg bg-background border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none transition-colors duration-150 disabled:opacity-50 ${
             prefixIcon ? 'pl-9' : 'pl-3'
           } ${suffixIcon || showClear ? 'pr-9' : 'pr-3'} ${
             error
-              ? 'border-destructive focus:ring-destructive'
-              : 'border-border'
+              ? 'border-destructive focus:border-destructive focus:ring-2 focus:ring-destructive/20'
+              : 'border-border focus:border-primary focus:ring-2 focus:ring-primary/20'
           } ${className}`}
           {...props}
         />

@@ -1,7 +1,5 @@
 import {
-  AlertCircle,
   Check,
-  CheckCircle2,
   Clock,
   Copy,
   FileCode,
@@ -20,7 +18,7 @@ import type React from 'react'
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../../stores/appStore'
 import type { ProfileItem } from '../../types'
-import { Button, Modal } from '../common'
+import { Button, Modal, toast } from '../common'
 import { AddLocalModal } from '../profiles/AddLocalModal'
 import { AddRemoteModal } from '../profiles/AddRemoteModal'
 import { EditProfileModal } from '../profiles/EditProfileModal'
@@ -53,18 +51,6 @@ export const ProfileListView: React.FC = () => {
   )
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
-  const [toastMessage, setToastMessage] = useState<{
-    text: string
-    type: 'success' | 'error'
-  } | null>(null)
-
-  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
-    setToastMessage({ text, type })
-    setTimeout(() => {
-      setToastMessage((current) => (current?.text === text ? null : current))
-    }, 3000)
-  }
-
   useEffect(() => {
     fetchProfiles()
   }, [fetchProfiles])
@@ -75,12 +61,12 @@ export const ProfileListView: React.FC = () => {
     intervalMins: number,
   ) => {
     await addRemoteProfile(name, url, intervalMins)
-    showToast(`远程订阅「${name}」已成功添加并解析`)
+    toast.success(`远程订阅「${name}」已成功添加并解析`)
   }
 
   const handleAddLocal = async (name: string, filePath: string) => {
     await addLocalProfile(name, filePath)
-    showToast(`本地配置「${name}」已成功导入`)
+    toast.success(`本地配置「${name}」已成功导入`)
   }
 
   const handleEditProfile = async (
@@ -90,19 +76,18 @@ export const ProfileListView: React.FC = () => {
     intervalMins: number,
   ) => {
     await editProfile(id, name, url, intervalMins)
-    showToast(`订阅「${name}」配置已成功更新`)
+    toast.success(`订阅「${name}」配置已成功更新`)
   }
 
   const handleRefresh = async (profile: ProfileItem) => {
     try {
       const updated = await updateProfile(profile.id)
-      showToast(
+      toast.success(
         `订阅「${profile.name}」已刷新，现有 ${updated.nodeCount} 个节点`,
       )
     } catch (err) {
-      showToast(
+      toast.error(
         `刷新失败：${err instanceof Error ? err.message : String(err)}`,
-        'error',
       )
     }
   }
@@ -112,16 +97,15 @@ export const ProfileListView: React.FC = () => {
       const results = await triggerAutoUpdateCheck()
       const updatedCount = results.filter((r) => r.success).length
       if (results.length === 0) {
-        showToast('所有远程订阅均未到达设定的自动更新周期')
+        toast.info('所有远程订阅均未到达设定的自动更新周期')
       } else {
-        showToast(
+        toast.success(
           `检查完成：已更新 ${updatedCount} 个订阅，共扫描 ${results.length} 个配置`,
         )
       }
     } catch (err) {
-      showToast(
+      toast.error(
         `检查更新失败：${err instanceof Error ? err.message : String(err)}`,
-        'error',
       )
     }
   }
@@ -131,13 +115,13 @@ export const ProfileListView: React.FC = () => {
     try {
       await navigator.clipboard.writeText(textToCopy)
       setCopiedId(profile.id)
-      showToast('链接/路径已成功复制到剪贴板')
+      toast.success('链接/路径已成功复制到剪贴板')
       setTimeout(
         () => setCopiedId((id) => (id === profile.id ? null : id)),
         2000,
       )
     } catch {
-      showToast('复制失败，请手动复制', 'error')
+      toast.error('复制失败，请手动复制')
     }
   }
 
@@ -145,9 +129,8 @@ export const ProfileListView: React.FC = () => {
     try {
       await openFileInFolder(profile.filePath)
     } catch (err) {
-      showToast(
+      toast.error(
         `打开文件所在目录失败：${err instanceof Error ? err.message : String(err)}`,
-        'error',
       )
     }
   }
@@ -156,9 +139,8 @@ export const ProfileListView: React.FC = () => {
     try {
       await openAppDataDir()
     } catch (err) {
-      showToast(
+      toast.error(
         `打开数据目录失败：${err instanceof Error ? err.message : String(err)}`,
-        'error',
       )
     }
   }
@@ -167,12 +149,11 @@ export const ProfileListView: React.FC = () => {
     if (!deletingProfile) return
     try {
       await deleteProfile(deletingProfile.id)
-      showToast(`配置「${deletingProfile.name}」已成功删除`)
+      toast.success(`订阅「${deletingProfile.name}」已删除`)
       setDeletingProfile(null)
     } catch (err) {
-      showToast(
+      toast.error(
         `删除失败：${err instanceof Error ? err.message : String(err)}`,
-        'error',
       )
     }
   }
@@ -202,24 +183,6 @@ export const ProfileListView: React.FC = () => {
 
   return (
     <div className="p-6 space-y-6 max-w-6xl">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div
-          className={`fixed bottom-6 right-6 z-[1000] flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-xl border text-xs font-medium animate-in fade-in slide-in-from-bottom-3 duration-200 ${
-            toastMessage.type === 'success'
-              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-              : 'bg-destructive/15 text-destructive border-destructive/30'
-          }`}
-        >
-          {toastMessage.type === 'success' ? (
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-          ) : (
-            <AlertCircle className="w-4 h-4 shrink-0" />
-          )}
-          <span>{toastMessage.text}</span>
-        </div>
-      )}
-
       {/* Action Bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
