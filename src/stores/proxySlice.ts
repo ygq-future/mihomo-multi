@@ -28,11 +28,30 @@ export interface ProxySlice {
   setProxyError: (error: string | null) => void
 }
 
+function loadStoredLatencies(): Record<string, number | null> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem('node_latencies_cache')
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function persistLatencies(latencies: Record<string, number | null>) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem('node_latencies_cache', JSON.stringify(latencies))
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
   set,
   get,
 ) => ({
-  latencies: {},
+  latencies: loadStoredLatencies(),
   testingNodeNames: {},
   isTestingAll: false,
   quickBindTarget: null,
@@ -51,15 +70,19 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
         testUrl,
         timeoutMs || 5000,
       )
+      const nextLatencies = { ...get().latencies, [nodeName]: latency }
+      persistLatencies(nextLatencies)
       set((state) => ({
-        latencies: { ...state.latencies, [nodeName]: latency },
+        latencies: nextLatencies,
         testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
       }))
       return latency
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
+      const nextLatencies = { ...get().latencies, [nodeName]: null }
+      persistLatencies(nextLatencies)
       set((state) => ({
-        latencies: { ...state.latencies, [nodeName]: null },
+        latencies: nextLatencies,
         testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
         proxyError: errMsg.includes('未运行') ? errMsg : state.proxyError,
       }))
@@ -105,16 +128,20 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
           results.push({ name: nodeName, latency })
 
           // Real-time per-node streaming update
+          const nextLatencies = { ...get().latencies, [nodeName]: latency }
+          persistLatencies(nextLatencies)
           set((state) => ({
-            latencies: { ...state.latencies, [nodeName]: latency },
+            latencies: nextLatencies,
             testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
           }))
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err)
           results.push({ name: nodeName, error: errMsg })
 
+          const nextLatencies = { ...get().latencies, [nodeName]: null }
+          persistLatencies(nextLatencies)
           set((state) => ({
-            latencies: { ...state.latencies, [nodeName]: null },
+            latencies: nextLatencies,
             testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
             proxyError: errMsg.includes('未运行') ? errMsg : state.proxyError,
           }))
@@ -129,7 +156,10 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
     return results
   },
 
-  clearLatencies: () => set({ latencies: {}, proxyError: null }),
+  clearLatencies: () => {
+    persistLatencies({})
+    set({ latencies: {}, proxyError: null })
+  },
 
   setQuickBindTarget: (quickBindTarget) => set({ quickBindTarget }),
 

@@ -242,6 +242,36 @@ export function getLatencyColor(latency?: number | null): string {
   return 'text-rose-500'
 }
 
+export function formatProtocolName(type: string): string {
+  const norm = type.toLowerCase()
+  switch (norm) {
+    case 'ss':
+    case 'shadowsocks':
+      return 'Shadowsocks'
+    case 'vmess':
+      return 'Vmess'
+    case 'vless':
+      return 'Vless'
+    case 'trojan':
+      return 'Trojan'
+    case 'hysteria2':
+    case 'hy2':
+      return 'Hysteria2'
+    case 'tuic':
+      return 'Tuic'
+    case 'snell':
+      return 'Snell'
+    case 'anytls':
+      return 'AnyTLS'
+    case 'socks5':
+      return 'Socks5'
+    case 'http':
+      return 'Http'
+    default:
+      return type.charAt(0).toUpperCase() + type.slice(1)
+  }
+}
+
 export function getProtocolBadgeProps(type: string): {
   label: string
   className: string
@@ -251,17 +281,17 @@ export function getProtocolBadgeProps(type: string): {
     case 'ss':
     case 'shadowsocks':
       return {
-        label: 'SS',
+        label: 'Shadowsocks',
         className: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
       }
     case 'vmess':
       return {
-        label: 'VMess',
+        label: 'Vmess',
         className: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
       }
     case 'vless':
       return {
-        label: 'VLESS',
+        label: 'Vless',
         className: 'bg-purple-500/10 text-purple-500 border-purple-500/20',
       }
     case 'trojan':
@@ -272,8 +302,13 @@ export function getProtocolBadgeProps(type: string): {
     case 'hysteria2':
     case 'hy2':
       return {
-        label: 'Hy2',
+        label: 'Hysteria2',
         className: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
+      }
+    case 'tuic':
+      return {
+        label: 'Tuic',
+        className: 'bg-teal-500/10 text-teal-500 border-teal-500/20',
       }
     case 'snell':
       return {
@@ -287,12 +322,12 @@ export function getProtocolBadgeProps(type: string): {
       }
     case 'http':
       return {
-        label: 'HTTP',
+        label: 'Http',
         className: 'bg-slate-500/10 text-slate-500 border-slate-500/20',
       }
     default:
       return {
-        label: type.toUpperCase(),
+        label: formatProtocolName(type),
         className: 'bg-secondary text-muted-foreground border-border',
       }
   }
