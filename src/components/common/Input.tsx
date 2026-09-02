@@ -63,6 +63,10 @@ export const Input: React.FC<InputProps> = ({
           id={id}
           value={value}
           onFocus={handleFocus}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           className={`w-full py-2 rounded-lg bg-background border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none transition-colors duration-150 disabled:opacity-50 ${
             prefixIcon ? 'pl-9' : 'pl-3'
           } ${suffixIcon || showClear ? 'pr-9' : 'pr-3'} ${
