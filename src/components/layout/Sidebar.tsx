@@ -33,7 +33,7 @@ export const Sidebar: React.FC = () => {
       <div>
         {/* App Branding & Collapse Toggle */}
         <div
-          className={`h-16 border-b border-border flex items-center ${
+          className={`pt-4 mb-4 flex items-center ${
             sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-3.5'
           } overflow-hidden`}
         >
@@ -77,7 +77,7 @@ export const Sidebar: React.FC = () => {
         </div>
 
         {/* Navigation */}
-        <nav className="p-2 space-y-1">
+        <nav className="px-2 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon
             const active = activeTab === item.id
