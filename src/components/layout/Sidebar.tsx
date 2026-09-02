@@ -33,7 +33,7 @@ export const Sidebar: React.FC = () => {
       <div>
         {/* App Branding & Collapse Toggle */}
         <div
-          className={`pt-4 mb-4 flex items-center ${
+          className={`pt-3 mb-3 flex items-center ${
             sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-3.5'
           } overflow-hidden`}
         >
