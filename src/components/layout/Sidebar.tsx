@@ -1,5 +1,6 @@
 import { Compass, Layers, Network, RefreshCw, Settings } from 'lucide-react'
 import type React from 'react'
+import appLogo from '../../assets/icon.png'
 import { type TabType, useAppStore } from '../../stores/appStore'
 import { Button } from '../common'
 
@@ -7,35 +8,76 @@ const navItems: { id: TabType; label: string; icon: React.ElementType }[] = [
   { id: 'ports', label: '端口映射', icon: Network },
   { id: 'proxies', label: '代理节点', icon: Compass },
   { id: 'profiles', label: '配置订阅', icon: Layers },
-  { id: 'settings', label: '内核与设置', icon: Settings },
+  { id: 'settings', label: '设置', icon: Settings },
 ]
 
 export const Sidebar: React.FC = () => {
-  const { activeTab, setActiveTab, coreStatus, restartCore, loading } =
-    useAppStore()
+  const {
+    activeTab,
+    setActiveTab,
+    sidebarCollapsed,
+    toggleSidebar,
+    coreStatus,
+    restartCore,
+    loading,
+  } = useAppStore()
 
   const isRunning = coreStatus?.running ?? false
 
   return (
-    <aside className="w-56 bg-card border-r border-border flex flex-col justify-between select-none shrink-0">
+    <aside
+      className={`${
+        sidebarCollapsed ? 'w-16' : 'w-48'
+      } bg-card border-r border-border flex flex-col justify-between select-none shrink-0 transition-all duration-200 ease-in-out`}
+    >
       <div>
-        {/* App Branding */}
-        <div className="h-16 px-5 flex items-center gap-3 border-b border-border">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-lg shadow-sm">
-            M
-          </div>
-          <div>
-            <h1 className="font-semibold text-sm leading-none text-foreground">
-              Mihomo Multi
-            </h1>
-            <span className="text-[11px] text-muted-foreground">
-              多端口代理
-            </span>
-          </div>
+        {/* App Branding & Collapse Toggle */}
+        <div
+          className={`h-16 border-b border-border flex items-center ${
+            sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-3.5'
+          } overflow-hidden`}
+        >
+          {sidebarCollapsed ? (
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40 hover:opacity-80 transition-opacity"
+              title="点击展开侧边栏"
+            >
+              <img
+                src={appLogo}
+                alt="Mihomo Multi"
+                className="w-8 h-8 rounded-lg object-contain shadow-sm"
+              />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2.5 min-w-0">
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                className="shrink-0 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40 hover:opacity-80 transition-opacity"
+                title="点击收起侧边栏"
+              >
+                <img
+                  src={appLogo}
+                  alt="Mihomo Multi"
+                  className="w-8 h-8 rounded-lg object-contain shadow-sm"
+                />
+              </button>
+              <div className="min-w-0 truncate">
+                <h1 className="font-semibold text-xs leading-none text-foreground truncate">
+                  Mihomo Multi
+                </h1>
+                <span className="text-[10px] text-muted-foreground truncate block mt-1">
+                  多端口代理
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Navigation */}
-        <nav className="p-3 space-y-1">
+        <nav className="p-2 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon
             const active = activeTab === item.id
@@ -44,14 +86,21 @@ export const Sidebar: React.FC = () => {
                 key={item.id}
                 type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium transition-colors ${
+                title={sidebarCollapsed ? item.label : undefined}
+                className={`w-full flex items-center ${
+                  sidebarCollapsed
+                    ? 'justify-center p-2.5'
+                    : 'gap-2.5 px-3 py-2.5'
+                } rounded-lg text-xs font-medium transition-colors ${
                   active
                     ? 'bg-primary text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                 }`}
               >
-                <Icon className="w-4 h-4" />
-                <span>{item.label}</span>
+                <Icon className="w-4 h-4 shrink-0" />
+                {!sidebarCollapsed && (
+                  <span className="truncate">{item.label}</span>
+                )}
               </button>
             )
           })}
@@ -59,47 +108,84 @@ export const Sidebar: React.FC = () => {
       </div>
 
       {/* Core Supervisor Status Widget */}
-      <div className="p-3 m-3 rounded-xl border border-border bg-background/50 space-y-2.5">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-medium text-muted-foreground">
-            Mihomo 内核
-          </span>
-          <div className="flex items-center gap-1.5">
+      {sidebarCollapsed ? (
+        <div className="p-2 m-2 rounded-xl border border-border bg-background/50 flex flex-col items-center gap-2">
+          <div
+            className="flex items-center justify-center cursor-help py-1"
+            title={`Mihomo 内核: ${isRunning ? '运行中' : '已停止'}${
+              isRunning
+                ? `\nPID: ${coreStatus?.pid ?? '-'}\n控制端口: ${
+                    coreStatus?.controllerPort ?? 9999
+                  }`
+                : ''
+            }`}
+          >
             <span
-              className={`w-2 h-2 rounded-full ${
+              className={`w-2.5 h-2.5 rounded-full ${
                 isRunning ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
               }`}
             />
-            <span
-              className={`text-[11px] font-medium ${
-                isRunning ? 'text-emerald-500' : 'text-rose-500'
-              }`}
-            >
-              {isRunning ? '运行中' : '已停止'}
-            </span>
           </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={loading}
+            onClick={() => restartCore()}
+            title="重启内核"
+            className="p-1.5 h-auto text-muted-foreground hover:text-foreground hover:bg-accent"
+            icon={
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`}
+              />
+            }
+          />
         </div>
-
-        {isRunning && (
-          <div className="text-[11px] text-muted-foreground space-y-0.5 font-mono">
-            <div>PID: {coreStatus?.pid ?? '-'}</div>
-            <div>端口: {coreStatus?.controllerPort ?? 9999}</div>
+      ) : (
+        <div className="p-3 m-2.5 rounded-xl border border-border bg-background/50 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-medium text-muted-foreground truncate">
+              Mihomo 内核
+            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isRunning ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                }`}
+              />
+              <span
+                className={`text-[11px] font-medium ${
+                  isRunning ? 'text-emerald-500' : 'text-rose-500'
+                }`}
+              >
+                {isRunning ? '运行中' : '已停止'}
+              </span>
+            </div>
           </div>
-        )}
 
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={loading}
-          onClick={() => restartCore()}
-          className="w-full"
-          icon={
-            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
-          }
-        >
-          重启内核
-        </Button>
-      </div>
+          {isRunning && (
+            <div className="text-[10px] text-muted-foreground space-y-0.5 font-mono truncate">
+              <div>PID: {coreStatus?.pid ?? '-'}</div>
+              <div>控制端口: {coreStatus?.controllerPort ?? 9999}</div>
+            </div>
+          )}
+
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={loading}
+            onClick={() => restartCore()}
+            className="w-full text-xs"
+            icon={
+              <RefreshCw
+                className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`}
+              />
+            }
+          >
+            重启内核
+          </Button>
+        </div>
+      )}
     </aside>
   )
 }

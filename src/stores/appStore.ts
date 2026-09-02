@@ -9,6 +9,7 @@ export type TabType = 'ports' | 'proxies' | 'profiles' | 'settings'
 
 export interface BaseAppState {
   activeTab: TabType
+  sidebarCollapsed: boolean
   appStatus: AppStatus | null
   coreStatus: CoreStatus | null
   config: AppConfig | null
@@ -16,6 +17,7 @@ export interface BaseAppState {
   error: string | null
 
   setActiveTab: (tab: TabType) => void
+  toggleSidebar: () => void
   fetchStatus: () => Promise<void>
   startCore: () => Promise<void>
   stopCore: () => Promise<void>
@@ -32,6 +34,9 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   ...createPortSlice(set, get, store),
 
   activeTab: 'ports',
+  sidebarCollapsed:
+    typeof window !== 'undefined' &&
+    localStorage.getItem('sidebar_collapsed') === 'true',
   appStatus: null,
   coreStatus: null,
   config: null,
@@ -39,6 +44,16 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   error: null,
 
   setActiveTab: (activeTab) => set({ activeTab }),
+
+  toggleSidebar: () => {
+    const next = !get().sidebarCollapsed
+    try {
+      localStorage.setItem('sidebar_collapsed', String(next))
+    } catch {
+      // ignore storage errors
+    }
+    set({ sidebarCollapsed: next })
+  },
 
   fetchStatus: async () => {
     try {
