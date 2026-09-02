@@ -66,6 +66,33 @@ pub async fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String>
 
 #[tauri::command]
 pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Result<(), String> {
+    let old_port = state.config.read().controller_port;
+    if config.controller_port != old_port {
+        let core_status = state.supervisor.get_status();
+        // Check if the target port is currently held by our own running core (ABA scenario / revert to active port)
+        let is_current_active_core_port =
+            core_status.running && core_status.controller_port == config.controller_port;
+
+        if !is_current_active_core_port {
+            // 1. Probe if the new controller port is available on localhost
+            if !is_port_available(config.controller_port) {
+                return Err(format!(
+                    "端口 {} 已被本地其他应用程序占用，无法设为控制器端口，请换用其他端口（如 9090）。",
+                    config.controller_port
+                ));
+            }
+
+            // 2. Check if any active port mapping already uses this port
+            let mappings = state.port_manager.get_port_mappings();
+            if mappings.iter().any(|m| m.port == config.controller_port && m.enabled) {
+                return Err(format!(
+                    "端口 {} 已在「端口映射」中作为代理入站端口使用，请换用其他端口。",
+                    config.controller_port
+                ));
+            }
+        }
+    }
+
     *state.config.write() = config.clone();
     let config_path = state.app_dir.join("config.json");
     if let Ok(json) = serde_json::to_string_pretty(&config) {

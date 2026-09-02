@@ -1,5 +1,7 @@
+import { AlertTriangle, RefreshCw } from 'lucide-react'
 import type React from 'react'
 import { useAppStore } from '../../stores/appStore'
+import { Button } from '../common'
 
 const tabTitles: Record<string, { title: string; subtitle: string }> = {
   ports: {
@@ -21,16 +23,86 @@ const tabTitles: Record<string, { title: string; subtitle: string }> = {
 }
 
 export const Header: React.FC = () => {
-  const { activeTab } = useAppStore()
+  const {
+    activeTab,
+    config,
+    coreStatus,
+    restartCore,
+    startCore,
+    loading,
+    error,
+  } = useAppStore()
   const info = tabTitles[activeTab] || tabTitles.ports
 
+  const isRunning = coreStatus?.running ?? false
+  const portNeedsRestart =
+    config?.controllerPort !== undefined &&
+    coreStatus?.controllerPort !== undefined &&
+    config.controllerPort !== coreStatus.controllerPort
+
   return (
-    <header className="h-16 px-6 border-b border-border bg-card/50 flex items-center justify-between select-none shrink-0">
-      <div>
-        <h2 className="text-base font-semibold text-foreground">
+    <header className="h-16 px-6 border-b border-border bg-card/50 flex items-center justify-between select-none shrink-0 gap-4">
+      <div className="min-w-0 flex-1 truncate">
+        <h2 className="text-base font-semibold text-foreground truncate">
           {info.title}
         </h2>
-        <p className="text-xs text-muted-foreground">{info.subtitle}</p>
+        <p className="text-xs text-muted-foreground truncate">
+          {info.subtitle}
+        </p>
+      </div>
+
+      <div className="flex items-center gap-2 shrink-0">
+        {portNeedsRestart ? (
+          <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-medium">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span>
+                控制器端口已修改为 {config?.controllerPort}，需
+                {isRunning ? '重启' : '启动'}生效
+              </span>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={loading}
+              onClick={() => (isRunning ? restartCore() : startCore())}
+              className="text-xs border-amber-500/30 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400"
+              icon={
+                <RefreshCw
+                  className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`}
+                />
+              }
+            >
+              {isRunning ? '重启生效' : '启动生效'}
+            </Button>
+          </div>
+        ) : (
+          !isRunning &&
+          error && (
+            <div className="flex items-center gap-2 animate-in fade-in duration-200">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs font-medium">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                <span className="max-w-xs truncate" title={error}>
+                  {error}
+                </span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loading}
+                onClick={() => startCore()}
+                className="text-xs text-rose-500 border-rose-500/30 hover:bg-rose-500/10"
+                icon={
+                  <RefreshCw
+                    className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`}
+                  />
+                }
+              >
+                重试启动
+              </Button>
+            </div>
+          )
+        )}
       </div>
     </header>
   )

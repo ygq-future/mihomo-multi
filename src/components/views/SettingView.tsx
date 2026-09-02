@@ -1,10 +1,9 @@
 import {
-  CheckCircle2,
+  AlertTriangle,
   Cpu,
   FolderOpen,
   Play,
   RefreshCw,
-  Save,
   Square,
   Terminal,
 } from 'lucide-react'
@@ -34,16 +33,19 @@ export const SettingView: React.FC = () => {
     saveConfig,
     openAppDataDir,
     loading,
-    error,
   } = useAppStore()
 
-  const [controllerPort, setControllerPort] = useState<number>(9999)
+  const [controllerPortInput, setControllerPortInput] = useState<string>('9999')
+  const [portError, setPortError] = useState<string | null>(null)
   const [logLevel, setLogLevel] = useState<string>('info')
   const [appDataDir, setAppDataDir] = useState<string>('')
-  const [savedSuccess, setSavedSuccess] = useState<boolean>(false)
   const [liveUptime, setLiveUptime] = useState<number>(0)
 
   const isRunning = coreStatus?.running ?? false
+  const portNeedsRestart =
+    config?.controllerPort !== undefined &&
+    coreStatus?.controllerPort !== undefined &&
+    config.controllerPort !== coreStatus.controllerPort
 
   useEffect(() => {
     fetchConfig()
@@ -55,7 +57,7 @@ export const SettingView: React.FC = () => {
 
   useEffect(() => {
     if (config) {
-      setControllerPort(config.controllerPort)
+      setControllerPortInput(String(config.controllerPort))
       setLogLevel(config.logLevel)
     }
   }, [config])
@@ -81,26 +83,51 @@ export const SettingView: React.FC = () => {
     return () => clearInterval(timer)
   }, [isRunning])
 
-  const handleSave = async () => {
+  const handleLogLevelChange = async (newLevel: string | number) => {
+    const levelStr = String(newLevel)
+    setLogLevel(levelStr)
     if (!config) return
     await saveConfig({
       ...config,
-      controllerPort: Number(controllerPort),
-      logLevel: logLevel,
+      logLevel: levelStr,
     })
-    setSavedSuccess(true)
-    setTimeout(() => setSavedSuccess(false), 2500)
+  }
+
+  const handlePortBlur = async () => {
+    const portNum = Number.parseInt(controllerPortInput, 10)
+    if (Number.isNaN(portNum) || portNum < 1024 || portNum > 65535) {
+      if (config) {
+        setControllerPortInput(String(config.controllerPort))
+      }
+      setPortError('端口号必须在 1024 ~ 65535 范围内')
+      setTimeout(() => setPortError(null), 3500)
+      return
+    }
+
+    if (config && config.controllerPort !== portNum) {
+      try {
+        await saveConfig({
+          ...config,
+          controllerPort: portNum,
+        })
+        setPortError(null)
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        setPortError(errMsg)
+        setControllerPortInput(String(config.controllerPort))
+        setTimeout(() => setPortError(null), 4000)
+      }
+    }
+  }
+
+  const handlePortKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur()
+    }
   }
 
   return (
     <div className="p-6 space-y-6 max-w-4xl">
-      {/* Error Alert */}
-      {error && (
-        <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs">
-          <b>错误：</b> {error}
-        </div>
-      )}
-
       {/* Unified Mihomo Core & Controller Card */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
         <div className="flex items-center justify-between pb-3 border-b border-border">
@@ -227,6 +254,18 @@ export const SettingView: React.FC = () => {
               <p className="text-[11px] text-muted-foreground">
                 Mihomo 本地 RESTful 控制接口端口，用于热重载与测速（默认 9999）
               </p>
+              {portError && (
+                <p className="text-[11px] text-destructive flex items-center gap-1 font-medium pt-0.5 animate-in fade-in duration-150">
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  {portError}
+                </p>
+              )}
+              {portNeedsRestart && !portError && (
+                <p className="text-[11px] text-amber-500 flex items-center gap-1 font-medium pt-0.5">
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  端口配置已更新为 {config?.controllerPort}，重启内核后生效
+                </p>
+              )}
             </div>
             <div className="w-32 shrink-0">
               <Input
@@ -234,8 +273,10 @@ export const SettingView: React.FC = () => {
                 type="number"
                 min={1024}
                 max={65535}
-                value={controllerPort}
-                onChange={(e) => setControllerPort(Number(e.target.value))}
+                value={controllerPortInput}
+                onChange={(e) => setControllerPortInput(e.target.value)}
+                onBlur={handlePortBlur}
+                onKeyDown={handlePortKeyDown}
                 className="text-right font-mono"
               />
             </div>
@@ -250,34 +291,18 @@ export const SettingView: React.FC = () => {
                 内核日志级别
               </label>
               <p className="text-[11px] text-muted-foreground">
-                Mihomo 运行时的日志输出详细程度
+                Mihomo 运行时的日志输出详细程度（修改后即时热重载生效）
               </p>
             </div>
             <div className="w-48 shrink-0">
               <Select
+                id="log-level-select"
                 value={logLevel}
-                onChange={(val) => setLogLevel(String(val))}
+                onChange={handleLogLevelChange}
                 options={logLevelOptions}
               />
             </div>
           </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
-          {savedSuccess && (
-            <span className="text-xs text-emerald-500 flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              设置已成功保存
-            </span>
-          )}
-          <Button
-            type="button"
-            disabled={loading}
-            onClick={handleSave}
-            icon={<Save className="w-3.5 h-3.5" />}
-          >
-            保存设置
-          </Button>
         </div>
       </div>
 
@@ -289,7 +314,7 @@ export const SettingView: React.FC = () => {
               应用数据与订阅存储路径
             </h3>
             <p className="text-xs text-muted-foreground">
-              所有订阅 YAML 文件与元数据均保存在本地应用独立目录中
+              所有订阅 YAML 文件、运行配置与内核日志均保存在本地独立目录中
             </p>
           </div>
 

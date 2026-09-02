@@ -88,16 +88,14 @@ export interface CoreStatus {
   version?: string
   uptimeSeconds: number
   sidecarPath: string
+  lastError?: string
 }
 
 export interface AppConfig {
   controllerPort: number
   controllerSecret: string
-  autoStartCore: boolean
   theme: string
   logLevel: string
-  autoUpdateEnabled: boolean
-  autoUpdateCheckIntervalSecs: number
 }
 
 export interface AppStatus {

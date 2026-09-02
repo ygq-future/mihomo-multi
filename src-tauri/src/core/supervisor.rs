@@ -91,6 +91,7 @@ struct SupervisorInner {
     sidecar_path: PathBuf,
     controller_port: u16,
     secret: String,
+    last_error: Option<String>,
     #[cfg(windows)]
     job_object: Option<JobObjectGuard>,
 }
@@ -114,6 +115,7 @@ impl CoreSupervisor {
             sidecar_path: PathBuf::new(),
             controller_port: 9999,
             secret: String::new(),
+            last_error: None,
             #[cfg(windows)]
             job_object,
         };
@@ -204,6 +206,7 @@ impl CoreSupervisor {
             match child.try_wait() {
                 Ok(None) => {
                     info!("Mihomo core is already running with PID: {:?}", inner.pid);
+                    inner.last_error = None;
                     return Ok(self.status_from_inner(&inner));
                 }
                 Ok(Some(status)) => {
@@ -217,23 +220,70 @@ impl CoreSupervisor {
             }
         }
 
-        let sidecar_path = self.locate_sidecar(app_handle)?;
+        // 1. Check if controller port is available before spawning
+        if !crate::core::port_probe::is_port_available(config.controller_port) {
+            let err_msg = format!(
+                "外部控制器端口 {} 已被本地其他应用程序占用，无法启动 Mihomo 内核。请在「设置」中修改控制器端口（例如 9090），或关闭占用该端口的程序。",
+                config.controller_port
+            );
+            inner.last_error = Some(err_msg.clone());
+            return Err(AppError::SidecarExecution(err_msg));
+        }
+
+        let sidecar_path = match self.locate_sidecar(app_handle) {
+            Ok(p) => p,
+            Err(e) => {
+                inner.last_error = Some(e.to_string());
+                return Err(e);
+            }
+        };
         let version = self.query_version(&sidecar_path);
 
         // Ensure working directory and runtime configuration exist
-        std::fs::create_dir_all(&self.work_dir).map_err(AppError::Io)?;
+        if let Err(e) = std::fs::create_dir_all(&self.work_dir).map_err(AppError::Io) {
+            inner.last_error = Some(e.to_string());
+            return Err(e);
+        }
         let runtime_yaml_path = self.work_dir.join("runtime.yaml");
 
         if !runtime_yaml_path.exists() {
             let minimal_config =
                 MinimalRuntimeConfig::new(config.controller_port, &config.controller_secret, &config.log_level);
-            minimal_config.write_to_file(&runtime_yaml_path)?;
+            if let Err(e) = minimal_config.write_to_file(&runtime_yaml_path) {
+                inner.last_error = Some(e.to_string());
+                return Err(e);
+            }
         }
 
+        // Setup log file redirection
+        let log_dir = self.work_dir.join("logs");
+        std::fs::create_dir_all(&log_dir).ok();
+        let log_path = log_dir.join("mihomo.log");
+        let log_file = match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .map_err(AppError::Io)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                inner.last_error = Some(e.to_string());
+                return Err(e);
+            }
+        };
+        let log_file_err = match log_file.try_clone().map_err(AppError::Io) {
+            Ok(f) => f,
+            Err(e) => {
+                inner.last_error = Some(e.to_string());
+                return Err(e);
+            }
+        };
+
         info!(
-            "Spawning Mihomo sidecar from '{}' with work dir '{}'",
+            "Spawning Mihomo sidecar from '{}' with work dir '{}', logging to '{}'",
             sidecar_path.display(),
-            self.work_dir.display()
+            self.work_dir.display(),
+            log_path.display()
         );
 
         let mut cmd = Command::new(&sidecar_path);
@@ -241,8 +291,8 @@ impl CoreSupervisor {
             .arg(&self.work_dir)
             .arg("-f")
             .arg(&runtime_yaml_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdout(Stdio::from(log_file))
+            .stderr(Stdio::from(log_file_err));
 
         #[cfg(windows)]
         {
@@ -251,9 +301,33 @@ impl CoreSupervisor {
             cmd.creation_flags(0x08000000);
         }
 
-        let child = cmd
-            .spawn()
-            .map_err(|err| AppError::SidecarExecution(format!("Failed to spawn Mihomo sidecar: {}", err)))?;
+        let mut child = match cmd.spawn().map_err(|err| {
+            AppError::SidecarExecution(format!("Failed to spawn Mihomo sidecar: {}", err))
+        }) {
+            Ok(c) => c,
+            Err(e) => {
+                inner.last_error = Some(e.to_string());
+                return Err(e);
+            }
+        };
+
+        // Brief delay to detect immediate crashes
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let err_msg = format!(
+                    "Mihomo 内核启动失败并异常退出 (退出码: {})。详情请查看日志文件: {}",
+                    status,
+                    log_path.display()
+                );
+                inner.last_error = Some(err_msg.clone());
+                return Err(AppError::SidecarExecution(err_msg));
+            }
+            Err(err) => {
+                warn!("Failed to check child status immediately after spawn: {}", err);
+            }
+            Ok(None) => {}
+        }
 
         let pid = child.id();
         info!("Mihomo sidecar process spawned successfully, PID: {}", pid);
@@ -272,6 +346,7 @@ impl CoreSupervisor {
         inner.sidecar_path = sidecar_path;
         inner.controller_port = config.controller_port;
         inner.secret = config.controller_secret.clone();
+        inner.last_error = None;
 
         Ok(self.status_from_inner(&inner))
     }
@@ -286,6 +361,7 @@ impl CoreSupervisor {
         }
         inner.start_time = None;
         inner.pid = None;
+        inner.last_error = None;
         Ok(())
     }
 
@@ -325,6 +401,7 @@ impl CoreSupervisor {
             version: inner.version.clone(),
             uptime_seconds: uptime,
             sidecar_path: inner.sidecar_path.to_string_lossy().to_string(),
+            last_error: inner.last_error.clone(),
         }
     }
 
@@ -338,6 +415,7 @@ impl CoreSupervisor {
             version: inner.version.clone(),
             uptime_seconds: uptime,
             sidecar_path: inner.sidecar_path.to_string_lossy().to_string(),
+            last_error: inner.last_error.clone(),
         }
     }
 }

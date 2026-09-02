@@ -61,8 +61,8 @@ impl AppState {
         ClashApiClient::new(cfg.controller_port, &cfg.controller_secret)
     }
 
-    /// Synchronizes all active port listeners and proxy nodes into runtime.yaml and triggers a hot reload if the core is running
-    pub async fn sync_runtime_config(&self) -> AppResult<PathBuf> {
+    /// Generates runtime.yaml on disk without sending hot-reload REST request
+    pub fn generate_runtime_config_file(&self) -> AppResult<PathBuf> {
         let raw_proxies = self.profile_manager.get_raw_proxies_for_all_profiles();
         let profiles = self.profile_manager.get_profiles();
         let profile_map: HashMap<String, String> = profiles
@@ -86,9 +86,17 @@ impl AppState {
         std::fs::create_dir_all(&work_dir).map_err(AppError::Io)?;
         let runtime_path = work_dir.join("runtime.yaml");
         runtime_config.write_to_file(&runtime_path)?;
+        Ok(runtime_path)
+    }
+
+    /// Synchronizes all active port listeners and proxy nodes into runtime.yaml and triggers a hot reload if the core is running
+    pub async fn sync_runtime_config(&self) -> AppResult<PathBuf> {
+        let runtime_path = self.generate_runtime_config_file()?;
 
         let core_status = self.supervisor.get_status();
-        if core_status.running {
+        let current_cfg_port = self.config.read().controller_port;
+        // Only attempt reload if core is running AND running on the configured controller port
+        if core_status.running && core_status.controller_port == current_cfg_port {
             let client = self.clash_client();
             let path_str = runtime_path.to_string_lossy().to_string();
             if let Err(err) = client.reload_config(&path_str).await {

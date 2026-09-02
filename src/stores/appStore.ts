@@ -58,10 +58,11 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   fetchStatus: async () => {
     try {
       const appStatus = await api.getAppStatus()
+      const core = appStatus.core
       set({
         appStatus,
-        coreStatus: appStatus.core,
-        error: null,
+        coreStatus: core,
+        error: core.running ? null : (core.lastError ?? null),
       })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })
@@ -146,6 +147,7 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
         error: err instanceof Error ? err.message : String(err),
         loading: false,
       })
+      throw err
     }
   },
 }))

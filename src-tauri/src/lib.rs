@@ -37,22 +37,19 @@ pub fn run() {
             info!("App local data directory: {}", app_dir.display());
             let app_state = AppState::new(app_dir);
 
-            // Auto-start core if enabled
-            let auto_start = app_state.config.read().auto_start_core;
-            if auto_start {
-                let state_clone = app_state.clone();
-                let supervisor = app_state.supervisor.clone();
-                let handle = app_handle.clone();
-                let config = app_state.config.read().clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = state_clone.sync_runtime_config().await;
-                    if let Err(err) = supervisor.start(&handle, &config) {
-                        error!("Failed to auto-start Mihomo core: {}", err);
-                    } else {
-                        info!("Mihomo core auto-started successfully");
-                    }
-                });
-            }
+            // Auto-start core on application launch
+            let state_clone = app_state.clone();
+            let supervisor = app_state.supervisor.clone();
+            let handle = app_handle.clone();
+            let config = app_state.config.read().clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = state_clone.sync_runtime_config().await;
+                if let Err(err) = supervisor.start(&handle, &config) {
+                    error!("Failed to auto-start Mihomo core: {}", err);
+                } else {
+                    info!("Mihomo core auto-started successfully");
+                }
+            });
 
             // Start background profile auto-updater
             app_state

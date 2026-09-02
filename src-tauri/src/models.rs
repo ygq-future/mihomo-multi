@@ -143,6 +143,8 @@ pub struct CoreStatus {
     pub version: Option<String>,
     pub uptime_seconds: u64,
     pub sidecar_path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -150,21 +152,8 @@ pub struct CoreStatus {
 pub struct AppConfig {
     pub controller_port: u16,
     pub controller_secret: String,
-    pub auto_start_core: bool,
     pub theme: String,
     pub log_level: String,
-    #[serde(default = "default_true")]
-    pub auto_update_enabled: bool,
-    #[serde(default = "default_check_interval_secs")]
-    pub auto_update_check_interval_secs: u64,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn default_check_interval_secs() -> u64 {
-    60
 }
 
 impl Default for AppConfig {
@@ -172,11 +161,8 @@ impl Default for AppConfig {
         Self {
             controller_port: 9999,
             controller_secret: uuid::Uuid::new_v4().to_string(),
-            auto_start_core: true,
             theme: "system".to_string(),
             log_level: "info".to_string(),
-            auto_update_enabled: true,
-            auto_update_check_interval_secs: 60,
         }
     }
 }

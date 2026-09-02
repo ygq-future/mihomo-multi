@@ -82,11 +82,8 @@ export async function getConfig(): Promise<AppConfig> {
     return {
       controllerPort: 9999,
       controllerSecret: 'mock-secret',
-      autoStartCore: true,
       theme: 'dark',
       logLevel: 'info',
-      autoUpdateEnabled: true,
-      autoUpdateCheckIntervalSecs: 60,
     }
   }
   return invoke<AppConfig>('get_config')

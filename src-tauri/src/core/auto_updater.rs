@@ -40,7 +40,7 @@ impl AutoUpdater {
         info!("Starting background profile auto-updater service...");
 
         tauri::async_runtime::spawn(async move {
-            let mut ticker = tokio::time::interval(Duration::from_secs(15));
+            let mut ticker = tokio::time::interval(Duration::from_secs(60));
             // First tick fires immediately, we consume it
             ticker.tick().await;
 
@@ -51,23 +51,9 @@ impl AutoUpdater {
                     break;
                 }
 
-                let (enabled, interval_secs) = {
-                    let cfg = app_state.config.read();
-                    (cfg.auto_update_enabled, cfg.auto_update_check_interval_secs)
-                };
-
-                if !enabled {
-                    continue;
-                }
-
                 let now = current_unix_timestamp();
-                let last = last_check.load(Ordering::Relaxed);
-
-                // Check if enough time has passed since the last full check cycle
-                if now.saturating_sub(last) >= interval_secs {
-                    last_check.store(now, Ordering::Relaxed);
-                    let _ = Self::check_and_update_eligible_profiles(&app_handle, &app_state).await;
-                }
+                last_check.store(now, Ordering::Relaxed);
+                let _ = Self::check_and_update_eligible_profiles(&app_handle, &app_state).await;
             }
 
             info!("Background profile auto-updater service stopped");
@@ -81,11 +67,6 @@ impl AutoUpdater {
 
     /// Returns current runtime status of the auto-updater.
     pub fn get_status(&self, app_state: &AppState) -> AutoUpdaterStatus {
-        let (auto_update_enabled, check_interval_secs) = {
-            let cfg = app_state.config.read();
-            (cfg.auto_update_enabled, cfg.auto_update_check_interval_secs)
-        };
-
         let profiles = app_state.profile_manager.get_profiles();
         let total_managed_profiles = profiles.len();
         let eligible_profiles_count = profiles
@@ -95,8 +76,8 @@ impl AutoUpdater {
 
         AutoUpdaterStatus {
             running: self.running.load(Ordering::Relaxed),
-            auto_update_enabled,
-            check_interval_secs,
+            auto_update_enabled: true,
+            check_interval_secs: 60,
             last_check_timestamp: self.last_check_timestamp.load(Ordering::Relaxed),
             total_managed_profiles,
             eligible_profiles_count,
