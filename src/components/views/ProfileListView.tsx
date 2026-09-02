@@ -12,7 +12,6 @@ import {
   Plus,
   RefreshCw,
   Trash2,
-  Zap,
 } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
@@ -35,9 +34,6 @@ export const ProfileListView: React.FC = () => {
     deleteProfile,
     updatingProfileIds,
     profileLoading,
-    isCheckingAutoUpdates,
-    triggerAutoUpdateCheck,
-    openAppDataDir,
     openFileInFolder,
   } = useAppStore()
 
@@ -92,24 +88,6 @@ export const ProfileListView: React.FC = () => {
     }
   }
 
-  const handleCheckAllUpdates = async () => {
-    try {
-      const results = await triggerAutoUpdateCheck()
-      const updatedCount = results.filter((r) => r.success).length
-      if (results.length === 0) {
-        toast.info('所有远程订阅均未到达设定的自动更新周期')
-      } else {
-        toast.success(
-          `检查完成：已更新 ${updatedCount} 个订阅，共扫描 ${results.length} 个配置`,
-        )
-      }
-    } catch (err) {
-      toast.error(
-        `检查更新失败：${err instanceof Error ? err.message : String(err)}`,
-      )
-    }
-  }
-
   const handleCopyLink = async (profile: ProfileItem) => {
     const textToCopy = profile.url || profile.filePath
     try {
@@ -131,16 +109,6 @@ export const ProfileListView: React.FC = () => {
     } catch (err) {
       toast.error(
         `打开文件所在目录失败：${err instanceof Error ? err.message : String(err)}`,
-      )
-    }
-  }
-
-  const handleOpenDataDirectory = async () => {
-    try {
-      await openAppDataDir()
-    } catch (err) {
-      toast.error(
-        `打开数据目录失败：${err instanceof Error ? err.message : String(err)}`,
       )
     }
   }
@@ -182,41 +150,22 @@ export const ProfileListView: React.FC = () => {
   const totalNodes = profiles.reduce((acc, p) => acc + p.nodeCount, 0)
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl">
-      {/* Action Bar */}
-      <div className="flex items-center justify-between">
+    <div className="h-full flex flex-col p-6 space-y-4 max-w-6xl overflow-hidden">
+      {/* Top Sticky Header Card */}
+      <div className="bg-card border border-border rounded-xl p-4 shadow-sm shrink-0 flex items-center justify-between gap-4">
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <div>
-            已导入配置: <b className="text-foreground">{profiles.length}</b>
+            已导入配置:{' '}
+            <b className="text-foreground font-mono">{profiles.length}</b>
           </div>
           <div>•</div>
           <div>
-            总解析节点: <b className="text-foreground">{totalNodes}</b>
+            总解析节点:{' '}
+            <b className="text-foreground font-mono">{totalNodes}</b>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {profiles.some((p) => p.type === 'remote') && (
-            <Button
-              variant="outline"
-              size="sm"
-              loading={isCheckingAutoUpdates}
-              onClick={handleCheckAllUpdates}
-              icon={<Zap className="w-3.5 h-3.5 text-amber-500" />}
-            >
-              检查更新
-            </Button>
-          )}
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleOpenDataDirectory}
-            icon={<FolderOpen className="w-3.5 h-3.5" />}
-          >
-            打开数据目录
-          </Button>
-
           <Button
             variant="secondary"
             size="sm"
@@ -237,191 +186,193 @@ export const ProfileListView: React.FC = () => {
         </div>
       </div>
 
-      {/* Profile Cards Grid / List */}
-      {profileLoading && profiles.length === 0 ? (
-        <div className="py-24 flex flex-col items-center justify-center space-y-3 text-muted-foreground">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          <span className="text-xs">正在加载订阅列表...</span>
-        </div>
-      ) : profiles.length === 0 ? (
-        /* Empty State */
-        <div className="border border-dashed border-border rounded-xl p-12 flex flex-col items-center justify-center text-center space-y-4 bg-card/30">
-          <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center">
-            <Layers className="w-6 h-6" />
+      {/* Profile Cards Scrollable Container */}
+      <div className="flex-1 overflow-y-auto pr-1 pb-2">
+        {profileLoading && profiles.length === 0 ? (
+          <div className="py-24 flex flex-col items-center justify-center space-y-3 text-muted-foreground">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <span className="text-xs">正在加载订阅列表...</span>
           </div>
-          <div className="space-y-1 max-w-sm">
-            <h3 className="text-sm font-semibold text-foreground">
-              尚未添加任何订阅配置
-            </h3>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              支持标准 Clash / Mihomo 订阅 URL 以及包含 proxies
-              的本地配置文件，系统将自动解析可用节点池并支持自动定时静默更新。
-            </p>
-          </div>
-          <div className="flex items-center gap-2 pt-2">
-            <Button
-              variant="primary"
-              onClick={() => setIsRemoteModalOpen(true)}
-              icon={<Plus className="w-3.5 h-3.5" />}
-            >
-              立即添加远程订阅
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {profiles.map((profile) => {
-            const isUpdating = updatingProfileIds[profile.id] ?? false
-            const isRemote = profile.type === 'remote'
-            const isCopied = copiedId === profile.id
-
-            return (
-              <div
-                key={profile.id}
-                className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm hover:border-primary/40 transition-all flex flex-col justify-between"
+        ) : profiles.length === 0 ? (
+          /* Empty State */
+          <div className="border border-dashed border-border rounded-xl p-12 flex flex-col items-center justify-center text-center space-y-4 bg-card/30">
+            <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+              <Layers className="w-6 h-6" />
+            </div>
+            <div className="space-y-1 max-w-sm">
+              <h3 className="text-sm font-semibold text-foreground">
+                尚未添加任何订阅配置
+              </h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                支持标准 Clash / Mihomo 订阅 URL 以及包含 proxies
+                的本地配置文件，系统将自动解析可用节点池并支持自动定时静默更新。
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-2">
+              <Button
+                variant="primary"
+                onClick={() => setIsRemoteModalOpen(true)}
+                icon={<Plus className="w-3.5 h-3.5" />}
               >
-                <div className="space-y-3">
-                  {/* Top Bar: Icon + Name + Badge */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                          isRemote
-                            ? 'bg-blue-500/10 text-blue-500'
-                            : 'bg-amber-500/10 text-amber-500'
+                立即添加远程订阅
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {profiles.map((profile) => {
+              const isUpdating = updatingProfileIds[profile.id] ?? false
+              const isRemote = profile.type === 'remote'
+              const isCopied = copiedId === profile.id
+
+              return (
+                <div
+                  key={profile.id}
+                  className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm hover:border-primary/40 transition-all flex flex-col justify-between"
+                >
+                  <div className="space-y-3">
+                    {/* Top Bar: Icon + Name + Badge */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                            isRemote
+                              ? 'bg-blue-500/10 text-blue-500'
+                              : 'bg-amber-500/10 text-amber-500'
+                          }`}
+                        >
+                          {isRemote ? (
+                            <Globe className="w-4 h-4" />
+                          ) : (
+                            <FileCode className="w-4 h-4" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <h4
+                            className="text-sm font-semibold text-foreground truncate"
+                            title={profile.name}
+                          >
+                            {profile.name}
+                          </h4>
+                          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            {isRemote ? '远程订阅' : '本地文件'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 border ${
+                          profile.nodeCount > 0
+                            ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                            : 'bg-muted text-muted-foreground border-border'
                         }`}
                       >
-                        {isRemote ? (
-                          <Globe className="w-4 h-4" />
+                        {profile.nodeCount} 节点
+                      </span>
+                    </div>
+
+                    {/* URL / Path Preview with Quick Copy */}
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground font-mono bg-background/60 border border-border/60 rounded-lg px-2.5 py-1.5">
+                      <span
+                        className="truncate flex-1"
+                        title={profile.url || profile.filePath}
+                      >
+                        {profile.url || profile.filePath}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCopyLink(profile)}
+                        title="复制链接或文件路径"
+                        className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
+                      >
+                        {isCopied ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
                         ) : (
-                          <FileCode className="w-4 h-4" />
+                          <Copy className="w-3.5 h-3.5" />
                         )}
+                      </button>
+                    </div>
+
+                    {/* Metadata Row */}
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1">
+                      <div className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{formatTimestamp(profile.lastUpdatedAt)}</span>
                       </div>
-                      <div className="min-w-0">
-                        <h4
-                          className="text-sm font-semibold text-foreground truncate"
-                          title={profile.name}
-                        >
-                          {profile.name}
-                        </h4>
-                        <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                          {isRemote ? '远程订阅' : '本地文件'}
+
+                      <div className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary/60" />
+                        <span>
+                          {formatInterval(profile.autoUpdateIntervalMins)}
                         </span>
                       </div>
                     </div>
-
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 border ${
-                        profile.nodeCount > 0
-                          ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                          : 'bg-muted text-muted-foreground border-border'
-                      }`}
-                    >
-                      {profile.nodeCount} 节点
-                    </span>
                   </div>
 
-                  {/* URL / Path Preview with Quick Copy */}
-                  <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground font-mono bg-background/60 border border-border/60 rounded-lg px-2.5 py-1.5">
-                    <span
-                      className="truncate flex-1"
-                      title={profile.url || profile.filePath}
-                    >
-                      {profile.url || profile.filePath}
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() => handleCopyLink(profile)}
-                      title="复制链接或文件路径"
-                      className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
-                    >
-                      {isCopied ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-500" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Metadata Row */}
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1">
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      <span>{formatTimestamp(profile.lastUpdatedAt)}</span>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-primary/60" />
-                      <span>
-                        {formatInterval(profile.autoUpdateIntervalMins)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card Actions */}
-                <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setNodesModalProfile(profile)}
-                    icon={<ListFilter className="w-3.5 h-3.5" />}
-                  >
-                    查看节点 ({profile.nodeCount})
-                  </Button>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenFolder(profile)}
-                      title="在文件资源管理器中定位此配置文件"
-                      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                    >
-                      <FolderOpen className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setEditingProfile(profile)}
-                      title="编辑订阅配置"
-                      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-
+                  {/* Card Actions */}
+                  <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
                     <Button
                       variant="secondary"
                       size="sm"
-                      disabled={isUpdating}
-                      onClick={() => handleRefresh(profile)}
-                      title="刷新/重新拉取订阅"
-                      icon={
-                        <RefreshCw
-                          className={`w-3.5 h-3.5 ${
-                            isUpdating ? 'animate-spin text-primary' : ''
-                          }`}
-                        />
-                      }
+                      onClick={() => setNodesModalProfile(profile)}
+                      icon={<ListFilter className="w-3.5 h-3.5" />}
                     >
-                      {isUpdating ? '更新中' : '刷新'}
+                      查看节点 ({profile.nodeCount})
                     </Button>
 
-                    <button
-                      type="button"
-                      onClick={() => setDeletingProfile(profile)}
-                      title="删除订阅"
-                      className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenFolder(profile)}
+                        title="在文件资源管理器中定位此配置文件"
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                      >
+                        <FolderOpen className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setEditingProfile(profile)}
+                        title="编辑订阅配置"
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={isUpdating}
+                        onClick={() => handleRefresh(profile)}
+                        title="刷新/重新拉取订阅"
+                        icon={
+                          <RefreshCw
+                            className={`w-3.5 h-3.5 ${
+                              isUpdating ? 'animate-spin text-primary' : ''
+                            }`}
+                          />
+                        }
+                      >
+                        {isUpdating ? '更新中' : '刷新'}
+                      </Button>
+
+                      <button
+                        type="button"
+                        onClick={() => setDeletingProfile(profile)}
+                        title="删除订阅"
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
+              )
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Modals */}
       <AddRemoteModal
