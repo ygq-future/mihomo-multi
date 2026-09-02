@@ -154,6 +154,40 @@ pub struct AppConfig {
     pub controller_secret: String,
     pub theme: String,
     pub log_level: String,
+    #[serde(default)]
+    pub allow_lan: bool,
+    #[serde(default = "default_true")]
+    pub close_to_tray: bool,
+    #[serde(default)]
+    pub auto_launch: bool,
+    #[serde(default)]
+    pub silent_start: bool,
+    #[serde(default)]
+    pub acrylic_effect: bool,
+    #[serde(default = "default_acrylic_blur")]
+    pub acrylic_blur: u8,
+    #[serde(default = "default_acrylic_opacity")]
+    pub acrylic_opacity: u8,
+    #[serde(default)]
+    pub background_image: String,
+    #[serde(default = "default_opacity")]
+    pub background_opacity: u8,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_acrylic_blur() -> u8 {
+    12
+}
+
+fn default_acrylic_opacity() -> u8 {
+    65
+}
+
+fn default_opacity() -> u8 {
+    80
 }
 
 impl Default for AppConfig {
@@ -163,6 +197,15 @@ impl Default for AppConfig {
             controller_secret: uuid::Uuid::new_v4().to_string(),
             theme: "system".to_string(),
             log_level: "info".to_string(),
+            allow_lan: false,
+            close_to_tray: true,
+            auto_launch: false,
+            silent_start: false,
+            acrylic_effect: false,
+            acrylic_blur: 12,
+            acrylic_opacity: 65,
+            background_image: String::new(),
+            background_opacity: 80,
         }
     }
 }

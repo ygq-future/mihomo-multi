@@ -29,7 +29,7 @@ export const Header: React.FC = () => {
     coreStatus,
     restartCore,
     startCore,
-    loading,
+    coreLoading,
     error,
   } = useAppStore()
   const info = tabTitles[activeTab] || tabTitles.ports
@@ -64,12 +64,12 @@ export const Header: React.FC = () => {
             <Button
               variant="secondary"
               size="sm"
-              disabled={loading}
+              disabled={coreLoading}
               onClick={() => (isRunning ? restartCore() : startCore())}
               className="text-xs py-1 h-auto border-amber-500/30 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400"
               icon={
                 <RefreshCw
-                  className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`}
+                  className={`w-3 h-3 ${coreLoading ? 'animate-spin' : ''}`}
                 />
               }
             >
@@ -89,12 +89,12 @@ export const Header: React.FC = () => {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={loading}
+                disabled={coreLoading}
                 onClick={() => startCore()}
                 className="text-xs py-1 h-auto text-rose-500 border-rose-500/30 hover:bg-rose-500/10"
                 icon={
                   <RefreshCw
-                    className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`}
+                    className={`w-3 h-3 ${coreLoading ? 'animate-spin' : ''}`}
                   />
                 }
               >

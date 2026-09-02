@@ -55,12 +55,15 @@ impl MinimalRuntimeConfig {
         controller_port: u16,
         secret: &str,
         log_level: &str,
+        allow_lan: bool,
         mappings: &[PortMapping],
         proxies: Vec<serde_yaml_ng::Value>,
         profile_names: &HashMap<String, String>,
     ) -> Self {
         let mut listeners = Vec::new();
         let mut rules = Vec::new();
+        let listen_addr = if allow_lan { "0.0.0.0" } else { "127.0.0.1" };
+        let bind_addr = if allow_lan { "*" } else { "127.0.0.1" };
 
         let available_proxy_names: HashSet<String> = proxies
             .iter()
@@ -78,7 +81,7 @@ impl MinimalRuntimeConfig {
                 name: format!("in-{}", m.port),
                 listener_type: m.protocol.to_string(),
                 port: m.port,
-                listen: "127.0.0.1".to_string(),
+                listen: listen_addr.to_string(),
             });
 
             // Resolve target proxy name
@@ -116,8 +119,8 @@ impl MinimalRuntimeConfig {
             secret: secret.to_string(),
             log_level: log_level.to_string(),
             mode: "rule".to_string(),
-            allow_lan: false,
-            bind_address: "127.0.0.1".to_string(),
+            allow_lan,
+            bind_address: bind_addr.to_string(),
             ipv6: false,
             listeners,
             proxies,
@@ -197,6 +200,7 @@ password: pass
             9999,
             "secret123",
             "info",
+            false,
             &[mapping1, mapping2, mapping_disabled],
             proxies,
             &profile_map,

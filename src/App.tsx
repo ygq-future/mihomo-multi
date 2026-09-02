@@ -9,6 +9,7 @@ import type { AutoUpdateEventPayload, PortDriftReport } from './types'
 export const App: React.FC = () => {
   const {
     fetchStatus,
+    fetchConfig,
     fetchProfiles,
     fetchPortMappings,
     fetchAutoUpdaterStatus,
@@ -17,6 +18,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     fetchStatus()
+    fetchConfig()
 
     // Periodically poll status every 3 seconds
     const interval = setInterval(() => {
@@ -86,6 +88,7 @@ export const App: React.FC = () => {
     }
   }, [
     fetchStatus,
+    fetchConfig,
     fetchProfiles,
     fetchPortMappings,
     fetchAutoUpdaterStatus,

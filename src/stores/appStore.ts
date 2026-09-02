@@ -13,7 +13,7 @@ export interface BaseAppState {
   appStatus: AppStatus | null
   coreStatus: CoreStatus | null
   config: AppConfig | null
-  loading: boolean
+  coreLoading: boolean
   error: string | null
 
   setActiveTab: (tab: TabType) => void
@@ -40,7 +40,7 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   appStatus: null,
   coreStatus: null,
   config: null,
-  loading: false,
+  coreLoading: false,
   error: null,
 
   setActiveTab: (activeTab) => set({ activeTab }),
@@ -70,7 +70,7 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   },
 
   startCore: async () => {
-    set({ loading: true, error: null })
+    set({ coreLoading: true, error: null })
     try {
       const coreStatus = await api.startCore()
       set((state) => ({
@@ -78,18 +78,18 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
         appStatus: state.appStatus
           ? { ...state.appStatus, core: coreStatus }
           : null,
-        loading: false,
+        coreLoading: false,
       }))
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : String(err),
-        loading: false,
+        coreLoading: false,
       })
     }
   },
 
   stopCore: async () => {
-    set({ loading: true, error: null })
+    set({ coreLoading: true, error: null })
     try {
       await api.stopCore()
       const coreStatus = await api.getCoreStatus()
@@ -98,18 +98,18 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
         appStatus: state.appStatus
           ? { ...state.appStatus, core: coreStatus }
           : null,
-        loading: false,
+        coreLoading: false,
       }))
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : String(err),
-        loading: false,
+        coreLoading: false,
       })
     }
   },
 
   restartCore: async () => {
-    set({ loading: true, error: null })
+    set({ coreLoading: true, error: null })
     try {
       const coreStatus = await api.restartCore()
       set((state) => ({
@@ -117,12 +117,12 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
         appStatus: state.appStatus
           ? { ...state.appStatus, core: coreStatus }
           : null,
-        loading: false,
+        coreLoading: false,
       }))
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : String(err),
-        loading: false,
+        coreLoading: false,
       })
     }
   },
@@ -137,15 +137,13 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   },
 
   saveConfig: async (config) => {
-    set({ loading: true, error: null })
     try {
       await api.saveConfig(config)
-      set({ config, loading: false })
+      set({ config })
       await get().fetchStatus()
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : String(err),
-        loading: false,
       })
       throw err
     }

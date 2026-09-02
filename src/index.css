@@ -114,3 +114,20 @@ input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/* Acrylic Glassmorphism Global Penetration */
+[data-acrylic="true"] .bg-card,
+[data-acrylic="true"] aside,
+[data-acrylic="true"] header {
+  background-color: hsl(var(--card) / var(--acrylic-opacity, 0.65)) !important;
+  backdrop-filter: blur(var(--acrylic-blur, 12px)) !important;
+  -webkit-backdrop-filter: blur(var(--acrylic-blur, 12px)) !important;
+}
+
+[data-acrylic="true"] .bg-background\/50,
+[data-acrylic="true"] .bg-secondary\/60,
+[data-acrylic="true"] .bg-secondary\/30 {
+  background-color: hsl(var(--secondary) / var(--acrylic-opacity, 0.5)) !important;
+  backdrop-filter: blur(var(--acrylic-blur, 12px)) !important;
+  -webkit-backdrop-filter: blur(var(--acrylic-blur, 12px)) !important;
+}

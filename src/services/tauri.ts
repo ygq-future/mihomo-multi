@@ -82,8 +82,17 @@ export async function getConfig(): Promise<AppConfig> {
     return {
       controllerPort: 9999,
       controllerSecret: 'mock-secret',
-      theme: 'dark',
+      theme: 'system',
       logLevel: 'info',
+      allowLan: false,
+      closeToTray: true,
+      autoLaunch: false,
+      silentStart: false,
+      acrylicEffect: false,
+      acrylicBlur: 12,
+      acrylicOpacity: 65,
+      backgroundImage: '',
+      backgroundOpacity: 80,
     }
   }
   return invoke<AppConfig>('get_config')

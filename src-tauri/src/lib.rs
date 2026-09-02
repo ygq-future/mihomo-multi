@@ -5,6 +5,7 @@ pub mod core;
 pub mod error;
 pub mod models;
 pub mod state;
+pub mod tray;
 
 use commands::*;
 use state::AppState;
@@ -36,6 +37,19 @@ pub fn run() {
 
             info!("App local data directory: {}", app_dir.display());
             let app_state = AppState::new(app_dir);
+
+            // Create system tray icon and native menu
+            if let Err(e) = tray::create_tray(app_handle) {
+                error!("Failed to create system tray: {}", e);
+            }
+
+            // Silent start check
+            let args: Vec<String> = std::env::args().collect();
+            let is_silent = args.iter().any(|a| a == "--silent" || a == "-s") || app_state.config.read().silent_start;
+            if is_silent && let Some(main_win) = app_handle.get_webview_window("main") {
+                let _ = main_win.hide();
+                info!("Silent start mode: main window minimized to tray on launch");
+            }
 
             // Auto-start core on application launch
             let state_clone = app_state.clone();
@@ -91,14 +105,24 @@ pub fn run() {
             open_file_in_folder,
             get_app_dir,
         ])
-        .on_window_event(|window, event| {
-            if matches!(event, tauri::WindowEvent::Destroyed)
-                && let Some(state) = window.try_state::<AppState>()
-            {
-                info!("Window destroyed, ensuring sidecar process and background services are terminated");
-                state.auto_updater.stop();
-                let _ = state.supervisor.stop();
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                if let Some(state) = window.try_state::<AppState>()
+                    && state.config.read().close_to_tray
+                {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    info!("Window close prevented, minimized to system tray");
+                }
             }
+            tauri::WindowEvent::Destroyed => {
+                if let Some(state) = window.try_state::<AppState>() {
+                    info!("Window destroyed, ensuring sidecar process and background services are terminated");
+                    state.auto_updater.stop();
+                    let _ = state.supervisor.stop();
+                }
+            }
+            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

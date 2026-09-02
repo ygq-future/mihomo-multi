@@ -96,6 +96,15 @@ export interface AppConfig {
   controllerSecret: string
   theme: string
   logLevel: string
+  allowLan: boolean
+  closeToTray: boolean
+  autoLaunch: boolean
+  silentStart: boolean
+  acrylicEffect: boolean
+  acrylicBlur: number
+  acrylicOpacity: number
+  backgroundImage: string
+  backgroundOpacity: number
 }
 
 export interface AppStatus {

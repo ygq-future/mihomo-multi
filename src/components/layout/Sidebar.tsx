@@ -19,7 +19,7 @@ export const Sidebar: React.FC = () => {
     toggleSidebar,
     coreStatus,
     restartCore,
-    loading,
+    coreLoading,
   } = useAppStore()
 
   const isRunning = coreStatus?.running ?? false
@@ -130,13 +130,13 @@ export const Sidebar: React.FC = () => {
           <Button
             variant="ghost"
             size="sm"
-            disabled={loading}
+            disabled={coreLoading}
             onClick={() => restartCore()}
             title="重启内核"
             className="p-1.5 h-auto text-muted-foreground hover:text-foreground hover:bg-accent"
             icon={
               <RefreshCw
-                className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`}
+                className={`w-3.5 h-3.5 ${coreLoading ? 'animate-spin' : ''}`}
               />
             }
           />
@@ -173,12 +173,12 @@ export const Sidebar: React.FC = () => {
           <Button
             variant="secondary"
             size="sm"
-            disabled={loading}
+            disabled={coreLoading}
             onClick={() => restartCore()}
             className="w-full text-xs"
             icon={
               <RefreshCw
-                className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`}
+                className={`w-3 h-3 ${coreLoading ? 'animate-spin' : ''}`}
               />
             }
           >

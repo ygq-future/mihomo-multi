@@ -77,6 +77,7 @@ impl AppState {
             cfg.controller_port,
             &cfg.controller_secret,
             &cfg.log_level,
+            cfg.allow_lan,
             &mappings,
             raw_proxies,
             &profile_map,

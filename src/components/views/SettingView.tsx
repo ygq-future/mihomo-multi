@@ -2,17 +2,28 @@ import {
   AlertTriangle,
   Cpu,
   FolderOpen,
+  Image as ImageIcon,
+  Monitor,
+  Moon,
+  Network,
+  Palette,
   Play,
+  Power,
   RefreshCw,
+  Sliders,
+  Sparkles,
   Square,
+  Sun,
   Terminal,
+  Trash2,
+  Upload,
 } from 'lucide-react'
 import type React from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import { formatUptime } from '../../utils/time'
-import { Button, Input, Select } from '../common'
+import { Button, Input, Segmented, Select, Switch, toast } from '../common'
 
 const logLevelOptions = [
   { value: 'info', label: 'Info (标准信息)' },
@@ -20,6 +31,20 @@ const logLevelOptions = [
   { value: 'error', label: 'Error (仅错误)' },
   { value: 'debug', label: 'Debug (详细调试)' },
   { value: 'silent', label: 'Silent (静默)' },
+]
+
+const themeOptions = [
+  { value: 'dark', label: '暗黑模式', icon: <Moon className="w-3.5 h-3.5" /> },
+  {
+    value: 'light',
+    label: '明亮模式',
+    icon: <Sun className="w-3.5 h-3.5" />,
+  },
+  {
+    value: 'system',
+    label: '跟随系统',
+    icon: <Monitor className="w-3.5 h-3.5" />,
+  },
 ]
 
 export const SettingView: React.FC = () => {
@@ -32,20 +57,50 @@ export const SettingView: React.FC = () => {
     fetchConfig,
     saveConfig,
     openAppDataDir,
-    loading,
+    coreLoading,
   } = useAppStore()
 
   const [controllerPortInput, setControllerPortInput] = useState<string>('9999')
   const [portError, setPortError] = useState<string | null>(null)
   const [logLevel, setLogLevel] = useState<string>('info')
+  const [allowLan, setAllowLan] = useState<boolean>(false)
+
+  // Appearance & Personalization
+  const [theme, setTheme] = useState<string>('system')
+  const [acrylicEffect, setAcrylicEffect] = useState<boolean>(false)
+  const [acrylicBlur, setAcrylicBlur] = useState<number>(12)
+  const [acrylicOpacity, setAcrylicOpacity] = useState<number>(65)
+  const [bgImage, setBgImage] = useState<string>('')
+  const [bgOpacity, setBgOpacity] = useState<number>(80)
+
+  // System & Window
+  const [closeToTray, setCloseToTray] = useState<boolean>(true)
+  const [autoLaunch, setAutoLaunch] = useState<boolean>(false)
+  const [silentStart, setSilentStart] = useState<boolean>(false)
+
   const [appDataDir, setAppDataDir] = useState<string>('')
   const [liveUptime, setLiveUptime] = useState<number>(0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const isRunning = coreStatus?.running ?? false
   const portNeedsRestart =
     config?.controllerPort !== undefined &&
     coreStatus?.controllerPort !== undefined &&
     config.controllerPort !== coreStatus.controllerPort
+
+  const debouncedSaveConfig = (updater: (prev: typeof config) => void) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+    }
+    debounceTimerRef.current = setTimeout(async () => {
+      const cur = useAppStore.getState().config
+      if (!cur) return
+      const next = { ...cur }
+      updater(next)
+      await saveConfig(next)
+    }, 150)
+  }
 
   useEffect(() => {
     fetchConfig()
@@ -59,6 +114,16 @@ export const SettingView: React.FC = () => {
     if (config) {
       setControllerPortInput(String(config.controllerPort))
       setLogLevel(config.logLevel)
+      setAllowLan(config.allowLan ?? false)
+      setTheme(config.theme ?? 'system')
+      setAcrylicEffect(config.acrylicEffect ?? false)
+      setAcrylicBlur(config.acrylicBlur ?? 12)
+      setAcrylicOpacity(config.acrylicOpacity ?? 65)
+      setBgImage(config.backgroundImage ?? '')
+      setBgOpacity(config.backgroundOpacity ?? 80)
+      setCloseToTray(config.closeToTray ?? true)
+      setAutoLaunch(config.autoLaunch ?? false)
+      setSilentStart(config.silentStart ?? false)
     }
   }, [config])
 
@@ -90,6 +155,129 @@ export const SettingView: React.FC = () => {
     await saveConfig({
       ...config,
       logLevel: levelStr,
+    })
+  }
+
+  const handleAllowLanToggle = async (checked: boolean) => {
+    setAllowLan(checked)
+    if (!config) return
+    await saveConfig({
+      ...config,
+      allowLan: checked,
+    })
+    toast.success(
+      checked
+        ? '已开启局域网连接 (0.0.0.0)'
+        : '已恢复为仅监听本机回环 (127.0.0.1)',
+    )
+  }
+
+  const handleThemeChange = async (newTheme: string) => {
+    setTheme(newTheme)
+    if (!config) return
+    await saveConfig({
+      ...config,
+      theme: newTheme,
+    })
+  }
+
+  const handleAcrylicToggle = async (checked: boolean) => {
+    setAcrylicEffect(checked)
+    if (!config) return
+    await saveConfig({
+      ...config,
+      acrylicEffect: checked,
+    })
+  }
+
+  const handleAcrylicBlurChange = (val: number) => {
+    setAcrylicBlur(val)
+    document.documentElement.style.setProperty('--acrylic-blur', `${val}px`)
+    debouncedSaveConfig((prev) => {
+      if (prev) prev.acrylicBlur = val
+    })
+  }
+
+  const handleAcrylicOpacityChange = (val: number) => {
+    setAcrylicOpacity(val)
+    document.documentElement.style.setProperty(
+      '--acrylic-opacity',
+      `${val / 100}`,
+    )
+    debouncedSaveConfig((prev) => {
+      if (prev) prev.acrylicOpacity = val
+    })
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('请选择有效的图片格式文件 (PNG, JPG, WebP 等)')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const dataUrl = reader.result as string
+      setBgImage(dataUrl)
+      if (config) {
+        await saveConfig({
+          ...config,
+          backgroundImage: dataUrl,
+        })
+        toast.success('背景壁纸已成功应用')
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleClearBgImage = async () => {
+    setBgImage('')
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+    if (!config) return
+    await saveConfig({
+      ...config,
+      backgroundImage: '',
+    })
+    toast.info('背景壁纸已清除')
+  }
+
+  const handleBgOpacityChange = (val: number) => {
+    setBgOpacity(val)
+    debouncedSaveConfig((prev) => {
+      if (prev) prev.backgroundOpacity = val
+    })
+  }
+
+  const handleCloseToTrayToggle = async (checked: boolean) => {
+    setCloseToTray(checked)
+    if (!config) return
+    await saveConfig({
+      ...config,
+      closeToTray: checked,
+    })
+  }
+
+  const handleAutoLaunchToggle = async (checked: boolean) => {
+    setAutoLaunch(checked)
+    if (!config) return
+    await saveConfig({
+      ...config,
+      autoLaunch: checked,
+    })
+    toast.success(checked ? '已开启开机自启动' : '已关闭开机自启动')
+  }
+
+  const handleSilentStartToggle = async (checked: boolean) => {
+    setSilentStart(checked)
+    if (!config) return
+    await saveConfig({
+      ...config,
+      silentStart: checked,
     })
   }
 
@@ -128,17 +316,17 @@ export const SettingView: React.FC = () => {
 
   return (
     <div className="p-6 space-y-6 max-w-4xl">
-      {/* Unified Mihomo Core & Controller Card */}
+      {/* 1. Unified Mihomo Core & Controller Card */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
         <div className="flex items-center justify-between pb-3 border-b border-border">
           <div className="flex items-center gap-2.5">
             <Cpu className="w-5 h-5 text-primary" />
             <div>
               <h3 className="text-sm font-semibold text-foreground">
-                Mihomo 内核与控制器
+                Mihomo 内核与网络
               </h3>
               <p className="text-xs text-muted-foreground">
-                伴生子进程生命周期守护与外部控制器通信参数配置
+                伴生子进程生命周期守护与网络监听通信配置
               </p>
             </div>
           </div>
@@ -148,7 +336,7 @@ export const SettingView: React.FC = () => {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={loading}
+                disabled={coreLoading}
                 onClick={() => stopCore()}
                 className="text-rose-500 hover:bg-rose-500/10 border-rose-500/20"
                 icon={<Square className="w-3.5 h-3.5 fill-current" />}
@@ -159,7 +347,7 @@ export const SettingView: React.FC = () => {
               <Button
                 variant="primary"
                 size="sm"
-                disabled={loading}
+                disabled={coreLoading}
                 onClick={() => startCore()}
                 className="bg-emerald-600 hover:bg-emerald-500 text-white"
                 icon={<Play className="w-3.5 h-3.5 fill-current" />}
@@ -171,11 +359,11 @@ export const SettingView: React.FC = () => {
             <Button
               variant="secondary"
               size="sm"
-              disabled={loading}
+              disabled={coreLoading}
               onClick={() => restartCore()}
               icon={
                 <RefreshCw
-                  className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`}
+                  className={`w-3.5 h-3.5 ${coreLoading ? 'animate-spin' : ''}`}
                 />
               }
             >
@@ -241,7 +429,7 @@ export const SettingView: React.FC = () => {
           </div>
         )}
 
-        {/* Controller Configuration */}
+        {/* Network & Controller Configuration */}
         <div className="space-y-4 pt-3 border-t border-border">
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
@@ -303,10 +491,288 @@ export const SettingView: React.FC = () => {
               />
             </div>
           </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                <Network className="w-3.5 h-3.5 text-primary" />
+                允许局域网连接 (0.0.0.0)
+              </span>
+              <p className="text-[11px] text-muted-foreground">
+                开启后端口映射将监听所有网卡接口，允许局域网/虚拟机设备连接；关闭时仅监听本机回环地址
+                (127.0.0.1)
+              </p>
+            </div>
+            <Switch
+              checked={allowLan}
+              onChange={handleAllowLanToggle}
+              size="md"
+            />
+          </div>
         </div>
       </div>
 
-      {/* Storage & Directories Card */}
+      {/* 2. Appearance & Personalization Card */}
+      <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
+        <div className="pb-3 border-b border-border">
+          <div className="flex items-center gap-2.5">
+            <Palette className="w-5 h-5 text-primary" />
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
+                外观与个性化
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                自定义应用界面主题、磨砂亚克力玻璃质感与背景壁纸
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* Theme Selector */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <span className="text-xs font-medium text-foreground">
+                界面主题
+              </span>
+              <p className="text-[11px] text-muted-foreground">
+                选择客户端明亮、暗黑或跟随操作系统自动切换
+              </p>
+            </div>
+            <Segmented
+              value={theme}
+              onChange={handleThemeChange}
+              options={themeOptions}
+              size="md"
+            />
+          </div>
+
+          {/* Acrylic Effect Toggle */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                磨砂亚克力玻璃质感 (Acrylic Glass)
+              </span>
+              <p className="text-[11px] text-muted-foreground">
+                为所有面板与侧边栏开启半透明毛玻璃透光与模糊效果
+              </p>
+            </div>
+            <Switch
+              checked={acrylicEffect}
+              onChange={handleAcrylicToggle}
+              size="md"
+            />
+          </div>
+
+          {/* Acrylic Sub-Parameters */}
+          {acrylicEffect && (
+            <div className="p-3.5 rounded-xl bg-background/50 border border-border space-y-3.5 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5 text-muted-foreground" />
+                    玻璃模糊度 (Blur)
+                  </span>
+                  <p className="text-[11px] text-muted-foreground">
+                    调节背部背景的毛玻璃模糊程度 ({acrylicBlur}px)
+                  </p>
+                </div>
+                <div className="w-48 flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={0}
+                    max={30}
+                    step={1}
+                    value={acrylicBlur}
+                    onChange={(e) =>
+                      handleAcrylicBlurChange(Number(e.target.value))
+                    }
+                    className="w-full accent-primary cursor-pointer"
+                  />
+                  <span className="text-xs font-mono w-10 text-right font-medium">
+                    {acrylicBlur}px
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/50">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5 text-muted-foreground" />
+                    面板透明度 (Opacity)
+                  </span>
+                  <p className="text-[11px] text-muted-foreground">
+                    调节卡片底色的透光不透明度 ({acrylicOpacity}%)
+                  </p>
+                </div>
+                <div className="w-48 flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={20}
+                    max={100}
+                    step={5}
+                    value={acrylicOpacity}
+                    onChange={(e) =>
+                      handleAcrylicOpacityChange(Number(e.target.value))
+                    }
+                    className="w-full accent-primary cursor-pointer"
+                  />
+                  <span className="text-xs font-mono w-10 text-right font-medium">
+                    {acrylicOpacity}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Custom Background Image Picker */}
+          <div className="space-y-2 pt-1 border-t border-border">
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-primary" />
+                  自定义背景壁纸
+                </span>
+                <p className="text-[11px] text-muted-foreground">
+                  从本地电脑选择一张图片作为客户端全景底图
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  icon={<Upload className="w-3.5 h-3.5" />}
+                >
+                  {bgImage ? '更换壁纸' : '选择本地图片'}
+                </Button>
+
+                {bgImage && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleClearBgImage}
+                    className="text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
+                    icon={<Trash2 className="w-3.5 h-3.5" />}
+                  >
+                    清除壁纸
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Background Image Opacity Slider */}
+            {bgImage && (
+              <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-background/50 border border-border mt-2 animate-in fade-in duration-200">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5 text-muted-foreground" />
+                    壁纸不透明度 (Image Opacity)
+                  </span>
+                  <p className="text-[11px] text-muted-foreground">
+                    调节底层壁纸本身的显隐明暗程度 ({bgOpacity}%)
+                  </p>
+                </div>
+                <div className="w-48 flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={10}
+                    max={100}
+                    step={5}
+                    value={bgOpacity}
+                    onChange={(e) =>
+                      handleBgOpacityChange(Number(e.target.value))
+                    }
+                    className="w-full accent-primary cursor-pointer"
+                  />
+                  <span className="text-xs font-mono w-10 text-right font-medium">
+                    {bgOpacity}%
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Window & Auto-Launch Card */}
+      <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
+        <div className="pb-3 border-b border-border">
+          <div className="flex items-center gap-2.5">
+            <Power className="w-5 h-5 text-primary" />
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
+                窗口与系统启动
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                管理系统托盘常驻模式与开机自启动行为
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-xs font-medium text-foreground">
+                关闭窗口时最小化到系统托盘
+              </span>
+              <p className="text-[11px] text-muted-foreground">
+                点击窗口关闭按钮 (X) 时隐藏窗口并保持后台代理运行，不退出程序
+              </p>
+            </div>
+            <Switch
+              checked={closeToTray}
+              onChange={handleCloseToTrayToggle}
+              size="md"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-xs font-medium text-foreground">
+                开机自动启动
+              </span>
+              <p className="text-[11px] text-muted-foreground">
+                操作系统启动后自动拉起 Mihomo Multi 客户端
+              </p>
+            </div>
+            <Switch
+              checked={autoLaunch}
+              onChange={handleAutoLaunchToggle}
+              size="md"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-xs font-medium text-foreground">
+                静默启动模式
+              </span>
+              <p className="text-[11px] text-muted-foreground">
+                程序启动时自动最小化至系统托盘，不主动弹出主窗口
+              </p>
+            </div>
+            <Switch
+              checked={silentStart}
+              onChange={handleSilentStartToggle}
+              size="md"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Storage & Directories Card */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm">
         <div className="flex items-center justify-between pb-3 border-b border-border">
           <div>

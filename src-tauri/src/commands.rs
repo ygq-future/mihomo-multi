@@ -98,6 +98,16 @@ pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Resul
     if let Ok(json) = serde_json::to_string_pretty(&config) {
         let _ = std::fs::write(config_path, json);
     }
+
+    // Sync Windows autostart configuration
+    if let Ok(exe_path) = std::env::current_exe() {
+        if config.auto_launch {
+            let _ = crate::core::autostart::enable_autostart(&exe_path, config.silent_start);
+        } else {
+            let _ = crate::core::autostart::disable_autostart();
+        }
+    }
+
     let _ = state.sync_runtime_config().await;
     Ok(())
 }
