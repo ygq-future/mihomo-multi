@@ -219,7 +219,7 @@ export const ProfileListView: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
             {profiles.map((profile) => {
               const isUpdating = updatingProfileIds[profile.id] ?? false
               const isRemote = profile.type === 'remote'
@@ -228,40 +228,40 @@ export const ProfileListView: React.FC = () => {
               return (
                 <div
                   key={profile.id}
-                  className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm hover:border-primary/40 transition-all flex flex-col justify-between"
+                  className="bg-card border border-border rounded-xl p-3.5 space-y-2.5 shadow-sm hover:border-primary/40 transition-all flex flex-col justify-between group"
                 >
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {/* Top Bar: Icon + Name + Badge */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
                         <div
-                          className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
                             isRemote
                               ? 'bg-blue-500/10 text-blue-500'
                               : 'bg-amber-500/10 text-amber-500'
                           }`}
                         >
                           {isRemote ? (
-                            <Globe className="w-4 h-4" />
+                            <Globe className="w-3.5 h-3.5" />
                           ) : (
-                            <FileCode className="w-4 h-4" />
+                            <FileCode className="w-3.5 h-3.5" />
                           )}
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <h4
-                            className="text-sm font-semibold text-foreground truncate"
+                            className="text-xs font-semibold text-foreground truncate"
                             title={profile.name}
                           >
                             {profile.name}
                           </h4>
-                          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                          <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                             {isRemote ? '远程订阅' : '本地文件'}
                           </span>
                         </div>
                       </div>
 
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 border ${
+                        className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium shrink-0 border ${
                           profile.nodeCount > 0
                             ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
                             : 'bg-muted text-muted-foreground border-border'
@@ -272,7 +272,7 @@ export const ProfileListView: React.FC = () => {
                     </div>
 
                     {/* URL / Path Preview with Quick Copy */}
-                    <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground font-mono bg-background/60 border border-border/60 rounded-lg px-2.5 py-1.5">
+                    <div className="flex items-center justify-between gap-1.5 text-[10px] text-muted-foreground font-mono bg-background/60 border border-border/60 rounded-lg px-2 py-1">
                       <span
                         className="truncate flex-1"
                         title={profile.url || profile.filePath}
@@ -284,20 +284,20 @@ export const ProfileListView: React.FC = () => {
                         type="button"
                         onClick={() => handleCopyLink(profile)}
                         title="复制链接或文件路径"
-                        className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
+                        className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
                       >
                         {isCopied ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          <Check className="w-3 h-3 text-emerald-500" />
                         ) : (
-                          <Copy className="w-3.5 h-3.5" />
+                          <Copy className="w-3 h-3" />
                         )}
                       </button>
                     </div>
 
                     {/* Metadata Row */}
-                    <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1">
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-0.5">
                       <div className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
+                        <Clock className="w-2.5 h-2.5" />
                         <span>{formatTimestamp(profile.lastUpdatedAt)}</span>
                       </div>
 
@@ -311,33 +311,34 @@ export const ProfileListView: React.FC = () => {
                   </div>
 
                   {/* Card Actions */}
-                  <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
+                  <div className="pt-2 border-t border-border/50 flex items-center justify-between gap-1.5">
                     <Button
                       variant="secondary"
                       size="sm"
+                      className="!text-[10px] !px-2 !py-0.5 h-6 gap-1"
                       onClick={() => setNodesModalProfile(profile)}
-                      icon={<ListFilter className="w-3.5 h-3.5" />}
+                      icon={<ListFilter className="w-3 h-3" />}
                     >
                       查看节点 ({profile.nodeCount})
                     </Button>
 
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-0.5">
                       <button
                         type="button"
                         onClick={() => handleOpenFolder(profile)}
                         title="在文件资源管理器中定位此配置文件"
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                       >
-                        <FolderOpen className="w-3.5 h-3.5" />
+                        <FolderOpen className="w-3 h-3" />
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setEditingProfile(profile)}
                         title="编辑订阅配置"
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                       >
-                        <Pencil className="w-3.5 h-3.5" />
+                        <Pencil className="w-3 h-3" />
                       </button>
 
                       <Button
@@ -346,9 +347,10 @@ export const ProfileListView: React.FC = () => {
                         disabled={isUpdating}
                         onClick={() => handleRefresh(profile)}
                         title="刷新/重新拉取订阅"
+                        className="!text-[10px] !px-1.5 !py-0.5 h-6 gap-1"
                         icon={
                           <RefreshCw
-                            className={`w-3.5 h-3.5 ${
+                            className={`w-3 h-3 ${
                               isUpdating ? 'animate-spin text-primary' : ''
                             }`}
                           />
@@ -361,9 +363,9 @@ export const ProfileListView: React.FC = () => {
                         type="button"
                         onClick={() => setDeletingProfile(profile)}
                         title="删除订阅"
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
