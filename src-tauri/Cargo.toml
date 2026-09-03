@@ -17,6 +17,7 @@ tauri = { version = "2.2.0", features = ["tray-icon", "image-png", "image-ico"] 
 tauri-plugin-shell = "2.2.0"
 tauri-plugin-process = "2.2.0"
 tauri-plugin-window-state = "2"
+socket2 = "0.5"
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.139"
 serde_yaml_ng = "0.10.0"
@@ -37,6 +38,8 @@ windows-sys = { version = "0.59.0", features = [
     "Win32_System_JobObjects",
     "Win32_System_Threading",
     "Win32_Security",
+    "Win32_Networking_WinSock",
+    "Win32_NetworkManagement_IpHelper",
 ] }
 
 [target.'cfg(unix)'.dependencies]

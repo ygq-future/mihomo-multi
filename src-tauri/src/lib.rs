@@ -86,6 +86,7 @@ pub fn run() {
             stop_core,
             restart_core,
             check_port_available,
+            get_next_available_port,
             get_config,
             save_config,
             get_port_mappings,

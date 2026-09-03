@@ -38,6 +38,7 @@ export const ProxyGridView: React.FC = () => {
     fetchProfiles,
     profileNodes,
     fetchProfileNodes,
+    portMappings,
     setActiveTab,
     latencies,
     testingNodeNames,
@@ -136,6 +137,15 @@ export const ProxyGridView: React.FC = () => {
       // ignore storage error
     }
   }
+
+  // Map of currently bound nodes to their assigned port
+  const boundNodeMap = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const m of portMappings) {
+      map.set(`${m.profileId}_${m.nodeName}`, m.port)
+    }
+    return map
+  }, [portMappings])
 
   // Collect all augmented nodes across profiles
   const allNodes = useMemo<AugmentedNode[]>(() => {
@@ -562,22 +572,43 @@ export const ProxyGridView: React.FC = () => {
                         </Badge>
                       </button>
 
-                      {/* Quick Bind Button */}
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="!text-[10px] !px-2 !py-0.5 h-5 gap-1"
-                        onClick={() =>
-                          setQuickBindNode({
-                            profileId: node.profileId,
-                            nodeName: node.name,
-                          })
-                        }
-                        icon={<Network className="w-2.5 h-2.5" />}
-                        title="绑定到本地入站端口"
-                      >
-                        绑定
-                      </Button>
+                      {/* Quick Bind Button (Disabled if already bound) */}
+                      {(() => {
+                        const boundPort = boundNodeMap.get(
+                          `${node.profileId}_${node.name}`,
+                        )
+                        const isBound = boundPort !== undefined
+                        return (
+                          <Button
+                            variant={isBound ? 'outline' : 'secondary'}
+                            size="sm"
+                            disabled={isBound}
+                            className={`!text-[10px] !px-2 !py-0.5 h-5 gap-1 ${
+                              isBound
+                                ? 'opacity-40 text-muted-foreground bg-secondary/30'
+                                : ''
+                            }`}
+                            onClick={() =>
+                              setQuickBindNode({
+                                profileId: node.profileId,
+                                nodeName: node.name,
+                              })
+                            }
+                            icon={
+                              isBound ? undefined : (
+                                <Network className="w-2.5 h-2.5" />
+                              )
+                            }
+                            title={
+                              isBound
+                                ? `该节点已绑定到端口 ${boundPort}`
+                                : '绑定到本地入站端口'
+                            }
+                          >
+                            {isBound ? `已绑 ${boundPort}` : '绑定'}
+                          </Button>
+                        )
+                      })()}
                     </div>
                   </div>
                 </div>

@@ -20,7 +20,7 @@ export interface PortMapping {
   profileId: string
   nodeName: string
   enabled: boolean
-  latency?: number
+  latency?: number | null
   description?: string
 }
 
@@ -29,7 +29,7 @@ export interface ProxyNode {
   type: string
   server: string
   port: number
-  latency?: number
+  latency?: number | null
   profileId?: string
   profileName?: string
   runtimeName?: string
@@ -37,7 +37,7 @@ export interface ProxyNode {
 
 export interface NodeLatencyResult {
   name: string
-  latency?: number
+  latency?: number | null
   error?: string
 }
 

@@ -14,6 +14,8 @@ export interface SelectOption<T = string | number> {
   label: string
   icon?: React.ReactNode
   description?: string
+  disabled?: boolean
+  rightNode?: React.ReactNode
 }
 
 export interface SelectProps<T = string | number> {
@@ -178,23 +180,29 @@ export function Select<T extends string | number = string | number>({
             <div className="space-y-0.5">
               {options.map((opt) => {
                 const isSelected = opt.value === value
+                const isDisabled = opt.disabled ?? false
                 return (
                   <button
                     key={String(opt.value)}
                     type="button"
+                    disabled={isDisabled}
                     onClick={() => {
-                      onChange(opt.value)
-                      setIsOpen(false)
+                      if (!isDisabled) {
+                        onChange(opt.value)
+                        setIsOpen(false)
+                      }
                     }}
-                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs transition-colors text-left ${
-                      isSelected
-                        ? 'bg-primary/10 text-primary font-medium'
-                        : 'text-foreground hover:bg-accent hover:text-accent-foreground'
+                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors text-left ${
+                      isDisabled
+                        ? 'opacity-40 cursor-not-allowed text-muted-foreground select-none'
+                        : isSelected
+                          ? 'bg-primary/10 text-primary font-medium'
+                          : 'text-foreground hover:bg-accent hover:text-accent-foreground'
                     }`}
                   >
-                    <div className="flex items-center gap-2 truncate min-w-0">
+                    <div className="flex items-center gap-2 truncate min-w-0 flex-1">
                       {opt.icon}
-                      <div className="truncate">
+                      <div className="truncate flex-1">
                         <div className="truncate">{opt.label}</div>
                         {opt.description && (
                           <div className="text-[10px] text-muted-foreground truncate">
@@ -204,9 +212,12 @@ export function Select<T extends string | number = string | number>({
                       </div>
                     </div>
 
-                    {isSelected && (
-                      <Check className="w-3.5 h-3.5 text-primary shrink-0" />
-                    )}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {opt.rightNode}
+                      {isSelected && !opt.rightNode && (
+                        <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                      )}
+                    </div>
                   </button>
                 )
               })}

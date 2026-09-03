@@ -55,8 +55,33 @@ pub async fn restart_core(app: AppHandle, state: State<'_, AppState>) -> Result<
 }
 
 #[tauri::command]
-pub async fn check_port_available(port: u16) -> Result<bool, String> {
-    Ok(is_port_available(port))
+pub async fn check_port_available(
+    port: u16,
+    exclude_mapping_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    // 1. Check if the port is already used in our own port mappings
+    let mappings = state.port_manager.get_port_mappings();
+    for m in mappings {
+        if m.port == port {
+            if let Some(ref eid) = exclude_mapping_id
+                && &m.id == eid
+            {
+                continue; // Skip self if editing
+            }
+            // Already bound by ourselves, return false immediately
+            return Ok(false);
+        }
+    }
+
+    // 2. Check if it matches our controller port
+    if port == state.config.read().controller_port {
+        return Ok(false);
+    }
+
+    // 3. Perform socket bind probe accounting for allow_lan setting
+    let allow_lan = state.config.read().allow_lan;
+    Ok(crate::core::port_probe::is_port_available_with_lan(port, allow_lan))
 }
 
 #[tauri::command]
@@ -122,10 +147,82 @@ pub async fn get_port_mappings(state: State<'_, AppState>) -> Result<Vec<PortMap
 }
 
 #[tauri::command]
+pub async fn get_next_available_port(
+    start_port: Option<u16>,
+    exclude_mapping_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<u16, String> {
+    let start = start_port.unwrap_or(7891);
+    let allow_lan = state.config.read().allow_lan;
+    let controller_port = state.config.read().controller_port;
+    let mappings = state.port_manager.get_port_mappings();
+
+    let used_ports: std::collections::HashSet<u16> = mappings
+        .into_iter()
+        .filter(|m| {
+            if let Some(ref eid) = exclude_mapping_id {
+                &m.id != eid
+            } else {
+                true
+            }
+        })
+        .map(|m| m.port)
+        .collect();
+
+    for candidate in start..=u16::MAX {
+        // 1. Check if used in our own port mappings
+        if used_ports.contains(&candidate) {
+            continue;
+        }
+
+        // 2. Check if equals controller port
+        if candidate == controller_port {
+            continue;
+        }
+
+        // 3. Check socket availability accounting for allow_lan
+        if !crate::core::port_probe::is_port_available_with_lan(candidate, allow_lan) {
+            continue;
+        }
+
+        // Found 100% available port
+        return Ok(candidate);
+    }
+
+    Err("未能在可用范围内找到空闲端口".to_string())
+}
+
+#[tauri::command]
 pub async fn save_port_mapping(
     mapping: PortMapping,
     state: State<'_, AppState>,
 ) -> Result<PortMapping, String> {
+    // 1:1 Strict Node Binding Invariant: A node can only be bound by a single port listener
+    let mappings = state.port_manager.get_port_mappings();
+    for m in &mappings {
+        if m.profile_id == mapping.profile_id && m.node_name == mapping.node_name {
+            if !mapping.id.is_empty() && m.id == mapping.id {
+                continue; // Skip self if editing
+            }
+            return Err(format!(
+                "代理节点「{}」已绑定到端口 {}，不可重复绑定至其他端口",
+                mapping.node_name, m.port
+            ));
+        }
+    }
+
+    // If saving an enabled mapping, probe port availability first
+    if mapping.enabled {
+        let allow_lan = state.config.read().allow_lan;
+        let is_available = crate::core::port_probe::is_port_available_with_lan(mapping.port, allow_lan);
+        if !is_available {
+            return Err(format!(
+                "本地端口 {} 已被其他应用程序占用，无法开启监听",
+                mapping.port
+            ));
+        }
+    }
+
     let saved = state
         .port_manager
         .save_port_mapping(mapping)
@@ -150,6 +247,19 @@ pub async fn toggle_port_mapping(
     enabled: bool,
     state: State<'_, AppState>,
 ) -> Result<PortMapping, String> {
+    if enabled
+        && let Some(m) = state.port_manager.get_port_mapping_by_id(&id)
+    {
+        let allow_lan = state.config.read().allow_lan;
+        let is_available = crate::core::port_probe::is_port_available_with_lan(m.port, allow_lan);
+        if !is_available {
+            return Err(format!(
+                "本地端口 {} 已被其他应用程序占用，无法开启监听",
+                m.port
+            ));
+        }
+    }
+
     let toggled = state
         .port_manager
         .toggle_port_mapping(&id, enabled)

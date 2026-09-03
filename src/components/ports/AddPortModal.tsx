@@ -15,8 +15,13 @@ import { useEffect, useMemo, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import type { InboundProtocol, PortMapping } from '../../types'
-import { getProtocolBadgeProps } from '../../utils/proxy'
-import { Button, Input, Modal, Select } from '../common'
+import {
+  extractRegion,
+  formatProtocolName,
+  getLatencyBadgeProps,
+  getProtocolBadgeProps,
+} from '../../utils/proxy'
+import { Badge, Button, Input, Modal, RegionFlag, Select } from '../common'
 
 export interface AddPortModalProps {
   isOpen: boolean
@@ -24,6 +29,16 @@ export interface AddPortModalProps {
   initialProfileId?: string
   initialNodeName?: string
   initialMapping?: PortMapping | null
+}
+
+function nodeKeyHasLatency(
+  key: string,
+  rawName: string,
+  latencies: Record<string, number | null>,
+): number | null | undefined {
+  if (key in latencies) return latencies[key]
+  if (rawName in latencies) return latencies[rawName]
+  return undefined
 }
 
 export const AddPortModal: React.FC<AddPortModalProps> = ({
@@ -36,11 +51,13 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const {
     profiles,
     profileNodes,
+    portMappings,
     driftReports,
     fetchProfileNodes,
     savePortMapping,
     fetchStatus,
     setActiveTab,
+    latencies,
   } = useAppStore()
 
   const [port, setPort] = useState<string>('7891')
@@ -79,7 +96,18 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         const profId = initialProfileId || (profiles[0] ? profiles[0].id : '')
         setSelectedProfileId(profId)
         setSelectedNodeName(initialNodeName || '')
-        setPort('7891')
+
+        // Sequential backend auto-allocation starting from 7891 (accounts for both self and system occupancy)
+        api
+          .getNextAvailablePort(7891)
+          .then((allocatedPort) => {
+            setPort(String(allocatedPort))
+            setIsPortAvailable(true)
+          })
+          .catch(() => {
+            setPort('7891')
+          })
+
         setProtocol('mixed')
         setDescription('')
       }
@@ -118,14 +146,17 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
 
     const timer = setTimeout(async () => {
       try {
-        const available = await api.checkPortAvailable(portNum)
+        const available = await api.checkPortAvailable(
+          portNum,
+          initialMapping?.id,
+        )
         if (isMounted) {
           setIsPortAvailable(available)
           setIsCheckingPort(false)
         }
       } catch {
         if (isMounted) {
-          setIsPortAvailable(true)
+          setIsPortAvailable(false)
           setIsCheckingPort(false)
         }
       }
@@ -146,6 +177,65 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     return availableNodes.find((n) => n.name === selectedNodeName)
   }, [availableNodes, selectedNodeName])
 
+  const boundNodeMap = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const m of portMappings) {
+      if (!initialMapping || m.id !== initialMapping.id) {
+        map.set(`${m.profileId}_${m.nodeName}`, m.port)
+      }
+    }
+    return map
+  }, [portMappings, initialMapping])
+
+  const selectedProfile = useMemo(() => {
+    return profiles.find((p) => p.id === selectedProfileId)
+  }, [profiles, selectedProfileId])
+
+  const sortedNodes = useMemo(() => {
+    const list = [...availableNodes]
+    const profName = selectedProfile?.name || ''
+    return list.sort((a, b) => {
+      const keyA = profName ? `[${profName}] ${a.name}` : a.name
+      const keyB = profName ? `[${profName}] ${b.name}` : b.name
+      const isBoundA = boundNodeMap.has(`${selectedProfileId}_${a.name}`)
+      const isBoundB = boundNodeMap.has(`${selectedProfileId}_${b.name}`)
+
+      // 1. Unbound nodes come first
+      if (isBoundA !== isBoundB) {
+        return isBoundA ? 1 : -1
+      }
+
+      // 2. Sort by latency (lowest first, timeouts later, untested last)
+      const latA = nodeKeyHasLatency(keyA, a.name, latencies)
+      const latB = nodeKeyHasLatency(keyB, b.name, latencies)
+
+      const scoreA =
+        latA !== undefined && latA !== null
+          ? latA
+          : latA === null
+            ? 900000
+            : 999999
+      const scoreB =
+        latB !== undefined && latB !== null
+          ? latB
+          : latB === null
+            ? 900000
+            : 999999
+
+      if (scoreA !== scoreB) {
+        return scoreA - scoreB
+      }
+
+      return a.name.localeCompare(b.name, 'zh-Hans-CN')
+    })
+  }, [
+    availableNodes,
+    selectedProfile,
+    selectedProfileId,
+    boundNodeMap,
+    latencies,
+  ])
+
   const profileOptions = useMemo(() => {
     return profiles.map((p) => ({
       value: p.id,
@@ -154,11 +244,44 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   }, [profiles])
 
   const nodeOptions = useMemo(() => {
-    return availableNodes.map((n) => ({
-      value: n.name,
-      label: `${n.name} (${n.type.toUpperCase()})`,
-    }))
-  }, [availableNodes])
+    const profName = selectedProfile?.name || ''
+    return sortedNodes.map((n) => {
+      const boundPort = boundNodeMap.get(`${selectedProfileId}_${n.name}`)
+      const isBound = boundPort !== undefined
+      const key = profName ? `[${profName}] ${n.name}` : n.name
+      const latency = nodeKeyHasLatency(key, n.name, latencies)
+      const latencyProps = getLatencyBadgeProps(latency, false)
+      const region = extractRegion(n.name)
+
+      return {
+        value: n.name,
+        label: n.name,
+        description: isBound
+          ? `已绑定到端口 ${boundPort}`
+          : `${formatProtocolName(n.type)} 协议`,
+        disabled: isBound,
+        icon: <RegionFlag code={region.code} size="sm" />,
+        rightNode: (
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isBound ? (
+              <span className="text-[10px] text-muted-foreground font-mono bg-secondary px-1.5 py-0.5 rounded">
+                已绑端口 {boundPort}
+              </span>
+            ) : (
+              <Badge
+                variant={latencyProps.variant}
+                size="sm"
+                dot={latencyProps.dot}
+                className="!text-[10px] !py-0.5 !px-1.5 font-mono"
+              >
+                {latencyProps.label}
+              </Badge>
+            )}
+          </div>
+        ),
+      }
+    })
+  }, [sortedNodes, selectedProfile, selectedProfileId, boundNodeMap, latencies])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

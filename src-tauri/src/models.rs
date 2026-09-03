@@ -50,7 +50,6 @@ pub struct PortMapping {
     pub profile_id: String,
     pub node_name: String,
     pub enabled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub latency: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -64,7 +63,6 @@ pub struct ProxyNode {
     pub node_type: String,
     pub server: String,
     pub port: u16,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub latency: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile_id: Option<String>,

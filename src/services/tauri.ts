@@ -72,9 +72,26 @@ export async function restartCore(): Promise<CoreStatus> {
   return invoke<CoreStatus>('restart_core')
 }
 
-export async function checkPortAvailable(port: number): Promise<boolean> {
+export async function checkPortAvailable(
+  port: number,
+  excludeMappingId?: string,
+): Promise<boolean> {
   if (!isTauriEnvironment()) return true
-  return invoke<boolean>('check_port_available', { port })
+  return invoke<boolean>('check_port_available', {
+    port,
+    excludeMappingId: excludeMappingId || null,
+  })
+}
+
+export async function getNextAvailablePort(
+  startPort?: number,
+  excludeMappingId?: string,
+): Promise<number> {
+  if (!isTauriEnvironment()) return startPort || 7891
+  return invoke<number>('get_next_available_port', {
+    startPort: startPort || null,
+    excludeMappingId: excludeMappingId || null,
+  })
 }
 
 export async function getConfig(): Promise<AppConfig> {

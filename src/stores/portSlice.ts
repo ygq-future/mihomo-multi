@@ -2,6 +2,15 @@ import type { StateCreator } from 'zustand'
 import * as api from '../services/tauri'
 import type { NodeLatencyResult, PortDriftReport, PortMapping } from '../types'
 
+function persistLatencies(latencies: Record<string, number | null>) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem('node_latencies_cache', JSON.stringify(latencies))
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export interface PortSlice {
   portMappings: PortMapping[]
   driftReports: PortDriftReport[]
@@ -150,21 +159,51 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
       testingPortIds: { ...state.testingPortIds, [id]: true },
       portError: null,
     }))
+
+    const mapping = get().portMappings.find((m) => m.id === id)
+    const storeState = get() as unknown as {
+      profiles?: Array<{ id: string; name: string }>
+      latencies?: Record<string, number | null>
+    }
+    const profile = mapping
+      ? storeState.profiles?.find((p) => p.id === mapping.profileId)
+      : null
+    const nodeKey = mapping
+      ? profile
+        ? `[${profile.name}] ${mapping.nodeName}`
+        : mapping.nodeName
+      : null
+
     try {
       const latency = await api.testPortMappingDelay(id, testUrl, timeoutMs)
+
+      const currentLatencies = storeState.latencies || {}
+      const nextLatencies = nodeKey
+        ? { ...currentLatencies, [nodeKey]: latency }
+        : currentLatencies
+      if (nodeKey) persistLatencies(nextLatencies)
+
       set((state) => ({
         portMappings: state.portMappings.map((p) =>
           p.id === id ? { ...p, latency } : p,
         ),
+        ...(nodeKey ? { latencies: nextLatencies } : {}),
         testingPortIds: { ...state.testingPortIds, [id]: false },
       }))
       return latency
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
+      const currentLatencies = storeState.latencies || {}
+      const nextLatencies = nodeKey
+        ? { ...currentLatencies, [nodeKey]: null }
+        : currentLatencies
+      if (nodeKey) persistLatencies(nextLatencies)
+
       set((state) => ({
         portMappings: state.portMappings.map((p) =>
-          p.id === id ? { ...p, latency: undefined } : p,
+          p.id === id ? { ...p, latency: null } : p,
         ),
+        ...(nodeKey ? { latencies: nextLatencies } : {}),
         testingPortIds: { ...state.testingPortIds, [id]: false },
         portError: errMsg.includes('未运行') ? errMsg : state.portError,
       }))
@@ -187,30 +226,39 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
       portError: null,
     })
 
-    try {
-      const results = await api.testAllPortMappingsDelay(
-        testUrl,
-        timeoutMs,
-        Math.min(6, mappings.length),
-      )
+    const concurrency = Math.min(6, mappings.length)
+    let nextIndex = 0
+    const results: NodeLatencyResult[] = []
 
-      // Refresh mappings to get the updated latencies
-      const updatedMappings = await api.getPortMappings()
-      set({
-        portMappings: updatedMappings,
-        isTestingAllPorts: false,
-        testingPortIds: {},
-      })
-      return results
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      set({
-        isTestingAllPorts: false,
-        testingPortIds: {},
-        portError: errMsg.includes('未运行') ? errMsg : null,
-      })
-      return []
+    const worker = async () => {
+      while (nextIndex < mappings.length) {
+        const currentIndex = nextIndex++
+        const mapping = mappings[currentIndex]
+        if (!mapping) break
+
+        try {
+          if (currentIndex > 0) {
+            await new Promise((r) => setTimeout(r, (currentIndex % 6) * 20))
+          }
+
+          const latency = await get().testPortDelay(
+            mapping.id,
+            testUrl,
+            timeoutMs,
+          )
+          results.push({ name: mapping.nodeName, latency })
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          results.push({ name: mapping.nodeName, error: errMsg })
+        }
+      }
     }
+
+    const workers = Array.from({ length: concurrency }, () => worker())
+    await Promise.all(workers)
+
+    set({ isTestingAllPorts: false })
+    return results
   },
 
   setEditingPortMapping: (editingPortMapping) =>
