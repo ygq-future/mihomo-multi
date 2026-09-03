@@ -80,6 +80,7 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
           : null,
         coreLoading: false,
       }))
+      await get().fetchPortMappings()
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : String(err),
@@ -100,6 +101,7 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
           : null,
         coreLoading: false,
       }))
+      await get().fetchPortMappings()
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : String(err),
@@ -119,6 +121,7 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
           : null,
         coreLoading: false,
       }))
+      await get().fetchPortMappings()
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : String(err),

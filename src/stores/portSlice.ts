@@ -13,6 +13,7 @@ function persistLatencies(latencies: Record<string, number | null>) {
 
 export interface PortSlice {
   portMappings: PortMapping[]
+  occupiedPorts: number[]
   driftReports: PortDriftReport[]
   portLoading: boolean
   testingPortIds: Record<string, boolean>
@@ -46,6 +47,7 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
   get,
 ) => ({
   portMappings: [],
+  occupiedPorts: [],
   driftReports: [],
   portLoading: false,
   testingPortIds: {},
@@ -57,11 +59,18 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
   fetchPortMappings: async () => {
     set({ portLoading: true })
     try {
-      const [portMappings, driftReports] = await Promise.all([
+      const [portMappings, driftReports, occupiedPorts] = await Promise.all([
         api.getPortMappings(),
         api.getDriftReports(),
+        api.getOccupiedPorts(),
       ])
-      set({ portMappings, driftReports, portLoading: false, portError: null })
+      set({
+        portMappings,
+        driftReports,
+        occupiedPorts,
+        portLoading: false,
+        portError: null,
+      })
     } catch (err) {
       set({
         portLoading: false,
@@ -86,7 +95,10 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
     set({ portLoading: true, portError: null })
     try {
       const saved = await api.savePortMapping(mapping)
-      const driftReports = await api.getDriftReports().catch(() => [])
+      const [driftReports, occupiedPorts] = await Promise.all([
+        api.getDriftReports().catch(() => []),
+        api.getOccupiedPorts().catch(() => []),
+      ])
       set((state) => {
         const index = state.portMappings.findIndex((p) => p.id === saved.id)
         const updated =
@@ -96,6 +108,7 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
         return {
           portMappings: updated,
           driftReports,
+          occupiedPorts,
           portLoading: false,
           isPortModalOpen: false,
           editingPortMapping: null,
@@ -115,10 +128,14 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
     set({ portLoading: true, portError: null })
     try {
       await api.deletePortMapping(id)
-      const driftReports = await api.getDriftReports().catch(() => [])
+      const [driftReports, occupiedPorts] = await Promise.all([
+        api.getDriftReports().catch(() => []),
+        api.getOccupiedPorts().catch(() => []),
+      ])
       set((state) => ({
         portMappings: state.portMappings.filter((p) => p.id !== id),
         driftReports,
+        occupiedPorts,
         portLoading: false,
       }))
     } catch (err) {
@@ -137,10 +154,12 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
     }))
     try {
       const updated = await api.togglePortMapping(id, enabled)
+      const occupiedPorts = await api.getOccupiedPorts().catch(() => [])
       set((state) => ({
         portMappings: state.portMappings.map((p) =>
           p.id === id ? updated : p,
         ),
+        occupiedPorts,
         testingPortIds: { ...state.testingPortIds, [id]: false },
       }))
       return updated

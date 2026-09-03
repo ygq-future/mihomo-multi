@@ -7,7 +7,7 @@ use crate::core::supervisor::CoreSupervisor;
 use crate::error::{AppError, AppResult};
 use crate::models::AppConfig;
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -19,6 +19,7 @@ pub struct AppState {
     pub port_manager: Arc<PortManager>,
     pub auto_updater: Arc<AutoUpdater>,
     pub config: Arc<RwLock<AppConfig>>,
+    pub occupied_ports: Arc<RwLock<HashSet<u16>>>,
     pub app_dir: PathBuf,
 }
 
@@ -29,6 +30,7 @@ impl AppState {
         let profile_manager = Arc::new(ProfileManager::new(app_dir.clone()));
         let port_manager = Arc::new(PortManager::new(app_dir.clone()));
         let auto_updater = Arc::new(AutoUpdater::new());
+        let occupied_ports = Arc::new(RwLock::new(HashSet::new()));
 
         let config_path = app_dir.join("config.json");
         let initial_config = if config_path.exists() {
@@ -52,6 +54,7 @@ impl AppState {
             port_manager,
             auto_updater,
             config,
+            occupied_ports,
             app_dir,
         }
     }
@@ -61,7 +64,7 @@ impl AppState {
         ClashApiClient::new(cfg.controller_port, &cfg.controller_secret)
     }
 
-    /// Generates runtime.yaml on disk without sending hot-reload REST request
+    /// Generates runtime.yaml on disk, safely excluding occupied ports to protect Mihomo stability
     pub fn generate_runtime_config_file(&self) -> AppResult<PathBuf> {
         let raw_proxies = self.profile_manager.get_raw_proxies_for_all_profiles();
         let profiles = self.profile_manager.get_profiles();
@@ -73,12 +76,36 @@ impl AppState {
         let mappings = self.port_manager.get_port_mappings();
         let cfg = self.config.read().clone();
 
+        let core_status = self.supervisor.get_status();
+        let my_core_pid = if core_status.running { core_status.pid } else { None };
+
+        let mut occupied_set = HashSet::new();
+        let mut active_mappings = Vec::new();
+
+        for m in mappings {
+            if m.enabled {
+                if crate::core::port_probe::is_port_available_with_lan(m.port, cfg.allow_lan, my_core_pid) {
+                    active_mappings.push(m);
+                } else {
+                    warn!(
+                        "Port {} is occupied by third-party application, safely excluding from runtime listeners",
+                        m.port
+                    );
+                    occupied_set.insert(m.port);
+                }
+            } else {
+                active_mappings.push(m);
+            }
+        }
+
+        *self.occupied_ports.write() = occupied_set;
+
         let runtime_config = MinimalRuntimeConfig::with_mappings(
             cfg.controller_port,
             &cfg.controller_secret,
             &cfg.log_level,
             cfg.allow_lan,
-            &mappings,
+            &active_mappings,
             raw_proxies,
             &profile_map,
         );

@@ -1,5 +1,5 @@
 import {
-  AlertCircle,
+  AlertTriangle,
   ChevronDown,
   Copy,
   Edit2,
@@ -12,7 +12,6 @@ import {
   Terminal,
   Trash2,
   Wrench,
-  X,
   Zap,
 } from 'lucide-react'
 import type React from 'react'
@@ -218,17 +217,17 @@ const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
 
 export const PortTableView: React.FC = () => {
   const {
+    coreStatus,
     portMappings,
+    occupiedPorts,
     driftReports,
     testingPortIds,
     isTestingAllPorts,
-    portError,
     fetchPortMappings,
     deletePortMapping,
     togglePortMapping,
     testPortDelay,
     testAllPortsDelay,
-    setPortError,
     fetchStatus,
     profiles,
     fetchProfiles,
@@ -236,6 +235,8 @@ export const PortTableView: React.FC = () => {
     fetchProfileNodes,
     latencies,
   } = useAppStore()
+
+  const isRunning = coreStatus?.running ?? false
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [editingMapping, setEditingMapping] = useState<PortMapping | null>(null)
@@ -394,23 +395,6 @@ export const PortTableView: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col p-6 space-y-4 w-full overflow-hidden">
-      {/* Error Alert Banner */}
-      {portError && (
-        <div className="p-3 text-xs bg-destructive/10 border border-destructive/20 text-destructive rounded-xl flex items-center justify-between shrink-0 animate-in fade-in duration-150">
-          <div className="flex items-center gap-2 min-w-0">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span className="truncate">{portError}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setPortError(null)}
-            className="text-destructive hover:opacity-80 p-0.5 rounded"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
       {/* Top Sticky Single-Row Action Bar Card */}
       <div className="bg-card border border-border rounded-xl p-3.5 shadow-sm shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         {/* Left: Search Input + Protocol Filter + Status Filter */}
@@ -578,20 +562,47 @@ export const PortTableView: React.FC = () => {
                 node?.type || 'unknown',
               )
 
+              // State warning priorities:
+              // 1. Highest: Kernel Stopped Warning (Amber)
+              const isStoppedWarning = !isRunning && m.enabled
+              // 2. Secondary: Port Occupied Conflict Warning (Rose)
+              const isOccupiedWarning =
+                isRunning && m.enabled && occupiedPorts.includes(m.port)
+
               return (
                 <div
                   key={m.id}
                   className={`p-3.5 rounded-xl border bg-card shadow-sm hover:border-primary/40 transition-all flex flex-col justify-between space-y-2.5 group ${
-                    !m.enabled
-                      ? 'opacity-65 bg-secondary/10'
-                      : isDrifted
-                        ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10'
-                        : 'border-border'
+                    isStoppedWarning
+                      ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10'
+                      : isOccupiedWarning
+                        ? 'border-rose-500/40 bg-rose-500/5 dark:bg-rose-500/10'
+                        : !m.enabled
+                          ? 'opacity-65 bg-secondary/10'
+                          : isDrifted
+                            ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10'
+                            : 'border-border'
                   }`}
                 >
                   {/* Top Row: Local Port + Inbound Protocol Badge + Switch */}
                   <div className="flex items-center justify-between gap-2 min-w-0">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      {isStoppedWarning ? (
+                        <span
+                          className="inline-flex shrink-0 cursor-help"
+                          title="Mihomo 内核已停止，该端口当前未在监听"
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                        </span>
+                      ) : isOccupiedWarning ? (
+                        <span
+                          className="inline-flex shrink-0 cursor-help"
+                          title={`本地端口 ${m.port} 已被其他应用程序占用，已自动跳过监听`}
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
+                        </span>
+                      ) : null}
+
                       <span className="font-mono font-bold text-sm text-foreground">
                         {m.port}
                       </span>
@@ -602,6 +613,16 @@ export const PortTableView: React.FC = () => {
                       >
                         {m.protocol}
                       </Badge>
+
+                      {isStoppedWarning ? (
+                        <span className="text-[10px] text-amber-500 font-medium shrink-0">
+                          (监听已停止)
+                        </span>
+                      ) : isOccupiedWarning ? (
+                        <span className="text-[10px] text-rose-500 font-medium shrink-0">
+                          (端口冲突)
+                        </span>
+                      ) : null}
                     </div>
 
                     <Switch

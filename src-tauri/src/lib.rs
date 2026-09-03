@@ -57,7 +57,7 @@ pub fn run() {
                 }
             }
 
-            // Auto-start core on application launch
+            // Auto-start core on application launch (sync_runtime_config performs non-destructive occupancy self-check)
             let state_clone = app_state.clone();
             let supervisor = app_state.supervisor.clone();
             let handle = app_handle.clone();
@@ -90,6 +90,7 @@ pub fn run() {
             get_config,
             save_config,
             get_port_mappings,
+            get_occupied_ports,
             save_port_mapping,
             delete_port_mapping,
             toggle_port_mapping,

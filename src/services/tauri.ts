@@ -131,6 +131,13 @@ export async function getPortMappings(): Promise<PortMapping[]> {
   return invoke<PortMapping[]>('get_port_mappings')
 }
 
+export async function getOccupiedPorts(): Promise<number[]> {
+  if (!isTauriEnvironment()) {
+    return []
+  }
+  return invoke<number[]>('get_occupied_ports')
+}
+
 export async function savePortMapping(
   mapping: PortMapping,
 ): Promise<PortMapping> {

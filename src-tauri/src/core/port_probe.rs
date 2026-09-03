@@ -4,12 +4,12 @@ use std::time::Duration;
 
 /// Probes whether a given TCP port is available on localhost (127.0.0.1).
 pub fn is_port_available(port: u16) -> bool {
-    is_port_available_with_lan(port, false)
+    is_port_available_with_lan(port, false, None)
 }
 
-/// Helper: Queries Windows native TCP/UDP listening tables for 100% accurate port occupancy
+/// Helper: Queries Windows native TCP/UDP listening tables for 100% accurate port occupancy with PID exclusion
 #[cfg(windows)]
-fn is_port_in_windows_listening_tables(port: u16) -> bool {
+fn is_port_in_windows_listening_tables(port: u16, exclude_pid: Option<u32>) -> bool {
     use windows_sys::Win32::NetworkManagement::IpHelper::{
         GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCPTABLE_OWNER_PID, MIB_UDPTABLE_OWNER_PID,
         TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID,
@@ -46,6 +46,12 @@ fn is_port_in_windows_listening_tables(port: u16) -> bool {
                     if row.dwState == 2 {
                         let local_port = u16::from_be((row.dwLocalPort & 0xFFFF) as u16);
                         if local_port == port {
+                            if let Some(my_pid) = exclude_pid
+                                && row.dwOwningPid == my_pid
+                            {
+                                // Held by our own sidecar process, not a conflict!
+                                continue;
+                            }
                             return true;
                         }
                     }
@@ -83,6 +89,11 @@ fn is_port_in_windows_listening_tables(port: u16) -> bool {
                     if row.dwState == 2 {
                         let local_port = u16::from_be((row.dwLocalPort & 0xFFFF) as u16);
                         if local_port == port {
+                            if let Some(my_pid) = exclude_pid
+                                && row.dwOwningPid == my_pid
+                            {
+                                continue;
+                            }
                             return true;
                         }
                     }
@@ -119,6 +130,11 @@ fn is_port_in_windows_listening_tables(port: u16) -> bool {
                 for row in entries {
                     let local_port = u16::from_be((row.dwLocalPort & 0xFFFF) as u16);
                     if local_port == port {
+                        if let Some(my_pid) = exclude_pid
+                            && row.dwOwningPid == my_pid
+                        {
+                            continue;
+                        }
                         return true;
                     }
                 }
@@ -129,37 +145,43 @@ fn is_port_in_windows_listening_tables(port: u16) -> bool {
     false
 }
 
-/// Probes whether a given TCP port is available, accounting for allow_lan (0.0.0.0 & 127.0.0.1).
-pub fn is_port_available_with_lan(port: u16, allow_lan: bool) -> bool {
-    // Layer 1: Active TCP handshake probe on IPv4
-    if TcpStream::connect_timeout(
-        &SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).into(),
-        Duration::from_millis(30),
-    )
-    .is_ok()
-    {
-        return false;
-    }
+/// Probes whether a given TCP port is available, accounting for allow_lan and excluding our own core PID
+pub fn is_port_available_with_lan(port: u16, allow_lan: bool, exclude_pid: Option<u32>) -> bool {
+    // If not excluding any PID (e.g. cold start check), perform active handshake probes
+    if exclude_pid.is_none() {
+        if TcpStream::connect_timeout(
+            &SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).into(),
+            Duration::from_millis(30),
+        )
+        .is_ok()
+        {
+            return false;
+        }
 
-    // Layer 2: Active TCP handshake probe on IPv6
-    if TcpStream::connect_timeout(
-        &SocketAddrV6::new(Ipv6Addr::LOCALHOST, port, 0, 0).into(),
-        Duration::from_millis(30),
-    )
-    .is_ok()
-    {
-        return false;
-    }
-
-    // Layer 3: System Listening Tables Inspection on Windows (IpHelper)
-    #[cfg(windows)]
-    {
-        if is_port_in_windows_listening_tables(port) {
+        if TcpStream::connect_timeout(
+            &SocketAddrV6::new(Ipv6Addr::LOCALHOST, port, 0, 0).into(),
+            Duration::from_millis(30),
+        )
+        .is_ok()
+        {
             return false;
         }
     }
 
-    // Layer 4: Socket bind probe with exclusive address use
+    // Windows Native Table Inspection with PID filtering
+    #[cfg(windows)]
+    {
+        if is_port_in_windows_listening_tables(port, exclude_pid) {
+            return false;
+        }
+    }
+
+    // If excluding own PID and Windows table says not in conflict, consider available
+    if exclude_pid.is_some() {
+        return true;
+    }
+
+    // Fallback socket bind probe with exclusive address use
     let bind_ip = if allow_lan {
         Ipv4Addr::UNSPECIFIED // 0.0.0.0
     } else {
@@ -202,23 +224,21 @@ mod tests {
         let port = listener.local_addr().expect("Failed to get local addr").port();
 
         assert!(!is_port_available(port));
-        assert!(!is_port_available_with_lan(port, false));
-        assert!(!is_port_available_with_lan(port, true));
+        assert!(!is_port_available_with_lan(port, false, None));
+        assert!(!is_port_available_with_lan(port, true, None));
 
         drop(listener);
 
         assert!(is_port_available(port));
-        assert!(is_port_available_with_lan(port, false));
-        assert!(is_port_available_with_lan(port, true));
+        assert!(is_port_available_with_lan(port, false, None));
+        assert!(is_port_available_with_lan(port, true, None));
     }
 
     #[test]
     fn test_port_7897_detection_live() {
         let avail_127 = is_port_available(7897);
-        let avail_lan = is_port_available_with_lan(7897, true);
-        println!("Live 7897 Available 127.0.0.1: {}", avail_127);
-        println!("Live 7897 Available 0.0.0.0: {}", avail_lan);
-        // Because 7897 is currently occupied by Clash Verge on the user's machine, it must be false!
+        let avail_lan = is_port_available_with_lan(7897, true, None);
+        // 7897 is occupied by Clash Verge on the user machine, must be false
         assert!(!avail_127);
         assert!(!avail_lan);
     }
