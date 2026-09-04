@@ -91,12 +91,18 @@ export interface CoreStatus {
   lastError?: string
 }
 
+export interface LanIpInfo {
+  ip: string
+  name: string
+}
+
 export interface AppConfig {
   controllerPort: number
   controllerSecret: string
   theme: string
   logLevel: string
   allowLan: boolean
+  selectedLanIp?: string | null
   closeToTray: boolean
   autoLaunch: boolean
   silentStart: boolean

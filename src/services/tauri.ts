@@ -5,6 +5,7 @@ import type {
   AutoUpdateEventPayload,
   AutoUpdaterStatus,
   CoreStatus,
+  LanIpInfo,
   NodeLatencyResult,
   PortDriftReport,
   PortMapping,
@@ -102,6 +103,7 @@ export async function getConfig(): Promise<AppConfig> {
       theme: 'system',
       logLevel: 'info',
       allowLan: false,
+      selectedLanIp: null,
       closeToTray: true,
       autoLaunch: false,
       silentStart: false,
@@ -406,4 +408,14 @@ export async function triggerAutoUpdateCheck(): Promise<
     return []
   }
   return invoke<AutoUpdateEventPayload[]>('trigger_auto_update_check')
+}
+
+export async function getLanIpAddresses(): Promise<LanIpInfo[]> {
+  if (!isTauriEnvironment()) {
+    return [
+      { ip: '192.168.31.28', name: 'WLAN' },
+      { ip: '10.254.254.254', name: 'Loopback-WSL' },
+    ]
+  }
+  return invoke<LanIpInfo[]>('get_lan_ip_addresses')
 }

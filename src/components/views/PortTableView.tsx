@@ -3,7 +3,6 @@ import {
   ChevronDown,
   Copy,
   Edit2,
-  Filter,
   Globe,
   Loader2,
   Network,
@@ -24,8 +23,14 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
+import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
-import type { InboundProtocol, PortDriftReport, PortMapping } from '../../types'
+import type {
+  InboundProtocol,
+  LanIpInfo,
+  PortDriftReport,
+  PortMapping,
+} from '../../types'
 import {
   extractRegion,
   getLatencyBadgeProps,
@@ -46,12 +51,14 @@ import { AddPortModal } from '../ports/AddPortModal'
 interface QuickCopyMenuProps {
   port: number
   protocol: InboundProtocol
+  hostIp?: string
   onCopySuccess: (text: string) => void
 }
 
 const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
   port,
   protocol,
+  hostIp,
   onCopySuccess,
 }) => {
   const [isOpen, setIsOpen] = useState(false)
@@ -62,6 +69,8 @@ const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
   } | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  const host = hostIp || '127.0.0.1'
 
   const updatePos = useCallback(() => {
     if (!triggerRef.current) return
@@ -124,22 +133,22 @@ const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
   const copyOptions = [
     {
       label: '纯地址 (Host:Port)',
-      value: `127.0.0.1:${port}`,
-      desc: `127.0.0.1:${port}`,
+      value: `${host}:${port}`,
+      desc: `${host}:${port}`,
     },
     {
       label: 'HTTP 代理 URL',
-      value: `http://127.0.0.1:${port}`,
-      desc: `http://127.0.0.1:${port}`,
+      value: `http://${host}:${port}`,
+      desc: `http://${host}:${port}`,
     },
     {
       label: 'SOCKS5 代理 URL',
-      value: `socks5://127.0.0.1:${port}`,
-      desc: `socks5://127.0.0.1:${port}`,
+      value: `socks5://${host}:${port}`,
+      desc: `socks5://${host}:${port}`,
     },
     {
       label: 'cURL 出口 IP 探测命令',
-      value: `curl -x ${protocol === 'socks5' ? 'socks5' : 'http'}://127.0.0.1:${port} -s https://api.ip.sb/geoip`,
+      value: `curl -x ${protocol === 'socks5' ? 'socks5' : 'http'}://${host}:${port} -s https://api.ip.sb/geoip`,
       desc: '一键在终端测试该端口出口 IP',
       icon: <Terminal className="w-3 h-3 text-muted-foreground" />,
     },
@@ -183,8 +192,11 @@ const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
                 : 'animate-in fade-in slide-in-from-top-2 duration-150'
             }`}
           >
-            <div className="px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground border-b border-border/50">
-              快捷复制代理格式
+            <div className="px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground border-b border-border/50 flex items-center justify-between">
+              <span>快捷复制代理格式</span>
+              <span className="font-mono text-[10px] text-primary font-normal">
+                {host}
+              </span>
             </div>
             <div className="p-1 space-y-0.5">
               {copyOptions.map((opt) => (
@@ -218,6 +230,9 @@ const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
 export const PortTableView: React.FC = () => {
   const {
     coreStatus,
+    config,
+    fetchConfig,
+    saveConfig,
     portMappings,
     occupiedPorts,
     driftReports,
@@ -248,6 +263,9 @@ export const PortTableView: React.FC = () => {
     Record<string, boolean>
   >({})
 
+  // LAN IPs state for allow_lan mode
+  const [lanIps, setLanIps] = useState<LanIpInfo[]>([])
+
   // Search and filter state (Persistent)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedProtocol, setSelectedProtocol] = useState<string>(() => {
@@ -264,7 +282,86 @@ export const PortTableView: React.FC = () => {
   useEffect(() => {
     fetchPortMappings().catch(() => {})
     fetchProfiles().catch(() => {})
-  }, [fetchPortMappings, fetchProfiles])
+    if (!config) {
+      fetchConfig().catch(() => {})
+    }
+  }, [fetchPortMappings, fetchProfiles, config, fetchConfig])
+
+  // Fetch LAN IPs and perform auto-cleaning of invalid selected IP when allow_lan is active
+  useEffect(() => {
+    if (!config?.allowLan) return
+
+    let isMounted = true
+    api
+      .getLanIpAddresses()
+      .then(async (ips) => {
+        if (!isMounted) return
+        setLanIps(ips)
+
+        const savedIp = config.selectedLanIp
+        if (savedIp && savedIp !== '127.0.0.1') {
+          const stillExists = ips.some((item) => item.ip === savedIp)
+          if (!stillExists) {
+            // Selected LAN IP is no longer available on this machine/network, clean it up and fallback to 127.0.0.1
+            try {
+              await saveConfig({
+                ...config,
+                selectedLanIp: null,
+              })
+            } catch {
+              // ignore
+            }
+          }
+        }
+      })
+      .catch(() => {})
+
+    return () => {
+      isMounted = false
+    }
+  }, [config?.allowLan, config?.selectedLanIp, config, saveConfig])
+
+  const activeHostIp = useMemo(() => {
+    if (!config?.allowLan) {
+      return '127.0.0.1'
+    }
+    const savedIp = config.selectedLanIp
+    if (!savedIp || savedIp === '127.0.0.1') {
+      return '127.0.0.1'
+    }
+    const exists = lanIps.some((item) => item.ip === savedIp)
+    return exists ? savedIp : '127.0.0.1'
+  }, [config?.allowLan, config?.selectedLanIp, lanIps])
+
+  const handleLanIpChange = async (val: string) => {
+    if (!config) return
+    const newIp = val === '127.0.0.1' ? null : val
+    try {
+      await saveConfig({
+        ...config,
+        selectedLanIp: newIp,
+      })
+      toast.success(`已设置快捷复制 IP 为: ${val}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const lanIpOptions = useMemo(() => {
+    const options = [
+      {
+        value: '127.0.0.1',
+        label: '127.0.0.1 (本机回环)',
+      },
+    ]
+    for (const item of lanIps) {
+      options.push({
+        value: item.ip,
+        label: `${item.ip} (${item.name})`,
+      })
+    }
+    return options
+  }, [lanIps])
 
   // Load nodes for all profiles involved in port mappings
   useEffect(() => {
@@ -418,7 +515,7 @@ export const PortTableView: React.FC = () => {
             />
           </div>
 
-          <div className="w-32 shrink-0">
+          <div className="w-28 shrink-0">
             <Select
               value={selectedProtocol}
               onChange={(val) => handleProtocolFilterChange(String(val))}
@@ -428,9 +525,6 @@ export const PortTableView: React.FC = () => {
                 { value: 'http', label: 'HTTP' },
                 { value: 'socks5', label: 'SOCKS5' },
               ]}
-              prefixIcon={
-                <Filter className="w-3.5 h-3.5 text-muted-foreground" />
-              }
             />
           </div>
 
@@ -451,6 +545,17 @@ export const PortTableView: React.FC = () => {
               ]}
             />
           </div>
+
+          {config?.allowLan && (
+            <div className="w-44 shrink-0">
+              <Select
+                value={activeHostIp}
+                onChange={(val) => handleLanIpChange(String(val))}
+                options={lanIpOptions}
+                prefixIcon={<Network className="w-3.5 h-3.5 text-primary" />}
+              />
+            </div>
+          )}
         </div>
 
         {/* Right: Batch Test + Add Port Button */}
@@ -744,6 +849,7 @@ export const PortTableView: React.FC = () => {
                       <QuickCopyMenu
                         port={m.port}
                         protocol={m.protocol}
+                        hostIp={activeHostIp}
                         onCopySuccess={toast.success}
                       />
 

@@ -147,6 +147,13 @@ pub struct CoreStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct LanIpInfo {
+    pub ip: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub controller_port: u16,
     pub controller_secret: String,
@@ -154,6 +161,8 @@ pub struct AppConfig {
     pub log_level: String,
     #[serde(default)]
     pub allow_lan: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_lan_ip: Option<String>,
     #[serde(default = "default_true")]
     pub close_to_tray: bool,
     #[serde(default)]
@@ -196,6 +205,7 @@ impl Default for AppConfig {
             theme: "system".to_string(),
             log_level: "info".to_string(),
             allow_lan: false,
+            selected_lan_ip: None,
             close_to_tray: true,
             auto_launch: false,
             silent_start: false,

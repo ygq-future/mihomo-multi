@@ -3,7 +3,7 @@ use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::is_port_available;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, CoreStatus, DriftStatus,
-    NodeLatencyResult, PortDriftReport, PortMapping, ProfileItem, ProxyNode,
+    LanIpInfo, NodeLatencyResult, PortDriftReport, PortMapping, ProfileItem, ProxyNode,
 };
 use crate::state::AppState;
 use std::process::Command;
@@ -547,6 +547,54 @@ pub async fn open_file_in_folder(file_path: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn get_app_dir(state: State<'_, AppState>) -> Result<String, String> {
     Ok(state.app_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn get_lan_ip_addresses() -> Result<Vec<LanIpInfo>, String> {
+    let networks = sysinfo::Networks::new_with_refreshed_list();
+    let mut result = Vec::new();
+    let mut seen_ips = std::collections::HashSet::new();
+
+    for (interface_name, net_data) in &networks {
+        for ip_network in net_data.ip_networks() {
+            if let std::net::IpAddr::V4(ipv4) = ip_network.addr {
+                // Filter out standard loopback (127.0.0.0/8), link-local APIPA (169.254.0.0/16), unspecified (0.0.0.0), broadcast (255.255.255.255)
+                if !ipv4.is_loopback()
+                    && !ipv4.is_link_local()
+                    && !ipv4.is_unspecified()
+                    && !ipv4.is_broadcast()
+                {
+                    let ip_str = ipv4.to_string();
+                    if seen_ips.insert(ip_str.clone()) {
+                        result.push(LanIpInfo {
+                            ip: ip_str,
+                            name: interface_name.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort to give predictable and friendly ordering: WLAN / Ethernet first, then virtual/wsl/other interfaces
+    result.sort_by(|a, b| {
+        let a_priority = get_interface_priority(&a.name);
+        let b_priority = get_interface_priority(&b.name);
+        a_priority.cmp(&b_priority).then_with(|| a.ip.cmp(&b.ip))
+    });
+
+    Ok(result)
+}
+
+fn get_interface_priority(name: &str) -> u8 {
+    let lower = name.to_lowercase();
+    if lower.contains("wlan") || lower.contains("wi-fi") || lower.contains("wifi") {
+        1
+    } else if lower.contains("eth") || lower.contains("以太网") || lower.contains("en") {
+        2
+    } else {
+        3
+    }
 }
 
 #[tauri::command]
