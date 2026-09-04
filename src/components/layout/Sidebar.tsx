@@ -23,6 +23,7 @@ export const Sidebar: React.FC = () => {
   } = useAppStore()
 
   const isRunning = coreStatus?.running ?? false
+  const activeIndex = navItems.findIndex((item) => item.id === activeTab)
 
   return (
     <aside
@@ -76,8 +77,20 @@ export const Sidebar: React.FC = () => {
           )}
         </div>
 
-        {/* Navigation */}
-        <nav className="px-2 space-y-1">
+        {/* Navigation with Sliding Highlight Pill */}
+        <nav className="px-2 space-y-1 relative">
+          {/* Sliding Pill Indicator */}
+          {activeIndex >= 0 && (
+            <div
+              className="absolute left-2 right-2 rounded-lg bg-primary shadow-sm transition-transform duration-200 ease-out pointer-events-none"
+              style={{
+                height: '36px',
+                transform: `translateY(${activeIndex * 40}px)`,
+                top: '0px',
+              }}
+            />
+          )}
+
           {navItems.map((item) => {
             const Icon = item.icon
             const active = activeTab === item.id
@@ -87,14 +100,12 @@ export const Sidebar: React.FC = () => {
                 type="button"
                 onClick={() => setActiveTab(item.id)}
                 title={sidebarCollapsed ? item.label : undefined}
-                className={`w-full flex items-center ${
-                  sidebarCollapsed
-                    ? 'justify-center p-2.5'
-                    : 'gap-2.5 px-3 py-2.5'
-                } rounded-lg text-xs font-medium transition-colors ${
+                className={`relative z-10 w-full h-9 flex items-center ${
+                  sidebarCollapsed ? 'justify-center px-0' : 'gap-2.5 px-3'
+                } rounded-lg text-xs font-medium transition-colors duration-150 ${
                   active
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    ? 'text-primary-foreground font-semibold'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />

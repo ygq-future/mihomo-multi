@@ -1,6 +1,6 @@
 import { X } from 'lucide-react'
 import type React from 'react'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
 export interface ModalProps {
@@ -30,6 +30,8 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   maxWidth = 'md',
 }) => {
+  const isMouseDownOnBackdrop = useRef(false)
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -47,14 +49,20 @@ export const Modal: React.FC<ModalProps> = ({
       role="dialog"
       aria-modal="true"
       className="fixed inset-0 z-[999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-150"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
+      onMouseDown={(e) => {
+        isMouseDownOnBackdrop.current = e.target === e.currentTarget
+      }}
+      onMouseUp={(e) => {
+        if (isMouseDownOnBackdrop.current && e.target === e.currentTarget) {
           onClose()
         }
+        isMouseDownOnBackdrop.current = false
       }}
     >
       <div
         className={`bg-card border border-border rounded-xl shadow-2xl w-full ${maxWidthMap[maxWidth]} max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150`}
+        onMouseDown={(e) => e.stopPropagation()}
+        onMouseUp={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
         <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0 bg-card/80">

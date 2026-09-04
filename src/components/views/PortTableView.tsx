@@ -244,6 +244,9 @@ export const PortTableView: React.FC = () => {
     null,
   )
   const [isDeleting, setIsDeleting] = useState(false)
+  const [togglingPortIds, setTogglingPortIds] = useState<
+    Record<string, boolean>
+  >({})
 
   // Search and filter state (Persistent)
   const [searchQuery, setSearchQuery] = useState('')
@@ -357,12 +360,15 @@ export const PortTableView: React.FC = () => {
   const activePorts = portMappings.filter((m) => m.enabled).length
 
   const handleToggle = async (m: PortMapping, checked: boolean) => {
+    setTogglingPortIds((prev) => ({ ...prev, [m.id]: true }))
     try {
       await togglePortMapping(m.id, checked)
       fetchStatus().catch(() => {})
       toast.success(`端口 ${m.port} 已${checked ? '启用' : '禁用'}`)
-    } catch {
-      // Error handled in store
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTogglingPortIds((prev) => ({ ...prev, [m.id]: false }))
     }
   }
 
@@ -601,6 +607,11 @@ export const PortTableView: React.FC = () => {
                         >
                           <AlertTriangle className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
                         </span>
+                      ) : m.enabled && isRunning ? (
+                        <span
+                          className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0 cursor-help"
+                          title="正常监听中"
+                        />
                       ) : null}
 
                       <span className="font-mono font-bold text-sm text-foreground">
@@ -627,8 +638,9 @@ export const PortTableView: React.FC = () => {
 
                     <Switch
                       checked={m.enabled}
+                      loading={!!togglingPortIds[m.id]}
                       onChange={(checked) => handleToggle(m, checked)}
-                      disabled={isTesting}
+                      disabled={isTesting || !!togglingPortIds[m.id]}
                       size="sm"
                     />
                   </div>

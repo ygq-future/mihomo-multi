@@ -156,7 +156,15 @@ const REGION_RULES: Array<{
   },
 ]
 
+const regionCache = new Map<string, RegionInfo>()
+
 export function extractRegion(nodeName: string): RegionInfo {
+  if (!nodeName) {
+    return { flag: '🌐', code: 'OTHER', name: '其它地区' }
+  }
+  const cached = regionCache.get(nodeName)
+  if (cached) return cached
+
   // 1. Check if name already has an emoji flag
   const emojiMatch = nodeName.match(EMOJI_FLAG_REGEX)
   const flagFromEmoji = emojiMatch ? emojiMatch[0] : null
@@ -165,19 +173,23 @@ export function extractRegion(nodeName: string): RegionInfo {
 
   for (const rule of REGION_RULES) {
     if (rule.keywords.some((kw) => lowerName.includes(kw))) {
-      return {
+      const res = {
         flag: flagFromEmoji || rule.flag,
         code: rule.code,
         name: rule.name,
       }
+      regionCache.set(nodeName, res)
+      return res
     }
   }
 
-  return {
+  const fallback = {
     flag: flagFromEmoji || '🌐',
     code: 'OTHER',
     name: '其它地区',
   }
+  regionCache.set(nodeName, fallback)
+  return fallback
 }
 
 export function getLatencyBadgeProps(

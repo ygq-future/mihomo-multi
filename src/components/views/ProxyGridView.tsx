@@ -11,8 +11,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import type React from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../../stores/appStore'
 import type { ProxyNode } from '../../types'
 import {
@@ -31,6 +30,117 @@ interface AugmentedNode extends ProxyNode {
   profileName: string
   region: ReturnType<typeof extractRegion>
 }
+
+interface ProxyNodeCardProps {
+  node: AugmentedNode
+  latency: number | null | undefined
+  isTesting: boolean
+  isTestingAll: boolean
+  isBound: boolean
+  boundPort?: number
+  onTestDelay: (nodeKey: string) => void
+  onQuickBind: (target: { profileId: string; nodeName: string }) => void
+}
+
+const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
+  ({
+    node,
+    latency,
+    isTesting,
+    isTestingAll,
+    isBound,
+    boundPort,
+    onTestDelay,
+    onQuickBind,
+  }) => {
+    const nodeKey = node.runtimeName || node.name
+    const latencyProps = getLatencyBadgeProps(latency, isTesting)
+    const protocolProps = getProtocolBadgeProps(node.type)
+
+    return (
+      <div className="p-2.5 rounded-xl border border-border bg-card hover:border-primary/40 hover:shadow-sm transition-all flex flex-col justify-between space-y-2 group">
+        {/* Top Row: Region Flag (fixed) + Node Name (flex-1) + Profile Name (fixed right) */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <RegionFlag code={node.region.code} size="md" />
+          <span
+            className="truncate font-semibold text-xs text-foreground flex-1 min-w-0"
+            title={node.name}
+          >
+            {node.name}
+          </span>
+          <span
+            className="shrink-0 max-w-[80px] truncate text-right text-[10px] text-muted-foreground/80"
+            title={node.profileName}
+          >
+            {node.profileName}
+          </span>
+        </div>
+
+        {/* Bottom Row: Protocol Badge (left) + Latency & Bind Action (right) */}
+        <div className="pt-2 border-t border-border/50 flex items-center justify-between gap-1.5 text-[11px]">
+          <span
+            className={`px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 ${protocolProps.className}`}
+          >
+            {protocolProps.label}
+          </span>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Latency Badge (Clickable for Single Speed Test) */}
+            <button
+              type="button"
+              onClick={() => onTestDelay(nodeKey)}
+              disabled={isTesting || isTestingAll}
+              className="focus:outline-none"
+              title="点击单独测速"
+            >
+              <Badge
+                variant={latencyProps.variant}
+                size="sm"
+                dot={latencyProps.dot}
+                className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5"
+              >
+                {isTesting ? (
+                  <span className="flex items-center gap-1">
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                    测速中
+                  </span>
+                ) : (
+                  latencyProps.label
+                )}
+              </Badge>
+            </button>
+
+            {/* Quick Bind Button */}
+            <Button
+              variant={isBound ? 'outline' : 'secondary'}
+              size="sm"
+              disabled={isBound}
+              className={`!text-[10px] !px-2 !py-0.5 h-5 gap-1 ${
+                isBound
+                  ? 'opacity-40 text-muted-foreground bg-secondary/30'
+                  : ''
+              }`}
+              onClick={() =>
+                onQuickBind({
+                  profileId: node.profileId,
+                  nodeName: node.name,
+                })
+              }
+              icon={isBound ? undefined : <Network className="w-2.5 h-2.5" />}
+              title={
+                isBound
+                  ? `该节点已绑定到端口 ${boundPort}`
+                  : '绑定到本地入站端口'
+              }
+            >
+              {isBound ? `已绑 ${boundPort}` : '绑定'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  },
+)
 
 export const ProxyGridView: React.FC = () => {
   const {
@@ -240,17 +350,29 @@ export const ProxyGridView: React.FC = () => {
     return filtered.sort((a, b) => {
       const keyA = a.runtimeName || a.name
       const keyB = b.runtimeName || b.name
-      const latA = latencies[keyA]
-      const latB = latencies[keyB]
+      const latA = keyA in latencies ? latencies[keyA] : latencies[a.name]
+      const latB = keyB in latencies ? latencies[keyB] : latencies[b.name]
 
       if (sortBy === 'latency-asc') {
-        const valA = latA !== undefined && latA !== null ? latA : 999999
-        const valB = latB !== undefined && latB !== null ? latB : 999999
+        const valA =
+          latA !== undefined && latA !== null
+            ? latA
+            : latA === null
+              ? 900000
+              : 999999
+        const valB =
+          latB !== undefined && latB !== null
+            ? latB
+            : latB === null
+              ? 900000
+              : 999999
         return valA - valB
       }
       if (sortBy === 'latency-desc') {
-        const valA = latA !== undefined && latA !== null ? latA : -1
-        const valB = latB !== undefined && latB !== null ? latB : -1
+        const valA =
+          latA !== undefined && latA !== null ? latA : latA === null ? -1 : -2
+        const valB =
+          latB !== undefined && latB !== null ? latB : latB === null ? -1 : -2
         return valB - valA
       }
       if (sortBy === 'name-asc') {
@@ -273,6 +395,20 @@ export const ProxyGridView: React.FC = () => {
     const namesToTest = processedNodes.map((n) => n.runtimeName || n.name)
     await testAllNodesDelay(namesToTest)
   }
+
+  const handleSingleTest = useCallback(
+    (key: string) => {
+      testNodeDelay(key)
+    },
+    [testNodeDelay],
+  )
+
+  const handleQuickBind = useCallback(
+    (target: { profileId: string; nodeName: string }) => {
+      setQuickBindNode(target)
+    },
+    [],
+  )
 
   // Profile select dropdown options
   const profileFilterOptions = useMemo(() => {
@@ -511,107 +647,26 @@ export const ProxyGridView: React.FC = () => {
           <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2.5">
             {processedNodes.map((node) => {
               const nodeKey = node.runtimeName || node.name
-              const latency = latencies[nodeKey]
+              const latency =
+                nodeKey in latencies ? latencies[nodeKey] : latencies[node.name]
               const isTesting = !!testingNodeNames[nodeKey]
-              const latencyProps = getLatencyBadgeProps(latency, isTesting)
-              const protocolProps = getProtocolBadgeProps(node.type)
+              const boundPort = boundNodeMap.get(
+                `${node.profileId}_${node.name}`,
+              )
+              const isBound = boundPort !== undefined
 
               return (
-                <div
+                <ProxyNodeCard
                   key={`${node.profileId}-${node.name}-${node.server}-${node.port}`}
-                  className="p-2.5 rounded-xl border border-border bg-card hover:border-primary/40 hover:shadow-sm transition-all flex flex-col justify-between space-y-2 group"
-                >
-                  {/* Top Row: Region Flag (fixed) + Node Name (flex-1) + Profile Name (fixed right) */}
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <RegionFlag code={node.region.code} size="md" />
-                    <span
-                      className="truncate font-semibold text-xs text-foreground flex-1 min-w-0"
-                      title={node.name}
-                    >
-                      {node.name}
-                    </span>
-                    <span
-                      className="shrink-0 max-w-[80px] truncate text-right text-[10px] text-muted-foreground/80"
-                      title={node.profileName}
-                    >
-                      {node.profileName}
-                    </span>
-                  </div>
-
-                  {/* Bottom Row: Protocol Badge (left) + Latency & Bind Action (right) */}
-                  <div className="pt-2 border-t border-border/50 flex items-center justify-between gap-1.5 text-[11px]">
-                    <span
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 ${protocolProps.className}`}
-                    >
-                      {protocolProps.label}
-                    </span>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {/* Latency Badge (Clickable for Single Speed Test) */}
-                      <button
-                        type="button"
-                        onClick={() => testNodeDelay(nodeKey)}
-                        disabled={isTesting || isTestingAll}
-                        className="focus:outline-none"
-                        title="点击单独测速"
-                      >
-                        <Badge
-                          variant={latencyProps.variant}
-                          size="sm"
-                          dot={latencyProps.dot}
-                          className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5"
-                        >
-                          {isTesting ? (
-                            <span className="flex items-center gap-1">
-                              <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                              测速中
-                            </span>
-                          ) : (
-                            latencyProps.label
-                          )}
-                        </Badge>
-                      </button>
-
-                      {/* Quick Bind Button (Disabled if already bound) */}
-                      {(() => {
-                        const boundPort = boundNodeMap.get(
-                          `${node.profileId}_${node.name}`,
-                        )
-                        const isBound = boundPort !== undefined
-                        return (
-                          <Button
-                            variant={isBound ? 'outline' : 'secondary'}
-                            size="sm"
-                            disabled={isBound}
-                            className={`!text-[10px] !px-2 !py-0.5 h-5 gap-1 ${
-                              isBound
-                                ? 'opacity-40 text-muted-foreground bg-secondary/30'
-                                : ''
-                            }`}
-                            onClick={() =>
-                              setQuickBindNode({
-                                profileId: node.profileId,
-                                nodeName: node.name,
-                              })
-                            }
-                            icon={
-                              isBound ? undefined : (
-                                <Network className="w-2.5 h-2.5" />
-                              )
-                            }
-                            title={
-                              isBound
-                                ? `该节点已绑定到端口 ${boundPort}`
-                                : '绑定到本地入站端口'
-                            }
-                          >
-                            {isBound ? `已绑 ${boundPort}` : '绑定'}
-                          </Button>
-                        )
-                      })()}
-                    </div>
-                  </div>
-                </div>
+                  node={node}
+                  latency={latency}
+                  isTesting={isTesting}
+                  isTestingAll={isTestingAll}
+                  isBound={isBound}
+                  boundPort={boundPort}
+                  onTestDelay={handleSingleTest}
+                  onQuickBind={handleQuickBind}
+                />
               )
             })}
           </div>
