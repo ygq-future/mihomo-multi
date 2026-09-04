@@ -188,7 +188,14 @@ impl CoreSupervisor {
     }
 
     pub fn query_version(&self, binary_path: &Path) -> Option<String> {
-        let output = Command::new(binary_path).arg("-v").output().ok()?;
+        let mut cmd = Command::new(binary_path);
+        cmd.arg("-v");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
+        let output = cmd.output().ok()?;
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
             let first_line = text.lines().next().unwrap_or(&text).to_string();

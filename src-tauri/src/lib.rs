@@ -23,10 +23,17 @@ pub fn run() {
 
     info!("Initializing Mihomo Multi application backend...");
 
+    let window_state_flags = tauri_plugin_window_state::StateFlags::all()
+        & !tauri_plugin_window_state::StateFlags::VISIBLE;
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(window_state_flags)
+                .build(),
+        )
         .setup(|app| {
             let app_handle = app.handle();
             let app_dir = app_handle

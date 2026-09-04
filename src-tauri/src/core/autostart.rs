@@ -4,6 +4,14 @@ use tracing::{info, warn};
 const APP_REG_KEY: &str = "MihomoMulti";
 
 #[cfg(windows)]
+fn windows_reg_command() -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    let mut cmd = std::process::Command::new("reg");
+    cmd.creation_flags(0x08000000);
+    cmd
+}
+
+#[cfg(windows)]
 pub fn enable_autostart(app_path: &Path, silent: bool) -> Result<(), String> {
     let path_str = app_path.to_string_lossy();
     let cmd_value = if silent {
@@ -12,7 +20,7 @@ pub fn enable_autostart(app_path: &Path, silent: bool) -> Result<(), String> {
         format!("\"{}\"", path_str)
     };
 
-    let status = std::process::Command::new("reg")
+    let status = windows_reg_command()
         .args([
             "add",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -48,7 +56,7 @@ pub fn enable_autostart(_app_path: &Path, _silent: bool) -> Result<(), String> {
 
 #[cfg(windows)]
 pub fn disable_autostart() -> Result<(), String> {
-    let status = std::process::Command::new("reg")
+    let status = windows_reg_command()
         .args([
             "delete",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -75,7 +83,7 @@ pub fn disable_autostart() -> Result<(), String> {
 
 #[cfg(windows)]
 pub fn is_autostart_enabled() -> bool {
-    let status = std::process::Command::new("reg")
+    let status = windows_reg_command()
         .args([
             "query",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
