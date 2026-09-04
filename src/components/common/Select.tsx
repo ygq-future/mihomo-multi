@@ -42,6 +42,19 @@ interface DropdownPosition {
 }
 
 /**
+ * 搜索文本标准化：将 Unicode 区域指示字符（国旗 Emoji，如 🇭🇰 / 🇸🇬 / 🇯🇵）
+ * 自动换算还原为 ASCII 字母（HK / SG / JP 等），以便英文代码或缩写能精准匹配。
+ */
+function normalizeForSearch(text: string): string {
+  return text
+    .replace(/[\uD83C][\uDDE6-\uDDFF]/g, (m) => {
+      const codePoint = m.codePointAt(0) ?? 0
+      return String.fromCharCode(codePoint - 0x1f1e6 + 65)
+    })
+    .toLowerCase()
+}
+
+/**
  * 跳字子序列模糊匹配（大小写不敏感）
  * target: 目标文本
  * query: 搜索词
@@ -122,17 +135,16 @@ export function Select<T extends string | number = string | number>({
   }, [])
 
   const filteredOptions = useMemo(() => {
-    if (!filterable || !searchQuery.trim()) {
+    const q = normalizeForSearch(searchQuery.trim())
+    if (!filterable || !q) {
       return options
     }
     return options.filter((opt) => {
-      if (fuzzySubsequenceMatch(opt.label, searchQuery)) {
+      const normalizedLabel = normalizeForSearch(opt.label)
+      if (fuzzySubsequenceMatch(normalizedLabel, q)) {
         return true
       }
-      if (
-        opt.description &&
-        fuzzySubsequenceMatch(opt.description, searchQuery)
-      ) {
+      if (opt.description && opt.description.toLowerCase().includes(q)) {
         return true
       }
       return false

@@ -11,19 +11,23 @@ interface ToastCardProps {
 const ToastCard: React.FC<ToastCardProps> = ({ item, onRemove }) => {
   const [isExiting, setIsExiting] = useState(false)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
+  const onRemoveRef = useRef(onRemove)
+  onRemoveRef.current = onRemove
   const duration = item.duration ?? 3500
 
   const handleDismiss = useCallback(() => {
-    if (isExiting) return
-    setIsExiting(true)
-    if (timerRef.current) {
-      clearTimeout(timerRef.current)
-      timerRef.current = null
-    }
-    setTimeout(() => {
-      onRemove()
-    }, 180)
-  }, [isExiting, onRemove])
+    setIsExiting((prev) => {
+      if (prev) return prev
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      setTimeout(() => {
+        onRemoveRef.current()
+      }, 180)
+      return true
+    })
+  }, [])
 
   useEffect(() => {
     timerRef.current = setTimeout(() => {
