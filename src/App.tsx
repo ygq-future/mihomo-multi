@@ -4,7 +4,11 @@ import { useEffect } from 'react'
 import { ToastContainer, toast } from './components/common'
 import { Shell } from './components/layout/Shell'
 import { useAppStore } from './stores/appStore'
-import type { AutoUpdateEventPayload, PortDriftReport } from './types'
+import type {
+  AutoUpdateEventPayload,
+  PortDriftReport,
+  PortMapping,
+} from './types'
 
 export const App: React.FC = () => {
   const {
@@ -29,7 +33,8 @@ export const App: React.FC = () => {
     let unlistenAutoUpdated: (() => void) | undefined
     let unlistenDrift: (() => void) | undefined
     let unlistenFailed: (() => void) | undefined
-
+    let unlistenPortUpdated: (() => void) | undefined
+    let unlistenPortError: (() => void) | undefined
     const setupEventListeners = async () => {
       if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) {
         return
@@ -76,6 +81,23 @@ export const App: React.FC = () => {
           )
         },
       )
+
+      unlistenPortUpdated = await listen<PortMapping>(
+        'port-mapping-updated',
+        (event) => {
+          const payload = event.payload
+          fetchPortMappings().catch(() => {})
+          fetchStatus().catch(() => {})
+          toast.info(
+            `端口 ${payload.port} 已在托盘切换为「${payload.enabled ? '启用' : '禁用'}」`,
+            '托盘端口状态更新',
+          )
+        },
+      )
+
+      unlistenPortError = await listen<string>('port-toggle-error', (event) => {
+        toast.error(event.payload, '托盘端口切换失败')
+      })
     }
 
     setupEventListeners().catch(() => {})
@@ -85,6 +107,8 @@ export const App: React.FC = () => {
       if (unlistenAutoUpdated) unlistenAutoUpdated()
       if (unlistenDrift) unlistenDrift()
       if (unlistenFailed) unlistenFailed()
+      if (unlistenPortUpdated) unlistenPortUpdated()
+      if (unlistenPortError) unlistenPortError()
     }
   }, [
     fetchStatus,

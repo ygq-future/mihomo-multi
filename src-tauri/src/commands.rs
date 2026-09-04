@@ -39,21 +39,26 @@ pub async fn get_core_status(state: State<'_, AppState>) -> Result<CoreStatus, S
 pub async fn start_core(app: AppHandle, state: State<'_, AppState>) -> Result<CoreStatus, String> {
     let _ = state.sync_runtime_config().await;
     let config = state.config.read().clone();
-    state.supervisor.start(&app, &config).map_err(|err| err.to_string())
+    let res = state.supervisor.start(&app, &config).map_err(|err| err.to_string())?;
+    crate::tray::update_tray_menu(&app);
+    Ok(res)
 }
 
 #[tauri::command]
-pub async fn stop_core(state: State<'_, AppState>) -> Result<(), String> {
-    state.supervisor.stop().map_err(|err| err.to_string())
+pub async fn stop_core(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.supervisor.stop().map_err(|err| err.to_string())?;
+    crate::tray::update_tray_menu(&app);
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn restart_core(app: AppHandle, state: State<'_, AppState>) -> Result<CoreStatus, String> {
     let _ = state.sync_runtime_config().await;
     let config = state.config.read().clone();
-    state.supervisor.restart(&app, &config).map_err(|err| err.to_string())
+    let res = state.supervisor.restart(&app, &config).map_err(|err| err.to_string())?;
+    crate::tray::update_tray_menu(&app);
+    Ok(res)
 }
-
 #[tauri::command]
 pub async fn check_port_available(
     port: u16,
@@ -204,6 +209,7 @@ pub async fn get_next_available_port(
 
 #[tauri::command]
 pub async fn save_port_mapping(
+    app: AppHandle,
     mapping: PortMapping,
     state: State<'_, AppState>,
 ) -> Result<PortMapping, String> {
@@ -226,21 +232,28 @@ pub async fn save_port_mapping(
         .save_port_mapping(mapping)
         .map_err(|err| err.to_string())?;
     let _ = state.sync_runtime_config().await;
+    crate::tray::update_tray_menu(&app);
     Ok(saved)
 }
 
 #[tauri::command]
-pub async fn delete_port_mapping(id: String, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn delete_port_mapping(
+    app: AppHandle,
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     state
         .port_manager
         .delete_port_mapping(&id)
         .map_err(|err| err.to_string())?;
     let _ = state.sync_runtime_config().await;
+    crate::tray::update_tray_menu(&app);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn toggle_port_mapping(
+    app: AppHandle,
     id: String,
     enabled: bool,
     state: State<'_, AppState>,
@@ -250,11 +263,12 @@ pub async fn toggle_port_mapping(
         .toggle_port_mapping(&id, enabled)
         .map_err(|err| err.to_string())?;
     let _ = state.sync_runtime_config().await;
+    crate::tray::update_tray_menu(&app);
     Ok(toggled)
 }
-
 #[tauri::command]
 pub async fn test_port_mapping_delay(
+    app: AppHandle,
     id: String,
     test_url: Option<String>,
     timeout_ms: Option<u32>,
@@ -290,10 +304,12 @@ pub async fn test_port_mapping_delay(
     match res {
         Ok(delay) => {
             let _ = state.port_manager.update_port_latency(&id, Some(delay));
+            crate::tray::update_tray_menu(&app);
             Ok(delay)
         }
         Err(err) => {
             let _ = state.port_manager.update_port_latency(&id, None);
+            crate::tray::update_tray_menu(&app);
             Err(err.to_string())
         }
     }
@@ -301,6 +317,7 @@ pub async fn test_port_mapping_delay(
 
 #[tauri::command]
 pub async fn test_all_port_mappings_delay(
+    app: AppHandle,
     test_url: Option<String>,
     timeout_ms: Option<u32>,
     concurrency: Option<usize>,
@@ -365,7 +382,7 @@ pub async fn test_all_port_mappings_delay(
                 .update_port_latency(&mapping_id, res.latency);
         }
     }
-
+    crate::tray::update_tray_menu(&app);
     Ok(results)
 }
 

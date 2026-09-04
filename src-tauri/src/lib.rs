@@ -45,12 +45,12 @@ pub fn run() {
 
             info!("App local data directory: {}", app_dir.display());
             let app_state = AppState::new(app_dir);
+            app.manage(app_state.clone());
 
             // Create system tray icon and native menu
             if let Err(e) = tray::create_tray(app_handle) {
                 error!("Failed to create system tray: {}", e);
             }
-
             // Silent start check and window presentation
             let args: Vec<String> = std::env::args().collect();
             let is_silent = args.iter().any(|a| a == "--silent" || a == "-s") || app_state.config.read().silent_start;
@@ -75,6 +75,7 @@ pub fn run() {
                     error!("Failed to auto-start Mihomo core: {}", err);
                 } else {
                     info!("Mihomo core auto-started successfully");
+                    tray::update_tray_menu(&handle);
                 }
             });
 
@@ -83,7 +84,6 @@ pub fn run() {
                 .auto_updater
                 .start(app_handle.clone(), app_state.clone());
 
-            app.manage(app_state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
