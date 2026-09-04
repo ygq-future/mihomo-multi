@@ -131,3 +131,17 @@ input[type="number"] {
   backdrop-filter: blur(var(--acrylic-blur, 12px)) !important;
   -webkit-backdrop-filter: blur(var(--acrylic-blur, 12px)) !important;
 }
+
+/* Fallback view transition support */
+.animate-in {
+  animation: fadeIn 150ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

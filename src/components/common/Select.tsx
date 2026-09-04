@@ -73,14 +73,53 @@ export function Select<T extends string | number = string | number>({
   noDataText = '无匹配选项',
 }: SelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false)
+  const [isClosing, setIsClosing] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
   const [position, setPosition] = useState<DropdownPosition | null>(null)
   const triggerRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const closeTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const selectedOption = options.find((opt) => opt.value === value)
+
+  const openDropdown = useCallback(() => {
+    if (disabled) return
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+    setIsClosing(false)
+    setIsOpen(true)
+    if (filterable) {
+      setSearchQuery('')
+      setTimeout(() => {
+        inputRef.current?.focus()
+      }, 0)
+    }
+  }, [disabled, filterable])
+
+  const closeDropdown = useCallback(() => {
+    if (isClosing || !isOpen) return
+    setIsClosing(true)
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+    }
+    closeTimerRef.current = setTimeout(() => {
+      setIsOpen(false)
+      setIsClosing(false)
+      closeTimerRef.current = null
+    }, 120)
+  }, [isClosing, isOpen])
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current)
+      }
+    }
+  }, [])
 
   const filteredOptions = useMemo(() => {
     if (!filterable || !searchQuery.trim()) {
@@ -184,7 +223,7 @@ export function Select<T extends string | number = string | number>({
   }, [isOpen, filterable])
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen && !isClosing) return
 
     const handleScrollOrResize = () => {
       updatePosition()
@@ -198,42 +237,36 @@ export function Select<T extends string | number = string | number>({
       ) {
         return
       }
-      setIsOpen(false)
+      closeDropdown()
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setIsOpen(false)
+        closeDropdown()
       }
     }
 
     window.addEventListener('resize', handleScrollOrResize)
     window.addEventListener('scroll', handleScrollOrResize, true)
-    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('mousedown', handleClickOutside, true)
     document.addEventListener('keydown', handleKeyDown)
 
     return () => {
       window.removeEventListener('resize', handleScrollOrResize)
       window.removeEventListener('scroll', handleScrollOrResize, true)
-      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('mousedown', handleClickOutside, true)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isOpen, updatePosition])
+  }, [isOpen, isClosing, updatePosition, closeDropdown])
 
   const handleContainerClick = (e: React.MouseEvent) => {
     if (disabled) return
-    if (!isOpen) {
-      setIsOpen(true)
-      if (filterable) {
-        setSearchQuery('')
-        setTimeout(() => {
-          inputRef.current?.focus()
-        }, 0)
-      }
+    if (!isOpen || isClosing) {
+      openDropdown()
     } else {
       // 若已展开且点击不是 input 本身（例如点击右侧箭头或边缘空白），则收起
       if (e.target !== inputRef.current) {
-        setIsOpen(false)
+        closeDropdown()
       }
     }
   }
@@ -241,7 +274,7 @@ export function Select<T extends string | number = string | number>({
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
       e.stopPropagation()
-      setIsOpen(false)
+      closeDropdown()
       inputRef.current?.blur()
     } else if (e.key === 'Enter') {
       e.preventDefault()
@@ -250,15 +283,15 @@ export function Select<T extends string | number = string | number>({
         const targetOpt = filteredOptions[highlightedIndex]
         if (!targetOpt.disabled) {
           onChange(targetOpt.value)
-          setIsOpen(false)
+          closeDropdown()
           setSearchQuery('')
           inputRef.current?.blur()
         }
       }
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
-      if (!isOpen) {
-        setIsOpen(true)
+      if (!isOpen || isClosing) {
+        openDropdown()
         return
       }
       if (enabledIndices.length === 0) return
@@ -270,8 +303,8 @@ export function Select<T extends string | number = string | number>({
       setHighlightedIndex(enabledIndices[nextPos])
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      if (!isOpen) {
-        setIsOpen(true)
+      if (!isOpen || isClosing) {
+        openDropdown()
         return
       }
       if (enabledIndices.length === 0) return
@@ -292,10 +325,10 @@ export function Select<T extends string | number = string | number>({
         className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-background border text-xs text-foreground hover:border-primary/50 transition-colors duration-150 select-none ${
           disabled
             ? 'opacity-50 pointer-events-none'
-            : isOpen && filterable
+            : isOpen && !isClosing && filterable
               ? 'cursor-text'
               : 'cursor-pointer'
-        } ${isOpen ? 'border-primary ring-2 ring-primary/20' : 'border-border'}`}
+        } ${isOpen && !isClosing ? 'border-primary ring-2 ring-primary/20' : 'border-border'}`}
       >
         <div className="flex items-center gap-2 truncate min-w-0 flex-1">
           {prefixIcon || selectedOption?.icon}
@@ -303,42 +336,44 @@ export function Select<T extends string | number = string | number>({
             ref={inputRef}
             type="text"
             disabled={disabled}
-            readOnly={!isOpen || !filterable}
+            readOnly={!isOpen || isClosing || !filterable}
             value={
-              isOpen && filterable
+              isOpen && !isClosing && filterable
                 ? searchQuery
                 : selectedOption
                   ? selectedOption.label
                   : ''
             }
             placeholder={
-              isOpen && filterable
+              isOpen && !isClosing && filterable
                 ? selectedOption
                   ? selectedOption.label
                   : placeholder
                 : placeholder
             }
             onChange={(e) => {
-              if (isOpen && filterable) {
+              if (isOpen && !isClosing && filterable) {
                 setSearchQuery(e.target.value)
               }
             }}
             onKeyDown={handleInputKeyDown}
             className={`w-full bg-transparent border-none outline-none text-xs text-foreground placeholder:text-muted-foreground p-0 ${
-              isOpen && filterable ? 'cursor-text' : 'cursor-pointer'
+              isOpen && !isClosing && filterable
+                ? 'cursor-text'
+                : 'cursor-pointer'
             }`}
           />
         </div>
 
         <ChevronDown
           className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-200 shrink-0 ${
-            isOpen ? 'rotate-180' : ''
+            isOpen && !isClosing ? 'rotate-180' : ''
           }`}
         />
       </div>
 
       {/* Portal Dropdown Menu Panel */}
-      {isOpen &&
+      {(isOpen || isClosing) &&
         position &&
         typeof document !== 'undefined' &&
         createPortal(
@@ -353,9 +388,13 @@ export function Select<T extends string | number = string | number>({
               zIndex: 99999,
             }}
             className={`p-1 bg-card border border-border rounded-xl shadow-2xl overflow-y-auto ${
-              position.placement === 'top'
-                ? 'animate-in fade-in slide-in-from-bottom-2 duration-150'
-                : 'animate-in fade-in slide-in-from-top-2 duration-150'
+              isClosing
+                ? position.placement === 'top'
+                  ? 'animate-dropdown-exit-top pointer-events-none'
+                  : 'animate-dropdown-exit-bottom pointer-events-none'
+                : position.placement === 'top'
+                  ? 'animate-dropdown-enter-top'
+                  : 'animate-dropdown-enter-bottom'
             }`}
           >
             <div className="space-y-0.5">
@@ -374,7 +413,7 @@ export function Select<T extends string | number = string | number>({
                       onClick={() => {
                         if (!isDisabled) {
                           onChange(opt.value)
-                          setIsOpen(false)
+                          closeDropdown()
                           setSearchQuery('')
                         }
                       }}

@@ -1,6 +1,6 @@
 import { X } from 'lucide-react'
 import type React from 'react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 export interface ModalProps {
@@ -30,25 +30,56 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   maxWidth = 'md',
 }) => {
+  const [shouldRender, setShouldRender] = useState(isOpen)
+  const [isClosing, setIsClosing] = useState(false)
   const isMouseDownOnBackdrop = useRef(false)
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
+
+  useEffect(() => {
+    if (isOpen) {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      setShouldRender(true)
+      setIsClosing(false)
+    } else if (shouldRender) {
+      setIsClosing(true)
+      timerRef.current = setTimeout(() => {
+        setShouldRender(false)
+        setIsClosing(false)
+        timerRef.current = null
+      }, 150)
+    }
+  }, [isOpen, shouldRender])
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape' && isOpen && !isClosing) {
         onClose()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
+  }, [isOpen, isClosing, onClose])
 
-  if (!isOpen) return null
+  if (!shouldRender) return null
 
   return createPortal(
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+      className={`fixed inset-0 z-[999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 ${
+        isClosing ? 'animate-fade-out pointer-events-none' : 'animate-fade-in'
+      }`}
       onMouseDown={(e) => {
         isMouseDownOnBackdrop.current = e.target === e.currentTarget
       }}
@@ -60,9 +91,9 @@ export const Modal: React.FC<ModalProps> = ({
       }}
     >
       <div
-        className={`bg-card border border-border rounded-xl shadow-2xl w-full ${maxWidthMap[maxWidth]} max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150`}
-        onMouseDown={(e) => e.stopPropagation()}
-        onMouseUp={(e) => e.stopPropagation()}
+        className={`bg-card border border-border rounded-xl shadow-2xl w-full ${maxWidthMap[maxWidth]} max-h-[90vh] flex flex-col overflow-hidden ${
+          isClosing ? 'animate-modal-exit' : 'animate-modal-enter'
+        }`}
       >
         {/* Modal Header */}
         <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0 bg-card/80">

@@ -24,13 +24,6 @@ export const useToastStore = create<ToastStore>((set) => ({
     set((state) => ({
       toasts: [...state.toasts.slice(-4), item],
     }))
-
-    const duration = toast.duration ?? 3500
-    setTimeout(() => {
-      set((state) => ({
-        toasts: state.toasts.filter((t) => t.id !== id),
-      }))
-    }, duration)
   },
   removeToast: (id) =>
     set((state) => ({
