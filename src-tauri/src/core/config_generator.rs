@@ -40,6 +40,33 @@ impl Default for RuntimeGeoXUrl {
         }
     }
 }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuntimeDnsConfig {
+    pub enable: bool,
+    pub ipv6: bool,
+    #[serde(rename = "enhanced-mode")]
+    pub enhanced_mode: String,
+    #[serde(rename = "default-nameserver")]
+    pub default_nameserver: Vec<String>,
+    pub nameserver: Vec<String>,
+    pub fallback: Vec<String>,
+}
+
+impl Default for RuntimeDnsConfig {
+    fn default() -> Self {
+        Self {
+            enable: true,
+            ipv6: false,
+            enhanced_mode: "redir-host".to_string(),
+            default_nameserver: vec!["223.5.5.5".to_string(), "119.29.29.29".to_string()],
+            nameserver: vec!["223.5.5.5".to_string(), "119.29.29.29".to_string()],
+            fallback: vec![
+                "https://1.1.1.1/dns-query".to_string(),
+                "https://8.8.8.8/dns-query".to_string(),
+            ],
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct RuntimeGeneratorParams<'a> {
@@ -65,6 +92,10 @@ pub struct MinimalRuntimeConfig {
     pub allow_lan: bool,
     #[serde(rename = "bind-address")]
     pub bind_address: String,
+    #[serde(rename = "tcp-concurrent", default)]
+    pub tcp_concurrent: bool,
+    #[serde(default)]
+    pub dns: RuntimeDnsConfig,
     pub ipv6: bool,
     #[serde(rename = "geodata-mode")]
     pub geodata_mode: bool,
@@ -96,6 +127,8 @@ impl MinimalRuntimeConfig {
             allow_lan: false,
             bind_address: "127.0.0.1".to_string(),
             ipv6: false,
+            tcp_concurrent: true,
+            dns: RuntimeDnsConfig::default(),
             geodata_mode: true,
             geo_auto_update: true,
             geo_update_interval: 24,
@@ -221,6 +254,8 @@ impl MinimalRuntimeConfig {
             allow_lan: params.allow_lan,
             bind_address: bind_addr.to_string(),
             ipv6: false,
+            tcp_concurrent: true,
+            dns: RuntimeDnsConfig::default(),
             geodata_mode: true,
             geo_auto_update: true,
             geo_update_interval: 24,
@@ -332,6 +367,11 @@ password: pass
         assert!(!yaml.contains("7893"));
         // MATCH,DIRECT is always present
         assert!(yaml.contains("MATCH,DIRECT"));
+        assert!(yaml.contains("tcp-concurrent: true"));
+        assert!(yaml.contains("dns:"));
+        assert!(yaml.contains("enhanced-mode: redir-host"));
+        assert!(yaml.contains("223.5.5.5"));
+        assert!(yaml.contains("https://1.1.1.1/dns-query"));
 
         assert_eq!(config.listeners.len(), 2);
         assert_eq!(config.listeners[0].port, 7891);
@@ -387,12 +427,7 @@ password: pass
             fallback_lazy: false,
         };
 
-        let config = MinimalRuntimeConfig::with_mappings(
-            &params,
-            &[mapping],
-            proxies,
-            &profile_map,
-        );
+        let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], proxies, &profile_map);
         let yaml = config.to_yaml().expect("YAML serialize failed");
         assert!(yaml.contains("name: fb-7895"));
         assert!(yaml.contains("type: fallback"));
@@ -454,12 +489,8 @@ password: pass
             fallback_lazy: false,
         };
 
-        let config = MinimalRuntimeConfig::with_mappings(
-            &params,
-            &[mapping_bypass, mapping_global],
-            vec![p1],
-            &profile_map,
-        );
+        let config =
+            MinimalRuntimeConfig::with_mappings(&params, &[mapping_bypass, mapping_global], vec![p1], &profile_map);
 
         let yaml = config.to_yaml().expect("YAML serialize failed");
         assert!(yaml.contains("geodata-mode: true"));
