@@ -598,6 +598,25 @@ export const PortTableView: React.FC = () => {
                       >
                         {m.protocol}
                       </Badge>
+                      {m.bypassCn !== false ? (
+                        <Badge
+                          variant="secondary"
+                          size="sm"
+                          className="!text-[10px] !py-0.5 !px-1.5 font-medium text-muted-foreground border-border/70 shrink-0"
+                          title="中国大陆域名与 IP 走直连 (DIRECT)"
+                        >
+                          绕过大陆
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          size="sm"
+                          className="!text-[10px] !py-0.5 !px-1.5 font-medium text-amber-500/90 border-amber-500/30 bg-amber-500/5 shrink-0"
+                          title="所有网络流量全局走绑定的代理节点"
+                        >
+                          全局代理
+                        </Badge>
+                      )}
 
                       {isStoppedWarning ? (
                         <span className="text-[10px] text-amber-500 font-medium shrink-0">

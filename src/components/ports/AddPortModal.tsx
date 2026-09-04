@@ -20,7 +20,15 @@ import {
   getLatencyBadgeProps,
   getProtocolBadgeProps,
 } from '../../utils/proxy'
-import { Badge, Button, Input, Modal, RegionFlag, Select } from '../common'
+import {
+  Badge,
+  Button,
+  Input,
+  Modal,
+  RegionFlag,
+  Select,
+  Switch,
+} from '../common'
 
 export interface AddPortModalProps {
   isOpen: boolean
@@ -65,6 +73,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const [selectedNodeName, setSelectedNodeName] = useState<string>('')
   const [fallbackNodeName, setFallbackNodeName] = useState<string>('')
   const [description, setDescription] = useState<string>('')
+  const [bypassCn, setBypassCn] = useState<boolean>(true)
   const [isCheckingPort, setIsCheckingPort] = useState(false)
   const [isPortAvailable, setIsPortAvailable] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -93,6 +102,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         setSelectedNodeName(initialMapping.nodeName)
         setFallbackNodeName(initialMapping.fallbackNodeName || '')
         setDescription(initialMapping.description || '')
+        setBypassCn(initialMapping.bypassCn ?? true)
       } else {
         const profId = initialProfileId || (profiles[0] ? profiles[0].id : '')
         setSelectedProfileId(profId)
@@ -111,6 +121,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
 
         setProtocol('mixed')
         setDescription('')
+        setBypassCn(true)
       }
     }
   }, [isOpen, initialProfileId, initialNodeName, initialMapping, profiles])
@@ -402,6 +413,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         profileId: selectedProfileId,
         nodeName: selectedNodeName,
         fallbackNodeName: fallbackNodeName.trim() || undefined,
+        bypassCn,
         enabled: isEditing && initialMapping ? initialMapping.enabled : true,
       })
 
@@ -740,6 +752,27 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             )}
           </div>
         )}
+        {/* Bypass CN Switch */}
+        <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-secondary/30">
+          <div className="space-y-0.5 pr-3">
+            <label
+              htmlFor="bypass-cn-switch"
+              className="text-xs font-medium text-foreground cursor-pointer block"
+            >
+              智能绕过大陆网站 (直连)
+            </label>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              开启后中国大陆域名与 IP 走直连
+              (DIRECT)；关闭则所有流量全局走绑定代理节点
+            </p>
+          </div>
+          <Switch
+            id="bypass-cn-switch"
+            checked={bypassCn}
+            onChange={setBypassCn}
+            size="sm"
+          />
+        </div>
 
         {/* Description Input */}
         <div>

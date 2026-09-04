@@ -244,6 +244,11 @@ impl CoreSupervisor {
             inner.last_error = Some(e.to_string());
             return Err(e);
         }
+        let geo_work_dir = self.work_dir.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = crate::core::geo_manager::ensure_geo_databases(&geo_work_dir).await;
+        });
+
         let runtime_yaml_path = self.work_dir.join("runtime.yaml");
 
         if !runtime_yaml_path.exists() {

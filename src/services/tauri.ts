@@ -174,6 +174,7 @@ export async function togglePortMapping(
       profileId: 'mock-profile',
       nodeName: 'mock-node',
       enabled,
+      bypassCn: true,
     }
   }
   return invoke<PortMapping>('toggle_port_mapping', { id, enabled })

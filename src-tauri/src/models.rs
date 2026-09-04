@@ -55,8 +55,9 @@ pub struct PortMapping {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fallback_node_name: Option<String>,
+    #[serde(default = "default_true")]
+    pub bypass_cn: bool,
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PortFallbackStatus {

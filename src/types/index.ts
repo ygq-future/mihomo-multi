@@ -23,6 +23,7 @@ export interface PortMapping {
   latency?: number | null
   description?: string
   fallbackNodeName?: string | null
+  bypassCn: boolean
 }
 
 export interface PortFallbackStatus {

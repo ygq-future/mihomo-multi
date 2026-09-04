@@ -298,6 +298,7 @@ proxies:
             latency: None,
             description: None,
             fallback_node_name: None,
+            bypass_cn: true,
         };
         // 2. Drifted mapping (Node missing)
         let drifted_mapping = PortMapping {
@@ -310,6 +311,7 @@ proxies:
             latency: None,
             description: None,
             fallback_node_name: None,
+            bypass_cn: true,
         };
         // 3. Drifted mapping (Profile missing)
         let missing_profile_mapping = PortMapping {
@@ -322,6 +324,7 @@ proxies:
             latency: None,
             description: None,
             fallback_node_name: None,
+            bypass_cn: true,
         };
         let mappings = vec![
             healthy_mapping.clone(),
@@ -362,6 +365,7 @@ proxies:
             latency: None,
             description: None,
             fallback_node_name: None,
+            bypass_cn: true,
         };
         let single_report = DriftGuard::check_single(&empty_mapping, &manager);
         assert_eq!(single_report.status, DriftStatus::EmptyProfile);

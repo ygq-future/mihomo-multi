@@ -241,6 +241,7 @@ mod tests {
             latency: None,
             description: Some("Window 1".to_string()),
             fallback_node_name: None,
+            bypass_cn: true,
         };
 
         let saved = manager.save_port_mapping(mapping).expect("Save port mapping");
@@ -259,6 +260,7 @@ mod tests {
             latency: None,
             description: Some("Duplicate".to_string()),
             fallback_node_name: None,
+            bypass_cn: true,
         };
         let dup_res = manager.save_port_mapping(duplicate);
         assert!(dup_res.is_err());

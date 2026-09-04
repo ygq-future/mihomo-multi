@@ -1,7 +1,7 @@
 use crate::error::{AppError, AppResult};
 use crate::models::PortMapping;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use tracing::warn;
 
@@ -24,6 +24,21 @@ pub struct RuntimeProxyGroup {
     pub interval: u32,
     pub timeout: u32,
     pub lazy: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuntimeGeoXUrl {
+    pub geoip: String,
+    pub geosite: String,
+}
+
+impl Default for RuntimeGeoXUrl {
+    fn default() -> Self {
+        Self {
+            geoip: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat".to_string(),
+            geosite: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -51,12 +66,22 @@ pub struct MinimalRuntimeConfig {
     #[serde(rename = "bind-address")]
     pub bind_address: String,
     pub ipv6: bool,
+    #[serde(rename = "geodata-mode")]
+    pub geodata_mode: bool,
+    #[serde(rename = "geo-auto-update")]
+    pub geo_auto_update: bool,
+    #[serde(rename = "geo-update-interval")]
+    pub geo_update_interval: u32,
+    #[serde(rename = "geox-url")]
+    pub geox_url: RuntimeGeoXUrl,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub listeners: Vec<RuntimeListener>,
     #[serde(rename = "proxy-groups", skip_serializing_if = "Vec::is_empty", default)]
     pub proxy_groups: Vec<RuntimeProxyGroup>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub proxies: Vec<serde_yaml_ng::Value>,
+    #[serde(rename = "sub-rules", skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub sub_rules: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub rules: Vec<String>,
 }
@@ -71,9 +96,14 @@ impl MinimalRuntimeConfig {
             allow_lan: false,
             bind_address: "127.0.0.1".to_string(),
             ipv6: false,
+            geodata_mode: true,
+            geo_auto_update: true,
+            geo_update_interval: 24,
+            geox_url: RuntimeGeoXUrl::default(),
             listeners: Vec::new(),
             proxies: Vec::new(),
             proxy_groups: Vec::new(),
+            sub_rules: BTreeMap::new(),
             rules: vec!["MATCH,DIRECT".to_string()],
         }
     }
@@ -86,6 +116,7 @@ impl MinimalRuntimeConfig {
     ) -> Self {
         let mut listeners = Vec::new();
         let mut proxy_groups = Vec::new();
+        let mut sub_rules = BTreeMap::new();
         let mut rules = Vec::new();
         let listen_addr = if params.allow_lan { "0.0.0.0" } else { "127.0.0.1" };
         let bind_addr = if params.allow_lan { "*" } else { "127.0.0.1" };
@@ -131,7 +162,7 @@ impl MinimalRuntimeConfig {
                 .as_ref()
                 .and_then(|fb_name| resolve_node_target(fb_name, &m.profile_id));
 
-            match (target_node, fallback_node) {
+            let target_action = match (target_node, fallback_node) {
                 (Some(primary), Some(fallback)) => {
                     let group_name = format!("fb-{}", m.port);
                     proxy_groups.push(RuntimeProxyGroup {
@@ -143,25 +174,40 @@ impl MinimalRuntimeConfig {
                         timeout: params.timeout_ms,
                         lazy: params.fallback_lazy,
                     });
-                    rules.push(format!("IN-PORT,{},{}", m.port, group_name));
+                    group_name
                 }
-                (Some(primary), None) => {
-                    rules.push(format!("IN-PORT,{},{}", m.port, primary));
-                }
+                (Some(primary), None) => primary,
                 (None, Some(fallback)) => {
                     warn!(
                         "Port mapping {} primary node '{}' not found, using fallback '{}'",
                         m.port, m.node_name, fallback
                     );
-                    rules.push(format!("IN-PORT,{},{}", m.port, fallback));
+                    fallback
                 }
                 (None, None) => {
                     warn!(
                         "Port mapping {} for node '{}' (profile '{}') not found in active proxies. Falling back to DIRECT.",
                         m.port, m.node_name, m.profile_id
                     );
-                    rules.push(format!("IN-PORT,{},DIRECT", m.port));
+                    "DIRECT".to_string()
                 }
+            };
+
+            if m.bypass_cn {
+                let sub_rule_name = format!("sub-rule-{}", m.port);
+                sub_rules.insert(
+                    sub_rule_name.clone(),
+                    vec![
+                        "GEOIP,private,DIRECT,no-resolve".to_string(),
+                        "GEOSITE,private,DIRECT".to_string(),
+                        "GEOSITE,cn,DIRECT".to_string(),
+                        "GEOIP,cn,DIRECT".to_string(),
+                        format!("MATCH,{}", target_action),
+                    ],
+                );
+                rules.push(format!("SUB-RULE,(IN-PORT,{}),{}", m.port, sub_rule_name));
+            } else {
+                rules.push(format!("IN-PORT,{},{}", m.port, target_action));
             }
         }
         // Invariant: Always end with MATCH,DIRECT fallback
@@ -175,9 +221,14 @@ impl MinimalRuntimeConfig {
             allow_lan: params.allow_lan,
             bind_address: bind_addr.to_string(),
             ipv6: false,
+            geodata_mode: true,
+            geo_auto_update: true,
+            geo_update_interval: 24,
+            geox_url: RuntimeGeoXUrl::default(),
             listeners,
             proxy_groups,
             proxies,
+            sub_rules,
             rules,
         }
     }
@@ -213,6 +264,7 @@ mod tests {
             latency: None,
             description: Some("Test Mapping 1".to_string()),
             fallback_node_name: None,
+            bypass_cn: false,
         };
         let mapping2 = PortMapping {
             id: "test-2".to_string(),
@@ -224,6 +276,7 @@ mod tests {
             latency: None,
             description: Some("Missing Node Mapping".to_string()),
             fallback_node_name: None,
+            bypass_cn: false,
         };
         let mapping_disabled = PortMapping {
             id: "test-3".to_string(),
@@ -235,6 +288,7 @@ mod tests {
             latency: None,
             description: Some("Disabled".to_string()),
             fallback_node_name: None,
+            bypass_cn: false,
         };
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "AirportA".to_string());
@@ -297,8 +351,8 @@ password: pass
             latency: None,
             description: Some("Fallback Test".to_string()),
             fallback_node_name: Some("HK-Node-02".to_string()),
+            bypass_cn: false,
         };
-
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "AirportA".to_string());
 
@@ -348,5 +402,78 @@ password: pass
         assert_eq!(config.proxy_groups.len(), 1);
         assert_eq!(config.proxy_groups[0].name, "fb-7895");
         assert_eq!(config.proxy_groups[0].proxies.len(), 2);
+    }
+    #[test]
+    fn test_runtime_config_generation_with_bypass_cn() {
+        let mapping_bypass = PortMapping {
+            id: "test-bypass".to_string(),
+            port: 8888,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: "HK-Node-01".to_string(),
+            enabled: true,
+            latency: None,
+            description: Some("Bypass CN Test".to_string()),
+            fallback_node_name: None,
+            bypass_cn: true,
+        };
+        let mapping_global = PortMapping {
+            id: "test-global".to_string(),
+            port: 8889,
+            protocol: InboundProtocol::Socks5,
+            profile_id: "prof-1".to_string(),
+            node_name: "HK-Node-01".to_string(),
+            enabled: true,
+            latency: None,
+            description: Some("Global Test".to_string()),
+            fallback_node_name: None,
+            bypass_cn: false,
+        };
+
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let raw_proxy_yaml = r#"
+name: "[AirportA] HK-Node-01"
+type: ss
+server: 1.1.1.1
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let p1: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml).unwrap();
+
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+        };
+
+        let config = MinimalRuntimeConfig::with_mappings(
+            &params,
+            &[mapping_bypass, mapping_global],
+            vec![p1],
+            &profile_map,
+        );
+
+        let yaml = config.to_yaml().expect("YAML serialize failed");
+        assert!(yaml.contains("geodata-mode: true"));
+        assert!(yaml.contains("geo-auto-update: true"));
+        assert!(yaml.contains("sub-rules:"));
+        assert!(yaml.contains("sub-rule-8888:"));
+        assert!(yaml.contains("- GEOIP,private,DIRECT,no-resolve"));
+        assert!(yaml.contains("- GEOSITE,private,DIRECT"));
+        assert!(yaml.contains("- GEOSITE,cn,DIRECT"));
+        assert!(yaml.contains("- GEOIP,cn,DIRECT"));
+        assert!(yaml.contains("- MATCH,[AirportA] HK-Node-01"));
+
+        assert!(yaml.contains("SUB-RULE,(IN-PORT,8888),sub-rule-8888"));
+        assert!(yaml.contains("IN-PORT,8889,[AirportA] HK-Node-01"));
+        assert!(yaml.contains("MATCH,DIRECT"));
     }
 }
