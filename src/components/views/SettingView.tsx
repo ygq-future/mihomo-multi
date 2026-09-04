@@ -10,6 +10,7 @@ import {
   Play,
   Power,
   RefreshCw,
+  ShieldCheck,
   Sliders,
   Sparkles,
   Square,
@@ -31,6 +32,25 @@ const logLevelOptions = [
   { value: 'error', label: 'Error (仅错误)' },
   { value: 'debug', label: 'Debug (详细调试)' },
   { value: 'silent', label: 'Silent (静默)' },
+]
+
+const testUrlOptions = [
+  {
+    value: 'http://cp.cloudflare.com/generate_204',
+    label: 'Cloudflare (204) · 推荐',
+  },
+  {
+    value: 'http://www.google.com/generate_204',
+    label: 'Google (204)',
+  },
+  {
+    value: 'http://captive.apple.com/hotspot-detect.html',
+    label: 'Apple Captive Portal',
+  },
+  {
+    value: 'http://www.msftconnecttest.com/connecttest.txt',
+    label: 'Microsoft Connect Test',
+  },
 ]
 
 const themeOptions = [
@@ -79,6 +99,14 @@ export const SettingView: React.FC = () => {
   const [autoLaunch, setAutoLaunch] = useState<boolean>(false)
   const [silentStart, setSilentStart] = useState<boolean>(false)
 
+  // Probe & Fallback Strategy
+  const [testUrl, setTestUrl] = useState<string>(
+    'http://cp.cloudflare.com/generate_204',
+  )
+  const [timeoutMsInput, setTimeoutMsInput] = useState<string>('3000')
+  const [fallbackIntervalInput, setFallbackIntervalInput] =
+    useState<string>('5')
+  const [fallbackLazy, setFallbackLazy] = useState<boolean>(false)
   const [appDataDir, setAppDataDir] = useState<string>('')
   const [liveUptime, setLiveUptime] = useState<number>(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -125,6 +153,10 @@ export const SettingView: React.FC = () => {
       setCloseToTray(config.closeToTray ?? true)
       setAutoLaunch(config.autoLaunch ?? false)
       setSilentStart(config.silentStart ?? false)
+      setTestUrl(config.testUrl ?? 'http://cp.cloudflare.com/generate_204')
+      setTimeoutMsInput(String(config.timeoutMs ?? 3000))
+      setFallbackIntervalInput(String(config.fallbackInterval ?? 5))
+      setFallbackLazy(config.fallbackLazy ?? false)
     }
   }, [config])
 
@@ -208,6 +240,63 @@ export const SettingView: React.FC = () => {
     debouncedSaveConfig((prev) => {
       if (prev) prev.acrylicOpacity = val
     })
+  }
+
+  const handleTestUrlChange = async (val: string | number) => {
+    const url = String(val)
+    setTestUrl(url)
+    if (!config) return
+    try {
+      await saveConfig({ ...config, testUrl: url })
+      toast.success('测活与测速目标地址已更新')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const handleTimeoutBlur = async () => {
+    const ms = Number.parseInt(timeoutMsInput, 10)
+    if (!ms || ms < 500 || ms > 60000) {
+      toast.error('超时时间建议在 500 ~ 60000 ms 范围内')
+      setTimeoutMsInput(String(config?.timeoutMs ?? 3000))
+      return
+    }
+    if (config && config.timeoutMs !== ms) {
+      try {
+        await saveConfig({ ...config, timeoutMs: ms })
+        toast.success(`测速与故障判定超时已更新为 ${ms} ms`)
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err))
+      }
+    }
+  }
+
+  const handleFallbackIntervalBlur = async () => {
+    const sec = Number.parseInt(fallbackIntervalInput, 10)
+    if (!sec || sec < 2 || sec > 300) {
+      toast.error('检测间隔建议在 2 ~ 300 秒范围内')
+      setFallbackIntervalInput(String(config?.fallbackInterval ?? 5))
+      return
+    }
+    if (config && config.fallbackInterval !== sec) {
+      try {
+        await saveConfig({ ...config, fallbackInterval: sec })
+        toast.success(`Fallback 探测周期已更新为 ${sec} 秒`)
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err))
+      }
+    }
+  }
+
+  const handleFallbackLazyToggle = async (checked: boolean) => {
+    setFallbackLazy(checked)
+    if (!config) return
+    try {
+      await saveConfig({ ...config, fallbackLazy: checked })
+      toast.success(checked ? '已开启惰性健康检测' : '已恢复持续主动健康检测')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    }
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -513,6 +602,124 @@ export const SettingView: React.FC = () => {
               onChange={handleAllowLanToggle}
               size="md"
             />
+          </div>
+
+          {/* Fallback & Probe Strategy Subsection */}
+          <div className="pt-4 border-t border-border space-y-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-500" />
+              <h4 className="text-xs font-semibold text-foreground">
+                节点探测与 Fallback 容灾策略
+              </h4>
+            </div>
+
+            {/* Probe Target URL Select */}
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <label
+                  htmlFor="probe-url-select"
+                  className="text-xs font-medium text-foreground"
+                >
+                  探测与测速目标地址
+                </label>
+                <p className="text-[11px] text-muted-foreground">
+                  全局测速、单端口测速与 Fallback 策略组测活所使用的网络端点
+                </p>
+              </div>
+              <div className="w-64 shrink-0">
+                <Select
+                  id="probe-url-select"
+                  value={testUrl}
+                  onChange={handleTestUrlChange}
+                  options={testUrlOptions}
+                />
+              </div>
+            </div>
+
+            {/* Timeout Ms Input */}
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <label
+                  htmlFor="probe-timeout-input"
+                  className="text-xs font-medium text-foreground"
+                >
+                  节点测速与故障判定超时
+                </label>
+                <p className="text-[11px] text-muted-foreground">
+                  统一控制手动测速超时时间，以及 Fallback
+                  主节点被判定故障的阈值（毫秒）
+                </p>
+              </div>
+              <div className="w-28 shrink-0">
+                <Input
+                  id="probe-timeout-input"
+                  type="number"
+                  min={500}
+                  max={60000}
+                  value={timeoutMsInput}
+                  onChange={(e) => setTimeoutMsInput(e.target.value)}
+                  onBlur={handleTimeoutBlur}
+                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                  suffixIcon={
+                    <span className="text-[10px] text-muted-foreground pr-1">
+                      ms
+                    </span>
+                  }
+                  className="text-center font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Fallback Interval Input */}
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <label
+                  htmlFor="fallback-interval-input"
+                  className="text-xs font-medium text-foreground"
+                >
+                  Fallback 健康检查周期
+                </label>
+                <p className="text-[11px] text-muted-foreground">
+                  Mihomo
+                  内核在底层向探针测活的间隔秒数；主节点恢复后内核自动切回
+                </p>
+              </div>
+              <div className="w-28 shrink-0">
+                <Input
+                  id="fallback-interval-input"
+                  type="number"
+                  min={2}
+                  max={300}
+                  value={fallbackIntervalInput}
+                  onChange={(e) => setFallbackIntervalInput(e.target.value)}
+                  onBlur={handleFallbackIntervalBlur}
+                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                  suffixIcon={
+                    <span className="text-[10px] text-muted-foreground pr-1">
+                      秒
+                    </span>
+                  }
+                  className="text-center font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Fallback Lazy Switch */}
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <span className="text-xs font-medium text-foreground">
+                  惰性健康检查 (Lazy Mode)
+                </span>
+                <p className="text-[11px] text-muted-foreground">
+                  关闭时内核持续主动测活（推荐）；开启后仅在该端口有流量经过时才发起检测
+                </p>
+              </div>
+              <Switch
+                checked={fallbackLazy}
+                onChange={handleFallbackLazyToggle}
+                size="md"
+              />
+            </div>
           </div>
         </div>
       </div>

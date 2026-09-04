@@ -53,6 +53,22 @@ pub struct PortMapping {
     pub latency: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_node_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PortFallbackStatus {
+    pub mapping_id: String,
+    pub port: u16,
+    pub primary_node: String,
+    pub fallback_node: String,
+    pub active_node: String,
+    pub is_fallback_active: bool,
+    pub primary_latency: Option<u32>,
+    pub fallback_latency: Option<u32>,
+    pub last_updated: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -179,6 +195,14 @@ pub struct AppConfig {
     pub background_image: String,
     #[serde(default = "default_opacity")]
     pub background_opacity: u8,
+    #[serde(default = "default_test_url")]
+    pub test_url: String,
+    #[serde(default = "default_timeout_ms")]
+    pub timeout_ms: u32,
+    #[serde(default = "default_fallback_interval")]
+    pub fallback_interval: u32,
+    #[serde(default)]
+    pub fallback_lazy: bool,
 }
 
 fn default_true() -> bool {
@@ -195,6 +219,18 @@ fn default_acrylic_opacity() -> u8 {
 
 fn default_opacity() -> u8 {
     80
+}
+
+fn default_test_url() -> String {
+    "http://cp.cloudflare.com/generate_204".to_string()
+}
+
+fn default_timeout_ms() -> u32 {
+    3000
+}
+
+fn default_fallback_interval() -> u32 {
+    5
 }
 
 impl Default for AppConfig {
@@ -214,6 +250,10 @@ impl Default for AppConfig {
             acrylic_opacity: 65,
             background_image: String::new(),
             background_opacity: 80,
+            test_url: default_test_url(),
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
         }
     }
 }

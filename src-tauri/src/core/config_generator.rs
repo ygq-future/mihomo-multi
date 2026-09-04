@@ -14,6 +14,30 @@ pub struct RuntimeListener {
     pub listen: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuntimeProxyGroup {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub group_type: String,
+    pub proxies: Vec<String>,
+    pub url: String,
+    pub interval: u32,
+    pub timeout: u32,
+    pub lazy: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeGeneratorParams<'a> {
+    pub controller_port: u16,
+    pub secret: &'a str,
+    pub log_level: &'a str,
+    pub allow_lan: bool,
+    pub test_url: &'a str,
+    pub timeout_ms: u32,
+    pub fallback_interval: u32,
+    pub fallback_lazy: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MinimalRuntimeConfig {
     #[serde(rename = "external-controller")]
@@ -29,6 +53,8 @@ pub struct MinimalRuntimeConfig {
     pub ipv6: bool,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub listeners: Vec<RuntimeListener>,
+    #[serde(rename = "proxy-groups", skip_serializing_if = "Vec::is_empty", default)]
+    pub proxy_groups: Vec<RuntimeProxyGroup>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub proxies: Vec<serde_yaml_ng::Value>,
     #[serde(default)]
@@ -47,23 +73,22 @@ impl MinimalRuntimeConfig {
             ipv6: false,
             listeners: Vec::new(),
             proxies: Vec::new(),
+            proxy_groups: Vec::new(),
             rules: vec!["MATCH,DIRECT".to_string()],
         }
     }
 
     pub fn with_mappings(
-        controller_port: u16,
-        secret: &str,
-        log_level: &str,
-        allow_lan: bool,
+        params: &RuntimeGeneratorParams<'_>,
         mappings: &[PortMapping],
         proxies: Vec<serde_yaml_ng::Value>,
         profile_names: &HashMap<String, String>,
     ) -> Self {
         let mut listeners = Vec::new();
+        let mut proxy_groups = Vec::new();
         let mut rules = Vec::new();
-        let listen_addr = if allow_lan { "0.0.0.0" } else { "127.0.0.1" };
-        let bind_addr = if allow_lan { "*" } else { "127.0.0.1" };
+        let listen_addr = if params.allow_lan { "0.0.0.0" } else { "127.0.0.1" };
+        let bind_addr = if params.allow_lan { "*" } else { "127.0.0.1" };
 
         let available_proxy_names: HashSet<String> = proxies
             .iter()
@@ -84,45 +109,74 @@ impl MinimalRuntimeConfig {
                 listen: listen_addr.to_string(),
             });
 
-            // Resolve target proxy name
-            let candidate_namespaced = profile_names
-                .get(&m.profile_id)
-                .map(|pname| format!("[{}] {}", pname, m.node_name));
+            let resolve_node_target = |node_name: &str, profile_id: &str| -> Option<String> {
+                let candidate_namespaced = profile_names
+                    .get(profile_id)
+                    .map(|pname| format!("[{}] {}", pname, node_name));
 
-            let target_node = if let Some(ref ns_name) = candidate_namespaced
-                && available_proxy_names.contains(ns_name)
-            {
-                Some(ns_name.clone())
-            } else if available_proxy_names.contains(&m.node_name) {
-                Some(m.node_name.clone())
-            } else {
-                None
+                if let Some(ns_name) = &candidate_namespaced
+                    && available_proxy_names.contains(ns_name)
+                {
+                    Some(ns_name.clone())
+                } else if available_proxy_names.contains(node_name) {
+                    Some(node_name.to_string())
+                } else {
+                    None
+                }
             };
 
-            if let Some(target) = target_node {
-                rules.push(format!("IN-PORT,{},{}", m.port, target));
-            } else {
-                // Safety fallback: if node is missing/invalid, fallback to DIRECT
-                warn!(
-                    "Port mapping {} for node '{}' (profile '{}') not found in active proxies. Falling back to DIRECT.",
-                    m.port, m.node_name, m.profile_id
-                );
-                rules.push(format!("IN-PORT,{},DIRECT", m.port));
+            let target_node = resolve_node_target(&m.node_name, &m.profile_id);
+            let fallback_node = m
+                .fallback_node_name
+                .as_ref()
+                .and_then(|fb_name| resolve_node_target(fb_name, &m.profile_id));
+
+            match (target_node, fallback_node) {
+                (Some(primary), Some(fallback)) => {
+                    let group_name = format!("fb-{}", m.port);
+                    proxy_groups.push(RuntimeProxyGroup {
+                        name: group_name.clone(),
+                        group_type: "fallback".to_string(),
+                        proxies: vec![primary, fallback],
+                        url: params.test_url.to_string(),
+                        interval: params.fallback_interval,
+                        timeout: params.timeout_ms,
+                        lazy: params.fallback_lazy,
+                    });
+                    rules.push(format!("IN-PORT,{},{}", m.port, group_name));
+                }
+                (Some(primary), None) => {
+                    rules.push(format!("IN-PORT,{},{}", m.port, primary));
+                }
+                (None, Some(fallback)) => {
+                    warn!(
+                        "Port mapping {} primary node '{}' not found, using fallback '{}'",
+                        m.port, m.node_name, fallback
+                    );
+                    rules.push(format!("IN-PORT,{},{}", m.port, fallback));
+                }
+                (None, None) => {
+                    warn!(
+                        "Port mapping {} for node '{}' (profile '{}') not found in active proxies. Falling back to DIRECT.",
+                        m.port, m.node_name, m.profile_id
+                    );
+                    rules.push(format!("IN-PORT,{},DIRECT", m.port));
+                }
             }
         }
-
         // Invariant: Always end with MATCH,DIRECT fallback
         rules.push("MATCH,DIRECT".to_string());
 
         Self {
-            external_controller: format!("127.0.0.1:{}", controller_port),
-            secret: secret.to_string(),
-            log_level: log_level.to_string(),
+            external_controller: format!("127.0.0.1:{}", params.controller_port),
+            secret: params.secret.to_string(),
+            log_level: params.log_level.to_string(),
             mode: "rule".to_string(),
-            allow_lan,
+            allow_lan: params.allow_lan,
             bind_address: bind_addr.to_string(),
             ipv6: false,
             listeners,
+            proxy_groups,
             proxies,
             rules,
         }
@@ -158,8 +212,8 @@ mod tests {
             enabled: true,
             latency: None,
             description: Some("Test Mapping 1".to_string()),
+            fallback_node_name: None,
         };
-
         let mapping2 = PortMapping {
             id: "test-2".to_string(),
             port: 7892,
@@ -169,8 +223,8 @@ mod tests {
             enabled: true,
             latency: None,
             description: Some("Missing Node Mapping".to_string()),
+            fallback_node_name: None,
         };
-
         let mapping_disabled = PortMapping {
             id: "test-3".to_string(),
             port: 7893,
@@ -180,8 +234,8 @@ mod tests {
             enabled: false,
             latency: None,
             description: Some("Disabled".to_string()),
+            fallback_node_name: None,
         };
-
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "AirportA".to_string());
 
@@ -196,16 +250,23 @@ password: pass
         let proxy_val: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml).unwrap();
         let proxies = vec![proxy_val];
 
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+        };
+
         let config = MinimalRuntimeConfig::with_mappings(
-            9999,
-            "secret123",
-            "info",
-            false,
+            &params,
             &[mapping1, mapping2, mapping_disabled],
             proxies,
             &profile_map,
         );
-
         let yaml = config.to_yaml().expect("YAML serialize failed");
         assert!(yaml.contains("external-controller: 127.0.0.1:9999"));
         assert!(yaml.contains("secret: secret123"));
@@ -223,5 +284,69 @@ password: pass
         assert_eq!(config.listeners[0].listener_type, "mixed");
         assert_eq!(config.listeners[1].port, 7892);
         assert_eq!(config.listeners[1].listener_type, "socks5");
+    }
+    #[test]
+    fn test_runtime_config_generation_with_fallback_group() {
+        let mapping = PortMapping {
+            id: "test-fb".to_string(),
+            port: 7895,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: "HK-Node-01".to_string(),
+            enabled: true,
+            latency: None,
+            description: Some("Fallback Test".to_string()),
+            fallback_node_name: Some("HK-Node-02".to_string()),
+        };
+
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let raw_proxy_yaml1 = r#"
+name: "[AirportA] HK-Node-01"
+type: ss
+server: 1.1.1.1
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let raw_proxy_yaml2 = r#"
+name: "[AirportA] HK-Node-02"
+type: ss
+server: 1.1.1.2
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let p1: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml1).unwrap();
+        let p2: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml2).unwrap();
+        let proxies = vec![p1, p2];
+
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+        };
+
+        let config = MinimalRuntimeConfig::with_mappings(
+            &params,
+            &[mapping],
+            proxies,
+            &profile_map,
+        );
+        let yaml = config.to_yaml().expect("YAML serialize failed");
+        assert!(yaml.contains("name: fb-7895"));
+        assert!(yaml.contains("type: fallback"));
+        assert!(yaml.contains("- '[AirportA] HK-Node-01'"));
+        assert!(yaml.contains("- '[AirportA] HK-Node-02'"));
+        assert!(yaml.contains("IN-PORT,7895,fb-7895"));
+        assert_eq!(config.proxy_groups.len(), 1);
+        assert_eq!(config.proxy_groups[0].name, "fb-7895");
+        assert_eq!(config.proxy_groups[0].proxies.len(), 2);
     }
 }

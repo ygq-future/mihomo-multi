@@ -96,6 +96,7 @@ pub fn run() {
             toggle_port_mapping,
             test_port_mapping_delay,
             test_all_port_mappings_delay,
+            get_port_fallback_statuses,
             get_profiles,
             add_remote_profile,
             add_local_profile,

@@ -11,6 +11,23 @@ pub const DEFAULT_TEST_URL: &str = "http://cp.cloudflare.com/generate_204";
 pub const DEFAULT_TEST_TIMEOUT_MS: u32 = 5000;
 pub const DEFAULT_BATCH_CONCURRENCY: usize = 10;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProxyHistoryItem {
+    pub time: String,
+    pub delay: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProxyDetail {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub proxy_type: String,
+    pub now: Option<String>,
+    #[serde(default)]
+    pub all: Vec<String>,
+    #[serde(default)]
+    pub history: Vec<ProxyHistoryItem>,
+}
 #[derive(Clone)]
 pub struct ClashApiClient {
     base_url: String,
@@ -190,6 +207,35 @@ impl ClashApiClient {
         // Sort by original index to preserve input order
         results_with_index.sort_by_key(|(idx, _)| *idx);
         results_with_index.into_iter().map(|(_, item)| item).collect()
+    }
+
+    /// Fetches details for a proxy or proxy-group via GET /proxies/{name}
+    pub async fn get_proxy_detail(&self, name: &str) -> AppResult<ProxyDetail> {
+        let encoded_name = urlencoding::encode(name);
+        let request_url = format!("{}/proxies/{}", self.base_url, encoded_name);
+
+        let mut req = self.http_client.get(&request_url).timeout(Duration::from_secs(5));
+        if !self.secret.is_empty() {
+            req = req.header(AUTHORIZATION, format!("Bearer {}", self.secret));
+        }
+
+        let resp = req.send().await.map_err(|err| {
+            AppError::ExternalController(format!("Failed to connect to Mihomo proxies API: {}", err))
+        })?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let detail: ProxyDetail = resp.json().await.map_err(|err| {
+                AppError::ExternalController(format!("Failed to parse proxy detail JSON: {}", err))
+            })?;
+            Ok(detail)
+        } else {
+            let error_text = resp.text().await.unwrap_or_default();
+            Err(AppError::ExternalController(format!(
+                "Failed to get proxy detail for '{}' (status {}): {}",
+                name, status, error_text
+            )))
+        }
     }
 }
 

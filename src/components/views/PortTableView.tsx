@@ -6,11 +6,11 @@ import {
   Network,
   Plus,
   Search,
+  ShieldCheck,
   Trash2,
   Wrench,
   Zap,
 } from 'lucide-react'
-import type React from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
@@ -55,8 +55,9 @@ export const PortTableView: React.FC = () => {
     profileNodes,
     fetchProfileNodes,
     latencies,
+    fallbackStatuses,
+    fetchFallbackStatuses,
   } = useAppStore()
-
   const isRunning = coreStatus?.running ?? false
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -92,6 +93,22 @@ export const PortTableView: React.FC = () => {
       fetchConfig().catch(() => {})
     }
   }, [fetchPortMappings, fetchProfiles, config, fetchConfig])
+
+  // Periodic fallback status check every 5s when core is running and has fallback mappings
+  useEffect(() => {
+    if (!isRunning) return
+    const hasFallback = portMappings.some(
+      (m) => m.enabled && m.fallbackNodeName,
+    )
+    if (!hasFallback) return
+
+    fetchFallbackStatuses().catch(() => {})
+    const interval = setInterval(() => {
+      fetchFallbackStatuses().catch(() => {})
+    }, 5000)
+
+    return () => clearInterval(interval)
+  }, [isRunning, portMappings, fetchFallbackStatuses])
 
   // Fetch LAN IPs and perform auto-cleaning of invalid selected IP when allow_lan is active
   useEffect(() => {
@@ -229,7 +246,12 @@ export const PortTableView: React.FC = () => {
       if (selectedStatus === 'enabled' && !m.enabled) return false
       if (selectedStatus === 'disabled' && m.enabled) return false
       if (selectedStatus === 'drifted' && !isDrifted) return false
-
+      if (
+        selectedStatus === 'fallback' &&
+        !fallbackStatuses[m.id]?.isFallbackActive
+      ) {
+        return false
+      }
       // Search query filter (port, node_name, profile_name, description)
       if (searchQuery.trim()) {
         const query = searchQuery.trim().toLowerCase()
@@ -257,8 +279,13 @@ export const PortTableView: React.FC = () => {
     selectedStatus,
     searchQuery,
     profileMap,
+    fallbackStatuses,
   ])
 
+  const fallbackActiveCount = useMemo(() => {
+    return Object.values(fallbackStatuses).filter((s) => s.isFallbackActive)
+      .length
+  }, [fallbackStatuses])
   const totalPorts = portMappings.length
   const activePorts = portMappings.filter((m) => m.enabled).length
 
@@ -348,10 +375,17 @@ export const PortTableView: React.FC = () => {
                     driftReports.filter((r) => r.status !== 'healthy').length
                   })`,
                 },
+                ...(fallbackActiveCount > 0
+                  ? [
+                      {
+                        value: 'fallback',
+                        label: `🛡️ 备用兜底 (${fallbackActiveCount})`,
+                      },
+                    ]
+                  : []),
               ]}
             />
           </div>
-
           {config?.allowLan && (
             <div className="w-44 shrink-0">
               <Select
@@ -485,6 +519,26 @@ export const PortTableView: React.FC = () => {
               // 2. Secondary: Port Occupied Conflict Warning (Rose)
               const isOccupiedWarning =
                 isRunning && m.enabled && occupiedPorts.includes(m.port)
+              // 3. Fallback Degraded Warning (Amber)
+              const fbStatus = fallbackStatuses[m.id]
+              const hasFallback = Boolean(m.fallbackNodeName)
+              const isFallbackActive = fbStatus?.isFallbackActive ?? false
+              const isFallbackWarning =
+                isRunning && m.enabled && hasFallback && isFallbackActive
+
+              const fbNodeKey =
+                profileName && m.fallbackNodeName
+                  ? `[${profileName}] ${m.fallbackNodeName}`
+                  : m.fallbackNodeName || ''
+              const fbLatency = m.fallbackNodeName
+                ? fbNodeKey in latencies && latencies[fbNodeKey] !== undefined
+                  ? latencies[fbNodeKey]
+                  : m.fallbackNodeName in latencies &&
+                      latencies[m.fallbackNodeName] !== undefined
+                    ? latencies[m.fallbackNodeName]
+                    : null
+                : null
+              const fbLatencyProps = getLatencyBadgeProps(fbLatency, isTesting)
 
               return (
                 <div
@@ -498,7 +552,9 @@ export const PortTableView: React.FC = () => {
                           ? 'opacity-65 bg-secondary/10'
                           : isDrifted
                             ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10'
-                            : 'border-border'
+                            : isFallbackWarning
+                              ? 'border-amber-500/60 bg-amber-500/5 dark:bg-amber-500/10'
+                              : 'border-border'
                   }`}
                 >
                   {/* Top Row: Local Port + Inbound Protocol Badge + Switch */}
@@ -517,6 +573,13 @@ export const PortTableView: React.FC = () => {
                           title={`本地端口 ${m.port} 已被其他应用程序占用，已自动跳过监听`}
                         >
                           <AlertTriangle className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
+                        </span>
+                      ) : isFallbackWarning ? (
+                        <span
+                          className="inline-flex shrink-0 cursor-help"
+                          title="主节点连接异常，当前正由同地区备用节点兜底监听中"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
                         </span>
                       ) : m.enabled && isRunning ? (
                         <span
@@ -544,6 +607,10 @@ export const PortTableView: React.FC = () => {
                         <span className="text-[10px] text-rose-500 font-medium shrink-0">
                           (端口冲突)
                         </span>
+                      ) : isFallbackWarning ? (
+                        <span className="text-[10px] text-amber-500 font-medium shrink-0">
+                          (备用兜底)
+                        </span>
                       ) : null}
                     </div>
 
@@ -565,11 +632,26 @@ export const PortTableView: React.FC = () => {
                           size="md"
                         />
                         <span
-                          className="truncate flex-1 font-semibold"
+                          className={`truncate flex-1 font-semibold ${
+                            isFallbackActive
+                              ? 'text-muted-foreground line-through decoration-amber-500/60'
+                              : ''
+                          }`}
                           title={m.nodeName}
                         >
                           {m.nodeName}
                         </span>
+                        {isFallbackActive && (
+                          <Badge
+                            variant="warning"
+                            size="sm"
+                            dot
+                            className="!text-[10px] !py-0.5 !px-1.5 shrink-0 animate-pulse"
+                            title="主节点连接超时或网络异常，已自动切换至备用节点"
+                          >
+                            主节点异常
+                          </Badge>
+                        )}
                         {isDrifted && (
                           <Badge
                             variant={
@@ -604,6 +686,48 @@ export const PortTableView: React.FC = () => {
                       )}
                     </div>
 
+                    {/* Fallback Node Row */}
+                    {hasFallback && (
+                      <div
+                        className={`flex items-center justify-between gap-1.5 text-[11px] px-2 py-1 rounded-md border transition-all ${
+                          isFallbackActive
+                            ? 'bg-amber-500/10 border-amber-500/30 text-foreground'
+                            : 'bg-muted/20 border-dashed border-border/80 text-muted-foreground'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
+                          <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                            ↳ 备:
+                          </span>
+                          <RegionFlag
+                            code={extractRegion(m.fallbackNodeName || '').code}
+                            size="sm"
+                          />
+                          <span
+                            className="truncate font-medium text-[11px]"
+                            title={m.fallbackNodeName || ''}
+                          >
+                            {m.fallbackNodeName}
+                          </span>
+                        </div>
+
+                        {isFallbackActive ? (
+                          <Badge
+                            variant="primary"
+                            size="sm"
+                            dot
+                            className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 animate-pulse font-medium"
+                          >
+                            兜底接管中
+                          </Badge>
+                        ) : (
+                          <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0 bg-secondary/80 px-1 rounded">
+                            待命
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
                       <span
                         className="truncate flex items-center gap-1"
@@ -625,31 +749,63 @@ export const PortTableView: React.FC = () => {
 
                   {/* Bottom Row: Latency Badge + Actions */}
                   <div className="pt-2 border-t border-border/50 flex items-center justify-between gap-1.5 text-[11px]">
-                    {/* Latency Badge (Clickable for Single Delay Test) */}
-                    <button
-                      type="button"
-                      onClick={() => handleSingleDelayTest(m.id, m.port)}
-                      disabled={!m.enabled || isTesting}
-                      className="focus:outline-none"
-                      title="点击单端口测速"
-                    >
-                      <Badge
-                        variant={latencyProps.variant}
-                        size="sm"
-                        dot={latencyProps.dot}
-                        className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5"
+                    {/* Latency Badges Area (Clickable for Single Delay Test) */}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => handleSingleDelayTest(m.id, m.port)}
+                        disabled={!m.enabled || isTesting}
+                        className="focus:outline-none flex items-center"
+                        title={
+                          hasFallback
+                            ? '点击单端口测速 (同时测试主备节点)'
+                            : '点击单端口测速'
+                        }
                       >
-                        {isTesting ? (
-                          <span className="flex items-center gap-1">
-                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                            测速中
-                          </span>
-                        ) : (
-                          latencyProps.label
-                        )}
-                      </Badge>
-                    </button>
+                        <Badge
+                          variant={latencyProps.variant}
+                          size="sm"
+                          dot={latencyProps.dot}
+                          className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1"
+                        >
+                          {hasFallback && (
+                            <span className="font-sans font-semibold text-[9px] opacity-75">
+                              主
+                            </span>
+                          )}
+                          {isTesting ? (
+                            <span className="flex items-center gap-1">
+                              <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                              测速中
+                            </span>
+                          ) : (
+                            latencyProps.label
+                          )}
+                        </Badge>
+                      </button>
 
+                      {hasFallback && (
+                        <Badge
+                          variant={fbLatencyProps.variant}
+                          size="sm"
+                          dot={fbLatencyProps.dot}
+                          className="font-mono !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1"
+                          title={`Fallback 备用节点 (${m.fallbackNodeName}) 延迟`}
+                        >
+                          <span className="font-sans font-semibold text-[9px] opacity-75">
+                            备
+                          </span>
+                          {isTesting ? (
+                            <span className="flex items-center gap-1">
+                              <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                              测速中
+                            </span>
+                          ) : (
+                            fbLatencyProps.label
+                          )}
+                        </Badge>
+                      )}
+                    </div>
                     {/* Actions Group */}
                     <div className="flex items-center gap-1 shrink-0">
                       <QuickCopyMenu

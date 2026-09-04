@@ -1,6 +1,6 @@
 use crate::core::auto_updater::AutoUpdater;
 use crate::core::clash_client::ClashApiClient;
-use crate::core::config_generator::MinimalRuntimeConfig;
+use crate::core::config_generator::{MinimalRuntimeConfig, RuntimeGeneratorParams};
 use crate::core::port_manager::PortManager;
 use crate::core::profile_manager::ProfileManager;
 use crate::core::supervisor::CoreSupervisor;
@@ -100,11 +100,19 @@ impl AppState {
 
         *self.occupied_ports.write() = occupied_set;
 
+        let params = RuntimeGeneratorParams {
+            controller_port: cfg.controller_port,
+            secret: &cfg.controller_secret,
+            log_level: &cfg.log_level,
+            allow_lan: cfg.allow_lan,
+            test_url: &cfg.test_url,
+            timeout_ms: cfg.timeout_ms,
+            fallback_interval: cfg.fallback_interval,
+            fallback_lazy: cfg.fallback_lazy,
+        };
+
         let runtime_config = MinimalRuntimeConfig::with_mappings(
-            cfg.controller_port,
-            &cfg.controller_secret,
-            &cfg.log_level,
-            cfg.allow_lan,
+            &params,
             &active_mappings,
             raw_proxies,
             &profile_map,

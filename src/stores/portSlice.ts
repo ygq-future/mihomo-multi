@@ -1,6 +1,11 @@
 import type { StateCreator } from 'zustand'
 import * as api from '../services/tauri'
-import type { NodeLatencyResult, PortDriftReport, PortMapping } from '../types'
+import type {
+  NodeLatencyResult,
+  PortDriftReport,
+  PortFallbackStatus,
+  PortMapping,
+} from '../types'
 
 function persistLatencies(latencies: Record<string, number | null>) {
   if (typeof window === 'undefined') return
@@ -15,6 +20,7 @@ export interface PortSlice {
   portMappings: PortMapping[]
   occupiedPorts: number[]
   driftReports: PortDriftReport[]
+  fallbackStatuses: Record<string, PortFallbackStatus>
   portLoading: boolean
   testingPortIds: Record<string, boolean>
   isTestingAllPorts: boolean
@@ -23,6 +29,7 @@ export interface PortSlice {
   isPortModalOpen: boolean
 
   fetchPortMappings: () => Promise<void>
+  fetchFallbackStatuses: () => Promise<PortFallbackStatus[]>
   fetchDriftReports: () => Promise<PortDriftReport[]>
   savePortMapping: (mapping: PortMapping) => Promise<PortMapping>
   deletePortMapping: (id: string) => Promise<void>
@@ -49,25 +56,32 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
   portMappings: [],
   occupiedPorts: [],
   driftReports: [],
+  fallbackStatuses: {},
   portLoading: false,
   testingPortIds: {},
   isTestingAllPorts: false,
   portError: null,
   editingPortMapping: null,
   isPortModalOpen: false,
-
   fetchPortMappings: async () => {
     set({ portLoading: true })
     try {
-      const [portMappings, driftReports, occupiedPorts] = await Promise.all([
-        api.getPortMappings(),
-        api.getDriftReports(),
-        api.getOccupiedPorts(),
-      ])
+      const [portMappings, driftReports, occupiedPorts, fallbackList] =
+        await Promise.all([
+          api.getPortMappings(),
+          api.getDriftReports(),
+          api.getOccupiedPorts(),
+          api.getPortFallbackStatuses().catch(() => []),
+        ])
+      const fallbackStatuses: Record<string, PortFallbackStatus> = {}
+      for (const s of fallbackList) {
+        fallbackStatuses[s.mappingId] = s
+      }
       set({
         portMappings,
         driftReports,
         occupiedPorts,
+        fallbackStatuses,
         portLoading: false,
         portError: null,
       })
@@ -89,16 +103,92 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
     }
   },
 
+  fetchFallbackStatuses: async () => {
+    try {
+      const fallbackList = await api.getPortFallbackStatuses()
+      const fallbackStatuses: Record<string, PortFallbackStatus> = {}
+      const storeState = get() as unknown as {
+        profiles?: Array<{ id: string; name: string }>
+        latencies?: Record<string, number | null>
+        portMappings?: PortMapping[]
+      }
+      const currentLatencies = { ...(storeState.latencies || {}) }
+      let updatedLatencies = false
+
+      for (const s of fallbackList) {
+        fallbackStatuses[s.mappingId] = s
+        const mapping = storeState.portMappings?.find(
+          (m) => m.id === s.mappingId,
+        )
+        const profile = mapping
+          ? storeState.profiles?.find((p) => p.id === mapping.profileId)
+          : null
+
+        const mainKey = profile
+          ? `[${profile.name}] ${s.primaryNode}`
+          : s.primaryNode
+        const fbKey = profile
+          ? `[${profile.name}] ${s.fallbackNode}`
+          : s.fallbackNode
+
+        if (s.primaryLatency !== undefined && s.primaryLatency !== null) {
+          currentLatencies[mainKey] = s.primaryLatency
+          updatedLatencies = true
+        } else if (s.isFallbackActive) {
+          currentLatencies[mainKey] = null
+          updatedLatencies = true
+        }
+
+        if (s.fallbackLatency !== undefined && s.fallbackLatency !== null) {
+          currentLatencies[fbKey] = s.fallbackLatency
+          updatedLatencies = true
+        }
+      }
+
+      if (updatedLatencies) {
+        persistLatencies(currentLatencies)
+        set((state) => ({
+          fallbackStatuses,
+          latencies: currentLatencies,
+          portMappings: state.portMappings.map((m) => {
+            const fb = fallbackStatuses[m.id]
+            if (
+              fb &&
+              (fb.primaryLatency !== undefined || fb.isFallbackActive)
+            ) {
+              return {
+                ...m,
+                latency: fb.isFallbackActive
+                  ? null
+                  : (fb.primaryLatency ?? m.latency),
+              }
+            }
+            return m
+          }),
+        }))
+      } else {
+        set({ fallbackStatuses })
+      }
+      return fallbackList
+    } catch {
+      return []
+    }
+  },
   setDriftReports: (driftReports) => set({ driftReports }),
 
   savePortMapping: async (mapping) => {
     set({ portLoading: true, portError: null })
     try {
       const saved = await api.savePortMapping(mapping)
-      const [driftReports, occupiedPorts] = await Promise.all([
+      const [driftReports, occupiedPorts, fallbackList] = await Promise.all([
         api.getDriftReports().catch(() => []),
         api.getOccupiedPorts().catch(() => []),
+        api.getPortFallbackStatuses().catch(() => []),
       ])
+      const fallbackStatuses: Record<string, PortFallbackStatus> = {}
+      for (const s of fallbackList) {
+        fallbackStatuses[s.mappingId] = s
+      }
       set((state) => {
         const index = state.portMappings.findIndex((p) => p.id === saved.id)
         const updated =
@@ -109,6 +199,7 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
           portMappings: updated,
           driftReports,
           occupiedPorts,
+          fallbackStatuses,
           portLoading: false,
           isPortModalOpen: false,
           editingPortMapping: null,
@@ -192,21 +283,34 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
         ? `[${profile.name}] ${mapping.nodeName}`
         : mapping.nodeName
       : null
+    const fallbackNodeKey = mapping?.fallbackNodeName
+      ? profile
+        ? `[${profile.name}] ${mapping.fallbackNodeName}`
+        : mapping.fallbackNodeName
+      : null
 
     try {
-      const latency = await api.testPortMappingDelay(id, testUrl, timeoutMs)
+      const [latency, fbLatency] = await Promise.all([
+        api.testPortMappingDelay(id, testUrl, timeoutMs),
+        fallbackNodeKey
+          ? api
+              .testNodeDelay(fallbackNodeKey, testUrl, timeoutMs)
+              .catch(() => null)
+          : Promise.resolve(null),
+      ])
 
       const currentLatencies = storeState.latencies || {}
-      const nextLatencies = nodeKey
-        ? { ...currentLatencies, [nodeKey]: latency }
-        : currentLatencies
-      if (nodeKey) persistLatencies(nextLatencies)
+      const nextLatencies = { ...currentLatencies }
+      if (nodeKey) nextLatencies[nodeKey] = latency
+      if (fallbackNodeKey && fbLatency !== null)
+        nextLatencies[fallbackNodeKey] = fbLatency
+      persistLatencies(nextLatencies)
 
       set((state) => ({
         portMappings: state.portMappings.map((p) =>
           p.id === id ? { ...p, latency } : p,
         ),
-        ...(nodeKey ? { latencies: nextLatencies } : {}),
+        latencies: nextLatencies,
         testingPortIds: { ...state.testingPortIds, [id]: false },
       }))
       return latency

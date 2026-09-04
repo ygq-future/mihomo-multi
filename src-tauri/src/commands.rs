@@ -3,7 +3,7 @@ use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::is_port_available;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, CoreStatus, DriftStatus,
-    LanIpInfo, NodeLatencyResult, PortDriftReport, PortMapping, ProfileItem, ProxyNode,
+    LanIpInfo, NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode,
 };
 use crate::state::AppState;
 use std::process::Command;
@@ -276,12 +276,17 @@ pub async fn test_port_mapping_delay(
     } else {
         mapping.node_name.clone()
     };
+    let (default_url, default_timeout) = {
+        let cfg = state.config.read();
+        (cfg.test_url.clone(), cfg.timeout_ms)
+    };
+    let actual_url = test_url.as_deref().unwrap_or(&default_url);
+    let actual_timeout = timeout_ms.unwrap_or(default_timeout);
 
     let client = state.clash_client();
     let res = client
-        .test_delay(&runtime_name, test_url.as_deref(), timeout_ms)
+        .test_delay(&runtime_name, Some(actual_url), Some(actual_timeout))
         .await;
-
     match res {
         Ok(delay) => {
             let _ = state.port_manager.update_port_latency(&id, Some(delay));
@@ -317,32 +322,136 @@ pub async fn test_all_port_mappings_delay(
         .map(|p| (p.id, p.name))
         .collect();
 
-    let mut mapping_nodes = Vec::with_capacity(mappings.len());
+    let mut names_to_test = Vec::new();
+    let mut main_mapping_indices = Vec::new();
+
     for m in &mappings {
         let runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
             format!("[{}] {}", pname, m.node_name)
         } else {
             m.node_name.clone()
         };
-        mapping_nodes.push((m.id.clone(), runtime_name));
-    }
+        let idx = names_to_test.len();
+        names_to_test.push(runtime_name);
+        main_mapping_indices.push((m.id.clone(), idx));
 
-    let names_to_test: Vec<String> = mapping_nodes.iter().map(|(_, rname)| rname.clone()).collect();
+        if let Some(fb_name) = &m.fallback_node_name
+            && !fb_name.trim().is_empty()
+        {
+            let fb_runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
+                format!("[{}] {}", pname, fb_name)
+            } else {
+                fb_name.clone()
+            };
+            names_to_test.push(fb_runtime_name);
+        }
+    }
+    let (default_url, default_timeout) = {
+        let cfg = state.config.read();
+        (cfg.test_url.clone(), cfg.timeout_ms)
+    };
+    let actual_url = test_url.as_deref().unwrap_or(&default_url);
+    let actual_timeout = timeout_ms.unwrap_or(default_timeout);
+
     let client = state.clash_client();
     let results = client
-        .test_nodes_delay_batch(&names_to_test, test_url.as_deref(), timeout_ms, concurrency)
+        .test_nodes_delay_batch(&names_to_test, Some(actual_url), Some(actual_timeout), concurrency)
         .await;
-
-    // Update latencies back into port_manager
-    for (idx, (mapping_id, _)) in mapping_nodes.iter().enumerate() {
+    // Update latencies back into port_manager for main nodes
+    for (mapping_id, idx) in main_mapping_indices {
         if let Some(res) = results.get(idx) {
             let _ = state
                 .port_manager
-                .update_port_latency(mapping_id, res.latency);
+                .update_port_latency(&mapping_id, res.latency);
         }
     }
 
     Ok(results)
+}
+
+#[tauri::command]
+pub async fn get_port_fallback_statuses(
+    state: State<'_, AppState>,
+) -> Result<Vec<PortFallbackStatus>, String> {
+    let status = state.supervisor.get_status();
+    if !status.running {
+        return Ok(Vec::new());
+    }
+
+    let mappings = state.port_manager.get_port_mappings();
+    let profiles = state.profile_manager.get_profiles();
+    let profile_map: std::collections::HashMap<String, String> = profiles
+        .into_iter()
+        .map(|p| (p.id, p.name))
+        .collect();
+
+    let client = state.clash_client();
+    let mut statuses = Vec::new();
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    for m in mappings
+        .into_iter()
+        .filter(|m| m.enabled && m.fallback_node_name.is_some())
+    {
+        let fallback_node = match &m.fallback_node_name {
+            Some(fb) if !fb.trim().is_empty() => fb.clone(),
+            _ => continue,
+        };
+
+        let group_name = format!("fb-{}", m.port);
+        if let Ok(detail) = client.get_proxy_detail(&group_name).await {
+            let active_node = detail.now.clone().unwrap_or_default();
+            let is_fallback_active = active_node.ends_with(&fallback_node);
+
+            let primary_runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
+                format!("[{}] {}", pname, m.node_name)
+            } else {
+                m.node_name.clone()
+            };
+
+            let fb_runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
+                format!("[{}] {}", pname, fallback_node)
+            } else {
+                fallback_node.clone()
+            };
+
+            let primary_latency = client
+                .get_proxy_detail(&primary_runtime_name)
+                .await
+                .ok()
+                .and_then(|p| p.history.last().map(|h| h.delay))
+                .filter(|&d| d > 0);
+
+            let fallback_latency = client
+                .get_proxy_detail(&fb_runtime_name)
+                .await
+                .ok()
+                .and_then(|p| p.history.last().map(|h| h.delay))
+                .filter(|&d| d > 0);
+
+            // Keep port manager latency in sync with kernel health check
+            if primary_latency.is_some() || is_fallback_active {
+                let _ = state.port_manager.update_port_latency(&m.id, primary_latency);
+            }
+
+            statuses.push(PortFallbackStatus {
+                mapping_id: m.id,
+                port: m.port,
+                primary_node: m.node_name,
+                fallback_node,
+                active_node,
+                is_fallback_active,
+                primary_latency,
+                fallback_latency,
+                last_updated: now_ts,
+            });
+        }
+    }
+
+    Ok(statuses)
 }
 
 // ----------------------------------------------------------------------------
@@ -614,13 +723,19 @@ pub async fn test_node_delay(
         return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
     }
 
+    let (default_url, default_timeout) = {
+        let cfg = state.config.read();
+        (cfg.test_url.clone(), cfg.timeout_ms)
+    };
+    let actual_url = test_url.as_deref().unwrap_or(&default_url);
+    let actual_timeout = timeout_ms.unwrap_or(default_timeout);
+
     let client = state.clash_client();
     client
-        .test_delay(&node_name, test_url.as_deref(), timeout_ms)
+        .test_delay(&node_name, Some(actual_url), Some(actual_timeout))
         .await
         .map_err(|err| err.to_string())
 }
-
 #[tauri::command]
 pub async fn test_nodes_delay_batch(
     node_names: Vec<String>,
@@ -634,9 +749,16 @@ pub async fn test_nodes_delay_batch(
         return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
     }
 
+    let (default_url, default_timeout) = {
+        let cfg = state.config.read();
+        (cfg.test_url.clone(), cfg.timeout_ms)
+    };
+    let actual_url = test_url.as_deref().unwrap_or(&default_url);
+    let actual_timeout = timeout_ms.unwrap_or(default_timeout);
+
     let client = state.clash_client();
     let results = client
-        .test_nodes_delay_batch(&node_names, test_url.as_deref(), timeout_ms, concurrency)
+        .test_nodes_delay_batch(&node_names, Some(actual_url), Some(actual_timeout), concurrency)
         .await;
     Ok(results)
 }

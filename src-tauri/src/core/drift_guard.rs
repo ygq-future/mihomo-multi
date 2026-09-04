@@ -107,9 +107,25 @@ impl DriftGuard {
             };
         }
 
-        // 3. Check if exact node name exists
-        let exact_match = nodes.iter().any(|n| n.name == mapping.node_name);
-        if exact_match {
+        // 3. Check node existence
+        let main_node_exists = nodes.iter().any(|n| n.name == mapping.node_name);
+        let fallback_node_exists = mapping
+            .fallback_node_name
+            .as_ref()
+            .map(|fb| nodes.iter().any(|n| &n.name == fb))
+            .unwrap_or(false);
+
+        if main_node_exists {
+            let message = if let Some(fb) = &mapping.fallback_node_name {
+                if fallback_node_exists {
+                    format!("节点正常绑定 (备用节点: {})", fb)
+                } else {
+                    format!("主节点正常绑定，但配置的备用节点「{}」在订阅中已不存在", fb)
+                }
+            } else {
+                "节点正常绑定".to_string()
+            };
+
             return PortDriftReport {
                 mapping_id: mapping.id.clone(),
                 port: mapping.port,
@@ -118,33 +134,52 @@ impl DriftGuard {
                 node_name: mapping.node_name.clone(),
                 enabled: mapping.enabled,
                 status: DriftStatus::Healthy,
-                message: "节点正常绑定".to_string(),
+                message,
                 fallback_action: "NONE".to_string(),
                 suggestions: Vec::new(),
             };
         }
 
-        // 4. Node is missing / drifted -> calculate similarity suggestions
+        // 4. Main node is missing / drifted -> calculate similarity suggestions
         let candidate_names: Vec<String> = nodes.into_iter().map(|n| n.name).collect();
         let suggestions = Self::find_candidate_suggestions(&mapping.node_name, &candidate_names);
 
-        PortDriftReport {
-            mapping_id: mapping.id.clone(),
-            port: mapping.port,
-            profile_id: mapping.profile_id.clone(),
-            profile_name: profile_name.clone(),
-            node_name: mapping.node_name.clone(),
-            enabled: mapping.enabled,
-            status: DriftStatus::NodeMissing,
-            message: format!(
-                "绑定节点「{}」在订阅「{}」中已失效或被重命名，端口流量已安全直连 (DIRECT)",
-                mapping.node_name, profile_name
-            ),
-            fallback_action: "DIRECT".to_string(),
-            suggestions,
+        if let Some(fb) = &mapping.fallback_node_name
+            && fallback_node_exists
+        {
+            PortDriftReport {
+                mapping_id: mapping.id.clone(),
+                port: mapping.port,
+                profile_id: mapping.profile_id.clone(),
+                profile_name: profile_name.clone(),
+                node_name: mapping.node_name.clone(),
+                enabled: mapping.enabled,
+                status: DriftStatus::NodeMissing,
+                message: format!(
+                    "主节点「{}」已在订阅中失效，端口流量已自动降级至备用节点「{}」",
+                    mapping.node_name, fb
+                ),
+                fallback_action: format!("FALLBACK:{}", fb),
+                suggestions,
+            }
+        } else {
+            PortDriftReport {
+                mapping_id: mapping.id.clone(),
+                port: mapping.port,
+                profile_id: mapping.profile_id.clone(),
+                profile_name: profile_name.clone(),
+                node_name: mapping.node_name.clone(),
+                enabled: mapping.enabled,
+                status: DriftStatus::NodeMissing,
+                message: format!(
+                    "绑定节点「{}」在订阅「{}」中已失效或被重命名，端口流量已安全直连 (DIRECT)",
+                    mapping.node_name, profile_name
+                ),
+                fallback_action: "DIRECT".to_string(),
+                suggestions,
+            }
         }
     }
-
     /// Finds candidate suggestions for a drifted node name from available nodes in the profile.
     pub fn find_candidate_suggestions(
         target: &str,
@@ -262,8 +297,8 @@ proxies:
             enabled: true,
             latency: None,
             description: None,
+            fallback_node_name: None,
         };
-
         // 2. Drifted mapping (Node missing)
         let drifted_mapping = PortMapping {
             id: "m-2".to_string(),
@@ -274,8 +309,8 @@ proxies:
             enabled: true,
             latency: None,
             description: None,
+            fallback_node_name: None,
         };
-
         // 3. Drifted mapping (Profile missing)
         let missing_profile_mapping = PortMapping {
             id: "m-3".to_string(),
@@ -286,8 +321,8 @@ proxies:
             enabled: true,
             latency: None,
             description: None,
+            fallback_node_name: None,
         };
-
         let mappings = vec![
             healthy_mapping.clone(),
             drifted_mapping.clone(),
@@ -326,8 +361,8 @@ proxies:
             enabled: true,
             latency: None,
             description: None,
+            fallback_node_name: None,
         };
-
         let single_report = DriftGuard::check_single(&empty_mapping, &manager);
         assert_eq!(single_report.status, DriftStatus::EmptyProfile);
         assert_eq!(single_report.fallback_action, "DIRECT");

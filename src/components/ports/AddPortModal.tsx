@@ -5,7 +5,6 @@ import {
   Loader2,
   Network,
   Radio,
-  Server,
   ShieldCheck,
   Sparkles,
   X,
@@ -64,6 +63,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const [protocol, setProtocol] = useState<InboundProtocol>('mixed')
   const [selectedProfileId, setSelectedProfileId] = useState<string>('')
   const [selectedNodeName, setSelectedNodeName] = useState<string>('')
+  const [fallbackNodeName, setFallbackNodeName] = useState<string>('')
   const [description, setDescription] = useState<string>('')
   const [isCheckingPort, setIsCheckingPort] = useState(false)
   const [isPortAvailable, setIsPortAvailable] = useState<boolean | null>(null)
@@ -91,12 +91,13 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         setProtocol(initialMapping.protocol)
         setSelectedProfileId(initialMapping.profileId)
         setSelectedNodeName(initialMapping.nodeName)
+        setFallbackNodeName(initialMapping.fallbackNodeName || '')
         setDescription(initialMapping.description || '')
       } else {
         const profId = initialProfileId || (profiles[0] ? profiles[0].id : '')
         setSelectedProfileId(profId)
         setSelectedNodeName(initialNodeName || '')
-
+        setFallbackNodeName('')
         // Sequential backend auto-allocation starting from 7891 (accounts for both self and system occupancy)
         api
           .getNextAvailablePort(7891)
@@ -177,6 +178,94 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     return availableNodes.find((n) => n.name === selectedNodeName)
   }, [availableNodes, selectedNodeName])
 
+  const selectedFallbackNode = useMemo(() => {
+    if (!fallbackNodeName) return null
+    return availableNodes.find((n) => n.name === fallbackNodeName) || null
+  }, [availableNodes, fallbackNodeName])
+  const selectedNodeRegion = useMemo(() => {
+    if (!selectedNodeName) return null
+    return extractRegion(selectedNodeName)
+  }, [selectedNodeName])
+
+  const selectedProfile = useMemo(() => {
+    return profiles.find((p) => p.id === selectedProfileId)
+  }, [profiles, selectedProfileId])
+  const fallbackNodeOptions = useMemo(() => {
+    if (!selectedNodeRegion || !selectedNodeName) return []
+    const profName = selectedProfile?.name || ''
+    const sameRegionNodes = availableNodes.filter(
+      (n) =>
+        n.name !== selectedNodeName &&
+        extractRegion(n.name).code === selectedNodeRegion.code,
+    )
+
+    const options = [
+      {
+        value: '',
+        label: '不启用备用节点 (单节点绑定)',
+        description: '仅主节点监听，不进行自动故障转移',
+      },
+    ]
+
+    for (const n of sameRegionNodes) {
+      const key = profName ? `[${profName}] ${n.name}` : n.name
+      const latency = nodeKeyHasLatency(key, n.name, latencies)
+      const latencyProps = getLatencyBadgeProps(latency, false)
+      const region = extractRegion(n.name)
+
+      options.push({
+        value: n.name,
+        label: n.name,
+        description: `${formatProtocolName(n.type)} 协议 · 同属 ${region.name || region.code}`,
+        icon: <RegionFlag code={region.code} size="sm" />,
+        rightNode: (
+          <Badge
+            variant={latencyProps.variant}
+            size="sm"
+            dot={latencyProps.dot}
+            className="!text-[10px] !py-0.5 !px-1.5 font-mono"
+          >
+            {latencyProps.label}
+          </Badge>
+        ),
+      } as (typeof options)[0])
+    }
+
+    return options
+  }, [
+    selectedNodeRegion,
+    selectedNodeName,
+    availableNodes,
+    selectedProfile,
+    latencies,
+  ])
+
+  const mainNodeKey =
+    selectedProfile && selectedNode
+      ? `[${selectedProfile.name}] ${selectedNode.name}`
+      : selectedNode?.name || ''
+  const mainLatency = selectedNode
+    ? nodeKeyHasLatency(mainNodeKey, selectedNode.name, latencies)
+    : undefined
+  const mainLatencyProps = getLatencyBadgeProps(mainLatency, false)
+  const mainProtocolProps = selectedNode
+    ? getProtocolBadgeProps(selectedNode.type)
+    : null
+
+  const fallbackNodeKey =
+    selectedProfile && selectedFallbackNode
+      ? `[${selectedProfile.name}] ${selectedFallbackNode.name}`
+      : selectedFallbackNode?.name || ''
+  const fbLatency = selectedFallbackNode
+    ? nodeKeyHasLatency(fallbackNodeKey, selectedFallbackNode.name, latencies)
+    : undefined
+  const fbLatencyProps = selectedFallbackNode
+    ? getLatencyBadgeProps(fbLatency, false)
+    : null
+  const fbProtocolProps = selectedFallbackNode
+    ? getProtocolBadgeProps(selectedFallbackNode.type)
+    : null
+
   const boundNodeMap = useMemo(() => {
     const map = new Map<string, number>()
     for (const m of portMappings) {
@@ -186,10 +275,6 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     }
     return map
   }, [portMappings, initialMapping])
-
-  const selectedProfile = useMemo(() => {
-    return profiles.find((p) => p.id === selectedProfileId)
-  }, [profiles, selectedProfileId])
 
   const sortedNodes = useMemo(() => {
     const list = [...availableNodes]
@@ -316,8 +401,8 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         protocol,
         profileId: selectedProfileId,
         nodeName: selectedNodeName,
+        fallbackNodeName: fallbackNodeName.trim() || undefined,
         enabled: isEditing && initialMapping ? initialMapping.enabled : true,
-        description: description.trim() || undefined,
       })
 
       fetchStatus().catch(() => {})
@@ -491,6 +576,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             onChange={(val) => {
               setSelectedProfileId(String(val))
               setSelectedNodeName('')
+              setFallbackNodeName('')
             }}
             options={profileOptions}
             placeholder="选择订阅配置"
@@ -509,7 +595,21 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           <Select
             id="node-select"
             value={selectedNodeName}
-            onChange={(val) => setSelectedNodeName(String(val))}
+            onChange={(val) => {
+              const nextMain = String(val)
+              setSelectedNodeName(nextMain)
+              // Reset fallback if region changed or conflicts with new main
+              if (fallbackNodeName) {
+                const nextRegion = extractRegion(nextMain)
+                const currentFbRegion = extractRegion(fallbackNodeName)
+                if (
+                  fallbackNodeName === nextMain ||
+                  nextRegion.code !== currentFbRegion.code
+                ) {
+                  setFallbackNodeName('')
+                }
+              }
+            }}
             options={nodeOptions}
             placeholder={
               availableNodes.length === 0
@@ -520,27 +620,124 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           />
         </div>
 
-        {/* Pre-selected node preview card */}
+        {/* Same-region Fallback Node Select - directly below main node select */}
         {selectedNode && (
-          <div className="p-3 rounded-lg bg-secondary/50 border border-border flex items-center justify-between text-xs">
-            <div className="space-y-0.5 min-w-0 flex-1">
-              <div className="font-medium text-foreground truncate">
-                {selectedNode.name}
+          <div className="pt-1">
+            <div className="flex items-center justify-between mb-1.5">
+              <label
+                htmlFor="fallback-select"
+                className="text-xs font-medium text-foreground flex items-center gap-1.5"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                同地区 Fallback 备用节点 (容灾)
+              </label>
+              {selectedNodeRegion && (
+                <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <RegionFlag code={selectedNodeRegion.code} size="sm" />限{' '}
+                  {selectedNodeRegion.name} 同区容灾
+                </span>
+              )}
+            </div>
+
+            {fallbackNodeOptions.length <= 1 ? (
+              <div className="p-2.5 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground bg-muted/20">
+                当前订阅中 {selectedNodeRegion?.name || '该地区'}{' '}
+                暂无其他可用节点，无法配置同地区 Fallback。
               </div>
-              <div className="text-[11px] text-muted-foreground font-mono truncate flex items-center gap-1">
-                <Server className="w-3 h-3 shrink-0" />
-                <span>
-                  {selectedNode.server}:{selectedNode.port}
+            ) : (
+              <>
+                <Select
+                  id="fallback-select"
+                  value={fallbackNodeName}
+                  onChange={(val) => setFallbackNodeName(String(val))}
+                  options={fallbackNodeOptions}
+                  placeholder="选择同地区备用节点 (可选)"
+                  prefixIcon={
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                  }
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  主节点超时故障时自动降级至此节点，恢复后自动切回。
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Node Information Card (Below both selects, showing protocol full name and latency) */}
+        {selectedNode && mainProtocolProps && (
+          <div className="p-3 rounded-lg bg-secondary/40 border border-border space-y-2 text-xs">
+            {/* Main Node */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                {selectedFallbackNode && (
+                  <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-primary/10 text-primary font-medium shrink-0">
+                    主
+                  </span>
+                )}
+                <RegionFlag
+                  code={extractRegion(selectedNode.name).code}
+                  size="sm"
+                />
+                <span
+                  className="font-medium text-foreground truncate"
+                  title={selectedNode.name}
+                >
+                  {selectedNode.name}
                 </span>
               </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-medium border ${mainProtocolProps.className}`}
+                >
+                  {mainProtocolProps.label}
+                </span>
+                <Badge
+                  variant={mainLatencyProps.variant}
+                  size="sm"
+                  dot={mainLatencyProps.dot}
+                  className="!text-[10px] !py-0.5 !px-1.5 font-mono"
+                >
+                  {mainLatencyProps.label}
+                </Badge>
+              </div>
             </div>
-            <span
-              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium border uppercase shrink-0 ${
-                getProtocolBadgeProps(selectedNode.type).className
-              }`}
-            >
-              {selectedNode.type}
-            </span>
+
+            {/* Fallback Node */}
+            {selectedFallbackNode && fbProtocolProps && fbLatencyProps && (
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/50">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-500 font-medium shrink-0">
+                    备
+                  </span>
+                  <RegionFlag
+                    code={extractRegion(selectedFallbackNode.name).code}
+                    size="sm"
+                  />
+                  <span
+                    className="font-medium text-foreground truncate"
+                    title={selectedFallbackNode.name}
+                  >
+                    {selectedFallbackNode.name}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium border ${fbProtocolProps.className}`}
+                  >
+                    {fbProtocolProps.label}
+                  </span>
+                  <Badge
+                    variant={fbLatencyProps.variant}
+                    size="sm"
+                    dot={fbLatencyProps.dot}
+                    className="!text-[10px] !py-0.5 !px-1.5 font-mono"
+                  >
+                    {fbLatencyProps.label}
+                  </Badge>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

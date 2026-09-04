@@ -22,6 +22,19 @@ export interface PortMapping {
   enabled: boolean
   latency?: number | null
   description?: string
+  fallbackNodeName?: string | null
+}
+
+export interface PortFallbackStatus {
+  mappingId: string
+  port: number
+  primaryNode: string
+  fallbackNode: string
+  activeNode: string
+  isFallbackActive: boolean
+  primaryLatency?: number | null
+  fallbackLatency?: number | null
+  lastUpdated: number
 }
 
 export interface ProxyNode {
@@ -111,6 +124,10 @@ export interface AppConfig {
   acrylicOpacity: number
   backgroundImage: string
   backgroundOpacity: number
+  testUrl: string
+  timeoutMs: number
+  fallbackInterval: number
+  fallbackLazy: boolean
 }
 
 export interface AppStatus {

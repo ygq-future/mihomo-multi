@@ -8,6 +8,7 @@ import type {
   LanIpInfo,
   NodeLatencyResult,
   PortDriftReport,
+  PortFallbackStatus,
   PortMapping,
   ProfileItem,
   ProxyNode,
@@ -112,6 +113,10 @@ export async function getConfig(): Promise<AppConfig> {
       acrylicOpacity: 65,
       backgroundImage: '',
       backgroundOpacity: 80,
+      testUrl: 'http://cp.cloudflare.com/generate_204',
+      timeoutMs: 3000,
+      fallbackInterval: 5,
+      fallbackLazy: false,
     }
   }
   return invoke<AppConfig>('get_config')
@@ -204,6 +209,13 @@ export async function testAllPortMappingsDelay(
     timeoutMs: timeoutMs || null,
     concurrency: concurrency || null,
   })
+}
+
+export async function getPortFallbackStatuses(): Promise<PortFallbackStatus[]> {
+  if (!isTauriEnvironment()) {
+    return []
+  }
+  return invoke<PortFallbackStatus[]>('get_port_fallback_statuses')
 }
 
 // ----------------------------------------------------------------------------
