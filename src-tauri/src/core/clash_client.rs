@@ -1,6 +1,6 @@
 use crate::error::{AppError, AppResult};
 use crate::models::NodeLatencyResult;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -92,12 +92,7 @@ impl ClashApiClient {
     }
 
     /// Query delay for a single proxy node via GET /proxies/{name}/delay
-    pub async fn test_delay(
-        &self,
-        node_name: &str,
-        test_url: Option<&str>,
-        timeout_ms: Option<u32>,
-    ) -> AppResult<u32> {
+    pub async fn test_delay(&self, node_name: &str, test_url: Option<&str>, timeout_ms: Option<u32>) -> AppResult<u32> {
         let actual_url = test_url.unwrap_or(DEFAULT_TEST_URL);
         let actual_timeout = timeout_ms.unwrap_or(DEFAULT_TEST_TIMEOUT_MS);
 
@@ -118,15 +113,17 @@ impl ClashApiClient {
             req = req.header(AUTHORIZATION, format!("Bearer {}", self.secret));
         }
 
-        let resp = req.send().await.map_err(|err| {
-            AppError::ExternalController(format!("Request to Mihomo delay API failed: {}", err))
-        })?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|err| AppError::ExternalController(format!("Request to Mihomo delay API failed: {}", err)))?;
 
         let status = resp.status();
         if status.is_success() {
-            let json: serde_json::Value = resp.json().await.map_err(|err| {
-                AppError::ExternalController(format!("Invalid JSON from Mihomo delay API: {}", err))
-            })?;
+            let json: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|err| AppError::ExternalController(format!("Invalid JSON from Mihomo delay API: {}", err)))?;
 
             if let Some(delay) = json.get("delay").and_then(|v| v.as_u64()) {
                 Ok(delay as u32)
@@ -175,20 +172,21 @@ impl ClashApiClient {
                     tokio::time::sleep(Duration::from_millis(stagger_ms)).await;
                 }
 
-                let res = client
-                    .test_delay(&node_name, url_opt.as_deref(), timeout_ms)
-                    .await;
+                let res = client.test_delay(&node_name, url_opt.as_deref(), timeout_ms).await;
 
                 let (latency, error) = match res {
                     Ok(delay) => (Some(delay), None),
                     Err(err) => (None, Some(err.to_string())),
                 };
 
-                (index, NodeLatencyResult {
-                    name: node_name,
-                    latency,
-                    error,
-                })
+                (
+                    index,
+                    NodeLatencyResult {
+                        name: node_name,
+                        latency,
+                        error,
+                    },
+                )
             });
         }
 
@@ -219,15 +217,17 @@ impl ClashApiClient {
             req = req.header(AUTHORIZATION, format!("Bearer {}", self.secret));
         }
 
-        let resp = req.send().await.map_err(|err| {
-            AppError::ExternalController(format!("Failed to connect to Mihomo proxies API: {}", err))
-        })?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|err| AppError::ExternalController(format!("Failed to connect to Mihomo proxies API: {}", err)))?;
 
         let status = resp.status();
         if status.is_success() {
-            let detail: ProxyDetail = resp.json().await.map_err(|err| {
-                AppError::ExternalController(format!("Failed to parse proxy detail JSON: {}", err))
-            })?;
+            let detail: ProxyDetail = resp
+                .json()
+                .await
+                .map_err(|err| AppError::ExternalController(format!("Failed to parse proxy detail JSON: {}", err)))?;
             Ok(detail)
         } else {
             let error_text = resp.text().await.unwrap_or_default();
@@ -340,15 +340,9 @@ mod tests {
         });
 
         let client = ClashApiClient::new(port, "test-secret");
-        let nodes = vec![
-            "HK-01".to_string(),
-            "JP-02".to_string(),
-            "Timeout-03".to_string(),
-        ];
+        let nodes = vec!["HK-01".to_string(), "JP-02".to_string(), "Timeout-03".to_string()];
 
-        let results = client
-            .test_nodes_delay_batch(&nodes, None, Some(1000), Some(4))
-            .await;
+        let results = client.test_nodes_delay_batch(&nodes, None, Some(1000), Some(4)).await;
 
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].name, "HK-01");

@@ -2,8 +2,8 @@ use crate::core::auto_updater::AutoUpdater;
 use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::is_port_available;
 use crate::models::{
-    AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, CoreStatus, DriftStatus,
-    LanIpInfo, NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode,
+    AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, CoreStatus, DriftStatus, LanIpInfo,
+    NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode,
 };
 use crate::state::AppState;
 use std::process::Command;
@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
 pub async fn get_app_status(state: State<'_, AppState>) -> Result<AppStatus, String> {
-    let core = state.supervisor.get_status();
+    let core = state.engine.get_status();
     let profiles = state.profile_manager.get_profiles();
     let total_profiles = profiles.len();
     let total_nodes = profiles.iter().map(|p| p.node_count).sum();
@@ -32,21 +32,21 @@ pub async fn get_app_status(state: State<'_, AppState>) -> Result<AppStatus, Str
 
 #[tauri::command]
 pub async fn get_core_status(state: State<'_, AppState>) -> Result<CoreStatus, String> {
-    Ok(state.supervisor.get_status())
+    Ok(state.engine.get_status())
 }
 
 #[tauri::command]
 pub async fn start_core(app: AppHandle, state: State<'_, AppState>) -> Result<CoreStatus, String> {
     let _ = state.sync_runtime_config().await;
     let config = state.config.read().clone();
-    let res = state.supervisor.start(&app, &config).map_err(|err| err.to_string())?;
+    let res = state.engine.start(Some(&app), &config).map_err(|err| err.to_string())?;
     crate::tray::update_tray_menu(&app);
     Ok(res)
 }
 
 #[tauri::command]
 pub async fn stop_core(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    state.supervisor.stop().map_err(|err| err.to_string())?;
+    state.engine.stop().map_err(|err| err.to_string())?;
     crate::tray::update_tray_menu(&app);
     Ok(())
 }
@@ -55,7 +55,10 @@ pub async fn stop_core(app: AppHandle, state: State<'_, AppState>) -> Result<(),
 pub async fn restart_core(app: AppHandle, state: State<'_, AppState>) -> Result<CoreStatus, String> {
     let _ = state.sync_runtime_config().await;
     let config = state.config.read().clone();
-    let res = state.supervisor.restart(&app, &config).map_err(|err| err.to_string())?;
+    let res = state
+        .engine
+        .restart(Some(&app), &config)
+        .map_err(|err| err.to_string())?;
     crate::tray::update_tray_menu(&app);
     Ok(res)
 }
@@ -86,9 +89,13 @@ pub async fn check_port_available(
 
     // 3. Perform socket bind probe accounting for allow_lan setting and excluding own core PID
     let allow_lan = state.config.read().allow_lan;
-    let core_status = state.supervisor.get_status();
+    let core_status = state.engine.get_status();
     let my_core_pid = if core_status.running { core_status.pid } else { None };
-    Ok(crate::core::port_probe::is_port_available_with_lan(port, allow_lan, my_core_pid))
+    Ok(crate::core::port_probe::is_port_available_with_lan(
+        port,
+        allow_lan,
+        my_core_pid,
+    ))
 }
 
 #[tauri::command]
@@ -100,10 +107,9 @@ pub async fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String>
 pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Result<(), String> {
     let old_port = state.config.read().controller_port;
     if config.controller_port != old_port {
-        let core_status = state.supervisor.get_status();
+        let core_status = state.engine.get_status();
         // Check if the target port is currently held by our own running core (ABA scenario / revert to active port)
-        let is_current_active_core_port =
-            core_status.running && core_status.controller_port == config.controller_port;
+        let is_current_active_core_port = core_status.running && core_status.controller_port == config.controller_port;
 
         if !is_current_active_core_port {
             // 1. Probe if the new controller port is available on localhost
@@ -169,7 +175,7 @@ pub async fn get_next_available_port(
     let controller_port = state.config.read().controller_port;
     let mappings = state.port_manager.get_port_mappings();
 
-    let core_status = state.supervisor.get_status();
+    let core_status = state.engine.get_status();
     let my_core_pid = if core_status.running { core_status.pid } else { None };
 
     let used_ports: std::collections::HashSet<u16> = mappings
@@ -237,11 +243,7 @@ pub async fn save_port_mapping(
 }
 
 #[tauri::command]
-pub async fn delete_port_mapping(
-    app: AppHandle,
-    id: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn delete_port_mapping(app: AppHandle, id: String, state: State<'_, AppState>) -> Result<(), String> {
     state
         .port_manager
         .delete_port_mapping(&id)
@@ -274,7 +276,7 @@ pub async fn test_port_mapping_delay(
     timeout_ms: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<u32, String> {
-    let status = state.supervisor.get_status();
+    let status = state.engine.get_status();
     if !status.running {
         return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
     }
@@ -297,8 +299,8 @@ pub async fn test_port_mapping_delay(
     let actual_url = test_url.as_deref().unwrap_or(&default_url);
     let actual_timeout = timeout_ms.unwrap_or(default_timeout);
 
-    let client = state.clash_client();
-    let res = client
+    let res = state
+        .engine
         .test_delay(&runtime_name, Some(actual_url), Some(actual_timeout))
         .await;
     match res {
@@ -323,7 +325,7 @@ pub async fn test_all_port_mappings_delay(
     concurrency: Option<usize>,
     state: State<'_, AppState>,
 ) -> Result<Vec<NodeLatencyResult>, String> {
-    let status = state.supervisor.get_status();
+    let status = state.engine.get_status();
     if !status.running {
         return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
     }
@@ -334,10 +336,7 @@ pub async fn test_all_port_mappings_delay(
     }
 
     let profiles = state.profile_manager.get_profiles();
-    let profile_map: std::collections::HashMap<String, String> = profiles
-        .into_iter()
-        .map(|p| (p.id, p.name))
-        .collect();
+    let profile_map: std::collections::HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
 
     let mut names_to_test = Vec::new();
     let mut main_mapping_indices = Vec::new();
@@ -370,16 +369,14 @@ pub async fn test_all_port_mappings_delay(
     let actual_url = test_url.as_deref().unwrap_or(&default_url);
     let actual_timeout = timeout_ms.unwrap_or(default_timeout);
 
-    let client = state.clash_client();
-    let results = client
+    let results = state
+        .engine
         .test_nodes_delay_batch(&names_to_test, Some(actual_url), Some(actual_timeout), concurrency)
         .await;
     // Update latencies back into port_manager for main nodes
     for (mapping_id, idx) in main_mapping_indices {
         if let Some(res) = results.get(idx) {
-            let _ = state
-                .port_manager
-                .update_port_latency(&mapping_id, res.latency);
+            let _ = state.port_manager.update_port_latency(&mapping_id, res.latency);
         }
     }
     crate::tray::update_tray_menu(&app);
@@ -387,22 +384,17 @@ pub async fn test_all_port_mappings_delay(
 }
 
 #[tauri::command]
-pub async fn get_port_fallback_statuses(
-    state: State<'_, AppState>,
-) -> Result<Vec<PortFallbackStatus>, String> {
-    let status = state.supervisor.get_status();
+pub async fn get_port_fallback_statuses(state: State<'_, AppState>) -> Result<Vec<PortFallbackStatus>, String> {
+    let status = state.engine.get_status();
     if !status.running {
         return Ok(Vec::new());
     }
 
     let mappings = state.port_manager.get_port_mappings();
     let profiles = state.profile_manager.get_profiles();
-    let profile_map: std::collections::HashMap<String, String> = profiles
-        .into_iter()
-        .map(|p| (p.id, p.name))
-        .collect();
+    let profile_map: std::collections::HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
 
-    let client = state.clash_client();
+    let engine = state.engine.clone();
     let mut statuses = Vec::new();
     let now_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -419,7 +411,7 @@ pub async fn get_port_fallback_statuses(
         };
 
         let group_name = format!("fb-{}", m.port);
-        if let Ok(detail) = client.get_proxy_detail(&group_name).await {
+        if let Ok(detail) = engine.get_proxy_detail(&group_name).await {
             let active_node = detail.now.clone().unwrap_or_default();
             let is_fallback_active = active_node.ends_with(&fallback_node);
 
@@ -435,14 +427,14 @@ pub async fn get_port_fallback_statuses(
                 fallback_node.clone()
             };
 
-            let primary_latency = client
+            let primary_latency = engine
                 .get_proxy_detail(&primary_runtime_name)
                 .await
                 .ok()
                 .and_then(|p| p.history.last().map(|h| h.delay))
                 .filter(|&d| d > 0);
 
-            let fallback_latency = client
+            let fallback_latency = engine
                 .get_proxy_detail(&fb_runtime_name)
                 .await
                 .ok()
@@ -511,11 +503,7 @@ pub async fn add_local_profile(
 }
 
 #[tauri::command]
-pub async fn update_profile(
-    id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<ProfileItem, String> {
+pub async fn update_profile(id: String, app: AppHandle, state: State<'_, AppState>) -> Result<ProfileItem, String> {
     let item = state
         .profile_manager
         .update_profile(&id)
@@ -552,11 +540,7 @@ pub async fn edit_profile(
 }
 
 #[tauri::command]
-pub async fn delete_profile(
-    id: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn delete_profile(id: String, app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     state
         .profile_manager
         .delete_profile(&id)
@@ -565,9 +549,7 @@ pub async fn delete_profile(
 
     let mappings = state.port_manager.get_port_mappings();
     let drift_reports = DriftGuard::check_all(&mappings, &state.profile_manager);
-    let has_drift = drift_reports
-        .iter()
-        .any(|r| r.status != DriftStatus::Healthy);
+    let has_drift = drift_reports.iter().any(|r| r.status != DriftStatus::Healthy);
     if has_drift {
         let _ = app.emit("node-drift-detected", &drift_reports);
     }
@@ -583,9 +565,7 @@ pub async fn get_drift_reports(state: State<'_, AppState>) -> Result<Vec<PortDri
 }
 
 #[tauri::command]
-pub async fn get_auto_updater_status(
-    state: State<'_, AppState>,
-) -> Result<AutoUpdaterStatus, String> {
+pub async fn get_auto_updater_status(state: State<'_, AppState>) -> Result<AutoUpdaterStatus, String> {
     Ok(state.auto_updater.get_status(&state))
 }
 
@@ -685,11 +665,7 @@ pub async fn get_lan_ip_addresses() -> Result<Vec<LanIpInfo>, String> {
         for ip_network in net_data.ip_networks() {
             if let std::net::IpAddr::V4(ipv4) = ip_network.addr {
                 // Filter out standard loopback (127.0.0.0/8), link-local APIPA (169.254.0.0/16), unspecified (0.0.0.0), broadcast (255.255.255.255)
-                if !ipv4.is_loopback()
-                    && !ipv4.is_link_local()
-                    && !ipv4.is_unspecified()
-                    && !ipv4.is_broadcast()
-                {
+                if !ipv4.is_loopback() && !ipv4.is_link_local() && !ipv4.is_unspecified() && !ipv4.is_broadcast() {
                     let ip_str = ipv4.to_string();
                     if seen_ips.insert(ip_str.clone()) {
                         result.push(LanIpInfo {
@@ -735,7 +711,7 @@ pub async fn test_node_delay(
     timeout_ms: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<u32, String> {
-    let status = state.supervisor.get_status();
+    let status = state.engine.get_status();
     if !status.running {
         return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
     }
@@ -747,8 +723,8 @@ pub async fn test_node_delay(
     let actual_url = test_url.as_deref().unwrap_or(&default_url);
     let actual_timeout = timeout_ms.unwrap_or(default_timeout);
 
-    let client = state.clash_client();
-    client
+    state
+        .engine
         .test_delay(&node_name, Some(actual_url), Some(actual_timeout))
         .await
         .map_err(|err| err.to_string())
@@ -761,7 +737,7 @@ pub async fn test_nodes_delay_batch(
     concurrency: Option<usize>,
     state: State<'_, AppState>,
 ) -> Result<Vec<NodeLatencyResult>, String> {
-    let status = state.supervisor.get_status();
+    let status = state.engine.get_status();
     if !status.running {
         return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
     }
@@ -773,8 +749,8 @@ pub async fn test_nodes_delay_batch(
     let actual_url = test_url.as_deref().unwrap_or(&default_url);
     let actual_timeout = timeout_ms.unwrap_or(default_timeout);
 
-    let client = state.clash_client();
-    let results = client
+    let results = state
+        .engine
         .test_nodes_delay_batch(&node_names, Some(actual_url), Some(actual_timeout), concurrency)
         .await;
     Ok(results)

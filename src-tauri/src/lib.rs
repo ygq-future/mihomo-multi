@@ -23,8 +23,8 @@ pub fn run() {
 
     info!("Initializing Mihomo Multi application backend...");
 
-    let window_state_flags = tauri_plugin_window_state::StateFlags::all()
-        & !tauri_plugin_window_state::StateFlags::VISIBLE;
+    let window_state_flags =
+        tauri_plugin_window_state::StateFlags::all() & !tauri_plugin_window_state::StateFlags::VISIBLE;
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -66,12 +66,12 @@ pub fn run() {
 
             // Auto-start core on application launch (sync_runtime_config performs non-destructive occupancy self-check)
             let state_clone = app_state.clone();
-            let supervisor = app_state.supervisor.clone();
+            let engine = app_state.engine.clone();
             let handle = app_handle.clone();
             let config = app_state.config.read().clone();
             tauri::async_runtime::spawn(async move {
                 let _ = state_clone.sync_runtime_config().await;
-                if let Err(err) = supervisor.start(&handle, &config) {
+                if let Err(err) = engine.start(Some(&handle), &config) {
                     error!("Failed to auto-start Mihomo core: {}", err);
                 } else {
                     info!("Mihomo core auto-started successfully");
@@ -80,9 +80,7 @@ pub fn run() {
             });
 
             // Start background profile auto-updater
-            app_state
-                .auto_updater
-                .start(app_handle.clone(), app_state.clone());
+            app_state.auto_updater.start(app_handle.clone(), app_state.clone());
 
             Ok(())
         })
@@ -136,7 +134,7 @@ pub fn run() {
                 if let Some(state) = window.try_state::<AppState>() {
                     info!("Window destroyed, ensuring sidecar process and background services are terminated");
                     state.auto_updater.stop();
-                    let _ = state.supervisor.stop();
+                    let _ = state.engine.stop();
                 }
             }
             _ => {}

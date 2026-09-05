@@ -186,7 +186,10 @@ impl PortManager {
         }
 
         self.persist_metadata()?;
-        info!("Port mapping '{}' on port {} toggled to enabled={}", id, target.port, enabled);
+        info!(
+            "Port mapping '{}' on port {} toggled to enabled={}",
+            id, target.port, enabled
+        );
         Ok(target)
     }
 
@@ -281,7 +284,9 @@ mod tests {
         assert!(toggled_on.enabled);
 
         // 5. Update latency
-        manager.update_port_latency(&saved.id, Some(45)).expect("Update latency");
+        manager
+            .update_port_latency(&saved.id, Some(45))
+            .expect("Update latency");
         let fetched = manager.get_port_mapping_by_id(&saved.id).expect("Fetch mapping");
         assert_eq!(fetched.latency, Some(45));
 

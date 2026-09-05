@@ -8,8 +8,6 @@ struct PortRuntimeInfo {
     active_latency: Option<u32>,
 }
 
-
-
 fn build_tray_menu_internal(
     app: &AppHandle,
     runtime_infos: &std::collections::HashMap<String, PortRuntimeInfo>,
@@ -22,36 +20,27 @@ fn build_tray_menu_internal(
     if let Some(state) = app.try_state::<crate::state::AppState>() {
         let mut mappings = state.port_manager.get_port_mappings();
         mappings.sort_by_key(|m| m.port);
-        let is_running = state.supervisor.get_status().running;
+        let is_running = state.engine.get_status().running;
 
         if mappings.is_empty() {
-            let empty_item =
-                MenuItem::with_id(app, "no_ports", "暂无端口监听 (可在窗口中添加)", false, None::<&str>)?;
+            let empty_item = MenuItem::with_id(app, "no_ports", "暂无端口监听 (可在窗口中添加)", false, None::<&str>)?;
             menu.append(&empty_item)?;
         } else {
             for m in mappings {
-                let has_fallback = m
-                    .fallback_node_name
-                    .as_ref()
-                    .is_some_and(|fb| !fb.trim().is_empty());
+                let has_fallback = m.fallback_node_name.as_ref().is_some_and(|fb| !fb.trim().is_empty());
 
                 let runtime_info = runtime_infos.get(&m.id);
                 let is_fallback_active = runtime_info.map(|r| r.is_fallback_active).unwrap_or(false);
 
                 // 节点列：只展示当前活动的节点
                 let node = if has_fallback && is_fallback_active {
-                    m.fallback_node_name
-                        .as_deref()
-                        .unwrap_or(&m.node_name)
-                        .to_string()
+                    m.fallback_node_name.as_deref().unwrap_or(&m.node_name).to_string()
                 } else {
                     m.node_name.clone()
                 };
 
                 // 延迟与状态判定
-                let lat = runtime_info
-                    .and_then(|r| r.active_latency)
-                    .or(m.latency);
+                let lat = runtime_info.and_then(|r| r.active_latency).or(m.latency);
                 let status = if !m.enabled {
                     "已禁用"
                 } else if !is_running {
@@ -83,8 +72,7 @@ fn build_tray_menu_internal(
             }
         }
     } else {
-        let loading_item =
-            MenuItem::with_id(app, "state_loading", "正在加载状态...", false, None::<&str>)?;
+        let loading_item = MenuItem::with_id(app, "state_loading", "正在加载状态...", false, None::<&str>)?;
         menu.append(&loading_item)?;
     }
 
@@ -103,22 +91,21 @@ async fn query_runtime_infos(app: &AppHandle) -> std::collections::HashMap<Strin
         return runtime_infos;
     };
 
-    if !state.supervisor.get_status().running {
+    if !state.engine.get_status().running {
         return runtime_infos;
     }
 
     let mappings = state.port_manager.get_port_mappings();
     let profiles = state.profile_manager.get_profiles();
-    let profile_map: std::collections::HashMap<String, String> =
-        profiles.into_iter().map(|p| (p.id, p.name)).collect();
-    let client = state.clash_client();
+    let profile_map: std::collections::HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
+    let engine = state.engine.clone();
 
     for m in mappings.into_iter().filter(|m| m.enabled) {
         if let Some(fb) = &m.fallback_node_name
             && !fb.trim().is_empty()
         {
             let group_name = format!("fb-{}", m.port);
-            if let Ok(detail) = client.get_proxy_detail(&group_name).await {
+            if let Ok(detail) = engine.get_proxy_detail(&group_name).await {
                 let active_node = detail.now.unwrap_or_default();
                 let is_fallback_active = active_node.ends_with(fb);
 
@@ -129,7 +116,7 @@ async fn query_runtime_infos(app: &AppHandle) -> std::collections::HashMap<Strin
                     target_node.clone()
                 };
 
-                let active_latency = client
+                let active_latency = engine
                     .get_proxy_detail(&target_runtime_name)
                     .await
                     .ok()
@@ -153,7 +140,7 @@ async fn query_runtime_infos(app: &AppHandle) -> std::collections::HashMap<Strin
             m.node_name.clone()
         };
 
-        if let Ok(p_detail) = client.get_proxy_detail(&primary_runtime_name).await {
+        if let Ok(p_detail) = engine.get_proxy_detail(&primary_runtime_name).await {
             let active_latency = p_detail.history.last().map(|h| h.delay).filter(|&d| d > 0);
             runtime_infos.insert(
                 m.id,
@@ -210,10 +197,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 
                         match state.port_manager.toggle_port_mapping(&mapping_id, target_enabled) {
                             Ok(updated) => {
-                                info!(
-                                    "Toggled port {} to {} from system tray",
-                                    updated.port, target_enabled
-                                );
+                                info!("Toggled port {} to {} from system tray", updated.port, target_enabled);
                                 let _ = state.sync_runtime_config().await;
                                 update_tray_menu(&app_handle);
                                 let _ = app_handle.emit("port-mapping-updated", &updated);
@@ -242,7 +226,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                         if let Some(state) = app_handle.try_state::<crate::state::AppState>() {
                             let _ = state.sync_runtime_config().await;
                             let config = state.config.read().clone();
-                            if let Err(e) = state.supervisor.restart(&app_handle, &config) {
+                            if let Err(e) = state.engine.restart(Some(&app_handle), &config) {
                                 error!("Failed to restart core from tray: {}", e);
                             } else {
                                 info!("Mihomo core restarted from tray");

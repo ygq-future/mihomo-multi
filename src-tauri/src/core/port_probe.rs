@@ -195,7 +195,7 @@ pub fn is_port_available_with_lan(port: u16, allow_lan: bool, exclude_pid: Optio
     #[cfg(windows)]
     {
         use std::os::windows::io::AsRawSocket;
-        use windows_sys::Win32::Networking::WinSock::{setsockopt, SOL_SOCKET, SO_EXCLUSIVEADDRUSE};
+        use windows_sys::Win32::Networking::WinSock::{SO_EXCLUSIVEADDRUSE, SOL_SOCKET, setsockopt};
 
         let optval: i32 = 1;
         unsafe {

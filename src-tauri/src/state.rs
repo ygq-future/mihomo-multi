@@ -1,20 +1,18 @@
 use crate::core::auto_updater::AutoUpdater;
-use crate::core::clash_client::ClashApiClient;
-use crate::core::config_generator::{MinimalRuntimeConfig, RuntimeGeneratorParams};
+use crate::core::config_generator::RuntimeGeneratorParams;
+use crate::core::kernel_engine::KernelEngine;
 use crate::core::port_manager::PortManager;
 use crate::core::profile_manager::ProfileManager;
-use crate::core::supervisor::CoreSupervisor;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::models::AppConfig;
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{info, warn};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub supervisor: CoreSupervisor,
+    pub engine: Arc<KernelEngine>,
     pub profile_manager: Arc<ProfileManager>,
     pub port_manager: Arc<PortManager>,
     pub auto_updater: Arc<AutoUpdater>,
@@ -26,7 +24,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(app_dir: PathBuf) -> Self {
         let work_dir = app_dir.join("core");
-        let supervisor = CoreSupervisor::new(work_dir);
+        let engine = Arc::new(KernelEngine::new(work_dir));
         let profile_manager = Arc::new(ProfileManager::new(app_dir.clone()));
         let port_manager = Arc::new(PortManager::new(app_dir.clone()));
         let auto_updater = Arc::new(AutoUpdater::new());
@@ -49,7 +47,7 @@ impl AppState {
         let config = Arc::new(RwLock::new(initial_config));
 
         Self {
-            supervisor,
+            engine,
             profile_manager,
             port_manager,
             auto_updater,
@@ -59,45 +57,16 @@ impl AppState {
         }
     }
 
-    pub fn clash_client(&self) -> ClashApiClient {
-        let cfg = self.config.read();
-        ClashApiClient::new(cfg.controller_port, &cfg.controller_secret)
-    }
-
     /// Generates runtime.yaml on disk, safely excluding occupied ports to protect Mihomo stability
     pub fn generate_runtime_config_file(&self) -> AppResult<PathBuf> {
         let raw_proxies = self.profile_manager.get_raw_proxies_for_all_profiles();
         let profiles = self.profile_manager.get_profiles();
-        let profile_map: HashMap<String, String> = profiles
-            .into_iter()
-            .map(|p| (p.id, p.name))
-            .collect();
+        let profile_map: HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
 
         let mappings = self.port_manager.get_port_mappings();
         let cfg = self.config.read().clone();
 
-        let core_status = self.supervisor.get_status();
-        let my_core_pid = if core_status.running { core_status.pid } else { None };
-
-        let mut occupied_set = HashSet::new();
-        let mut active_mappings = Vec::new();
-
-        for m in mappings {
-            if m.enabled {
-                if crate::core::port_probe::is_port_available_with_lan(m.port, cfg.allow_lan, my_core_pid) {
-                    active_mappings.push(m);
-                } else {
-                    warn!(
-                        "Port {} is occupied by third-party application, safely excluding from runtime listeners",
-                        m.port
-                    );
-                    occupied_set.insert(m.port);
-                }
-            } else {
-                active_mappings.push(m);
-            }
-        }
-
+        let (active_mappings, occupied_set) = self.engine.filter_available_mappings(&mappings, cfg.allow_lan);
         *self.occupied_ports.write() = occupied_set;
 
         let params = RuntimeGeneratorParams {
@@ -111,37 +80,37 @@ impl AppState {
             fallback_lazy: cfg.fallback_lazy,
         };
 
-        let runtime_config = MinimalRuntimeConfig::with_mappings(
-            &params,
-            &active_mappings,
-            raw_proxies,
-            &profile_map,
-        );
-
-        let work_dir = self.app_dir.join("core");
-        std::fs::create_dir_all(&work_dir).map_err(AppError::Io)?;
-        let runtime_path = work_dir.join("runtime.yaml");
-        runtime_config.write_to_file(&runtime_path)?;
-        Ok(runtime_path)
+        let runtime_config = self
+            .engine
+            .synthesize_config(&params, &active_mappings, raw_proxies, &profile_map);
+        self.engine.write_runtime_config(&runtime_config)
     }
 
     /// Synchronizes all active port listeners and proxy nodes into runtime.yaml and triggers a hot reload if the core is running
     pub async fn sync_runtime_config(&self) -> AppResult<PathBuf> {
-        let runtime_path = self.generate_runtime_config_file()?;
+        let raw_proxies = self.profile_manager.get_raw_proxies_for_all_profiles();
+        let profiles = self.profile_manager.get_profiles();
+        let profile_map: HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
 
-        let core_status = self.supervisor.get_status();
-        let current_cfg_port = self.config.read().controller_port;
-        // Only attempt reload if core is running AND running on the configured controller port
-        if core_status.running && core_status.controller_port == current_cfg_port {
-            let client = self.clash_client();
-            let path_str = runtime_path.to_string_lossy().to_string();
-            if let Err(err) = client.reload_config(&path_str).await {
-                warn!("Hot-reloading Mihomo config after sync failed: {}", err);
-            } else {
-                info!("Mihomo configuration reloaded with updated port listeners and proxies");
-            }
-        }
+        let mappings = self.port_manager.get_port_mappings();
+        let cfg = self.config.read().clone();
 
-        Ok(runtime_path)
+        let (active_mappings, occupied_set) = self.engine.filter_available_mappings(&mappings, cfg.allow_lan);
+        *self.occupied_ports.write() = occupied_set;
+
+        let params = RuntimeGeneratorParams {
+            controller_port: cfg.controller_port,
+            secret: &cfg.controller_secret,
+            log_level: &cfg.log_level,
+            allow_lan: cfg.allow_lan,
+            test_url: &cfg.test_url,
+            timeout_ms: cfg.timeout_ms,
+            fallback_interval: cfg.fallback_interval,
+            fallback_lazy: cfg.fallback_lazy,
+        };
+
+        self.engine
+            .apply_runtime_config(&params, &active_mappings, raw_proxies, &profile_map)
+            .await
     }
 }

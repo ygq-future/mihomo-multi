@@ -94,6 +94,7 @@ struct SupervisorInner {
     last_error: Option<String>,
     #[cfg(windows)]
     job_object: Option<JobObjectGuard>,
+    simulated: bool,
 }
 
 #[derive(Clone)]
@@ -118,6 +119,7 @@ impl CoreSupervisor {
             last_error: None,
             #[cfg(windows)]
             job_object,
+            simulated: false,
         };
 
         Self {
@@ -126,7 +128,28 @@ impl CoreSupervisor {
         }
     }
 
-    pub fn locate_sidecar(&self, app_handle: &tauri::AppHandle) -> AppResult<PathBuf> {
+    pub fn new_simulated(work_dir: PathBuf) -> Self {
+        let inner = SupervisorInner {
+            child: None,
+            start_time: None,
+            pid: None,
+            version: None,
+            sidecar_path: PathBuf::new(),
+            controller_port: 9999,
+            secret: String::new(),
+            last_error: None,
+            #[cfg(windows)]
+            job_object: None,
+            simulated: true,
+        };
+
+        Self {
+            inner: Arc::new(Mutex::new(inner)),
+            work_dir,
+        }
+    }
+
+    pub fn locate_sidecar(&self, app_handle: Option<&tauri::AppHandle>) -> AppResult<PathBuf> {
         let host_target = if cfg!(target_os = "windows") {
             "x86_64-pc-windows-msvc.exe"
         } else if cfg!(target_os = "macos") {
@@ -160,20 +183,21 @@ impl CoreSupervisor {
         }
 
         // 2. Check app resource/binary directory (bundle mode)
-        if let Ok(resource_dir) = app_handle.path().resource_dir() {
-            let resource_candidate = resource_dir.join("binaries").join(&binary_name);
-            if resource_candidate.exists() {
-                return Ok(resource_candidate);
+        if let Some(app) = app_handle {
+            if let Ok(resource_dir) = app.path().resource_dir() {
+                let resource_candidate = resource_dir.join("binaries").join(&binary_name);
+                if resource_candidate.exists() {
+                    return Ok(resource_candidate);
+                }
+            }
+
+            if let Ok(app_dir) = app.path().app_local_data_dir() {
+                let app_candidate = app_dir.join("binaries").join(&binary_name);
+                if app_candidate.exists() {
+                    return Ok(app_candidate);
+                }
             }
         }
-
-        if let Ok(app_dir) = app_handle.path().app_local_data_dir() {
-            let app_candidate = app_dir.join("binaries").join(&binary_name);
-            if app_candidate.exists() {
-                return Ok(app_candidate);
-            }
-        }
-
         // 3. Fallback: check if 'mihomo' or 'mihomo.exe' is directly in current dir or PATH
         let plain_binary = if cfg!(windows) { "mihomo.exe" } else { "mihomo" };
         let plain_candidate = PathBuf::from(plain_binary);
@@ -205,11 +229,17 @@ impl CoreSupervisor {
         }
     }
 
-    pub fn start(&self, app_handle: &tauri::AppHandle, config: &AppConfig) -> AppResult<CoreStatus> {
+    pub fn start(&self, app_handle: Option<&tauri::AppHandle>, config: &AppConfig) -> AppResult<CoreStatus> {
         let mut inner = self.inner.lock();
 
         // If already running, check if process is still alive
-        if let Some(ref mut child) = inner.child {
+        if inner.simulated {
+            if inner.pid.is_some() {
+                info!("Simulated Mihomo core is already running with PID: {:?}", inner.pid);
+                inner.last_error = None;
+                return Ok(self.status_from_inner(&inner));
+            }
+        } else if let Some(ref mut child) = inner.child {
             match child.try_wait() {
                 Ok(None) => {
                     info!("Mihomo core is already running with PID: {:?}", inner.pid);
@@ -237,6 +267,33 @@ impl CoreSupervisor {
             return Err(AppError::SidecarExecution(err_msg));
         }
 
+        // Ensure working directory and runtime configuration exist
+        if let Err(e) = std::fs::create_dir_all(&self.work_dir).map_err(AppError::Io) {
+            inner.last_error = Some(e.to_string());
+            return Err(e);
+        }
+
+        let runtime_yaml_path = self.work_dir.join("runtime.yaml");
+        if !runtime_yaml_path.exists() {
+            let minimal_config =
+                MinimalRuntimeConfig::new(config.controller_port, &config.controller_secret, &config.log_level);
+            if let Err(e) = minimal_config.write_to_file(&runtime_yaml_path) {
+                inner.last_error = Some(e.to_string());
+                return Err(e);
+            }
+        }
+
+        if inner.simulated {
+            inner.pid = Some(99999);
+            inner.start_time = Some(Instant::now());
+            inner.version = Some("Mihomo (simulated) v1.19.0".to_string());
+            inner.sidecar_path = self.work_dir.join("simulated-mihomo");
+            inner.controller_port = config.controller_port;
+            inner.secret = config.controller_secret.clone();
+            inner.last_error = None;
+            return Ok(self.status_from_inner(&inner));
+        }
+
         let sidecar_path = match self.locate_sidecar(app_handle) {
             Ok(p) => p,
             Err(e) => {
@@ -246,26 +303,10 @@ impl CoreSupervisor {
         };
         let version = self.query_version(&sidecar_path);
 
-        // Ensure working directory and runtime configuration exist
-        if let Err(e) = std::fs::create_dir_all(&self.work_dir).map_err(AppError::Io) {
-            inner.last_error = Some(e.to_string());
-            return Err(e);
-        }
         let geo_work_dir = self.work_dir.clone();
         tauri::async_runtime::spawn(async move {
             let _ = crate::core::geo_manager::ensure_geo_databases(&geo_work_dir).await;
         });
-
-        let runtime_yaml_path = self.work_dir.join("runtime.yaml");
-
-        if !runtime_yaml_path.exists() {
-            let minimal_config =
-                MinimalRuntimeConfig::new(config.controller_port, &config.controller_secret, &config.log_level);
-            if let Err(e) = minimal_config.write_to_file(&runtime_yaml_path) {
-                inner.last_error = Some(e.to_string());
-                return Err(e);
-            }
-        }
 
         // Setup log file redirection
         let log_dir = self.work_dir.join("logs");
@@ -313,9 +354,10 @@ impl CoreSupervisor {
             cmd.creation_flags(0x08000000);
         }
 
-        let mut child = match cmd.spawn().map_err(|err| {
-            AppError::SidecarExecution(format!("Failed to spawn Mihomo sidecar: {}", err))
-        }) {
+        let mut child = match cmd
+            .spawn()
+            .map_err(|err| AppError::SidecarExecution(format!("Failed to spawn Mihomo sidecar: {}", err)))
+        {
             Ok(c) => c,
             Err(e) => {
                 inner.last_error = Some(e.to_string());
@@ -365,6 +407,12 @@ impl CoreSupervisor {
 
     pub fn stop(&self) -> AppResult<()> {
         let mut inner = self.inner.lock();
+        if inner.simulated {
+            inner.pid = None;
+            inner.start_time = None;
+            inner.last_error = None;
+            return Ok(());
+        }
         if let Some(mut child) = inner.child.take() {
             info!("Stopping Mihomo sidecar process (PID: {:?})", inner.pid);
             let _ = child.kill();
@@ -377,7 +425,7 @@ impl CoreSupervisor {
         Ok(())
     }
 
-    pub fn restart(&self, app_handle: &tauri::AppHandle, config: &AppConfig) -> AppResult<CoreStatus> {
+    pub fn restart(&self, app_handle: Option<&tauri::AppHandle>, config: &AppConfig) -> AppResult<CoreStatus> {
         self.stop()?;
         std::thread::sleep(std::time::Duration::from_millis(150));
         self.start(app_handle, config)
@@ -385,7 +433,9 @@ impl CoreSupervisor {
 
     pub fn get_status(&self) -> CoreStatus {
         let mut inner = self.inner.lock();
-        let running = if let Some(ref mut child) = inner.child {
+        let running = if inner.simulated {
+            inner.pid.is_some()
+        } else if let Some(ref mut child) = inner.child {
             match child.try_wait() {
                 Ok(None) => true,
                 _ => {
@@ -419,8 +469,13 @@ impl CoreSupervisor {
 
     fn status_from_inner(&self, inner: &SupervisorInner) -> CoreStatus {
         let uptime = inner.start_time.map(|t| t.elapsed().as_secs()).unwrap_or(0);
+        let running = if inner.simulated {
+            inner.pid.is_some()
+        } else {
+            inner.child.is_some()
+        };
         CoreStatus {
-            running: inner.child.is_some(),
+            running,
             pid: inner.pid,
             controller_port: inner.controller_port,
             secret: inner.secret.clone(),

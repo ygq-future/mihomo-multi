@@ -1,8 +1,8 @@
 use crate::core::drift_guard::DriftGuard;
 use crate::models::{AutoUpdateEventPayload, AutoUpdaterStatus, DriftStatus, ProfileType};
 use crate::state::AppState;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 use tracing::{error, info, warn};
@@ -115,8 +115,7 @@ impl AutoUpdater {
 
                         // Perform node drift safety guard inspection
                         let mappings = app_state.port_manager.get_port_mappings();
-                        let drift_reports =
-                            DriftGuard::check_all(&mappings, &app_state.profile_manager);
+                        let drift_reports = DriftGuard::check_all(&mappings, &app_state.profile_manager);
 
                         let drifted_count = drift_reports
                             .iter()

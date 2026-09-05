@@ -53,10 +53,8 @@ fn check_existing_candidate(work_dir: &Path, candidates: &[&str]) -> (bool, u64,
 }
 
 pub fn check_geo_databases(work_dir: &Path) -> GeoDatabaseStatus {
-    let (geosite_exists, geosite_size, _) =
-        check_existing_candidate(work_dir, &["geosite.dat", "GeoSite.dat"]);
-    let (geoip_exists, geoip_size, _) =
-        check_existing_candidate(work_dir, &["geoip.dat", "GeoIP.dat"]);
+    let (geosite_exists, geosite_size, _) = check_existing_candidate(work_dir, &["geosite.dat", "GeoSite.dat"]);
+    let (geoip_exists, geoip_size, _) = check_existing_candidate(work_dir, &["geoip.dat", "GeoIP.dat"]);
 
     GeoDatabaseStatus {
         geosite_exists,
