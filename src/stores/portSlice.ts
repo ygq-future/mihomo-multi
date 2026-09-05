@@ -289,49 +289,50 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
         : mapping.fallbackNodeName
       : null
 
-    try {
-      const [latency, fbLatency] = await Promise.all([
-        api.testPortMappingDelay(id, testUrl, timeoutMs),
-        fallbackNodeKey
-          ? api
-              .testNodeDelay(fallbackNodeKey, testUrl, timeoutMs)
-              .catch(() => null)
-          : Promise.resolve(null),
-      ])
+    const [mainResult, fbResult] = await Promise.allSettled([
+      api.testPortMappingDelay(id, testUrl, timeoutMs),
+      fallbackNodeKey
+        ? api.testNodeDelay(fallbackNodeKey, testUrl, timeoutMs)
+        : Promise.resolve(null),
+    ])
 
-      const currentLatencies = storeState.latencies || {}
-      const nextLatencies = { ...currentLatencies }
-      if (nodeKey) nextLatencies[nodeKey] = latency
-      if (fallbackNodeKey && fbLatency !== null)
-        nextLatencies[fallbackNodeKey] = fbLatency
-      persistLatencies(nextLatencies)
+    const latency = mainResult.status === 'fulfilled' ? mainResult.value : null
+    const fbLatency = fbResult.status === 'fulfilled' ? fbResult.value : null
 
-      set((state) => ({
-        portMappings: state.portMappings.map((p) =>
-          p.id === id ? { ...p, latency } : p,
-        ),
-        latencies: nextLatencies,
-        testingPortIds: { ...state.testingPortIds, [id]: false },
-      }))
-      return latency
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      const currentLatencies = storeState.latencies || {}
-      const nextLatencies = nodeKey
-        ? { ...currentLatencies, [nodeKey]: null }
-        : currentLatencies
-      if (nodeKey) persistLatencies(nextLatencies)
-
-      set((state) => ({
-        portMappings: state.portMappings.map((p) =>
-          p.id === id ? { ...p, latency: null } : p,
-        ),
-        ...(nodeKey ? { latencies: nextLatencies } : {}),
-        testingPortIds: { ...state.testingPortIds, [id]: false },
-        portError: errMsg.includes('未运行') ? errMsg : state.portError,
-      }))
-      return null
+    const currentLatencies = storeState.latencies || {}
+    const nextLatencies = { ...currentLatencies }
+    if (nodeKey) {
+      nextLatencies[nodeKey] = latency
     }
+    if (fallbackNodeKey) {
+      nextLatencies[fallbackNodeKey] = fbLatency
+    }
+    persistLatencies(nextLatencies)
+
+    const mainError =
+      mainResult.status === 'rejected'
+        ? mainResult.reason instanceof Error
+          ? mainResult.reason.message
+          : String(mainResult.reason)
+        : null
+
+    set((state) => ({
+      portMappings: state.portMappings.map((p) =>
+        p.id === id ? { ...p, latency } : p,
+      ),
+      latencies: nextLatencies,
+      testingPortIds: { ...state.testingPortIds, [id]: false },
+      portError:
+        mainError && mainError.includes('未运行') ? mainError : state.portError,
+    }))
+
+    if (fallbackNodeKey) {
+      get()
+        .fetchFallbackStatuses()
+        .catch(() => {})
+    }
+
+    return latency
   },
 
   testAllPortsDelay: async (testUrl, timeoutMs) => {

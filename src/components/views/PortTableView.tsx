@@ -536,8 +536,8 @@ export const PortTableView: React.FC = () => {
                   : m.fallbackNodeName in latencies &&
                       latencies[m.fallbackNodeName] !== undefined
                     ? latencies[m.fallbackNodeName]
-                    : null
-                : null
+                    : undefined
+                : undefined
               const fbLatencyProps = getLatencyBadgeProps(fbLatency, isTesting)
 
               return (
