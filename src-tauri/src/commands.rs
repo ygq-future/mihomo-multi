@@ -16,7 +16,7 @@ pub async fn get_app_status(state: State<'_, AppState>) -> Result<AppStatus, Str
     let total_profiles = profiles.len();
     let total_nodes = profiles.iter().map(|p| p.node_count).sum();
 
-    let port_mappings = state.port_manager.get_port_mappings();
+    let port_mappings = state.port_router.get_port_mappings();
     let total_ports = port_mappings.len();
     let active_ports = port_mappings.iter().filter(|p| p.enabled).count();
 
@@ -68,34 +68,7 @@ pub async fn check_port_available(
     exclude_mapping_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    // 1. Check if the port is already used in our own port mappings
-    let mappings = state.port_manager.get_port_mappings();
-    for m in mappings {
-        if m.port == port {
-            if let Some(ref eid) = exclude_mapping_id
-                && &m.id == eid
-            {
-                continue; // Skip self if editing
-            }
-            // Already bound by ourselves, return false immediately
-            return Ok(false);
-        }
-    }
-
-    // 2. Check if it matches our controller port
-    if port == state.config.read().controller_port {
-        return Ok(false);
-    }
-
-    // 3. Perform socket bind probe accounting for allow_lan setting and excluding own core PID
-    let allow_lan = state.config.read().allow_lan;
-    let core_status = state.engine.get_status();
-    let my_core_pid = if core_status.running { core_status.pid } else { None };
-    Ok(crate::core::port_probe::is_port_available_with_lan(
-        port,
-        allow_lan,
-        my_core_pid,
-    ))
+    Ok(state.port_router.check_port_available(port, exclude_mapping_id.as_deref()))
 }
 
 #[tauri::command]
@@ -121,7 +94,7 @@ pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Resul
             }
 
             // 2. Check if any active port mapping already uses this port
-            let mappings = state.port_manager.get_port_mappings();
+            let mappings = state.port_router.get_port_mappings();
             if mappings.iter().any(|m| m.port == config.controller_port && m.enabled) {
                 return Err(format!(
                     "端口 {} 已在「端口映射」中作为代理入站端口使用，请换用其他端口。",
@@ -156,7 +129,7 @@ pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Resul
 
 #[tauri::command]
 pub async fn get_port_mappings(state: State<'_, AppState>) -> Result<Vec<PortMapping>, String> {
-    Ok(state.port_manager.get_port_mappings())
+    Ok(state.port_router.get_port_mappings())
 }
 
 #[tauri::command]
@@ -170,103 +143,44 @@ pub async fn get_next_available_port(
     exclude_mapping_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<u16, String> {
-    let start = start_port.unwrap_or(7891);
-    let allow_lan = state.config.read().allow_lan;
-    let controller_port = state.config.read().controller_port;
-    let mappings = state.port_manager.get_port_mappings();
-
-    let core_status = state.engine.get_status();
-    let my_core_pid = if core_status.running { core_status.pid } else { None };
-
-    let used_ports: std::collections::HashSet<u16> = mappings
-        .into_iter()
-        .filter(|m| {
-            if let Some(ref eid) = exclude_mapping_id {
-                &m.id != eid
-            } else {
-                true
-            }
-        })
-        .map(|m| m.port)
-        .collect();
-
-    for candidate in start..=u16::MAX {
-        // 1. Check if used in our own port mappings
-        if used_ports.contains(&candidate) {
-            continue;
-        }
-
-        // 2. Check if equals controller port
-        if candidate == controller_port {
-            continue;
-        }
-
-        // 3. Check socket availability accounting for allow_lan and excluding own core PID
-        if !crate::core::port_probe::is_port_available_with_lan(candidate, allow_lan, my_core_pid) {
-            continue;
-        }
-
-        // Found 100% available port
-        return Ok(candidate);
-    }
-
-    Err("未能在可用范围内找到空闲端口".to_string())
+    state
+        .port_router
+        .get_next_available_port(start_port, exclude_mapping_id.as_deref())
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 pub async fn save_port_mapping(
-    app: AppHandle,
     mapping: PortMapping,
     state: State<'_, AppState>,
 ) -> Result<PortMapping, String> {
-    // 1:1 Strict Node Binding Invariant: A node can only be bound by a single port listener
-    let mappings = state.port_manager.get_port_mappings();
-    for m in &mappings {
-        if m.profile_id == mapping.profile_id && m.node_name == mapping.node_name {
-            if !mapping.id.is_empty() && m.id == mapping.id {
-                continue; // Skip self if editing
-            }
-            return Err(format!(
-                "代理节点「{}」已绑定到端口 {}，不可重复绑定至其他端口",
-                mapping.node_name, m.port
-            ));
-        }
-    }
-
-    let saved = state
-        .port_manager
+    state
+        .port_router
         .save_port_mapping(mapping)
-        .map_err(|err| err.to_string())?;
-    let _ = state.sync_runtime_config().await;
-    crate::tray::update_tray_menu(&app);
-    Ok(saved)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-pub async fn delete_port_mapping(app: AppHandle, id: String, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn delete_port_mapping(id: String, state: State<'_, AppState>) -> Result<(), String> {
     state
-        .port_manager
+        .port_router
         .delete_port_mapping(&id)
-        .map_err(|err| err.to_string())?;
-    let _ = state.sync_runtime_config().await;
-    crate::tray::update_tray_menu(&app);
-    Ok(())
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 pub async fn toggle_port_mapping(
-    app: AppHandle,
     id: String,
     enabled: bool,
     state: State<'_, AppState>,
 ) -> Result<PortMapping, String> {
-    let toggled = state
-        .port_manager
+    state
+        .port_router
         .toggle_port_mapping(&id, enabled)
-        .map_err(|err| err.to_string())?;
-    let _ = state.sync_runtime_config().await;
-    crate::tray::update_tray_menu(&app);
-    Ok(toggled)
+        .await
+        .map_err(|err| err.to_string())
 }
 #[tauri::command]
 pub async fn test_port_mapping_delay(
@@ -282,7 +196,7 @@ pub async fn test_port_mapping_delay(
     }
 
     let mapping = state
-        .port_manager
+        .port_router
         .get_port_mapping_by_id(&id)
         .ok_or_else(|| format!("未找到 ID 为 '{}' 的端口映射", id))?;
 
@@ -305,12 +219,12 @@ pub async fn test_port_mapping_delay(
         .await;
     match res {
         Ok(delay) => {
-            let _ = state.port_manager.update_port_latency(&id, Some(delay));
+            let _ = state.port_router.update_port_latency(&id, Some(delay));
             crate::tray::update_tray_menu(&app);
             Ok(delay)
         }
         Err(err) => {
-            let _ = state.port_manager.update_port_latency(&id, None);
+            let _ = state.port_router.update_port_latency(&id, None);
             crate::tray::update_tray_menu(&app);
             Err(err.to_string())
         }
@@ -330,7 +244,7 @@ pub async fn test_all_port_mappings_delay(
         return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
     }
 
-    let mappings = state.port_manager.get_port_mappings();
+    let mappings = state.port_router.get_port_mappings();
     if mappings.is_empty() {
         return Ok(Vec::new());
     }
@@ -373,10 +287,10 @@ pub async fn test_all_port_mappings_delay(
         .engine
         .test_nodes_delay_batch(&names_to_test, Some(actual_url), Some(actual_timeout), concurrency)
         .await;
-    // Update latencies back into port_manager for main nodes
+    // Update latencies back into port_router for main nodes
     for (mapping_id, idx) in main_mapping_indices {
         if let Some(res) = results.get(idx) {
-            let _ = state.port_manager.update_port_latency(&mapping_id, res.latency);
+            let _ = state.port_router.update_port_latency(&mapping_id, res.latency);
         }
     }
     crate::tray::update_tray_menu(&app);
@@ -390,7 +304,7 @@ pub async fn get_port_fallback_statuses(state: State<'_, AppState>) -> Result<Ve
         return Ok(Vec::new());
     }
 
-    let mappings = state.port_manager.get_port_mappings();
+    let mappings = state.port_router.get_port_mappings();
     let profiles = state.profile_manager.get_profiles();
     let profile_map: std::collections::HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
 
@@ -443,7 +357,7 @@ pub async fn get_port_fallback_statuses(state: State<'_, AppState>) -> Result<Ve
 
             // Keep port manager latency in sync with kernel health check
             if primary_latency.is_some() || is_fallback_active {
-                let _ = state.port_manager.update_port_latency(&m.id, primary_latency);
+                let _ = state.port_router.update_port_latency(&m.id, primary_latency);
             }
 
             statuses.push(PortFallbackStatus {
@@ -511,7 +425,7 @@ pub async fn update_profile(id: String, app: AppHandle, state: State<'_, AppStat
         .map_err(|err| err.to_string())?;
     let _ = state.sync_runtime_config().await;
 
-    let mappings = state.port_manager.get_port_mappings();
+    let mappings = state.port_router.get_port_mappings();
     let drift_reports = DriftGuard::check_all(&mappings, &state.profile_manager);
     let has_drift = drift_reports
         .iter()
@@ -547,7 +461,7 @@ pub async fn delete_profile(id: String, app: AppHandle, state: State<'_, AppStat
         .map_err(|err| err.to_string())?;
     let _ = state.sync_runtime_config().await;
 
-    let mappings = state.port_manager.get_port_mappings();
+    let mappings = state.port_router.get_port_mappings();
     let drift_reports = DriftGuard::check_all(&mappings, &state.profile_manager);
     let has_drift = drift_reports.iter().any(|r| r.status != DriftStatus::Healthy);
     if has_drift {
@@ -559,7 +473,7 @@ pub async fn delete_profile(id: String, app: AppHandle, state: State<'_, AppStat
 
 #[tauri::command]
 pub async fn get_drift_reports(state: State<'_, AppState>) -> Result<Vec<PortDriftReport>, String> {
-    let mappings = state.port_manager.get_port_mappings();
+    let mappings = state.port_router.get_port_mappings();
     let reports = DriftGuard::check_all(&mappings, &state.profile_manager);
     Ok(reports)
 }

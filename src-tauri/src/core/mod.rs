@@ -5,7 +5,7 @@ pub mod config_generator;
 pub mod drift_guard;
 pub mod geo_manager;
 pub mod kernel_engine;
-pub mod port_manager;
+pub mod port_router;
 pub mod port_probe;
 pub mod profile_manager;
 pub mod supervisor;

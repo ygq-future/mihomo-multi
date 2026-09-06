@@ -45,6 +45,7 @@ pub fn run() {
 
             info!("App local data directory: {}", app_dir.display());
             let app_state = AppState::new(app_dir);
+            app_state.set_app_handle(app_handle.clone());
             app.manage(app_state.clone());
 
             // Create system tray icon and native menu

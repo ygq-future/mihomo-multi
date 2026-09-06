@@ -28,6 +28,8 @@ pub enum AppError {
 
     #[error("Invalid configuration: {0}")]
     InvalidConfig(String),
+    #[error("代理节点「{node_name}」已绑定到端口 {port}，不可重复绑定至其他端口")]
+    DuplicateNodeBinding { node_name: String, port: u16 },
 
     #[error("Profile not found: {0}")]
     ProfileNotFound(String),

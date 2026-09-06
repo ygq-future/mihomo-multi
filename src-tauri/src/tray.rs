@@ -18,7 +18,7 @@ fn build_tray_menu_internal(
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
     if let Some(state) = app.try_state::<crate::state::AppState>() {
-        let mut mappings = state.port_manager.get_port_mappings();
+        let mut mappings = state.port_router.get_port_mappings();
         mappings.sort_by_key(|m| m.port);
         let is_running = state.engine.get_status().running;
 
@@ -95,7 +95,7 @@ async fn query_runtime_infos(app: &AppHandle) -> std::collections::HashMap<Strin
         return runtime_infos;
     }
 
-    let mappings = state.port_manager.get_port_mappings();
+    let mappings = state.port_router.get_port_mappings();
     let profiles = state.profile_manager.get_profiles();
     let profile_map: std::collections::HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
     let engine = state.engine.clone();
@@ -189,18 +189,15 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 tauri::async_runtime::spawn(async move {
                     if let Some(state) = app_handle.try_state::<crate::state::AppState>() {
                         let current_enabled = state
-                            .port_manager
+                            .port_router
                             .get_port_mapping_by_id(&mapping_id)
                             .map(|m| m.enabled)
                             .unwrap_or(false);
                         let target_enabled = !current_enabled;
 
-                        match state.port_manager.toggle_port_mapping(&mapping_id, target_enabled) {
+                        match state.port_router.toggle_port_mapping(&mapping_id, target_enabled).await {
                             Ok(updated) => {
                                 info!("Toggled port {} to {} from system tray", updated.port, target_enabled);
-                                let _ = state.sync_runtime_config().await;
-                                update_tray_menu(&app_handle);
-                                let _ = app_handle.emit("port-mapping-updated", &updated);
                             }
                             Err(e) => {
                                 error!("Failed to toggle port mapping from system tray: {}", e);

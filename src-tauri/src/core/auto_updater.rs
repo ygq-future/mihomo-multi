@@ -114,7 +114,7 @@ impl AutoUpdater {
                         let new_count = updated_profile.node_count;
 
                         // Perform node drift safety guard inspection
-                        let mappings = app_state.port_manager.get_port_mappings();
+                        let mappings = app_state.port_router.get_port_mappings();
                         let drift_reports = DriftGuard::check_all(&mappings, &app_state.profile_manager);
 
                         let drifted_count = drift_reports

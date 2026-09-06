@@ -35,6 +35,7 @@ export const App: React.FC = () => {
     let unlistenFailed: (() => void) | undefined
     let unlistenPortUpdated: (() => void) | undefined
     let unlistenPortError: (() => void) | undefined
+    let unlistenPortChanged: (() => void) | undefined
     const setupEventListeners = async () => {
       if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) {
         return
@@ -95,6 +96,11 @@ export const App: React.FC = () => {
         },
       )
 
+      unlistenPortChanged = await listen('port-mappings-changed', () => {
+        fetchPortMappings().catch(() => {})
+        fetchStatus().catch(() => {})
+      })
+
       unlistenPortError = await listen<string>('port-toggle-error', (event) => {
         toast.error(event.payload, '托盘端口切换失败')
       })
@@ -109,6 +115,7 @@ export const App: React.FC = () => {
       if (unlistenFailed) unlistenFailed()
       if (unlistenPortUpdated) unlistenPortUpdated()
       if (unlistenPortError) unlistenPortError()
+      if (unlistenPortChanged) unlistenPortChanged()
     }
   }, [
     fetchStatus,
