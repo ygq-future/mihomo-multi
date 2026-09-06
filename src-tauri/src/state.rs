@@ -1,6 +1,7 @@
 use crate::core::auto_updater::AutoUpdater;
 use crate::core::config_generator::RuntimeGeneratorParams;
 use crate::core::kernel_engine::KernelEngine;
+use crate::core::latency_probe::{AppLatencyEventEmitter, LatencyProbe};
 use crate::core::port_router::{AppPortSyncDelegate, PortRouter};
 use crate::core::profile_manager::ProfileManager;
 use crate::error::AppResult;
@@ -20,6 +21,8 @@ pub struct AppState {
     pub occupied_ports: Arc<RwLock<HashSet<u16>>>,
     pub app_dir: PathBuf,
     pub sync_delegate: Arc<AppPortSyncDelegate>,
+    pub latency_probe: Arc<LatencyProbe>,
+    pub latency_emitter: Arc<AppLatencyEventEmitter>,
 }
 
 impl AppState {
@@ -59,6 +62,12 @@ impl AppState {
             ports,
             sync_delegate.clone(),
         ));
+        let latency_emitter = Arc::new(AppLatencyEventEmitter::new());
+        let latency_probe = Arc::new(LatencyProbe::new(
+            engine.adapter().clone(),
+            &app_dir,
+            latency_emitter.clone(),
+        ));
 
         Self {
             engine,
@@ -69,11 +78,14 @@ impl AppState {
             occupied_ports,
             app_dir,
             sync_delegate,
+            latency_probe,
+            latency_emitter,
         }
     }
 
     pub fn set_app_handle(&self, handle: tauri::AppHandle) {
-        self.sync_delegate.set_app_handle(handle);
+        self.sync_delegate.set_app_handle(handle.clone());
+        self.latency_emitter.set_app_handle(handle);
     }
 
     /// Generates runtime.yaml on disk, safely excluding occupied ports to protect Mihomo stability

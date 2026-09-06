@@ -6,6 +6,8 @@ import { Shell } from './components/layout/Shell'
 import { useAppStore } from './stores/appStore'
 import type {
   AutoUpdateEventPayload,
+  LatencyProgressPayload,
+  LatencyUpdatePayload,
   PortDriftReport,
   PortMapping,
 } from './types'
@@ -17,13 +19,16 @@ export const App: React.FC = () => {
     fetchProfiles,
     fetchPortMappings,
     fetchAutoUpdaterStatus,
+    fetchLatencies,
+    handleLatencyUpdate,
+    handleLatencyProgress,
     setDriftReports,
   } = useAppStore()
 
   useEffect(() => {
     fetchStatus()
     fetchConfig()
-
+    fetchLatencies().catch(() => {})
     // Periodically poll status every 3 seconds
     const interval = setInterval(() => {
       fetchStatus()
@@ -36,6 +41,8 @@ export const App: React.FC = () => {
     let unlistenPortUpdated: (() => void) | undefined
     let unlistenPortError: (() => void) | undefined
     let unlistenPortChanged: (() => void) | undefined
+    let unlistenLatencyUpdate: (() => void) | undefined
+    let unlistenLatencyProgress: (() => void) | undefined
     const setupEventListeners = async () => {
       if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) {
         return
@@ -104,6 +111,19 @@ export const App: React.FC = () => {
       unlistenPortError = await listen<string>('port-toggle-error', (event) => {
         toast.error(event.payload, '托盘端口切换失败')
       })
+      unlistenLatencyUpdate = await listen<LatencyUpdatePayload>(
+        'latency-update',
+        (event) => {
+          handleLatencyUpdate(event.payload)
+        },
+      )
+
+      unlistenLatencyProgress = await listen<LatencyProgressPayload>(
+        'latency-progress',
+        (event) => {
+          handleLatencyProgress(event.payload)
+        },
+      )
     }
 
     setupEventListeners().catch(() => {})
@@ -116,6 +136,8 @@ export const App: React.FC = () => {
       if (unlistenPortUpdated) unlistenPortUpdated()
       if (unlistenPortError) unlistenPortError()
       if (unlistenPortChanged) unlistenPortChanged()
+      if (unlistenLatencyUpdate) unlistenLatencyUpdate()
+      if (unlistenLatencyProgress) unlistenLatencyProgress()
     }
   }, [
     fetchStatus,
@@ -123,6 +145,9 @@ export const App: React.FC = () => {
     fetchProfiles,
     fetchPortMappings,
     fetchAutoUpdaterStatus,
+    fetchLatencies,
+    handleLatencyUpdate,
+    handleLatencyProgress,
     setDriftReports,
   ])
 

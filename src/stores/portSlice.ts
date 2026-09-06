@@ -7,15 +7,6 @@ import type {
   PortMapping,
 } from '../types'
 
-function persistLatencies(latencies: Record<string, number | null>) {
-  if (typeof window === 'undefined') return
-  try {
-    localStorage.setItem('node_latencies_cache', JSON.stringify(latencies))
-  } catch {
-    // ignore storage errors
-  }
-}
-
 export interface PortSlice {
   portMappings: PortMapping[]
   occupiedPorts: number[]
@@ -146,7 +137,6 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
       }
 
       if (updatedLatencies) {
-        persistLatencies(currentLatencies)
         set((state) => ({
           fallbackStatuses,
           latencies: currentLatencies,
@@ -270,69 +260,34 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
       portError: null,
     }))
 
-    const mapping = get().portMappings.find((m) => m.id === id)
-    const storeState = get() as unknown as {
-      profiles?: Array<{ id: string; name: string }>
-      latencies?: Record<string, number | null>
+    try {
+      const latency = await api.testPortMappingDelay(id, testUrl, timeoutMs)
+      set((state) => ({
+        portMappings: state.portMappings.map((p) =>
+          p.id === id ? { ...p, latency } : p,
+        ),
+        testingPortIds: { ...state.testingPortIds, [id]: false },
+      }))
+
+      const mapping = get().portMappings.find((m) => m.id === id)
+      if (mapping?.fallbackNodeName) {
+        get()
+          .fetchFallbackStatuses()
+          .catch(() => {})
+      }
+
+      return latency
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      set((state) => ({
+        portMappings: state.portMappings.map((p) =>
+          p.id === id ? { ...p, latency: null } : p,
+        ),
+        testingPortIds: { ...state.testingPortIds, [id]: false },
+        portError: errMsg.includes('未运行') ? errMsg : state.portError,
+      }))
+      return null
     }
-    const profile = mapping
-      ? storeState.profiles?.find((p) => p.id === mapping.profileId)
-      : null
-    const nodeKey = mapping
-      ? profile
-        ? `[${profile.name}] ${mapping.nodeName}`
-        : mapping.nodeName
-      : null
-    const fallbackNodeKey = mapping?.fallbackNodeName
-      ? profile
-        ? `[${profile.name}] ${mapping.fallbackNodeName}`
-        : mapping.fallbackNodeName
-      : null
-
-    const [mainResult, fbResult] = await Promise.allSettled([
-      api.testPortMappingDelay(id, testUrl, timeoutMs),
-      fallbackNodeKey
-        ? api.testNodeDelay(fallbackNodeKey, testUrl, timeoutMs)
-        : Promise.resolve(null),
-    ])
-
-    const latency = mainResult.status === 'fulfilled' ? mainResult.value : null
-    const fbLatency = fbResult.status === 'fulfilled' ? fbResult.value : null
-
-    const currentLatencies = storeState.latencies || {}
-    const nextLatencies = { ...currentLatencies }
-    if (nodeKey) {
-      nextLatencies[nodeKey] = latency
-    }
-    if (fallbackNodeKey) {
-      nextLatencies[fallbackNodeKey] = fbLatency
-    }
-    persistLatencies(nextLatencies)
-
-    const mainError =
-      mainResult.status === 'rejected'
-        ? mainResult.reason instanceof Error
-          ? mainResult.reason.message
-          : String(mainResult.reason)
-        : null
-
-    set((state) => ({
-      portMappings: state.portMappings.map((p) =>
-        p.id === id ? { ...p, latency } : p,
-      ),
-      latencies: nextLatencies,
-      testingPortIds: { ...state.testingPortIds, [id]: false },
-      portError:
-        mainError && mainError.includes('未运行') ? mainError : state.portError,
-    }))
-
-    if (fallbackNodeKey) {
-      get()
-        .fetchFallbackStatuses()
-        .catch(() => {})
-    }
-
-    return latency
   },
 
   testAllPortsDelay: async (testUrl, timeoutMs) => {
@@ -350,39 +305,19 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
       portError: null,
     })
 
-    const concurrency = Math.min(6, mappings.length)
-    let nextIndex = 0
-    const results: NodeLatencyResult[] = []
-
-    const worker = async () => {
-      while (nextIndex < mappings.length) {
-        const currentIndex = nextIndex++
-        const mapping = mappings[currentIndex]
-        if (!mapping) break
-
-        try {
-          if (currentIndex > 0) {
-            await new Promise((r) => setTimeout(r, (currentIndex % 6) * 20))
-          }
-
-          const latency = await get().testPortDelay(
-            mapping.id,
-            testUrl,
-            timeoutMs,
-          )
-          results.push({ name: mapping.nodeName, latency })
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          results.push({ name: mapping.nodeName, error: errMsg })
-        }
-      }
+    try {
+      const results = await api.testAllPortMappingsDelay(testUrl, timeoutMs)
+      set({ isTestingAllPorts: false })
+      await get().fetchPortMappings()
+      return results
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      set({
+        isTestingAllPorts: false,
+        portError: errMsg.includes('未运行') ? errMsg : get().portError,
+      })
+      return []
     }
-
-    const workers = Array.from({ length: concurrency }, () => worker())
-    await Promise.all(workers)
-
-    set({ isTestingAllPorts: false })
-    return results
   },
 
   setEditingPortMapping: (editingPortMapping) =>

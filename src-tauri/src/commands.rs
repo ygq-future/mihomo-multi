@@ -201,7 +201,7 @@ pub async fn test_port_mapping_delay(
         .ok_or_else(|| format!("未找到 ID 为 '{}' 的端口映射", id))?;
 
     let profile = state.profile_manager.get_profile_by_id(&mapping.profile_id);
-    let runtime_name = if let Some(prof) = profile {
+    let runtime_name = if let Some(prof) = profile.as_ref() {
         format!("[{}] {}", prof.name, mapping.node_name)
     } else {
         mapping.node_name.clone()
@@ -214,9 +214,36 @@ pub async fn test_port_mapping_delay(
     let actual_timeout = timeout_ms.unwrap_or(default_timeout);
 
     let res = state
-        .engine
-        .test_delay(&runtime_name, Some(actual_url), Some(actual_timeout))
+        .latency_probe
+        .test_node(
+            &mapping.node_name,
+            Some(&runtime_name),
+            Some(actual_url),
+            Some(actual_timeout),
+            Some(&id),
+        )
         .await;
+
+    if let Some(fb_name) = &mapping.fallback_node_name
+        && !fb_name.trim().is_empty()
+    {
+        let fb_runtime_name = if let Some(prof) = profile.as_ref() {
+            format!("[{}] {}", prof.name, fb_name)
+        } else {
+            fb_name.clone()
+        };
+        let _ = state
+            .latency_probe
+            .test_node(
+                fb_name,
+                Some(&fb_runtime_name),
+                Some(actual_url),
+                Some(actual_timeout),
+                None,
+            )
+            .await;
+    }
+
     match res {
         Ok(delay) => {
             let _ = state.port_router.update_port_latency(&id, Some(delay));
@@ -252,18 +279,21 @@ pub async fn test_all_port_mappings_delay(
     let profiles = state.profile_manager.get_profiles();
     let profile_map: std::collections::HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
 
-    let mut names_to_test = Vec::new();
-    let mut main_mapping_indices = Vec::new();
+    let mut targets = Vec::new();
+    let mut mapping_id_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
-    for m in &mappings {
+    for m in mappings.iter().filter(|m| m.enabled) {
         let runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
             format!("[{}] {}", pname, m.node_name)
         } else {
             m.node_name.clone()
         };
-        let idx = names_to_test.len();
-        names_to_test.push(runtime_name);
-        main_mapping_indices.push((m.id.clone(), idx));
+        targets.push(
+            crate::core::latency_probe::BatchProbeTarget::new(m.node_name.clone())
+                .with_runtime_name(runtime_name)
+                .with_mapping_id(m.id.clone()),
+        );
+        mapping_id_map.insert(m.node_name.clone(), m.id.clone());
 
         if let Some(fb_name) = &m.fallback_node_name
             && !fb_name.trim().is_empty()
@@ -273,9 +303,13 @@ pub async fn test_all_port_mappings_delay(
             } else {
                 fb_name.clone()
             };
-            names_to_test.push(fb_runtime_name);
+            targets.push(
+                crate::core::latency_probe::BatchProbeTarget::new(fb_name.clone())
+                    .with_runtime_name(fb_runtime_name),
+            );
         }
     }
+
     let (default_url, default_timeout) = {
         let cfg = state.config.read();
         (cfg.test_url.clone(), cfg.timeout_ms)
@@ -284,13 +318,18 @@ pub async fn test_all_port_mappings_delay(
     let actual_timeout = timeout_ms.unwrap_or(default_timeout);
 
     let results = state
-        .engine
-        .test_nodes_delay_batch(&names_to_test, Some(actual_url), Some(actual_timeout), concurrency)
+        .latency_probe
+        .test_nodes_batch(
+            &targets,
+            Some(actual_url),
+            Some(actual_timeout),
+            concurrency,
+        )
         .await;
-    // Update latencies back into port_router for main nodes
-    for (mapping_id, idx) in main_mapping_indices {
-        if let Some(res) = results.get(idx) {
-            let _ = state.port_router.update_port_latency(&mapping_id, res.latency);
+
+    for res in &results {
+        if let Some(mapping_id) = mapping_id_map.get(&res.name) {
+            let _ = state.port_router.update_port_latency(mapping_id, res.latency);
         }
     }
     crate::tray::update_tray_menu(&app);
@@ -620,6 +659,7 @@ pub async fn get_all_nodes(state: State<'_, AppState>) -> Result<Vec<ProxyNode>,
 
 #[tauri::command]
 pub async fn test_node_delay(
+    app: AppHandle,
     node_name: String,
     test_url: Option<String>,
     timeout_ms: Option<u32>,
@@ -637,14 +677,38 @@ pub async fn test_node_delay(
     let actual_url = test_url.as_deref().unwrap_or(&default_url);
     let actual_timeout = timeout_ms.unwrap_or(default_timeout);
 
-    state
-        .engine
-        .test_delay(&node_name, Some(actual_url), Some(actual_timeout))
+    let all_nodes = state.profile_manager.get_all_nodes();
+    let runtime_name = all_nodes
+        .into_iter()
+        .find(|n| n.name == node_name || n.runtime_name.as_deref() == Some(&node_name))
+        .and_then(|n| n.runtime_name);
+
+    let res = state
+        .latency_probe
+        .test_node(
+            &node_name,
+            runtime_name.as_deref(),
+            Some(actual_url),
+            Some(actual_timeout),
+            None,
+        )
         .await
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+
+    let mappings = state.port_router.get_port_mappings();
+    for m in mappings {
+        if m.node_name == node_name || runtime_name.as_deref() == Some(&m.node_name) {
+            let _ = state.port_router.update_port_latency(&m.id, Some(res));
+        }
+    }
+    crate::tray::update_tray_menu(&app);
+
+    Ok(res)
 }
+
 #[tauri::command]
 pub async fn test_nodes_delay_batch(
+    app: AppHandle,
     node_names: Vec<String>,
     test_url: Option<String>,
     timeout_ms: Option<u32>,
@@ -663,9 +727,65 @@ pub async fn test_nodes_delay_batch(
     let actual_url = test_url.as_deref().unwrap_or(&default_url);
     let actual_timeout = timeout_ms.unwrap_or(default_timeout);
 
+    let all_nodes = state.profile_manager.get_all_nodes();
+    let mut runtime_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for n in all_nodes {
+        if let Some(rt) = n.runtime_name {
+            runtime_map.insert(n.name, rt.clone());
+            runtime_map.insert(rt.clone(), rt);
+        }
+    }
+
+    let targets: Vec<crate::core::latency_probe::BatchProbeTarget> = node_names
+        .into_iter()
+        .map(|name| {
+            let rt = runtime_map.get(&name).cloned();
+            let mut target = crate::core::latency_probe::BatchProbeTarget::new(name);
+            if let Some(rt_name) = rt {
+                target = target.with_runtime_name(rt_name);
+            }
+            target
+        })
+        .collect();
+
     let results = state
-        .engine
-        .test_nodes_delay_batch(&node_names, Some(actual_url), Some(actual_timeout), concurrency)
+        .latency_probe
+        .test_nodes_batch(
+            &targets,
+            Some(actual_url),
+            Some(actual_timeout),
+            concurrency,
+        )
         .await;
+
+    let mappings = state.port_router.get_port_mappings();
+    for res in &results {
+        for m in &mappings {
+            if m.node_name == res.name {
+                let _ = state.port_router.update_port_latency(&m.id, res.latency);
+            }
+        }
+    }
+    crate::tray::update_tray_menu(&app);
+
     Ok(results)
+}
+
+#[tauri::command]
+pub fn cancel_latency_probe(state: State<'_, AppState>) -> Result<(), String> {
+    state.latency_probe.cancel_tests();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_latency_cache(
+    state: State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, Option<u32>>, String> {
+    Ok(state.latency_probe.get_latencies())
+}
+
+#[tauri::command]
+pub fn clear_latency_cache(state: State<'_, AppState>) -> Result<(), String> {
+    state.latency_probe.clear_latencies();
+    Ok(())
 }

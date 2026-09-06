@@ -55,6 +55,22 @@ export interface NodeLatencyResult {
   error?: string
 }
 
+export interface LatencyUpdatePayload {
+  name: string
+  runtimeName?: string
+  latency: number | null
+  error?: string
+  mappingId?: string
+  completed: number
+  total: number
+}
+
+export interface LatencyProgressPayload {
+  isTesting: boolean
+  total: number
+  completed: number
+}
+
 export type DriftStatus =
   | 'healthy'
   | 'node_missing'

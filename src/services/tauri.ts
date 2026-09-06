@@ -389,6 +389,29 @@ export async function testNodesDelayBatch(
   })
 }
 
+export async function cancelLatencyProbe(): Promise<void> {
+  if (!isTauriEnvironment()) {
+    return
+  }
+  return invoke<void>('cancel_latency_probe')
+}
+
+export async function getLatencyCache(): Promise<
+  Record<string, number | null>
+> {
+  if (!isTauriEnvironment()) {
+    return {}
+  }
+  return invoke<Record<string, number | null>>('get_latency_cache')
+}
+
+export async function clearLatencyCache(): Promise<void> {
+  if (!isTauriEnvironment()) {
+    return
+  }
+  return invoke<void>('clear_latency_cache')
+}
+
 // ----------------------------------------------------------------------------
 // Drift Guard & Auto Updater API
 // ----------------------------------------------------------------------------

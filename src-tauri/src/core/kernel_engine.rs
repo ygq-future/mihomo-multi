@@ -220,6 +220,15 @@ impl KernelControllerAdapter for FakeControllerAdapter {
             if let Some(&delay) = guard.delays.get(&name) {
                 return Ok(delay);
             }
+            if let Some(idx) = name.find("] ") {
+                let raw_name = &name[idx + 2..];
+                if let Some(err) = guard.delay_errors.get(raw_name) {
+                    return Err(AppError::ExternalController(err.clone()));
+                }
+                if let Some(&delay) = guard.delays.get(raw_name) {
+                    return Ok(delay);
+                }
+            }
             Ok(guard.default_delay)
         })
     }

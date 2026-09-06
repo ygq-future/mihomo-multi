@@ -1,6 +1,11 @@
 import type { StateCreator } from 'zustand'
 import * as api from '../services/tauri'
-import type { NodeLatencyResult } from '../types'
+import type {
+  LatencyProgressPayload,
+  LatencyUpdatePayload,
+  NodeLatencyResult,
+  PortMapping,
+} from '../types'
 
 export interface ProxySlice {
   latencies: Record<string, number | null>
@@ -10,6 +15,7 @@ export interface ProxySlice {
   isAddPortModalOpen: boolean
   proxyError: string | null
 
+  fetchLatencies: () => Promise<void>
   testNodeDelay: (
     nodeName: string,
     testUrl?: string,
@@ -20,7 +26,10 @@ export interface ProxySlice {
     testUrl?: string,
     timeoutMs?: number,
   ) => Promise<NodeLatencyResult[]>
-  clearLatencies: () => void
+  cancelLatencyTest: () => Promise<void>
+  clearLatencies: () => Promise<void>
+  handleLatencyUpdate: (payload: LatencyUpdatePayload) => void
+  handleLatencyProgress: (payload: LatencyProgressPayload) => void
   setQuickBindTarget: (
     target: { profileId: string; nodeName: string } | null,
   ) => void
@@ -28,35 +37,27 @@ export interface ProxySlice {
   setProxyError: (error: string | null) => void
 }
 
-function loadStoredLatencies(): Record<string, number | null> {
-  if (typeof window === 'undefined') return {}
-  try {
-    const raw = localStorage.getItem('node_latencies_cache')
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
-}
-
-function persistLatencies(latencies: Record<string, number | null>) {
-  if (typeof window === 'undefined') return
-  try {
-    localStorage.setItem('node_latencies_cache', JSON.stringify(latencies))
-  } catch {
-    // ignore storage errors
-  }
-}
-
 export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
   set,
   get,
 ) => ({
-  latencies: loadStoredLatencies(),
+  latencies: {},
   testingNodeNames: {},
   isTestingAll: false,
   quickBindTarget: null,
   isAddPortModalOpen: false,
   proxyError: null,
+
+  fetchLatencies: async () => {
+    try {
+      const cache = await api.getLatencyCache()
+      set((state) => ({
+        latencies: { ...state.latencies, ...cache },
+      }))
+    } catch {
+      // ignore
+    }
+  },
 
   testNodeDelay: async (nodeName, testUrl, timeoutMs) => {
     set((state) => ({
@@ -70,22 +71,26 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
         testUrl,
         timeoutMs || 5000,
       )
-      const nextLatencies = { ...get().latencies, [nodeName]: latency }
-      persistLatencies(nextLatencies)
-      set((state) => ({
-        latencies: nextLatencies,
-        testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
-      }))
+      set((state) => {
+        const nextTesting = { ...state.testingNodeNames }
+        delete nextTesting[nodeName]
+        return {
+          latencies: { ...state.latencies, [nodeName]: latency },
+          testingNodeNames: nextTesting,
+        }
+      })
       return latency
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      const nextLatencies = { ...get().latencies, [nodeName]: null }
-      persistLatencies(nextLatencies)
-      set((state) => ({
-        latencies: nextLatencies,
-        testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
-        proxyError: errMsg.includes('未运行') ? errMsg : state.proxyError,
-      }))
+      set((state) => {
+        const nextTesting = { ...state.testingNodeNames }
+        delete nextTesting[nodeName]
+        return {
+          latencies: { ...state.latencies, [nodeName]: null },
+          testingNodeNames: nextTesting,
+          proxyError: errMsg.includes('未运行') ? errMsg : state.proxyError,
+        }
+      })
       return null
     }
   },
@@ -93,7 +98,6 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
   testAllNodesDelay: async (nodeNames, testUrl, timeoutMs) => {
     if (nodeNames.length === 0) return []
 
-    // Mark all target nodes as testing
     const testingMap: Record<string, boolean> = {}
     for (const name of nodeNames) {
       testingMap[name] = true
@@ -105,65 +109,123 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
       proxyError: null,
     })
 
-    const concurrency = Math.min(6, nodeNames.length)
-    let nextIndex = 0
-    const results: NodeLatencyResult[] = []
-
-    const worker = async () => {
-      while (nextIndex < nodeNames.length) {
-        const currentIndex = nextIndex++
-        const nodeName = nodeNames[currentIndex]
-        if (!nodeName) break
-
-        try {
-          if (currentIndex > 0) {
-            await new Promise((r) => setTimeout(r, (currentIndex % 6) * 20))
-          }
-
-          const latency = await api.testNodeDelay(
-            nodeName,
-            testUrl,
-            timeoutMs || 5000,
-          )
-          results.push({ name: nodeName, latency })
-
-          // Real-time per-node streaming update
-          const nextLatencies = { ...get().latencies, [nodeName]: latency }
-          persistLatencies(nextLatencies)
-          set((state) => ({
-            latencies: nextLatencies,
-            testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
-          }))
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          results.push({ name: nodeName, error: errMsg })
-
-          const nextLatencies = { ...get().latencies, [nodeName]: null }
-          persistLatencies(nextLatencies)
-          set((state) => ({
-            latencies: nextLatencies,
-            testingNodeNames: { ...state.testingNodeNames, [nodeName]: false },
-            proxyError: errMsg.includes('未运行') ? errMsg : state.proxyError,
-          }))
-        }
-      }
+    try {
+      const results = await api.testNodesDelayBatch(
+        nodeNames,
+        testUrl,
+        timeoutMs || 5000,
+      )
+      set({ isTestingAll: false })
+      return results
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      set({
+        isTestingAll: false,
+        proxyError: errMsg.includes('未运行') ? errMsg : get().proxyError,
+      })
+      return []
     }
-
-    const workers = Array.from({ length: concurrency }, () => worker())
-    await Promise.all(workers)
-
-    set({ isTestingAll: false })
-    return results
   },
 
-  clearLatencies: () => {
-    persistLatencies({})
+  cancelLatencyTest: async () => {
+    try {
+      await api.cancelLatencyProbe()
+    } catch {
+      // ignore
+    }
+    set({
+      isTestingAll: false,
+      testingNodeNames: {},
+    })
+  },
+
+  clearLatencies: async () => {
+    try {
+      await api.clearLatencyCache()
+    } catch {
+      // ignore
+    }
     set({ latencies: {}, proxyError: null })
   },
 
+  handleLatencyUpdate: (payload: LatencyUpdatePayload) => {
+    set((state) => {
+      const nextLatencies = {
+        ...state.latencies,
+        [payload.name]: payload.latency,
+      }
+      if (payload.runtimeName) {
+        nextLatencies[payload.runtimeName] = payload.latency
+      }
+
+      const nextTestingNodes = { ...state.testingNodeNames }
+      delete nextTestingNodes[payload.name]
+      if (payload.runtimeName) {
+        delete nextTestingNodes[payload.runtimeName]
+      }
+
+      const rootState = state as unknown as {
+        portMappings?: PortMapping[]
+        testingPortIds?: Record<string, boolean>
+      }
+
+      let nextPortMappings = rootState.portMappings
+      if (nextPortMappings) {
+        nextPortMappings = nextPortMappings.map((p) => {
+          if (payload.mappingId && p.id === payload.mappingId) {
+            return { ...p, latency: payload.latency }
+          }
+          if (
+            p.nodeName === payload.name ||
+            (payload.runtimeName && p.nodeName === payload.runtimeName)
+          ) {
+            return { ...p, latency: payload.latency }
+          }
+          return p
+        })
+      }
+
+      const nextTestingPorts = { ...rootState.testingPortIds }
+      if (payload.mappingId && nextTestingPorts) {
+        delete nextTestingPorts[payload.mappingId]
+      }
+
+      return {
+        latencies: nextLatencies,
+        testingNodeNames: nextTestingNodes,
+        ...(nextPortMappings ? { portMappings: nextPortMappings } : {}),
+        ...(rootState.testingPortIds
+          ? { testingPortIds: nextTestingPorts }
+          : {}),
+      }
+    })
+  },
+
+  handleLatencyProgress: (payload: LatencyProgressPayload) => {
+    set((state) => {
+      if (!payload.isTesting) {
+        const rootState = state as unknown as {
+          isTestingAllPorts?: boolean
+          testingPortIds?: Record<string, boolean>
+        }
+        return {
+          isTestingAll: false,
+          testingNodeNames: {},
+          ...(rootState.isTestingAllPorts !== undefined
+            ? { isTestingAllPorts: false }
+            : {}),
+          ...(rootState.testingPortIds !== undefined
+            ? { testingPortIds: {} }
+            : {}),
+        }
+      }
+      return {
+        isTestingAll: state.isTestingAll || payload.isTesting,
+      }
+    })
+  },
+
   setQuickBindTarget: (quickBindTarget) => set({ quickBindTarget }),
-
   setIsAddPortModalOpen: (isAddPortModalOpen) => set({ isAddPortModalOpen }),
-
   setProxyError: (proxyError) => set({ proxyError }),
 })

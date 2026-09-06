@@ -98,6 +98,29 @@ pub struct NodeLatencyResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LatencyUpdatePayload {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_name: Option<String>,
+    pub latency: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mapping_id: Option<String>,
+    pub completed: usize,
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LatencyProgressPayload {
+    pub is_testing: bool,
+    pub total: usize,
+    pub completed: usize,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DriftStatus {
