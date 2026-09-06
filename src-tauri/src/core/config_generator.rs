@@ -46,10 +46,17 @@ pub struct RuntimeDnsConfig {
     pub ipv6: bool,
     #[serde(rename = "enhanced-mode")]
     pub enhanced_mode: String,
+    #[serde(rename = "fake-ip-range", skip_serializing_if = "Option::is_none")]
+    pub fake_ip_range: Option<String>,
+    #[serde(rename = "fake-ip-filter", skip_serializing_if = "Vec::is_empty", default)]
+    pub fake_ip_filter: Vec<String>,
     #[serde(rename = "default-nameserver")]
     pub default_nameserver: Vec<String>,
     pub nameserver: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub fallback: Vec<String>,
+    #[serde(rename = "proxy-server-nameserver", skip_serializing_if = "Vec::is_empty", default)]
+    pub proxy_server_nameserver: Vec<String>,
 }
 
 impl Default for RuntimeDnsConfig {
@@ -57,12 +64,28 @@ impl Default for RuntimeDnsConfig {
         Self {
             enable: true,
             ipv6: false,
-            enhanced_mode: "redir-host".to_string(),
+            enhanced_mode: "fake-ip".to_string(),
+            fake_ip_range: Some("198.18.0.1/16".to_string()),
+            fake_ip_filter: vec![
+                "*.lan".to_string(),
+                "*.local".to_string(),
+                "*.arpa".to_string(),
+                "time.*.com".to_string(),
+                "ntp.*.com".to_string(),
+                "*.msftncsi.com".to_string(),
+                "www.msftconnecttest.com".to_string(),
+            ],
             default_nameserver: vec!["223.5.5.5".to_string(), "119.29.29.29".to_string()],
-            nameserver: vec!["223.5.5.5".to_string(), "119.29.29.29".to_string()],
-            fallback: vec![
-                "https://1.1.1.1/dns-query".to_string(),
-                "https://8.8.8.8/dns-query".to_string(),
+            nameserver: vec![
+                "https://dns.alidns.com/dns-query".to_string(),
+                "https://doh.pub/dns-query".to_string(),
+                "223.5.5.5".to_string(),
+            ],
+            fallback: Vec::new(),
+            proxy_server_nameserver: vec![
+                "https://dns.alidns.com/dns-query".to_string(),
+                "https://doh.pub/dns-query".to_string(),
+                "223.5.5.5".to_string(),
             ],
         }
     }
@@ -94,6 +117,8 @@ pub struct MinimalRuntimeConfig {
     pub bind_address: String,
     #[serde(rename = "tcp-concurrent", default)]
     pub tcp_concurrent: bool,
+    #[serde(rename = "unified-delay", default)]
+    pub unified_delay: bool,
     #[serde(default)]
     pub dns: RuntimeDnsConfig,
     pub ipv6: bool,
@@ -128,6 +153,7 @@ impl MinimalRuntimeConfig {
             bind_address: "127.0.0.1".to_string(),
             ipv6: false,
             tcp_concurrent: true,
+            unified_delay: true,
             dns: RuntimeDnsConfig::default(),
             geodata_mode: true,
             geo_auto_update: true,
@@ -255,6 +281,7 @@ impl MinimalRuntimeConfig {
             bind_address: bind_addr.to_string(),
             ipv6: false,
             tcp_concurrent: true,
+            unified_delay: true,
             dns: RuntimeDnsConfig::default(),
             geodata_mode: true,
             geo_auto_update: true,
@@ -368,10 +395,13 @@ password: pass
         // MATCH,DIRECT is always present
         assert!(yaml.contains("MATCH,DIRECT"));
         assert!(yaml.contains("tcp-concurrent: true"));
+        assert!(yaml.contains("unified-delay: true"));
         assert!(yaml.contains("dns:"));
-        assert!(yaml.contains("enhanced-mode: redir-host"));
+        assert!(yaml.contains("enhanced-mode: fake-ip"));
+        assert!(yaml.contains("fake-ip-range: 198.18.0.1/16"));
         assert!(yaml.contains("223.5.5.5"));
-        assert!(yaml.contains("https://1.1.1.1/dns-query"));
+        assert!(yaml.contains("https://dns.alidns.com/dns-query"));
+        assert!(yaml.contains("proxy-server-nameserver:"));
 
         assert_eq!(config.listeners.len(), 2);
         assert_eq!(config.listeners[0].port, 7891);
