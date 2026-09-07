@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use tracing::{debug, info, warn};
+use tracing::info;
 
 pub const DEFAULT_BYPASS_ITEMS: &[&str] = &[
     "localhost",
@@ -487,7 +487,7 @@ mod windows {
 mod macos {
     use super::*;
     use std::process::Command;
-
+    use tracing::{debug, warn};
     fn get_active_network_services() -> Vec<String> {
         let output = match Command::new("networksetup")
             .arg("-listnetworkserviceorder")
