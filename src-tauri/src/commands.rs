@@ -789,3 +789,26 @@ pub fn clear_latency_cache(state: State<'_, AppState>) -> Result<(), String> {
     state.latency_probe.clear_latencies();
     Ok(())
 }
+
+#[tauri::command]
+pub async fn check_kernel_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::core::kernel_updater::KernelUpdateCheckResult, String> {
+    crate::core::kernel_updater::check_kernel_update(&app, &state)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn upgrade_kernel(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::core::kernel_updater::KernelUpgradeResult, String> {
+    let result = crate::core::kernel_updater::download_and_apply_kernel(&app, &state)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    crate::tray::update_tray_menu(&app);
+    Ok(result)
+}

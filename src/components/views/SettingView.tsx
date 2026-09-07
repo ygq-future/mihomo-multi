@@ -1,6 +1,8 @@
 import {
   AlertTriangle,
   Cpu,
+  Download,
+  ExternalLink,
   FolderOpen,
   Image as ImageIcon,
   Monitor,
@@ -23,8 +25,17 @@ import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
+import type { KernelUpdateCheckResult } from '../../types'
 import { formatUptime } from '../../utils/time'
-import { Button, Input, Segmented, Select, Switch, toast } from '../common'
+import {
+  Badge,
+  Button,
+  Input,
+  Segmented,
+  Select,
+  Switch,
+  toast,
+} from '../common'
 
 const logLevelOptions = [
   { value: 'info', label: 'Info (标准信息)' },
@@ -78,6 +89,7 @@ export const SettingView: React.FC = () => {
     saveConfig,
     openAppDataDir,
     coreLoading,
+    fetchStatus,
   } = useAppStore()
 
   const [controllerPortInput, setControllerPortInput] = useState<string>('9999')
@@ -111,6 +123,46 @@ export const SettingView: React.FC = () => {
   const [liveUptime, setLiveUptime] = useState<number>(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Kernel Update State
+  const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false)
+  const [upgradingKernel, setUpgradingKernel] = useState<boolean>(false)
+  const [updateInfo, setUpdateInfo] = useState<KernelUpdateCheckResult | null>(
+    null,
+  )
+
+  const handleCheckKernelUpdate = async () => {
+    setCheckingUpdate(true)
+    try {
+      const res = await api.checkKernelUpdate()
+      setUpdateInfo(res)
+      if (res.hasUpdate) {
+        toast.info(`检测到新版本 Mihomo 内核：${res.latestVersion}`)
+      } else {
+        toast.success(`当前已是最新内核版本 (${res.currentVersion})`)
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }
+
+  const handleUpgradeKernel = async () => {
+    setUpgradingKernel(true)
+    try {
+      toast.info('正在下载并校验新内核，请稍候...')
+      const res = await api.upgradeKernel()
+      toast.success(`内核升级成功！已平滑切换至 ${res.currentVersion}`)
+      await fetchStatus()
+      const refreshed = await api.checkKernelUpdate().catch(() => null)
+      if (refreshed) setUpdateInfo(refreshed)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUpgradingKernel(false)
+    }
+  }
 
   const isRunning = coreStatus?.running ?? false
   const portNeedsRestart =
@@ -505,22 +557,107 @@ export const SettingView: React.FC = () => {
           </div>
         </div>
 
-        {(coreStatus?.version || coreStatus?.sidecarPath) && (
-          <div className="space-y-1 pt-1 text-[11px] text-muted-foreground font-mono">
-            {coreStatus?.version && (
+        {/* Core Version, Path & Online Update Section */}
+        <div className="p-4 rounded-xl bg-background/60 border border-border space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <Terminal className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">{coreStatus.version}</span>
+                <span className="text-xs font-semibold text-foreground">
+                  Mihomo 核心版本
+                </span>
+                {updateInfo && (
+                  <Badge
+                    variant={updateInfo.isPortable ? 'success' : 'secondary'}
+                    size="sm"
+                  >
+                    {updateInfo.isPortable
+                      ? '便携模式 (.portable)'
+                      : '安装模式 (AppData)'}
+                  </Badge>
+                )}
               </div>
-            )}
-            {coreStatus?.sidecarPath && (
-              <div className="flex items-center gap-2">
-                <FolderOpen className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">{coreStatus.sidecarPath}</span>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+                <Terminal className="w-3.5 h-3.5 shrink-0 text-primary" />
+                <span className="truncate">
+                  {coreStatus?.version || 'Mihomo Core (未知版本)'}
+                </span>
               </div>
-            )}
+              {coreStatus?.sidecarPath && (
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground/80 font-mono">
+                  <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate" title={coreStatus.sidecarPath}>
+                    {coreStatus.sidecarPath}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={checkingUpdate || upgradingKernel}
+                onClick={handleCheckKernelUpdate}
+                icon={
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 ${checkingUpdate ? 'animate-spin' : ''}`}
+                  />
+                }
+              >
+                {checkingUpdate ? '检查中...' : '检查内核更新'}
+              </Button>
+            </div>
           </div>
-        )}
+
+          {/* Update Available Banner */}
+          {updateInfo && updateInfo.hasUpdate && (
+            <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs animate-in fade-in">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5 font-medium text-primary">
+                  <Sparkles className="w-4 h-4 shrink-0" />
+                  <span>发现新版本：{updateInfo.latestVersion}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  更新将下载并直接替换旧内核，无多余残留文件，并秒级平滑热重启。
+                </p>
+                {updateInfo.targetPath && (
+                  <p className="text-[10px] text-muted-foreground/70 font-mono truncate max-w-md">
+                    目标落盘路径：{updateInfo.targetPath}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {updateInfo.releaseUrl && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.open(updateInfo.releaseUrl, '_blank')}
+                    icon={<ExternalLink className="w-3.5 h-3.5" />}
+                  >
+                    更新说明
+                  </Button>
+                )}
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={upgradingKernel}
+                  onClick={handleUpgradeKernel}
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                  icon={
+                    upgradingKernel ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5" />
+                    )
+                  }
+                >
+                  {upgradingKernel ? '正在更新...' : '立即更新内核'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Network & Controller Configuration */}
         <div className="space-y-4 pt-3 border-t border-border">

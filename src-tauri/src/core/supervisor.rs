@@ -149,9 +149,15 @@ impl CoreSupervisor {
         }
     }
 
-    pub fn locate_sidecar(&self, app_handle: Option<&tauri::AppHandle>) -> AppResult<PathBuf> {
-        let host_target = if cfg!(target_os = "windows") {
-            "x86_64-pc-windows-msvc.exe"
+    pub fn get_host_target() -> &'static str {
+        if cfg!(target_os = "windows") {
+            if cfg!(target_arch = "aarch64") {
+                "aarch64-pc-windows-msvc.exe"
+            } else if cfg!(target_arch = "x86") {
+                "i686-pc-windows-msvc.exe"
+            } else {
+                "x86_64-pc-windows-msvc.exe"
+            }
         } else if cfg!(target_os = "macos") {
             if cfg!(target_arch = "aarch64") {
                 "aarch64-apple-darwin"
@@ -162,11 +168,44 @@ impl CoreSupervisor {
             "aarch64-unknown-linux-gnu"
         } else {
             "x86_64-unknown-linux-gnu"
-        };
+        }
+    }
 
+    pub fn locate_sidecar(&self, app_handle: Option<&tauri::AppHandle>) -> AppResult<PathBuf> {
+        let host_target = Self::get_host_target();
         let binary_name = format!("mihomo-{}", host_target);
 
-        // 1. Check relative to current working directory (dev mode)
+        // 1. Check portable mode first: if .portable exists next to the current exe,
+        // prioritize the binary in exe_dir/binaries/
+        if let Ok(current_exe) = std::env::current_exe()
+            && let Some(exe_dir) = current_exe.parent()
+            && (exe_dir.join(".portable").exists() || exe_dir.join("PORTABLE").exists())
+        {
+            let portable_candidate = exe_dir.join("binaries").join(&binary_name);
+            if portable_candidate.exists() {
+                return Ok(portable_candidate);
+            }
+        }
+
+        // 2. Check dynamic update directory in app_local_data_dir (for installed versions where updates land)
+        if let Some(app) = app_handle {
+            if let Ok(app_dir) = app.path().app_local_data_dir() {
+                let app_candidate = app_dir.join("binaries").join(&binary_name);
+                if app_candidate.exists() {
+                    return Ok(app_candidate);
+                }
+            }
+
+            // 3. Check app resource/binary directory (bundled out-of-the-box sidecar)
+            if let Ok(resource_dir) = app.path().resource_dir() {
+                let resource_candidate = resource_dir.join("binaries").join(&binary_name);
+                if resource_candidate.exists() {
+                    return Ok(resource_candidate);
+                }
+            }
+        }
+
+        // 4. Check relative to current working directory (dev mode)
         let local_candidates = [
             PathBuf::from("src-tauri/binaries").join(&binary_name),
             PathBuf::from("binaries").join(&binary_name),
@@ -182,29 +221,20 @@ impl CoreSupervisor {
             }
         }
 
-        // 2. Check app resource/binary directory (bundle mode)
-        if let Some(app) = app_handle {
-            if let Ok(resource_dir) = app.path().resource_dir() {
-                let resource_candidate = resource_dir.join("binaries").join(&binary_name);
-                if resource_candidate.exists() {
-                    return Ok(resource_candidate);
-                }
-            }
-
-            if let Ok(app_dir) = app.path().app_local_data_dir() {
-                let app_candidate = app_dir.join("binaries").join(&binary_name);
-                if app_candidate.exists() {
-                    return Ok(app_candidate);
-                }
+        // 5. Fallback: check if 'mihomo' or 'mihomo.exe' is directly next to exe or in current dir
+        let plain_binary = if cfg!(windows) { "mihomo.exe" } else { "mihomo" };
+        if let Ok(current_exe) = std::env::current_exe()
+            && let Some(exe_dir) = current_exe.parent()
+        {
+            let exe_plain = exe_dir.join(plain_binary);
+            if exe_plain.exists() {
+                return Ok(exe_plain);
             }
         }
-        // 3. Fallback: check if 'mihomo' or 'mihomo.exe' is directly in current dir or PATH
-        let plain_binary = if cfg!(windows) { "mihomo.exe" } else { "mihomo" };
         let plain_candidate = PathBuf::from(plain_binary);
         if plain_candidate.exists() {
             return Ok(plain_candidate);
         }
-
         Err(AppError::SidecarNotFound(format!(
             "Could not locate Mihomo sidecar binary '{}'. Please run 'pnpm dev:sidecar' first.",
             binary_name

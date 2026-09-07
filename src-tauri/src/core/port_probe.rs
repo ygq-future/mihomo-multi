@@ -228,6 +228,7 @@ mod tests {
         assert!(!is_port_available_with_lan(port, true, None));
 
         drop(listener);
+        std::thread::sleep(std::time::Duration::from_millis(100));
 
         assert!(is_port_available(port));
         assert!(is_port_available_with_lan(port, false, None));

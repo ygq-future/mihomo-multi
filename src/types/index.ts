@@ -155,3 +155,20 @@ export interface AppStatus {
   totalNodes: number
   version: string
 }
+
+export interface KernelUpdateCheckResult {
+  isPortable: boolean
+  targetPath: string
+  currentVersion: string
+  latestVersion: string
+  hasUpdate: boolean
+  releaseNotes?: string
+  releaseUrl?: string
+}
+
+export interface KernelUpgradeResult {
+  previousVersion: string
+  currentVersion: string
+  targetPath: string
+  isPortable: boolean
+}

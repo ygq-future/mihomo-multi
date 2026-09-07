@@ -123,6 +123,8 @@ pub fn run() {
             open_file_in_folder,
             get_app_dir,
             get_lan_ip_addresses,
+            check_kernel_update,
+            upgrade_kernel,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {

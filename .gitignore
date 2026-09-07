@@ -10,6 +10,7 @@ node_modules/
 dist/
 dist-ssr/
 build/
+release-packages/
 *.local
 
 # Rust & Cargo & Tauri

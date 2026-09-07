@@ -5,6 +5,8 @@ import type {
   AutoUpdateEventPayload,
   AutoUpdaterStatus,
   CoreStatus,
+  KernelUpdateCheckResult,
+  KernelUpgradeResult,
   LanIpInfo,
   NodeLatencyResult,
   PortDriftReport,
@@ -454,4 +456,29 @@ export async function getLanIpAddresses(): Promise<LanIpInfo[]> {
     ]
   }
   return invoke<LanIpInfo[]>('get_lan_ip_addresses')
+}
+
+export async function checkKernelUpdate(): Promise<KernelUpdateCheckResult> {
+  if (!isTauriEnvironment()) {
+    return {
+      isPortable: false,
+      targetPath: 'mock/binaries/mihomo.exe',
+      currentVersion: 'Mihomo Meta v1.19.30',
+      latestVersion: 'v1.19.30',
+      hasUpdate: false,
+    }
+  }
+  return invoke<KernelUpdateCheckResult>('check_kernel_update')
+}
+
+export async function upgradeKernel(): Promise<KernelUpgradeResult> {
+  if (!isTauriEnvironment()) {
+    return {
+      previousVersion: 'Mihomo Meta v1.19.30',
+      currentVersion: 'Mihomo Meta v1.19.30',
+      targetPath: 'mock/binaries/mihomo.exe',
+      isPortable: false,
+    }
+  }
+  return invoke<KernelUpgradeResult>('upgrade_kernel')
 }
