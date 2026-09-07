@@ -151,6 +151,14 @@ pub struct PortDriftReport {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub suggestions: Vec<String>,
 }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UwpLoopbackStats {
+    pub supported: bool,
+    pub exempted_count: usize,
+    pub total_count: usize,
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

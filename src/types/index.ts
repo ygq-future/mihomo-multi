@@ -159,6 +159,12 @@ export interface SystemProxyStatus {
   bypassDomains: string[]
 }
 
+export interface UwpLoopbackStats {
+  supported: boolean
+  exemptedCount: number
+  totalCount: number
+}
+
 export interface AppStatus {
   core: CoreStatus
   totalPorts: number

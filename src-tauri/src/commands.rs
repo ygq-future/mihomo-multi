@@ -4,6 +4,7 @@ use crate::core::port_probe::is_port_available;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, CoreStatus, DriftStatus, LanIpInfo,
     NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, SystemProxyStatus,
+    UwpLoopbackStats,
 };
 use crate::state::AppState;
 use std::process::Command;
@@ -197,6 +198,21 @@ pub async fn get_system_proxy_status(state: State<'_, AppState>) -> Result<Syste
 #[tauri::command]
 pub async fn get_default_bypass_list() -> Result<Vec<String>, String> {
     Ok(crate::core::sysproxy::get_default_bypass_list())
+}
+
+#[tauri::command]
+pub async fn get_uwp_loopback_status() -> Result<UwpLoopbackStats, String> {
+    crate::core::sysproxy::get_uwp_loopback_stats().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn exempt_all_uwp_loopback() -> Result<UwpLoopbackStats, String> {
+    crate::core::sysproxy::exempt_all_uwp_loopback().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_all_uwp_loopback() -> Result<UwpLoopbackStats, String> {
+    crate::core::sysproxy::clear_all_uwp_loopback().map_err(|e| e.to_string())
 }
 
 // ----------------------------------------------------------------------------

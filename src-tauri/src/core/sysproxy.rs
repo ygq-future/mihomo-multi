@@ -87,6 +87,57 @@ pub fn clear_system_proxy() -> AppResult<()> {
     Ok(())
 }
 
+/// Queries current UWP Loopback exemption statistics
+pub fn get_uwp_loopback_stats() -> AppResult<crate::models::UwpLoopbackStats> {
+    #[cfg(windows)]
+    {
+        let total_count = windows::get_user_appcontainer_sids().len();
+        let exempted_count = windows::get_exempted_count();
+        Ok(crate::models::UwpLoopbackStats {
+            supported: true,
+            exempted_count,
+            total_count,
+        })
+    }
+
+    #[cfg(not(windows))]
+    {
+        Ok(crate::models::UwpLoopbackStats {
+            supported: false,
+            exempted_count: 0,
+            total_count: 0,
+        })
+    }
+}
+
+/// Exempts all user UWP AppContainers from Loopback restriction
+pub fn exempt_all_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
+    #[cfg(windows)]
+    {
+        windows::exempt_all_uwp_windows()?;
+        get_uwp_loopback_stats()
+    }
+
+    #[cfg(not(windows))]
+    {
+        Err(AppError::Internal("UWP Loopback 仅支持 Windows 操作系统".to_string()))
+    }
+}
+
+/// Clears all UWP AppContainer Loopback exemptions
+pub fn clear_all_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
+    #[cfg(windows)]
+    {
+        windows::clear_all_uwp_windows()?;
+        get_uwp_loopback_stats()
+    }
+
+    #[cfg(not(windows))]
+    {
+        Err(AppError::Internal("UWP Loopback 仅支持 Windows 操作系统".to_string()))
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Windows Implementation
 // ----------------------------------------------------------------------------
@@ -99,9 +150,10 @@ mod windows {
         InternetSetOptionW, INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED,
     };
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ,
+        RegCloseKey, RegDeleteValueW, RegEnumKeyExW, RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ,
         KEY_SET_VALUE, REG_DWORD, REG_SZ,
     };
+    use std::process::Command;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
     };
@@ -280,6 +332,149 @@ mod windows {
         }
         Ok(())
     }
+
+    pub fn get_user_appcontainer_sids() -> Vec<String> {
+        const MAPPINGS_SUBKEY: &str =
+            "Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\AppContainer\\Mappings";
+        let Ok(key) = open_reg_key(HKEY_CURRENT_USER, MAPPINGS_SUBKEY, KEY_READ) else {
+            return Vec::new();
+        };
+
+        let mut sids = Vec::new();
+        let mut index = 0u32;
+        let mut name_buf = [0u16; 256];
+
+        loop {
+            let mut name_len = name_buf.len() as u32;
+            let ret = unsafe {
+                RegEnumKeyExW(
+                    key.0,
+                    index,
+                    name_buf.as_mut_ptr(),
+                    &mut name_len,
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                )
+            };
+
+            if ret != ERROR_SUCCESS {
+                break;
+            }
+
+            if let Ok(name) = String::from_utf16(&name_buf[..name_len as usize]) {
+                let trimmed = name.trim();
+                if trimmed.starts_with("S-1-15-") {
+                    sids.push(trimmed.to_string());
+                }
+            }
+            index += 1;
+        }
+
+        sids
+    }
+
+    pub fn get_exempted_count() -> usize {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let output = match Command::new("CheckNetIsolation.exe")
+            .args(["LoopbackExempt", "-s"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        {
+            Ok(out) => out.stdout,
+            Err(_) => return 0,
+        };
+
+        output
+            .windows(4)
+            .filter(|window| *window == b"SID:")
+            .count()
+    }
+
+    pub fn exempt_all_uwp_windows() -> AppResult<()> {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let sids = get_user_appcontainer_sids();
+        if sids.is_empty() {
+            info!("未发现任何 UWP 应用容器注册表项");
+            return Ok(());
+        }
+
+        let temp_path = std::env::temp_dir().join(format!("mihomo_exempt_uwp_{}.cmd", uuid::Uuid::new_v4()));
+        let mut script = String::from("@echo off\r\n");
+        for sid in &sids {
+            script.push_str(&format!("CheckNetIsolation.exe LoopbackExempt -a -p={}\r\n", sid));
+        }
+
+        std::fs::write(&temp_path, &script).map_err(AppError::Io)?;
+
+        struct TempFileGuard(std::path::PathBuf);
+        impl Drop for TempFileGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _guard = TempFileGuard(temp_path.clone());
+
+        let temp_path_str = temp_path.to_string_lossy().replace('\'', "''");
+        let ps_cmd = format!(
+            "try {{ Start-Process cmd.exe -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '/c', '{}' }} catch {{ exit 1223 }}",
+            temp_path_str
+        );
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| AppError::Internal(format!("启动提权进程失败: {}", e)))?;
+
+        if output.status.code() == Some(1223) {
+            return Err(AppError::Internal("用户取消了管理员权限授权 (UAC)".to_string()));
+        }
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(AppError::Internal(format!(
+                "执行 UWP 回环豁免失败: {}",
+                stderr.trim()
+            )));
+        }
+
+        info!(count = sids.len(), "已完成所有 UWP 应用容器回环豁免");
+        Ok(())
+    }
+
+    pub fn clear_all_uwp_windows() -> AppResult<()> {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let ps_cmd = "try { Start-Process CheckNetIsolation.exe -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList 'LoopbackExempt', '-c' } catch { exit 1223 }";
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", ps_cmd])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| AppError::Internal(format!("启动提权进程失败: {}", e)))?;
+
+        if output.status.code() == Some(1223) {
+            return Err(AppError::Internal("用户取消了管理员权限授权 (UAC)".to_string()));
+        }
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(AppError::Internal(format!(
+                "清除 UWP 回环豁免失败: {}",
+                stderr.trim()
+            )));
+        }
+
+        info!("已清除所有 UWP 应用容器回环豁免");
+        Ok(())
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -425,5 +620,42 @@ mod linux {
             .status();
         info!("Linux gsettings proxy disabled");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_uwp_loopback_stats_query() {
+        let stats = get_uwp_loopback_stats().expect("should query uwp stats without error");
+        #[cfg(windows)]
+        {
+            assert!(stats.supported);
+        }
+        #[cfg(not(windows))]
+        {
+            assert!(!stats.supported);
+            assert_eq!(stats.exempted_count, 0);
+            assert_eq!(stats.total_count, 0);
+        }
+    }
+
+    #[test]
+    fn test_uwp_loopback_stats_serialization() {
+        let stats = crate::models::UwpLoopbackStats {
+            supported: true,
+            exempted_count: 42,
+            total_count: 100,
+        };
+        let json = serde_json::to_string(&stats).expect("should serialize");
+        assert!(json.contains("\"supported\":true"));
+        assert!(json.contains("\"exemptedCount\":42"));
+        assert!(json.contains("\"totalCount\":100"));
+
+        let deserialized: crate::models::UwpLoopbackStats =
+            serde_json::from_str(&json).expect("should deserialize");
+        assert_eq!(stats, deserialized);
     }
 }

@@ -29,7 +29,7 @@ import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
-import type { KernelUpdateCheckResult } from '../../types'
+import type { KernelUpdateCheckResult, UwpLoopbackStats } from '../../types'
 import { formatUptime } from '../../utils/time'
 import {
   Badge,
@@ -205,11 +205,17 @@ export const SettingView: React.FC = () => {
   // System Proxy State
   const [newBypassInput, setNewBypassInput] = useState<string>('')
   const [defaultBypassList, setDefaultBypassList] = useState<string[]>([])
+  const [uwpStats, setUwpStats] = useState<UwpLoopbackStats | null>(null)
+  const [uwpLoading, setUwpLoading] = useState<boolean>(false)
 
   useEffect(() => {
     api
       .getDefaultBypassList()
       .then(setDefaultBypassList)
+      .catch(() => {})
+    api
+      .getUwpLoopbackStatus()
+      .then(setUwpStats)
       .catch(() => {})
   }, [])
 
@@ -310,6 +316,45 @@ export const SettingView: React.FC = () => {
       toast.error(
         `移除失败: ${err instanceof Error ? err.message : String(err)}`,
       )
+    }
+  }
+
+  const fetchUwpStats = async () => {
+    try {
+      const stats = await api.getUwpLoopbackStatus()
+      setUwpStats(stats)
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleExemptAllUwp = async () => {
+    setUwpLoading(true)
+    try {
+      const stats = await api.exemptAllUwpLoopback()
+      setUwpStats(stats)
+      toast.success(`成功为全部 ${stats.totalCount} 个 UWP 应用解除回环隔离`)
+    } catch (err) {
+      toast.error(
+        `UWP 回环豁免失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    } finally {
+      setUwpLoading(false)
+    }
+  }
+
+  const handleClearAllUwp = async () => {
+    setUwpLoading(true)
+    try {
+      const stats = await api.clearAllUwpLoopback()
+      setUwpStats(stats)
+      toast.success('已清除所有 UWP 应用回环豁免')
+    } catch (err) {
+      toast.error(
+        `清除 UWP 回环豁免失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    } finally {
+      setUwpLoading(false)
     }
   }
 
@@ -1225,6 +1270,71 @@ export const SettingView: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* UWP Loopback Exemption (Windows Only) */}
+          {uwpStats?.supported && (
+            <div className="pt-3 border-t border-border/70 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-medium text-foreground">
+                      UWP 应用回环代理豁免 (Windows AppContainer)
+                    </label>
+                    <Badge
+                      variant={
+                        uwpStats.exemptedCount > 0 ? 'success' : 'secondary'
+                      }
+                      size="sm"
+                      className="text-[10px] py-0 px-1.5"
+                    >
+                      已豁免 {uwpStats.exemptedCount} / 共 {uwpStats.totalCount}{' '}
+                      个应用
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    解除 Windows 沙箱对本地 127.0.0.1
+                    代理端口的隔离，使微软商店、UWP 应用可正常连入系统代理
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={fetchUwpStats}
+                    disabled={uwpLoading}
+                    icon={
+                      <RefreshCw
+                        className={`w-3.5 h-3.5 ${
+                          uwpLoading ? 'animate-spin' : ''
+                        }`}
+                      />
+                    }
+                    title="刷新豁免状态"
+                  >
+                    刷新
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClearAllUwp}
+                    disabled={uwpLoading || uwpStats.exemptedCount === 0}
+                    icon={<Trash2 className="w-3.5 h-3.5" />}
+                  >
+                    清除豁免
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleExemptAllUwp}
+                    disabled={uwpLoading}
+                    icon={<ShieldCheck className="w-3.5 h-3.5" />}
+                  >
+                    一键豁免全部 UWP
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

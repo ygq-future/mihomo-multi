@@ -15,6 +15,7 @@ import type {
   ProfileItem,
   ProxyNode,
   SystemProxyStatus,
+  UwpLoopbackStats,
 } from '../types'
 
 function isTauriEnvironment(): boolean {
@@ -581,6 +582,42 @@ export async function getDefaultBypassList(): Promise<string[]> {
     ]
   }
   return invoke<string[]>('get_default_bypass_list')
+}
+
+export async function getUwpLoopbackStatus(): Promise<UwpLoopbackStats> {
+  if (!isTauriEnvironment()) {
+    const isWindows =
+      typeof navigator !== 'undefined' &&
+      (/win/i.test(navigator.userAgent) ||
+        /windows/i.test(navigator.platform || ''))
+    return {
+      supported: isWindows,
+      exemptedCount: isWindows ? 120 : 0,
+      totalCount: isWindows ? 129 : 0,
+    }
+  }
+}
+
+export async function exemptAllUwpLoopback(): Promise<UwpLoopbackStats> {
+  if (!isTauriEnvironment()) {
+    return {
+      supported: true,
+      exemptedCount: 129,
+      totalCount: 129,
+    }
+  }
+  return invoke<UwpLoopbackStats>('exempt_all_uwp_loopback')
+}
+
+export async function clearAllUwpLoopback(): Promise<UwpLoopbackStats> {
+  if (!isTauriEnvironment()) {
+    return {
+      supported: true,
+      exemptedCount: 0,
+      totalCount: 129,
+    }
+  }
+  return invoke<UwpLoopbackStats>('clear_all_uwp_loopback')
 }
 
 export async function resetWindowSize(): Promise<void> {
