@@ -193,14 +193,18 @@ jobs:
       - name: Package and standardize distribution artifacts
         run: node scripts/pack-release-assets.mjs --target ${{ matrix.target }}
 
-      - name: Determine Tag Name
+      - name: Determine Tag Name and Release Notes
         id: tag_info
         shell: bash
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            TAG="${{ github.ref_name }}"
           else
-            echo "tag=${{ github.event.inputs.tag || 'v1.0.0' }}" >> $GITHUB_OUTPUT
+            TAG="${{ github.event.inputs.tag || 'v1.0.0' }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          if [ -f "docs/release-notes/${TAG}.md" ]; then
+            echo "body_path=docs/release-notes/${TAG}.md" >> $GITHUB_OUTPUT
           fi
 
       - name: Upload Release Assets to GitHub Release
@@ -210,8 +214,8 @@ jobs:
         with:
           tag_name: ${{ steps.tag_info.outputs.tag }}
           name: 'Mihomo Multi ${{ steps.tag_info.outputs.tag }}'
+          body_path: ${{ steps.tag_info.outputs.body_path }}
           draft: false
           prerelease: false
-          generate_release_notes: true
           files: |
             dist-artifacts/*
