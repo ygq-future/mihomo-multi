@@ -447,8 +447,41 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       }
       icon={<Network className="w-4 h-4 text-primary" />}
       maxWidth="md"
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onClose}
+            disabled={submitting || success}
+          >
+            取消
+          </Button>
+          <Button
+            type="submit"
+            form="add-port-form"
+            variant="primary"
+            size="sm"
+            loading={submitting}
+            disabled={
+              submitting ||
+              success ||
+              !selectedNodeName ||
+              !port ||
+              isPortAvailable === false
+            }
+          >
+            {isEditing ? '保存修改' : '确认创建'}
+          </Button>
+        </>
+      }
     >
-      <form onSubmit={handleSubmit} className="p-5 space-y-4">
+      <form
+        id="add-port-form"
+        onSubmit={handleSubmit}
+        className="p-5 space-y-4"
+      >
         {error && (
           <div className="p-3 text-xs bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -788,34 +821,6 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="例如：指纹浏览器窗口 01"
           />
-        </div>
-
-        {/* Footer Actions */}
-        <div className="pt-3 flex items-center justify-end gap-2 border-t border-border">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onClose}
-            disabled={submitting || success}
-          >
-            取消
-          </Button>
-          <Button
-            type="submit"
-            variant="primary"
-            size="sm"
-            loading={submitting}
-            disabled={
-              submitting ||
-              success ||
-              !selectedNodeName ||
-              !port ||
-              isPortAvailable === false
-            }
-          >
-            {isEditing ? '保存修改' : '确认创建'}
-          </Button>
         </div>
       </form>
     </Modal>

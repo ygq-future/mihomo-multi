@@ -10,7 +10,9 @@ export interface ModalProps {
   subtitle?: string
   icon?: React.ReactNode
   children: React.ReactNode
+  footer?: React.ReactNode
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
+  bodyClassName?: string
 }
 
 const maxWidthMap = {
@@ -28,7 +30,9 @@ export const Modal: React.FC<ModalProps> = ({
   subtitle,
   icon,
   children,
+  footer,
   maxWidth = 'md',
+  bodyClassName,
 }) => {
   const [shouldRender, setShouldRender] = useState(isOpen)
   const [isClosing, setIsClosing] = useState(false)
@@ -125,7 +129,18 @@ export const Modal: React.FC<ModalProps> = ({
         </div>
 
         {/* Modal Content */}
-        <div className="flex-1 overflow-y-auto">{children}</div>
+        <div
+          className={`flex-1 min-h-0 overflow-y-auto ${bodyClassName || ''}`}
+        >
+          {children}
+        </div>
+
+        {/* Modal Footer */}
+        {footer && (
+          <div className="px-5 py-3.5 border-t border-border flex items-center justify-end gap-2.5 shrink-0 bg-card/95 backdrop-blur-sm">
+            {footer}
+          </div>
+        )}
       </div>
     </div>,
     document.body,

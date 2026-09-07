@@ -64,8 +64,27 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
       subtitle="导入标准 Clash / Mihomo 远程订阅链接"
       icon={<Globe className="w-4 h-4" />}
       maxWidth="md"
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={loading}
+          >
+            取消
+          </Button>
+          <Button type="submit" form="add-remote-form" loading={loading}>
+            {loading ? '正在拉取解析...' : '确认添加'}
+          </Button>
+        </>
+      }
     >
-      <form onSubmit={handleSubmit} className="p-5 space-y-4">
+      <form
+        id="add-remote-form"
+        onSubmit={handleSubmit}
+        className="p-5 space-y-4"
+      >
         {error && (
           <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -109,20 +128,6 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
             options={intervalOptions}
             disabled={loading}
           />
-        </div>
-
-        <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onClose}
-            disabled={loading}
-          >
-            取消
-          </Button>
-          <Button type="submit" loading={loading}>
-            {loading ? '正在拉取解析...' : '确认添加'}
-          </Button>
         </div>
       </form>
     </Modal>

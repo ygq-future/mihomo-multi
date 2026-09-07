@@ -52,8 +52,27 @@ export const AddLocalModal: React.FC<AddLocalModalProps> = ({
       subtitle="复制本地 Clash 格式配置文件并解析节点"
       icon={<FileCode className="w-4 h-4" />}
       maxWidth="md"
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={loading}
+          >
+            取消
+          </Button>
+          <Button type="submit" form="add-local-form" loading={loading}>
+            {loading ? '正在解析导入...' : '确认导入'}
+          </Button>
+        </>
+      }
     >
-      <form onSubmit={handleSubmit} className="p-5 space-y-4">
+      <form
+        id="add-local-form"
+        onSubmit={handleSubmit}
+        className="p-5 space-y-4"
+      >
         {error && (
           <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -82,20 +101,6 @@ export const AddLocalModal: React.FC<AddLocalModalProps> = ({
           disabled={loading}
           helperText="系统将复制该文件并提取其中 proxies 节点池"
         />
-
-        <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onClose}
-            disabled={loading}
-          >
-            取消
-          </Button>
-          <Button type="submit" loading={loading}>
-            {loading ? '正在解析导入...' : '确认导入'}
-          </Button>
-        </div>
       </form>
     </Modal>
   )

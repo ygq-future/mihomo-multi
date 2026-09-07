@@ -896,17 +896,8 @@ export const PortTableView: React.FC = () => {
           subtitle={`确定要删除本地监听端口 ${deletingMapping.port} 吗？`}
           icon={<Trash2 className="w-4 h-4 text-destructive" />}
           maxWidth="sm"
-        >
-          <div className="p-5 space-y-4">
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              删除后，Mihomo 将立即释放端口{' '}
-              <b className="text-foreground font-mono">
-                {deletingMapping.port}
-              </b>
-              ，绑定的代理节点将不再接收该端口的流量。
-            </p>
-
-            <div className="pt-2 flex items-center justify-end gap-2 border-t border-border">
+          footer={
+            <>
               <Button
                 variant="outline"
                 size="sm"
@@ -923,7 +914,17 @@ export const PortTableView: React.FC = () => {
               >
                 确认删除
               </Button>
-            </div>
+            </>
+          }
+        >
+          <div className="p-5">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              删除后，Mihomo 将立即释放端口{' '}
+              <b className="text-foreground font-mono">
+                {deletingMapping.port}
+              </b>
+              ，绑定的代理节点将不再接收该端口的流量。
+            </p>
           </div>
         </Modal>
       )}

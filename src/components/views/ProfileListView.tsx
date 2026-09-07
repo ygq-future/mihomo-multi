@@ -411,18 +411,8 @@ export const ProfileListView: React.FC = () => {
           subtitle="此操作将永久移除该订阅及其所有关联节点缓存"
           icon={<Trash2 className="w-4 h-4 text-destructive" />}
           maxWidth="sm"
-        >
-          <div className="p-5 space-y-4">
-            <div className="p-3 rounded-lg bg-background border border-border text-xs">
-              <span className="font-semibold text-foreground">
-                {deletingProfile.name}
-              </span>
-              <div className="text-muted-foreground text-[11px] font-mono truncate mt-0.5">
-                包含 {deletingProfile.nodeCount} 个节点
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-border">
+          footer={
+            <>
               <Button
                 variant="outline"
                 size="sm"
@@ -433,6 +423,17 @@ export const ProfileListView: React.FC = () => {
               <Button variant="danger" size="sm" onClick={handleDeleteConfirm}>
                 确认删除
               </Button>
+            </>
+          }
+        >
+          <div className="p-5">
+            <div className="p-3 rounded-lg bg-background border border-border text-xs">
+              <span className="font-semibold text-foreground">
+                {deletingProfile.name}
+              </span>
+              <div className="text-muted-foreground text-[11px] font-mono truncate mt-0.5">
+                包含 {deletingProfile.nodeCount} 个节点
+              </div>
             </div>
           </div>
         </Modal>

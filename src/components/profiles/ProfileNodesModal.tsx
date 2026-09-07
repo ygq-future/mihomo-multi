@@ -64,10 +64,20 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
       subtitle={`共解析到 ${nodes.length} 个可用代理节点`}
       icon={<Compass className="w-4 h-4" />}
       maxWidth="2xl"
+      footer={
+        <div className="w-full flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            展示 {filteredNodes.length} / {nodes.length} 个节点
+          </span>
+          <Button variant="outline" size="sm" onClick={onClose}>
+            关闭
+          </Button>
+        </div>
+      }
     >
       <div className="flex flex-col h-full">
         {/* Search Bar */}
-        <div className="px-5 py-3 border-b border-border bg-card/50">
+        <div className="px-5 py-3 border-b border-border bg-card/50 shrink-0">
           <Input
             placeholder="搜索节点名称、协议或服务器地址..."
             value={search}
@@ -121,16 +131,6 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
               ))}
             </div>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground bg-card/50">
-          <span>
-            展示 {filteredNodes.length} / {nodes.length} 个节点
-          </span>
-          <Button variant="outline" size="sm" onClick={onClose}>
-            关闭
-          </Button>
         </div>
       </div>
     </Modal>
