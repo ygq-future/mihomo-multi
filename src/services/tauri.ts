@@ -262,11 +262,20 @@ export async function testAllPortMappingsDelay(
   })
 }
 
+let fallbackStatusRequest: Promise<PortFallbackStatus[]> | null = null
+
 export async function getPortFallbackStatuses(): Promise<PortFallbackStatus[]> {
   if (!isTauriEnvironment()) {
     return []
   }
-  return invoke<PortFallbackStatus[]>('get_port_fallback_statuses')
+  if (!fallbackStatusRequest) {
+    fallbackStatusRequest = invoke<PortFallbackStatus[]>(
+      'get_port_fallback_statuses',
+    ).finally(() => {
+      fallbackStatusRequest = null
+    })
+  }
+  return fallbackStatusRequest
 }
 
 // ----------------------------------------------------------------------------

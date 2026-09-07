@@ -41,8 +41,14 @@ pub async fn start_core(app: AppHandle, state: State<'_, AppState>) -> Result<Co
     let _ = state.sync_runtime_config().await;
     let config = state.config.read().clone();
     let res = state.engine.start(Some(&app), &config).map_err(|err| err.to_string())?;
-    if config.system_proxy_enabled && let Some(port) = config.system_proxy_port {
-        let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user, config.system_proxy_sync_env);
+    if config.system_proxy_enabled
+        && let Some(port) = config.system_proxy_port
+    {
+        let _ = crate::core::sysproxy::apply_system_proxy(
+            port,
+            &config.system_proxy_bypass_user,
+            config.system_proxy_sync_env,
+        );
     }
     crate::tray::update_tray_menu(&app);
     Ok(res)
@@ -67,8 +73,14 @@ pub async fn restart_core(app: AppHandle, state: State<'_, AppState>) -> Result<
         .engine
         .restart(Some(&app), &config)
         .map_err(|err| err.to_string())?;
-    if config.system_proxy_enabled && let Some(port) = config.system_proxy_port {
-        let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user, config.system_proxy_sync_env);
+    if config.system_proxy_enabled
+        && let Some(port) = config.system_proxy_port
+    {
+        let _ = crate::core::sysproxy::apply_system_proxy(
+            port,
+            &config.system_proxy_bypass_user,
+            config.system_proxy_sync_env,
+        );
     }
     crate::tray::update_tray_menu(&app);
     Ok(res)
@@ -79,7 +91,9 @@ pub async fn check_port_available(
     exclude_mapping_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    Ok(state.port_router.check_port_available(port, exclude_mapping_id.as_deref()))
+    Ok(state
+        .port_router
+        .check_port_available(port, exclude_mapping_id.as_deref()))
 }
 
 #[tauri::command]
@@ -119,7 +133,11 @@ pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Resul
     {
         if config.system_proxy_enabled {
             if let Some(port) = config.system_proxy_port {
-                let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user, config.system_proxy_sync_env);
+                let _ = crate::core::sysproxy::apply_system_proxy(
+                    port,
+                    &config.system_proxy_bypass_user,
+                    config.system_proxy_sync_env,
+                );
             }
         } else {
             let _ = crate::core::sysproxy::clear_system_proxy();
@@ -243,10 +261,7 @@ pub async fn get_next_available_port(
 }
 
 #[tauri::command]
-pub async fn save_port_mapping(
-    mapping: PortMapping,
-    state: State<'_, AppState>,
-) -> Result<PortMapping, String> {
+pub async fn save_port_mapping(mapping: PortMapping, state: State<'_, AppState>) -> Result<PortMapping, String> {
     state
         .port_router
         .save_port_mapping(mapping)
@@ -278,11 +293,7 @@ pub async fn delete_port_mapping(id: String, state: State<'_, AppState>) -> Resu
 }
 
 #[tauri::command]
-pub async fn toggle_port_mapping(
-    id: String,
-    enabled: bool,
-    state: State<'_, AppState>,
-) -> Result<PortMapping, String> {
+pub async fn toggle_port_mapping(id: String, enabled: bool, state: State<'_, AppState>) -> Result<PortMapping, String> {
     let target_port = state.port_router.get_port_mapping_by_id(&id).map(|m| m.port);
     let updated = state
         .port_router
@@ -367,10 +378,7 @@ pub async fn test_port_mapping_delay(
     if let Some(fb_name) = &mapping.fallback_node_name
         && !fb_name.trim().is_empty()
     {
-        let fb_profile_id = mapping
-            .fallback_profile_id
-            .as_deref()
-            .unwrap_or(&mapping.profile_id);
+        let fb_profile_id = mapping.fallback_profile_id.as_deref().unwrap_or(&mapping.profile_id);
         let fb_profile = state.profile_manager.get_profile_by_id(fb_profile_id);
         let fb_runtime_name = if let Some(prof) = fb_profile.as_ref() {
             format!("[{}] {}", prof.name, fb_name)
@@ -425,10 +433,7 @@ pub async fn test_port_fallback_delay(
         .filter(|fb| !fb.trim().is_empty())
         .ok_or_else(|| "该端口未配置备用节点".to_string())?;
 
-    let fb_profile_id = mapping
-        .fallback_profile_id
-        .as_deref()
-        .unwrap_or(&mapping.profile_id);
+    let fb_profile_id = mapping.fallback_profile_id.as_deref().unwrap_or(&mapping.profile_id);
     let fb_profile = state.profile_manager.get_profile_by_id(fb_profile_id);
     let fb_runtime_name = if let Some(prof) = fb_profile.as_ref() {
         format!("[{}] {}", prof.name, fb_name)
@@ -458,7 +463,6 @@ pub async fn test_port_fallback_delay(
 
     res.map_err(|err| err.to_string())
 }
-
 
 #[tauri::command]
 pub async fn test_all_port_mappings_delay(
@@ -507,8 +511,7 @@ pub async fn test_all_port_mappings_delay(
                 fb_name.clone()
             };
             targets.push(
-                crate::core::latency_probe::BatchProbeTarget::new(fb_name.clone())
-                    .with_runtime_name(fb_runtime_name),
+                crate::core::latency_probe::BatchProbeTarget::new(fb_name.clone()).with_runtime_name(fb_runtime_name),
             );
         }
     }
@@ -522,12 +525,7 @@ pub async fn test_all_port_mappings_delay(
 
     let results = state
         .latency_probe
-        .test_nodes_batch(
-            &targets,
-            Some(actual_url),
-            Some(actual_timeout),
-            concurrency,
-        )
+        .test_nodes_batch(&targets, Some(actual_url), Some(actual_timeout), concurrency)
         .await;
 
     for res in &results {
@@ -650,7 +648,7 @@ pub async fn get_port_fallback_statuses(
         state.latency_probe.set_latencies_batch(&latency_updates);
     }
 
-    crate::tray::update_tray_menu(&app);
+    crate::tray::update_tray_menu_with_fallback_statuses(&app, statuses.clone());
     Ok(statuses)
 }
 
@@ -919,7 +917,10 @@ pub async fn test_node_delay(
     let target_node = all_nodes
         .into_iter()
         .find(|n| n.name == node_name || n.runtime_name.as_deref() == Some(&node_name));
-    let raw_name = target_node.as_ref().map(|n| n.name.clone()).unwrap_or_else(|| node_name.clone());
+    let raw_name = target_node
+        .as_ref()
+        .map(|n| n.name.clone())
+        .unwrap_or_else(|| node_name.clone());
     let runtime_name = target_node.and_then(|n| n.runtime_name);
 
     let res = state
@@ -936,9 +937,8 @@ pub async fn test_node_delay(
 
     let mappings = state.port_router.get_port_mappings();
     for m in mappings {
-        let matches = m.node_name == raw_name
-            || m.node_name == node_name
-            || runtime_name.as_deref() == Some(&m.node_name);
+        let matches =
+            m.node_name == raw_name || m.node_name == node_name || runtime_name.as_deref() == Some(&m.node_name);
         if matches {
             let _ = state.port_router.update_port_latency(&m.id, Some(res));
         }
@@ -995,12 +995,7 @@ pub async fn test_nodes_delay_batch(
 
     let results = state
         .latency_probe
-        .test_nodes_batch(
-            &targets,
-            Some(actual_url),
-            Some(actual_timeout),
-            concurrency,
-        )
+        .test_nodes_batch(&targets, Some(actual_url), Some(actual_timeout), concurrency)
         .await;
 
     let mappings = state.port_router.get_port_mappings();
@@ -1024,9 +1019,7 @@ pub fn cancel_latency_probe(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_latency_cache(
-    state: State<'_, AppState>,
-) -> Result<std::collections::HashMap<String, Option<u32>>, String> {
+pub fn get_latency_cache(state: State<'_, AppState>) -> Result<std::collections::HashMap<String, Option<u32>>, String> {
     Ok(state.latency_probe.get_latencies())
 }
 
@@ -1074,15 +1067,9 @@ pub async fn install_app_update(
     package_type: String,
     state: State<'_, AppState>,
 ) -> Result<crate::core::app_updater::AppUpdateInstallResult, String> {
-    crate::core::app_updater::download_and_install_update(
-        &app,
-        &download_url,
-        &file_name,
-        &package_type,
-        &state,
-    )
-    .await
-    .map_err(|e| e.to_string())
+    crate::core::app_updater::download_and_install_update(&app, &download_url, &file_name, &package_type, &state)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

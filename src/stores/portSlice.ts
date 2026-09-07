@@ -116,6 +116,12 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
       }
       const currentLatencies = { ...(storeState.latencies || {}) }
       let updatedLatencies = false
+      const updateLatency = (key: string, latency: number | null) => {
+        if (currentLatencies[key] !== latency) {
+          currentLatencies[key] = latency
+          updatedLatencies = true
+        }
+      }
 
       for (const s of fallbackList) {
         fallbackStatuses[s.mappingId] = s
@@ -139,42 +145,35 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
           : s.fallbackNode
 
         if (s.primaryLatency !== undefined && s.primaryLatency !== null) {
-          currentLatencies[mainKey] = s.primaryLatency
-          updatedLatencies = true
+          updateLatency(mainKey, s.primaryLatency)
         } else if (s.isFallbackActive) {
-          currentLatencies[mainKey] = null
-          updatedLatencies = true
+          updateLatency(mainKey, null)
         }
 
         if (s.fallbackLatency !== undefined && s.fallbackLatency !== null) {
-          currentLatencies[fbKey] = s.fallbackLatency
-          updatedLatencies = true
+          updateLatency(fbKey, s.fallbackLatency)
         }
       }
 
-      if (updatedLatencies) {
-        set((state) => ({
+      set((state) => {
+        let updatedMappings = false
+        const portMappings = state.portMappings.map((mapping) => {
+          const fallback = fallbackStatuses[mapping.id]
+          if (!fallback) return mapping
+          const latency = fallback.isFallbackActive
+            ? null
+            : (fallback.primaryLatency ?? mapping.latency)
+          if (mapping.latency === latency) return mapping
+          updatedMappings = true
+          return { ...mapping, latency }
+        })
+
+        return {
           fallbackStatuses,
-          latencies: currentLatencies,
-          portMappings: state.portMappings.map((m) => {
-            const fb = fallbackStatuses[m.id]
-            if (
-              fb &&
-              (fb.primaryLatency !== undefined || fb.isFallbackActive)
-            ) {
-              return {
-                ...m,
-                latency: fb.isFallbackActive
-                  ? null
-                  : (fb.primaryLatency ?? m.latency),
-              }
-            }
-            return m
-          }),
-        }))
-      } else {
-        set({ fallbackStatuses })
-      }
+          ...(updatedLatencies ? { latencies: currentLatencies } : {}),
+          portMappings: updatedMappings ? portMappings : state.portMappings,
+        }
+      })
       return fallbackList
     } catch {
       return []

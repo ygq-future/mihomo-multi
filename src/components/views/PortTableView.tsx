@@ -57,6 +57,9 @@ export const PortTableView: React.FC = () => {
     fetchFallbackStatuses,
   } = useAppStore()
   const isRunning = coreStatus?.running ?? false
+  const hasFallback = portMappings.some(
+    (mapping) => mapping.enabled && mapping.fallbackNodeName,
+  )
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [editingMapping, setEditingMapping] = useState<PortMapping | null>(null)
@@ -79,21 +82,26 @@ export const PortTableView: React.FC = () => {
     }
   }, [fetchPortMappings, fetchProfiles, config, fetchConfig])
 
-  // Periodic fallback status check every 5s when core is running and has fallback mappings
+  // Wait five seconds after each completed refresh while fallback ports are active.
   useEffect(() => {
-    if (!isRunning) return
-    const hasFallback = portMappings.some(
-      (m) => m.enabled && m.fallbackNodeName,
-    )
-    if (!hasFallback) return
+    if (!isRunning || !hasFallback) return
 
-    fetchFallbackStatuses().catch(() => {})
-    const interval = setInterval(() => {
-      fetchFallbackStatuses().catch(() => {})
-    }, 5000)
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const refresh = async () => {
+      await fetchFallbackStatuses().catch(() => {})
+      if (!disposed) {
+        timer = setTimeout(refresh, 5000)
+      }
+    }
 
-    return () => clearInterval(interval)
-  }, [isRunning, portMappings, fetchFallbackStatuses])
+    void refresh()
+
+    return () => {
+      disposed = true
+      clearTimeout(timer)
+    }
+  }, [isRunning, hasFallback, fetchFallbackStatuses])
 
   // Fetch LAN IPs and perform auto-cleaning of invalid selected IP when allow_lan is active
   useEffect(() => {

@@ -49,11 +49,7 @@ fn build_tray_menu_internal(
                     "未运行"
                 } else if has_fallback {
                     if is_fallback_active {
-                        if is_manual {
-                            "备(锁定)"
-                        } else {
-                            "备(兜底)"
-                        }
+                        if is_manual { "备(锁定)" } else { "备(兜底)" }
                     } else {
                         "正常(主)"
                     }
@@ -91,7 +87,10 @@ fn build_tray_menu_internal(
     Ok(menu)
 }
 
-async fn query_runtime_infos(app: &AppHandle) -> std::collections::HashMap<String, PortRuntimeInfo> {
+async fn query_runtime_infos(
+    app: &AppHandle,
+    fallback_statuses: &[crate::models::PortFallbackStatus],
+) -> std::collections::HashMap<String, PortRuntimeInfo> {
     let mut runtime_infos = std::collections::HashMap::new();
     let Some(state) = app.try_state::<crate::state::AppState>() else {
         return runtime_infos;
@@ -107,6 +106,21 @@ async fn query_runtime_infos(app: &AppHandle) -> std::collections::HashMap<Strin
     let engine = state.engine.clone();
 
     for m in mappings.into_iter().filter(|m| m.enabled) {
+        if let Some(status) = fallback_statuses.iter().find(|status| status.mapping_id == m.id) {
+            runtime_infos.insert(
+                m.id,
+                PortRuntimeInfo {
+                    is_fallback_active: status.is_fallback_active,
+                    manual_fallback: status.manual_fallback,
+                    active_latency: if status.is_fallback_active {
+                        status.fallback_latency
+                    } else {
+                        status.primary_latency
+                    },
+                },
+            );
+            continue;
+        }
         let has_fallback = m.fallback_node_name.as_ref().is_some_and(|fb| !fb.trim().is_empty());
         let (is_fallback_active, manual_fallback) = if has_fallback && m.manual_fallback {
             (true, true)
@@ -189,8 +203,7 @@ fn compute_menu_fingerprint(
     fp
 }
 
-static LAST_TRAY_FINGERPRINT: parking_lot::Mutex<Option<String>> =
-    parking_lot::Mutex::new(None);
+static LAST_TRAY_FINGERPRINT: parking_lot::Mutex<Option<String>> = parking_lot::Mutex::new(None);
 #[cfg(windows)]
 fn is_tray_menu_active() -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowA;
@@ -205,8 +218,14 @@ fn is_tray_menu_active() -> bool {
     false
 }
 
-
 pub fn update_tray_menu(app: &AppHandle) {
+    update_tray_menu_with_fallback_statuses(app, Vec::new());
+}
+
+pub fn update_tray_menu_with_fallback_statuses(
+    app: &AppHandle,
+    fallback_statuses: Vec<crate::models::PortFallbackStatus>,
+) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let Some(tray) = app_handle.tray_by_id("main-tray") else {
@@ -226,7 +245,7 @@ pub fn update_tray_menu(app: &AppHandle) {
         let mut mappings = state.port_router.get_port_mappings();
         mappings.sort_by_key(|m| m.port);
 
-        let runtime_infos = query_runtime_infos(&app_handle).await;
+        let runtime_infos = query_runtime_infos(&app_handle, &fallback_statuses).await;
         let current_fp = compute_menu_fingerprint(&mappings, &runtime_infos, is_running);
 
         {
@@ -319,32 +338,30 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 _ => {}
             }
         })
-        .on_tray_icon_event(|tray, event| {
-            match event {
-                TrayIconEvent::Enter { .. } => {
-                    let app = tray.app_handle();
-                    update_tray_menu(app);
-                }
-                TrayIconEvent::Click {
-                    button: MouseButton::Left,
-                    button_state: MouseButtonState::Up,
-                    ..
-                } => {
-                    let app = tray.app_handle();
-                    if let Some(window) = app.get_webview_window("main")
-                        && let Ok(is_visible) = window.is_visible()
-                    {
-                        if is_visible {
-                            let _ = window.hide();
-                        } else {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
-                        }
+        .on_tray_icon_event(|tray, event| match event {
+            TrayIconEvent::Enter { .. } => {
+                let app = tray.app_handle();
+                update_tray_menu(app);
+            }
+            TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } => {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main")
+                    && let Ok(is_visible) = window.is_visible()
+                {
+                    if is_visible {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
                     }
                 }
-                _ => {}
             }
+            _ => {}
         });
 
     // Load 32x32 crisp tray icon directly from embedded assets
