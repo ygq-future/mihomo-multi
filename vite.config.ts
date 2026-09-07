@@ -27,7 +27,7 @@ export default defineConfig({
         }
       : undefined,
     watch: {
-      ignored: ['**/src-tauri/**', '**/clash-verge-rev/**'],
+      ignored: ['**/src-tauri/**'],
     },
   },
   envPrefix: ['VITE_', 'TAURI_ENV_*'],

@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-pub const DEFAULT_USER_AGENT: &str = "clash-verge/v2.0.0 (mihomo-multi)";
+pub const DEFAULT_USER_AGENT: &str = "mihomo-multi/0.1.0 (clash.meta)";
 const REQUEST_TIMEOUT_SECS: u64 = 25;
 
 /// Helper to get the current Unix timestamp in seconds

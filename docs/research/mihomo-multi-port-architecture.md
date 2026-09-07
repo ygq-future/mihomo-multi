@@ -1,10 +1,10 @@
-# Mihomo Multi-Port (仿 Clash Verge 自主订阅管理与多端口绑定) 架构设计
+# Mihomo Multi-Port (自主订阅管理与多端口绑定) 架构设计
 
 ## 一、 架构定位与核心目标
 
 ### 1.1 背景与设计收敛
 摒弃对外部第三方客户端配置文件的被动依赖（彻底解决外部客户端路径多变、便携版非标、订阅更新后节点名漂移等耦合隐患）。
-本项目采用与 **Clash Verge Rev 一致的技术栈与自主订阅管理模型**（Tauri v2 + Rust 后端 + React/TypeScript 前端 + Mihomo Sidecar 内核），但在功能上做减法与聚焦：
+本项目采用轻量高效的自主技术栈与订阅管理模型（Tauri v2 + Rust 后端 + React/TypeScript 前端 + Mihomo Sidecar 内核），并在功能上做减法与聚焦：
 * **聚焦核心痛点**：多端口监听（Multi-Inbound Listeners）绑定不同订阅节点（`Port -> Node`）。
 * **剔除无关复杂度**：不引入 TUN 虚拟网卡、不引入系统代理全局抢占、不引入复杂的规则集合并脚本与插件系统。
 * **自主闭环管理**：
@@ -53,7 +53,7 @@
 ```rust
 use serde::{Deserialize, Serialize};
 
-/// 订阅文件模型 (仿照 Clash Verge Profile)
+/// 订阅文件模型 (自主订阅 ProfileItem)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileItem {
     pub id: String,
@@ -136,7 +136,7 @@ impl ProfileManager {
             .map_err(|e| e.to_string())?;
 
         let mut headers = HeaderMap::new();
-        headers.insert(USER_AGENT, "clash-verge/v2.0.0 (mihomo-multi)".parse().unwrap());
+        headers.insert(USER_AGENT, "mihomo-multi/0.1.0 (clash.meta)".parse().unwrap());
 
         let res = client.get(url)
             .headers(headers)
@@ -372,7 +372,7 @@ impl ClashApiClient {
 ```
 
 ### 4.2 Tab 2: 节点展示与测速 (Proxies)
-* **卡片/网格展示**：类似 Clash Verge 的节点卡片视图，展示国家图标、节点协议（SS/VMess/Trojan/Hysteria2）、节点名称、测速延迟。
+* **卡片/网格展示**：现代化节点卡片视图，展示国家图标、节点协议（SS/VMess/Trojan/Hysteria2）、节点名称、测速延迟。
 * **快捷绑定操作**：卡片上提供「+ 绑定到新端口」快捷按钮，点击直接弹出添加端口弹窗并自动填入该节点。
 
 ### 4.3 Tab 3: 订阅配置管理 (Profiles)

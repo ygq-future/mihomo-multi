@@ -36,7 +36,7 @@
    * 业务层使用 `thiserror` 定义结构化错误类型，顶层 Tauri Command 统一返回 `Result<T, String>` 或自定义 `AppError`。
 3. **网络与 I/O**：
    * 异步操作基于 `tokio` 运行时。
-   * 远程订阅下载使用 `reqwest`，必须携带标准 User-Agent（如 `clash-verge/v2.0.0 (mihomo-multi)`），并设置合理的连接与读取超时（15s ~ 30s）。
+   * 远程订阅下载使用 `reqwest`，必须携带标准 User-Agent（如 `mihomo-multi/0.1.0 (clash.meta)`），并设置合理的连接与读取超时（15s ~ 30s）。
 4. **端口安全检查**：
    * 在保存或启用端口映射前，必须调用 `std::net::TcpListener::bind(("127.0.0.1", port))` 进行前置冲突探测，若被占用需返回友好错误提示。
 
@@ -51,7 +51,7 @@
    * 采用 **Zustand** 进行全局应用状态管理（`useAppStore`），区分 `PortMappingSlice`, `ProfileSlice`, `NodeSlice`, `SettingSlice`。
    * UI 组件必须保持轻量与纯粹，所有与 Rust 后端的通信（Tauri `invoke`）统一封装在 `src/services/` 模块中，禁止在 UI 组件内部直接写裸 IPC 命令。
 3. **UI 风格与设计系统**：
-   * 视觉风格对齐 **Clash Verge Rev**：现代暗黑/明亮主题自适应、精致圆角（`rounded-lg`）、紧凑表格与卡片质感、Lucide 图标。
+   * 视觉风格遵循现代极简桌面设计规范：现代暗黑/明亮主题自适应、精致圆角（`rounded-lg`）、紧凑表格与卡片质感、Lucide 图标。
    * 交互反馈：网络测速、配置热重载、订阅刷新等耗时操作必须有清晰的 Loading 状态与 Toast/Notification 反馈。
 4. **基础组件通用性与复用原则 (Common Components First)**：
    * 编写 UI 代码时，必须前置评估交互元素的通用性与原子性（如按钮 `Button`、输入框 `Input`、下拉选择器 `Select`、弹窗模态框 `Modal`、数字框、开关、空状态等）。

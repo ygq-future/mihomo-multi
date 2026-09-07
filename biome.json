@@ -30,12 +30,6 @@
   },
   "files": {
     "include": ["src/**", "scripts/**", "*.ts", "*.json"],
-    "ignore": [
-      "src-tauri/**",
-      "dist/**",
-      "clash-verge-rev/**",
-      "node_modules/**",
-      "pnpm-lock.yaml"
-    ]
+    "ignore": ["src-tauri/**", "dist/**", "node_modules/**", "pnpm-lock.yaml"]
   }
 }

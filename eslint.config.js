@@ -9,7 +9,6 @@ export default tseslint.config(
     ignores: [
       'dist',
       'src-tauri',
-      'clash-verge-rev',
       'node_modules',
       '**/*.d.ts',
       'scripts',

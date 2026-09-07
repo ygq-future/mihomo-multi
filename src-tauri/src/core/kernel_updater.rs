@@ -9,7 +9,7 @@ use std::time::Duration;
 use tauri::Manager;
 use tracing::{info, warn};
 
-const USER_AGENT: &str = "clash-verge/v2.0.0 (mihomo-multi)";
+const USER_AGENT: &str = "mihomo-multi/0.1.0 (clash.meta)";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const GITHUB_LATEST_RELEASE_API: &str = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest";
 const GITHUB_VERSION_TXT: &str = "https://github.com/MetaCubeX/mihomo/releases/latest/download/version.txt";

@@ -167,7 +167,7 @@ pub async fn ensure_geo_databases(work_dir: &Path) -> AppResult<()> {
     }
 
     let client = reqwest::Client::builder()
-        .user_agent("clash-verge/v2.0.0 (mihomo-multi)")
+        .user_agent("mihomo-multi/0.1.0 (clash.meta)")
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .build()

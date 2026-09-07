@@ -12,7 +12,6 @@
    * **核心唯一职责**：实现 `Add Inbound Port Listener -> Bind Specific Proxy Node`（多端口监听与节点精确 1:1 绑定）。
    * **严禁引入以下特性**：
      * ❌ 严禁引入 TUN 虚拟网卡模式与驱动安装；
-     * ❌ 严禁引入系统代理自动劫持（System Proxy Takeover）；
      * ❌ 严禁引入复杂的 JavaScript/Lua 运行时脚本合并与多层分流规则集。
 2. **确定性路由原则**：
    * 每一个端口必须严格通过 `IN-PORT,<port>,<node_name>` 映射至指定节点，禁止隐式模糊切换或自动轮询漂移，确保多环境隔离（如指纹浏览器）的出口 IP 确定性。
@@ -21,6 +20,10 @@
 4. **子进程生命周期安全**：
    * 主程序启动时拉起 Mihomo Sidecar，主程序正常退出或异常崩溃时，必须通过进程守护/JobObject/信号处理**确保后台 Mihomo 进程被彻底清理**，严禁产生孤儿僵尸进程。
 
+5. **受控系统代理与单选互斥原则**：
+   * 系统代理作为受控辅助特性，全局**严格单选互斥**（至多同时绑定 1 个已启用的监听端口），严禁隐式轮询漂移；
+   * 系统代理必须支持排除域名/IP（内置私有/回环网络 + 用户自定义），并在 Windows 下联动设置用户环境变量（`all_proxy`, `http_proxy`, `https_proxy`, `no_proxy`）；
+   * **生命周期安全与防断网红线**：当绑定端口停用/删除、内核停止或客户端退出时，必须无条件清理系统代理与环境变量，严禁残留导致断网。
 ---
 
 ## 二、 后端代码规范 (Rust / Tauri v2)
@@ -33,7 +36,7 @@
    * 业务层使用 `thiserror` 定义结构化错误类型，顶层 Tauri Command 统一返回 `Result<T, String>` 或自定义 `AppError`。
 3. **网络与 I/O**：
    * 异步操作基于 `tokio` 运行时。
-   * 远程订阅下载使用 `reqwest`，必须携带标准 User-Agent（如 `clash-verge/v2.0.0 (mihomo-multi)`），并设置合理的连接与读取超时（15s ~ 30s）。
+   * 远程订阅下载使用 `reqwest`，必须携带标准 User-Agent（如 `mihomo-multi/0.1.0 (clash.meta)`），并设置合理的连接与读取超时（15s ~ 30s）。
 4. **端口安全检查**：
    * 在保存或启用端口映射前，必须调用 `std::net::TcpListener::bind(("127.0.0.1", port))` 进行前置冲突探测，若被占用需返回友好错误提示。
 
@@ -48,7 +51,7 @@
    * 采用 **Zustand** 进行全局应用状态管理（`useAppStore`），区分 `PortMappingSlice`, `ProfileSlice`, `NodeSlice`, `SettingSlice`。
    * UI 组件必须保持轻量与纯粹，所有与 Rust 后端的通信（Tauri `invoke`）统一封装在 `src/services/` 模块中，禁止在 UI 组件内部直接写裸 IPC 命令。
 3. **UI 风格与设计系统**：
-   * 视觉风格对齐 **Clash Verge Rev**：现代暗黑/明亮主题自适应、精致圆角（`rounded-lg`）、紧凑表格与卡片质感、Lucide 图标。
+   * 视觉风格遵循现代极简桌面设计规范：现代暗黑/明亮主题自适应、精致圆角（`rounded-lg`）、紧凑表格与卡片质感、Lucide 图标。
    * 交互反馈：网络测速、配置热重载、订阅刷新等耗时操作必须有清晰的 Loading 状态与 Toast/Notification 反馈。
 4. **基础组件通用性与复用原则 (Common Components First)**：
    * 编写 UI 代码时，必须前置评估交互元素的通用性与原子性（如按钮 `Button`、输入框 `Input`、下拉选择器 `Select`、弹窗模态框 `Modal`、数字框、开关、空状态等）。
