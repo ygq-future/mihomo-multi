@@ -158,31 +158,75 @@ export function Select<T extends string | number = string | number>({
       .filter((idx) => idx !== -1)
   }, [filteredOptions])
 
-  // 打开下拉框或过滤项变化时，默认高亮第一个未禁用的选项
-  useEffect(() => {
-    if (isOpen) {
-      if (enabledIndices.length > 0) {
-        setHighlightedIndex(enabledIndices[0])
-      } else {
-        setHighlightedIndex(-1)
-      }
-    } else {
-      setHighlightedIndex(-1)
-    }
-  }, [isOpen, enabledIndices])
+  // 当前已选中项的下标
+  const selectedIndex = useMemo(() => {
+    return filteredOptions.findIndex(
+      (opt) => opt.value === value && !opt.disabled,
+    )
+  }, [filteredOptions, value])
 
-  // 键盘导航切换高亮时，自动将高亮项滚动至可视区域内
-  useEffect(() => {
-    if (isOpen && highlightedIndex >= 0 && dropdownRef.current) {
+  const scrollToOption = useCallback((index: number) => {
+    if (index >= 0 && dropdownRef.current) {
       const el = dropdownRef.current.querySelector(
-        `[data-option-index="${highlightedIndex}"]`,
+        `[data-option-index="${index}"]`,
       )
       if (el) {
         el.scrollIntoView({ block: 'nearest' })
       }
     }
-  }, [isOpen, highlightedIndex])
+  }, [])
 
+  const prevIsOpenRef = useRef(false)
+  const prevSearchQueryRef = useRef(searchQuery)
+
+  // 仅在初次展开下拉框或搜索过滤词改变时同步初始高亮与滚动
+  // 避免外部 options 静默刷新导致滚动位置被重置回首项
+  useEffect(() => {
+    if (!isOpen) {
+      prevIsOpenRef.current = false
+      setHighlightedIndex(-1)
+      return
+    }
+
+    const isJustOpened = !prevIsOpenRef.current
+    const isSearchChanged = prevSearchQueryRef.current !== searchQuery
+    prevIsOpenRef.current = true
+    prevSearchQueryRef.current = searchQuery
+
+    if (isJustOpened) {
+      const targetIndex =
+        selectedIndex >= 0 ? selectedIndex : (enabledIndices[0] ?? -1)
+      setHighlightedIndex(targetIndex)
+      if (targetIndex >= 0) {
+        scrollToOption(targetIndex)
+      }
+    } else if (isSearchChanged) {
+      const firstMatch = enabledIndices[0] ?? -1
+      setHighlightedIndex(firstMatch)
+      if (firstMatch >= 0) {
+        scrollToOption(firstMatch)
+      }
+    } else {
+      // 下拉框已处于打开状态且搜索词未变（如外部轮询刷新节点选项时）：保持已有高亮，严禁重置滚动
+      setHighlightedIndex((prev) => {
+        if (
+          prev >= 0 &&
+          prev < filteredOptions.length &&
+          !filteredOptions[prev].disabled
+        ) {
+          return prev
+        }
+        return enabledIndices.length > 0 ? enabledIndices[0] : -1
+      })
+    }
+  }, [
+    isOpen,
+    searchQuery,
+    selectedIndex,
+    enabledIndices,
+    filteredOptions,
+    scrollToOption,
+  ])
   const updatePosition = useCallback(() => {
     if (!triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
@@ -237,7 +281,15 @@ export function Select<T extends string | number = string | number>({
   useEffect(() => {
     if (!isOpen && !isClosing) return
 
-    const handleScrollOrResize = () => {
+    const handleScrollOrResize = (e: Event) => {
+      // 若滚动源来自于下拉菜单容器本身，则无需重算挂载位置与重渲染
+      if (
+        e.type === 'scroll' &&
+        dropdownRef.current &&
+        dropdownRef.current.contains(e.target as Node)
+      ) {
+        return
+      }
       updatePosition()
     }
 
@@ -312,7 +364,9 @@ export function Select<T extends string | number = string | number>({
         currentPos === -1 || currentPos >= enabledIndices.length - 1
           ? 0
           : currentPos + 1
-      setHighlightedIndex(enabledIndices[nextPos])
+      const nextIndex = enabledIndices[nextPos]
+      setHighlightedIndex(nextIndex)
+      scrollToOption(nextIndex)
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       if (!isOpen || isClosing) {
@@ -323,7 +377,9 @@ export function Select<T extends string | number = string | number>({
       const currentPos = enabledIndices.indexOf(highlightedIndex)
       const prevPos =
         currentPos <= 0 ? enabledIndices.length - 1 : currentPos - 1
-      setHighlightedIndex(enabledIndices[prevPos])
+      const prevIndex = enabledIndices[prevPos]
+      setHighlightedIndex(prevIndex)
+      scrollToOption(prevIndex)
     }
   }
 
