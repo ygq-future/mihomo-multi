@@ -46,6 +46,7 @@ impl ClashApiClient {
         }
 
         let http_client = reqwest::Client::builder()
+            .no_proxy()
             .default_headers(headers)
             .timeout(Duration::from_secs(10))
             .connect_timeout(Duration::from_secs(5))

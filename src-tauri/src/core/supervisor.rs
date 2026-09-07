@@ -185,6 +185,13 @@ impl CoreSupervisor {
             if portable_candidate.exists() {
                 return Ok(portable_candidate);
             }
+            #[cfg(target_os = "macos")]
+            {
+                let universal_portable = exe_dir.join("binaries").join("mihomo-universal-apple-darwin");
+                if universal_portable.exists() {
+                    return Ok(universal_portable);
+                }
+            }
         }
 
         // 2. Check dynamic update directory in app_local_data_dir (for installed versions where updates land)
@@ -202,6 +209,13 @@ impl CoreSupervisor {
                 if resource_candidate.exists() {
                     return Ok(resource_candidate);
                 }
+                #[cfg(target_os = "macos")]
+                {
+                    let universal_resource = resource_dir.join("binaries").join("mihomo-universal-apple-darwin");
+                    if universal_resource.exists() {
+                        return Ok(universal_resource);
+                    }
+                }
             }
         }
 
@@ -210,8 +224,11 @@ impl CoreSupervisor {
             PathBuf::from("src-tauri/binaries").join(&binary_name),
             PathBuf::from("binaries").join(&binary_name),
             PathBuf::from("../src-tauri/binaries").join(&binary_name),
+            #[cfg(target_os = "macos")]
+            PathBuf::from("src-tauri/binaries/mihomo-universal-apple-darwin"),
+            #[cfg(target_os = "macos")]
+            PathBuf::from("binaries/mihomo-universal-apple-darwin"),
         ];
-
         for candidate in &local_candidates {
             if candidate.exists() {
                 if let Ok(canonical) = candidate.canonicalize() {

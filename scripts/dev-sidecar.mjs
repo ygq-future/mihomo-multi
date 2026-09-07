@@ -49,6 +49,10 @@ const TARGET_MAP = {
     ext: 'gz',
     targetFile: 'mihomo-aarch64-unknown-linux-gnu',
   },
+  'universal-apple-darwin': {
+    targetFile: 'mihomo-universal-apple-darwin',
+    isUniversal: true,
+  },
 }
 
 function detectTargetTriple() {
@@ -138,22 +142,10 @@ async function getLatestVersion() {
   }
 }
 
-async function main() {
-  const { target, force } = parseArgs()
-  const targetConfig = TARGET_MAP[target]
-
+async function downloadSingleTarget(targetKey, force) {
+  const targetConfig = TARGET_MAP[targetKey]
   if (!targetConfig) {
-    throw new Error(
-      `Unknown or unsupported target triple: "${target}". Supported targets: ${Object.keys(
-        TARGET_MAP,
-      ).join(', ')}`,
-    )
-  }
-
-  await fsp.mkdir(BINARIES_DIR, { recursive: true })
-  const gitkeepPath = path.join(BINARIES_DIR, '.gitkeep')
-  if (!fs.existsSync(gitkeepPath)) {
-    await fsp.writeFile(gitkeepPath, '')
+    throw new Error(`Unsupported target key: ${targetKey}`)
   }
 
   const destinationPath = path.join(BINARIES_DIR, targetConfig.targetFile)
@@ -163,9 +155,9 @@ async function main() {
       console.log(
         `[dev-sidecar] Target binary already exists at ${destinationPath} (${(
           stat.size / 1024 / 1024
-        ).toFixed(2)} MB), skipping. Use --force to re-download.`,
+        ).toFixed(2)} MB), skipping.`,
       )
-      return
+      return destinationPath
     }
   }
 
@@ -212,9 +204,71 @@ async function main() {
     console.log(
       `[dev-sidecar] Successfully installed sidecar binary to: ${destinationPath}`,
     )
+    return destinationPath
   } finally {
     await fsp.rm(TEMP_DIR, { recursive: true, force: true }).catch(() => {})
   }
+}
+
+async function main() {
+  const { target, force } = parseArgs()
+  const targetConfig = TARGET_MAP[target]
+
+  if (!targetConfig) {
+    throw new Error(
+      `Unknown or unsupported target triple: "${target}". Supported targets: ${Object.keys(
+        TARGET_MAP,
+      ).join(', ')}`,
+    )
+  }
+
+  await fsp.mkdir(BINARIES_DIR, { recursive: true })
+  const gitkeepPath = path.join(BINARIES_DIR, '.gitkeep')
+  if (!fs.existsSync(gitkeepPath)) {
+    await fsp.writeFile(gitkeepPath, '')
+  }
+
+  if (target === 'universal-apple-darwin') {
+    const destinationPath = path.join(BINARIES_DIR, targetConfig.targetFile)
+    if (!force && fs.existsSync(destinationPath)) {
+      const stat = await fsp.stat(destinationPath)
+      if (stat.size > 1024 * 1024) {
+        console.log(
+          `[dev-sidecar] Universal binary already exists at ${destinationPath} (${(
+            stat.size / 1024 / 1024
+          ).toFixed(2)} MB), skipping. Use --force to re-download.`,
+        )
+        return
+      }
+    }
+
+    console.log(
+      '[dev-sidecar] Preparing universal macOS binary (x86_64 + aarch64)...',
+    )
+    const x86Path = await downloadSingleTarget('x86_64-apple-darwin', force)
+    const armPath = await downloadSingleTarget('aarch64-apple-darwin', force)
+
+    try {
+      execSync(
+        `lipo -create -output "${destinationPath}" "${x86Path}" "${armPath}"`,
+      )
+      console.log(
+        `[dev-sidecar] lipo created universal binary at: ${destinationPath}`,
+      )
+    } catch (err) {
+      console.warn(
+        `[dev-sidecar] lipo failed or unavailable (${err.message}). Falling back to arm64 slice.`,
+      )
+      await fsp.copyFile(armPath, destinationPath)
+    }
+
+    if (process.platform !== 'win32') {
+      await fsp.chmod(destinationPath, 0o755)
+    }
+    return
+  }
+
+  await downloadSingleTarget(target, force)
 }
 
 main().catch((err) => {

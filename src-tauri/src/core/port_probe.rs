@@ -228,11 +228,19 @@ mod tests {
         assert!(!is_port_available_with_lan(port, true, None));
 
         drop(listener);
-        std::thread::sleep(std::time::Duration::from_millis(100));
 
-        assert!(is_port_available(port));
-        assert!(is_port_available_with_lan(port, false, None));
-        assert!(is_port_available_with_lan(port, true, None));
+        let mut available = false;
+        for _ in 0..15 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if is_port_available(port)
+                && is_port_available_with_lan(port, false, None)
+                && is_port_available_with_lan(port, true, None)
+            {
+                available = true;
+                break;
+            }
+        }
+        assert!(available, "Port {} should become available after dropping listener", port);
     }
 
     #[test]

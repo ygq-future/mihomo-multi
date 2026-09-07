@@ -172,9 +172,14 @@ pub fn match_platform_assets(
             let is_mac = name_lower.contains("darwin") || name_lower.contains("mac") || name_lower.ends_with(".dmg");
             if is_mac {
                 #[cfg(target_arch = "aarch64")]
-                let arch_match = name_lower.contains("arm64") || name_lower.contains("aarch64");
+                let arch_match = name_lower.contains("arm64")
+                    || name_lower.contains("aarch64")
+                    || name_lower.contains("universal");
                 #[cfg(target_arch = "x86_64")]
-                let arch_match = name_lower.contains("x64") || name_lower.contains("x86_64") || name_lower.contains("intel");
+                let arch_match = name_lower.contains("x64")
+                    || name_lower.contains("x86_64")
+                    || name_lower.contains("intel")
+                    || name_lower.contains("universal");
 
                 if arch_match {
                     let package_type = if name_lower.ends_with(".dmg") {
@@ -507,14 +512,39 @@ mod tests {
     fn test_match_platform_assets() {
         let assets = vec![
             GitHubReleaseAsset {
-                name: "mihomo-multi-setup-1.0.1.exe".to_string(),
-                browser_download_url: "https://example.com/setup.exe".to_string(),
+                name: "mihomo-multi_1.0.0_x64-setup.exe".to_string(),
+                browser_download_url: "https://example.com/mihomo-multi_1.0.0_x64-setup.exe".to_string(),
                 size: 20000000,
             },
             GitHubReleaseAsset {
-                name: "mihomo-multi-portable-1.0.1-windows-x64.zip".to_string(),
-                browser_download_url: "https://example.com/portable.zip".to_string(),
+                name: "mihomo-multi_1.0.0_windows-x64-portable.zip".to_string(),
+                browser_download_url: "https://example.com/mihomo-multi_1.0.0_windows-x64-portable.zip".to_string(),
                 size: 15000000,
+            },
+            GitHubReleaseAsset {
+                name: "mihomo-multi_1.0.0_x64_en-US.msi".to_string(),
+                browser_download_url: "https://example.com/mihomo-multi_1.0.0_x64_en-US.msi".to_string(),
+                size: 22000000,
+            },
+            GitHubReleaseAsset {
+                name: "mihomo-multi_1.0.0_aarch64.dmg".to_string(),
+                browser_download_url: "https://example.com/mihomo-multi_1.0.0_aarch64.dmg".to_string(),
+                size: 18000000,
+            },
+            GitHubReleaseAsset {
+                name: "mihomo-multi_1.0.0_universal.dmg".to_string(),
+                browser_download_url: "https://example.com/mihomo-multi_1.0.0_universal.dmg".to_string(),
+                size: 35000000,
+            },
+            GitHubReleaseAsset {
+                name: "mihomo-multi_1.0.0_amd64.deb".to_string(),
+                browser_download_url: "https://example.com/mihomo-multi_1.0.0_amd64.deb".to_string(),
+                size: 19000000,
+            },
+            GitHubReleaseAsset {
+                name: "mihomo-multi_1.0.0_linux-x64.tar.gz".to_string(),
+                browser_download_url: "https://example.com/mihomo-multi_1.0.0_linux-x64.tar.gz".to_string(),
+                size: 16000000,
             },
         ];
 
@@ -522,7 +552,7 @@ mod tests {
         assert!(!all.is_empty());
         #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
         {
-            assert_eq!(all.len(), 2);
+            assert_eq!(all.len(), 3);
             assert_eq!(
                 recommended_installer.as_ref().map(|a| &a.package_type),
                 Some(&AppPackageType::Installer)
@@ -534,5 +564,5 @@ mod tests {
                 Some(&AppPackageType::Portable)
             );
         }
-    }
+}
 }
