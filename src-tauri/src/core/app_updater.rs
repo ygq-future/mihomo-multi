@@ -542,6 +542,11 @@ mod tests {
                 size: 19000000,
             },
             GitHubReleaseAsset {
+                name: "mihomo-multi_1.0.0_amd64.AppImage".to_string(),
+                browser_download_url: "https://example.com/mihomo-multi_1.0.0_amd64.AppImage".to_string(),
+                size: 21000000,
+            },
+            GitHubReleaseAsset {
                 name: "mihomo-multi_1.0.0_linux-x64.tar.gz".to_string(),
                 browser_download_url: "https://example.com/mihomo-multi_1.0.0_linux-x64.tar.gz".to_string(),
                 size: 16000000,
