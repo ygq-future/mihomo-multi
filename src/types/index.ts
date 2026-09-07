@@ -165,6 +165,39 @@ export interface UwpLoopbackStats {
   totalCount: number
 }
 
+export interface AppUpdateAsset {
+  name: string
+  downloadUrl: string
+  size: number
+  packageType: 'installer' | 'portable'
+}
+
+export interface AppUpdateCheckResult {
+  currentVersion: string
+  latestVersion: string
+  hasUpdate: boolean
+  releaseName?: string | null
+  releaseNotes?: string | null
+  releaseUrl?: string | null
+  publishedAt?: string | null
+  asset?: AppUpdateAsset | null
+  availableAssets: AppUpdateAsset[]
+  isInstalled: boolean
+}
+
+export interface AppUpdateProgressPayload {
+  percentage: number
+  downloadedBytes: number
+  totalBytes: number
+  stage: string
+}
+
+export interface AppUpdateInstallResult {
+  packageType: string
+  filePath: string
+  message: string
+}
+
 export interface AppStatus {
   core: CoreStatus
   totalPorts: number

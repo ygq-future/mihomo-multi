@@ -25,11 +25,18 @@ import {
   Upload,
   X,
 } from 'lucide-react'
+import { listen } from '@tauri-apps/api/event'
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { APP_NAME, APP_VERSION, GITHUB_REPO_URL } from '../../constants'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
-import type { KernelUpdateCheckResult, UwpLoopbackStats } from '../../types'
+import type {
+  AppUpdateCheckResult,
+  AppUpdateProgressPayload,
+  KernelUpdateCheckResult,
+  UwpLoopbackStats,
+} from '../../types'
 import { formatUptime } from '../../utils/time'
 import {
   Badge,
@@ -207,6 +214,30 @@ export const SettingView: React.FC = () => {
   const [defaultBypassList, setDefaultBypassList] = useState<string[]>([])
   const [uwpStats, setUwpStats] = useState<UwpLoopbackStats | null>(null)
   const [uwpLoading, setUwpLoading] = useState<boolean>(false)
+  // Software Update State
+  const [checkingAppUpdate, setCheckingAppUpdate] = useState<boolean>(false)
+  const [downloadingAppUpdate, setDownloadingAppUpdate] =
+    useState<boolean>(false)
+  const [appUpdateInfo, setAppUpdateInfo] =
+    useState<AppUpdateCheckResult | null>(null)
+  const [appUpdateProgress, setAppUpdateProgress] =
+    useState<AppUpdateProgressPayload | null>(null)
+  const [selectedAssetUrl, setSelectedAssetUrl] = useState<string>('')
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    listen<AppUpdateProgressPayload>('app-update-progress', (event) => {
+      setAppUpdateProgress(event.payload)
+    })
+      .then((fn) => {
+        unlisten = fn
+      })
+      .catch(() => {})
+
+    return () => {
+      if (unlisten) unlisten()
+    }
+  }, [])
 
   useEffect(() => {
     api
@@ -388,6 +419,63 @@ export const SettingView: React.FC = () => {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setUpgradingKernel(false)
+    }
+  }
+
+  const handleCheckAppUpdate = async () => {
+    setCheckingAppUpdate(true)
+    try {
+      const res = await api.checkAppUpdate()
+      setAppUpdateInfo(res)
+      if (res.asset) {
+        setSelectedAssetUrl(res.asset.downloadUrl)
+      } else if (res.availableAssets.length > 0) {
+        setSelectedAssetUrl(res.availableAssets[0].downloadUrl)
+      }
+      if (res.hasUpdate) {
+        toast.info(`检测到软件新版本：v${res.latestVersion}`)
+      } else {
+        toast.success(`当前已是最新版本 (v${res.currentVersion})`)
+      }
+    } catch (err) {
+      toast.error(
+        `检查软件更新失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    } finally {
+      setCheckingAppUpdate(false)
+    }
+  }
+
+  const handleInstallAppUpdate = async () => {
+    if (!appUpdateInfo) return
+    const asset =
+      appUpdateInfo.availableAssets.find(
+        (a) => a.downloadUrl === selectedAssetUrl,
+      ) || appUpdateInfo.asset
+
+    if (!asset) {
+      toast.error('未找到适配当前平台的更新文件')
+      return
+    }
+
+    setDownloadingAppUpdate(true)
+    try {
+      const res = await api.installAppUpdate(
+        asset.downloadUrl,
+        asset.name,
+        asset.packageType,
+      )
+      if (asset.packageType === 'installer') {
+        toast.success(res.message || '安装程序已启动，正在关闭旧程序...')
+      } else {
+        toast.success(res.message || '便携包下载完成')
+      }
+    } catch (err) {
+      toast.error(
+        `更新失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    } finally {
+      setDownloadingAppUpdate(false)
     }
   }
 
@@ -1648,6 +1736,267 @@ export const SettingView: React.FC = () => {
             {appDataDir || '正在读取...'}
           </div>
         </div>
+      </div>
+
+      {/* 5. Software About & Update Card */}
+      <div className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-border gap-3">
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-foreground">
+                  软件关于与更新 (About & Update)
+                </h3>
+                <Badge variant="primary" size="sm" className="font-mono">
+                  v{APP_VERSION}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {APP_NAME} 极简多端口代理桌面客户端，支持一键检测并从 GitHub
+                下载适配安装包或便携包
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href={GITHUB_REPO_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex"
+            >
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<ExternalLink className="w-3.5 h-3.5" />}
+              >
+                GitHub 仓库
+              </Button>
+            </a>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={checkingAppUpdate || downloadingAppUpdate}
+              onClick={handleCheckAppUpdate}
+              icon={
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${
+                    checkingAppUpdate ? 'animate-spin' : ''
+                  }`}
+                />
+              }
+            >
+              {checkingAppUpdate ? '检查中...' : '检查软件更新'}
+            </Button>
+          </div>
+        </div>
+
+        {/* Status / Overview */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
+            <span className="text-muted-foreground">当前运行版本</span>
+            <div className="font-mono font-medium text-foreground">
+              v{APP_VERSION}
+            </div>
+          </div>
+          <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
+            <span className="text-muted-foreground">部署形态</span>
+            <div className="font-medium text-foreground">
+              {appUpdateInfo ? (
+                appUpdateInfo.isInstalled ? (
+                  <Badge variant="secondary" size="sm">
+                    安装版 (Installer)
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" size="sm">
+                    便携版 (Portable)
+                  </Badge>
+                )
+              ) : (
+                '便携 / 安装版'
+              )}
+            </div>
+          </div>
+          <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
+            <span className="text-muted-foreground">最新发行版本</span>
+            <div className="font-mono font-medium text-foreground">
+              {appUpdateInfo ? `v${appUpdateInfo.latestVersion}` : '未检查'}
+            </div>
+          </div>
+          <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
+            <span className="text-muted-foreground">更新状态</span>
+            <div className="font-medium text-foreground">
+              {appUpdateInfo ? (
+                appUpdateInfo.hasUpdate ? (
+                  <Badge variant="warning" size="sm">
+                    有新版本可用
+                  </Badge>
+                ) : (
+                  <Badge variant="success" size="sm">
+                    已是最新版本
+                  </Badge>
+                )
+              ) : (
+                '待检查'
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Update Available Banner & Downloader */}
+        {appUpdateInfo && appUpdateInfo.hasUpdate && (
+          <div className="p-4 rounded-xl bg-primary/10 border border-primary/20 space-y-4 text-xs animate-in fade-in">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2 font-medium text-primary">
+                  <Sparkles className="w-4 h-4 shrink-0" />
+                  <span className="text-sm font-semibold">
+                    发现新版本：v{appUpdateInfo.latestVersion}
+                  </span>
+                  {appUpdateInfo.releaseName && (
+                    <span className="text-xs text-muted-foreground">
+                      ({appUpdateInfo.releaseName})
+                    </span>
+                  )}
+                </div>
+                {appUpdateInfo.publishedAt && (
+                  <p className="text-[11px] text-muted-foreground">
+                    发布时间：
+                    {new Date(appUpdateInfo.publishedAt).toLocaleString()}
+                  </p>
+                )}
+              </div>
+
+              {appUpdateInfo.releaseUrl && (
+                <a
+                  href={appUpdateInfo.releaseUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex shrink-0"
+                >
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    icon={<ExternalLink className="w-3.5 h-3.5" />}
+                  >
+                    查看 Release 说明
+                  </Button>
+                </a>
+              )}
+            </div>
+
+            {/* Asset Selection (if multiple) */}
+            {appUpdateInfo.availableAssets.length > 1 && (
+              <div className="space-y-1.5 pt-1 border-t border-primary/15">
+                <label className="text-xs font-medium text-foreground">
+                  选择下载资产格式：
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {appUpdateInfo.availableAssets.map((asset) => (
+                    <button
+                      type="button"
+                      key={asset.downloadUrl}
+                      onClick={() => setSelectedAssetUrl(asset.downloadUrl)}
+                      className={`flex items-center justify-between p-2.5 rounded-lg border text-left transition-all ${
+                        selectedAssetUrl === asset.downloadUrl
+                          ? 'border-primary bg-primary/15 text-primary'
+                          : 'border-border bg-background/50 hover:border-border/80 text-muted-foreground'
+                      }`}
+                    >
+                      <div className="space-y-0.5 min-w-0 pr-2">
+                        <div className="font-mono text-xs font-medium truncate">
+                          {asset.name}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {asset.packageType === 'installer'
+                            ? '安装包（自动运行并关闭旧进程）'
+                            : '便携包（下载至根目录供解压）'}
+                        </div>
+                      </div>
+                      <Badge
+                        variant="secondary"
+                        size="sm"
+                        className="shrink-0 font-mono text-[10px]"
+                      >
+                        {(asset.size / 1024 / 1024).toFixed(1)} MB
+                      </Badge>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Single Asset info if only 1 */}
+            {appUpdateInfo.availableAssets.length === 1 &&
+              appUpdateInfo.asset && (
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-background/50 border border-border text-xs">
+                  <div className="space-y-0.5">
+                    <div className="font-mono font-medium text-foreground">
+                      {appUpdateInfo.asset.name}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {appUpdateInfo.asset.packageType === 'installer'
+                        ? '安装程序包：下载后自动启动安装并退出旧进程'
+                        : '便携压缩包：下载后保存至软件根目录并打开文件夹'}
+                    </div>
+                  </div>
+                  <Badge variant="secondary" size="sm" className="font-mono">
+                    {(appUpdateInfo.asset.size / 1024 / 1024).toFixed(1)} MB
+                  </Badge>
+                </div>
+              )}
+
+            {/* Release notes */}
+            {appUpdateInfo.releaseNotes && (
+              <div className="space-y-1 pt-1 border-t border-primary/15">
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  更新说明 (Release Notes)：
+                </span>
+                <div className="p-3 rounded-lg bg-background/70 border border-border max-h-36 overflow-y-auto font-mono text-[11px] text-foreground/90 whitespace-pre-wrap leading-relaxed select-text">
+                  {appUpdateInfo.releaseNotes}
+                </div>
+              </div>
+            )}
+
+            {/* Download Progress or Action */}
+            {downloadingAppUpdate ? (
+              <div className="space-y-2 pt-2 border-t border-primary/15">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-primary">
+                    {appUpdateProgress?.stage === 'ready'
+                      ? '下载完成，正在处理中...'
+                      : '正在下载更新包...'}
+                  </span>
+                  <span className="font-mono text-muted-foreground">
+                    {appUpdateProgress
+                      ? `${(appUpdateProgress.downloadedBytes / 1024 / 1024).toFixed(1)} MB / ${(appUpdateProgress.totalBytes / 1024 / 1024).toFixed(1)} MB (${appUpdateProgress.percentage}%)`
+                      : '准备中...'}
+                  </span>
+                </div>
+                <div className="w-full bg-background/80 rounded-full h-2 overflow-hidden border border-border">
+                  <div
+                    className="bg-primary h-2 rounded-full transition-all duration-150"
+                    style={{
+                      width: `${appUpdateProgress?.percentage ?? 0}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex justify-end pt-2 border-t border-primary/15">
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={handleInstallAppUpdate}
+                  icon={<Download className="w-4 h-4" />}
+                >
+                  立即下载并更新
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

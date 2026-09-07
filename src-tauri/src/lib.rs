@@ -1,6 +1,7 @@
 #![allow(linker_messages)]
 
 pub mod commands;
+pub mod constants;
 pub mod core;
 pub mod error;
 pub mod models;
@@ -134,6 +135,8 @@ pub fn run() {
             get_lan_ip_addresses,
             check_kernel_update,
             upgrade_kernel,
+            check_app_update,
+            install_app_update,
             set_system_proxy,
             get_system_proxy_status,
             get_default_bypass_list,

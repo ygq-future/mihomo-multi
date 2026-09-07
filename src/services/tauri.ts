@@ -16,7 +16,10 @@ import type {
   ProxyNode,
   SystemProxyStatus,
   UwpLoopbackStats,
+  AppUpdateCheckResult,
+  AppUpdateInstallResult,
 } from '../types'
+import { APP_VERSION } from '../constants'
 
 function isTauriEnvironment(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -38,7 +41,7 @@ export async function getAppStatus(): Promise<AppStatus> {
       activePorts: 0,
       totalProfiles: 0,
       totalNodes: 0,
-      version: '0.1.0',
+      version: APP_VERSION,
     }
   }
   return invoke<AppStatus>('get_app_status')
@@ -527,6 +530,64 @@ export async function upgradeKernel(): Promise<KernelUpgradeResult> {
   return invoke<KernelUpgradeResult>('upgrade_kernel')
 }
 
+export async function checkAppUpdate(): Promise<AppUpdateCheckResult> {
+  if (!isTauriEnvironment()) {
+    return {
+      currentVersion: APP_VERSION,
+      latestVersion: APP_VERSION,
+      hasUpdate: false,
+      releaseName: 'Mihomo Multi v1.0.0 (Mock)',
+      releaseNotes: 'Mock release notes: Initial stable release.',
+      releaseUrl: 'https://github.com/ygq-future/mihomo-multi/releases',
+      publishedAt: '2026-09-07T00:00:00Z',
+      asset: {
+        name: 'mihomo-multi-setup-1.0.0.exe',
+        downloadUrl:
+          'https://github.com/ygq-future/mihomo-multi/releases/download/v1.0.0/mihomo-multi-setup-1.0.0.exe',
+        size: 15728640,
+        packageType: 'installer',
+      },
+      availableAssets: [
+        {
+          name: 'mihomo-multi-setup-1.0.0.exe',
+          downloadUrl:
+            'https://github.com/ygq-future/mihomo-multi/releases/download/v1.0.0/mihomo-multi-setup-1.0.0.exe',
+          size: 15728640,
+          packageType: 'installer',
+        },
+        {
+          name: 'mihomo-multi-portable-1.0.0.zip',
+          downloadUrl:
+            'https://github.com/ygq-future/mihomo-multi/releases/download/v1.0.0/mihomo-multi-portable-1.0.0.zip',
+          size: 12582912,
+          packageType: 'portable',
+        },
+      ],
+      isInstalled: true,
+    }
+  }
+  return invoke<AppUpdateCheckResult>('check_app_update')
+}
+
+export async function installAppUpdate(
+  downloadUrl: string,
+  fileName: string,
+  packageType: string,
+): Promise<AppUpdateInstallResult> {
+  if (!isTauriEnvironment()) {
+    return {
+      packageType,
+      filePath: 'mock/path/update',
+      message: 'Mock: Update downloaded successfully',
+    }
+  }
+  return invoke<AppUpdateInstallResult>('install_app_update', {
+    downloadUrl,
+    fileName,
+    packageType,
+  })
+}
+
 export async function setSystemProxy(
   enabled: boolean,
   port?: number | null,
@@ -596,6 +657,7 @@ export async function getUwpLoopbackStatus(): Promise<UwpLoopbackStats> {
       totalCount: isWindows ? 129 : 0,
     }
   }
+  return invoke<UwpLoopbackStats>('get_uwp_loopback_status')
 }
 
 export async function exemptAllUwpLoopback(): Promise<UwpLoopbackStats> {

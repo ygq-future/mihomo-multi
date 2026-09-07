@@ -27,7 +27,7 @@ pub async fn get_app_status(state: State<'_, AppState>) -> Result<AppStatus, Str
         active_ports,
         total_profiles,
         total_nodes,
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: crate::constants::APP_VERSION.to_string(),
     })
 }
 
@@ -1056,6 +1056,32 @@ pub async fn upgrade_kernel(
 
     crate::tray::update_tray_menu(&app);
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn check_app_update() -> Result<crate::core::app_updater::AppUpdateCheckResult, String> {
+    crate::core::app_updater::check_app_update()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn install_app_update(
+    app: AppHandle,
+    download_url: String,
+    file_name: String,
+    package_type: String,
+    state: State<'_, AppState>,
+) -> Result<crate::core::app_updater::AppUpdateInstallResult, String> {
+    crate::core::app_updater::download_and_install_update(
+        &app,
+        &download_url,
+        &file_name,
+        &package_type,
+        &state,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

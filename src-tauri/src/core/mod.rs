@@ -1,3 +1,4 @@
+pub mod app_updater;
 pub mod auto_updater;
 pub mod autostart;
 pub mod clash_client;

@@ -1,6 +1,6 @@
 [package]
 name = "mihomo-multi"
-version = "0.1.0"
+version = "1.0.0"
 description = "High-performance multi-port proxy listener client based on Mihomo"
 authors = ["sheepyu"]
 edition = "2024"
