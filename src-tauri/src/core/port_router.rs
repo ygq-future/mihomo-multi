@@ -456,6 +456,43 @@ impl PortRouter {
 
         Ok(target)
     }
+    pub async fn toggle_manual_fallback(&self, id: &str, manual_fallback: bool) -> AppResult<PortMapping> {
+        let mut target = self
+            .get_port_mapping_by_id(id)
+            .ok_or_else(|| AppError::PortMappingNotFound(format!("Port mapping with ID '{}' not found", id)))?;
+
+        if target
+            .fallback_node_name
+            .as_ref()
+            .is_none_or(|fb| fb.trim().is_empty())
+        {
+            return Err(AppError::InvalidConfig(
+                "该端口未配置备用节点，无法切换备用模式".to_string(),
+            ));
+        }
+
+        target.manual_fallback = manual_fallback;
+
+        {
+            let mut guard = self.ports.write();
+            if let Some(pos) = guard.iter().position(|p| p.id == id) {
+                guard[pos].manual_fallback = manual_fallback;
+            }
+        }
+
+        self.persist_metadata()?;
+        info!(
+            "Port mapping '{}' on port {} toggled manual_fallback={}",
+            id, target.port, manual_fallback
+        );
+
+        self.sync_delegate
+            .on_ports_changed(&PortChangeEvent::Saved(target.clone()))
+            .await?;
+
+        Ok(target)
+    }
+
 
     pub fn update_port_latency(&self, id: &str, latency: Option<u32>) -> AppResult<()> {
         let mut found = false;
@@ -532,6 +569,7 @@ mod tests {
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
+            manual_fallback: false,
             enabled,
             latency: None,
             description: Some(format!("Test Port {}", port)),

@@ -14,11 +14,7 @@ import { useEffect, useMemo, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import type { LanIpInfo, PortDriftReport, PortMapping } from '../../types'
-import {
-  extractRegion,
-  getLatencyBadgeProps,
-  getProtocolBadgeProps,
-} from '../../utils/proxy'
+import { extractRegion, getLatencyBadgeProps } from '../../utils/proxy'
 import {
   Badge,
   Button,
@@ -46,7 +42,9 @@ export const PortTableView: React.FC = () => {
     fetchPortMappings,
     deletePortMapping,
     togglePortMapping,
+    toggleManualFallback,
     testPortDelay,
+    testPortFallbackDelay,
     testAllPortsDelay,
     fetchStatus,
     profiles,
@@ -54,6 +52,7 @@ export const PortTableView: React.FC = () => {
     profileNodes,
     fetchProfileNodes,
     latencies,
+    testingFbPortIds,
     fallbackStatuses,
     fetchFallbackStatuses,
   } = useAppStore()
@@ -323,6 +322,30 @@ export const PortTableView: React.FC = () => {
     }
   }
 
+  const handleSingleFallbackDelayTest = async (id: string, port: number) => {
+    const latency = await testPortFallbackDelay(id)
+    if (latency !== null && latency !== undefined) {
+      toast.success(`端口 ${port} 备用节点测速完成: ${latency} ms`)
+    }
+  }
+
+  const handleToggleManualFallback = async (
+    id: string,
+    currentManual: boolean,
+  ) => {
+    try {
+      const nextManual = !currentManual
+      await toggleManualFallback(id, nextManual)
+      if (nextManual) {
+        toast.success('已主动启用备用节点')
+      } else {
+        toast.info('已恢复自动兜底模式')
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '切换备用模式失败')
+    }
+  }
+
   const handleBatchDelayTest = async () => {
     await testAllPortsDelay()
     toast.success('全部已启用端口测速完成')
@@ -504,14 +527,6 @@ export const PortTableView: React.FC = () => {
                     ? 'warning'
                     : 'secondary'
 
-              // 2. Bound proxy node network protocol (Vmess / Hy2 / SS / Trojan etc.)
-              const node = (profileNodes[m.profileId] || []).find(
-                (n) => n.name === m.nodeName,
-              )
-              const nodeProtocolProps = getProtocolBadgeProps(
-                node?.type || 'unknown',
-              )
-
               // State warning priorities:
               // 1. Highest: Kernel Stopped Warning (Amber)
               const isStoppedWarning = !isRunning && m.enabled
@@ -521,10 +536,17 @@ export const PortTableView: React.FC = () => {
               // 3. Fallback Degraded Warning (Amber)
               const fbStatus = fallbackStatuses[m.id]
               const hasFallback = Boolean(m.fallbackNodeName)
-              const isFallbackActive = fbStatus?.isFallbackActive ?? false
+              const isManualFallback = m.manualFallback ?? false
+              const isAutoFallbackActive =
+                !isManualFallback &&
+                Boolean(fbStatus?.isFallbackActive && !fbStatus?.manualFallback)
+              const isPrimaryTimeout = latency === null || isAutoFallbackActive
               const isFallbackWarning =
-                isRunning && m.enabled && hasFallback && isFallbackActive
-
+                isRunning &&
+                m.enabled &&
+                hasFallback &&
+                !isManualFallback &&
+                isPrimaryTimeout
               const fbProfileName =
                 (m.fallbackProfileId && profileMap[m.fallbackProfileId]) ||
                 profileName
@@ -540,8 +562,12 @@ export const PortTableView: React.FC = () => {
                     ? latencies[m.fallbackNodeName]
                     : undefined
                 : undefined
-              const fbLatencyProps = getLatencyBadgeProps(fbLatency, isTesting)
-
+              const isTestingFb =
+                testingFbPortIds[m.id] || isTestingAllPorts || false
+              const fbLatencyProps = getLatencyBadgeProps(
+                fbLatency,
+                isTestingFb,
+              )
               return (
                 <div
                   key={m.id}
@@ -661,11 +687,7 @@ export const PortTableView: React.FC = () => {
                           </span>
                         )}
                         <span
-                          className={`truncate flex-1 font-semibold ${
-                            isFallbackActive
-                              ? 'text-muted-foreground line-through decoration-amber-500/60'
-                              : ''
-                          }`}
+                          className="truncate flex-1 font-semibold text-foreground"
                           title={
                             profileName
                               ? `[${profileName}] ${m.nodeName}`
@@ -674,17 +696,6 @@ export const PortTableView: React.FC = () => {
                         >
                           {m.nodeName}
                         </span>
-                        {isFallbackActive && (
-                          <Badge
-                            variant="warning"
-                            size="sm"
-                            dot
-                            className="!text-[10px] !py-0.5 !px-1.5 shrink-0 animate-pulse"
-                            title="主节点连接超时或网络异常，已自动切换至备用节点"
-                          >
-                            主节点异常
-                          </Badge>
-                        )}
                         {isDrifted && (
                           <Badge
                             variant={
@@ -709,31 +720,55 @@ export const PortTableView: React.FC = () => {
                         )}
                       </div>
 
-                      {/* Node Network Protocol Badge (Vmess, Hysteria2, Shadowsocks etc.) */}
-                      {node?.type && (
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 ${nodeProtocolProps.className}`}
-                        >
-                          {nodeProtocolProps.label}
-                        </span>
-                      )}
+                      {/* Main Node Status Badge (正常 / 异常) */}
+                      <Badge
+                        variant={isPrimaryTimeout ? 'danger' : 'success'}
+                        size="sm"
+                        dot
+                        className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
+                        title={
+                          isPrimaryTimeout
+                            ? '主节点连接超时或网络异常'
+                            : '主节点状态正常'
+                        }
+                      >
+                        {isPrimaryTimeout ? '异常' : '正常'}
+                      </Badge>
                     </div>
 
-                    {/* Fallback Node Row */}
+                    {/* Fallback Node Row (Clickable to manually lock fallback) */}
                     {hasFallback && (
-                      <div
-                        className={`flex items-center justify-between gap-1.5 text-[11px] px-2 py-1 rounded-md border transition-all ${
-                          isFallbackActive
-                            ? 'bg-amber-500/10 border-amber-500/30 text-foreground'
-                            : 'bg-muted/20 border-dashed border-border/80 text-muted-foreground'
+                      <button
+                        type="button"
+                        disabled={isAutoFallbackActive}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (isAutoFallbackActive) return
+                          handleToggleManualFallback(m.id, isManualFallback)
+                        }}
+                        className={`w-full flex items-center justify-between gap-1.5 text-[11px] px-2 py-1 rounded-md border select-none transition-all ${
+                          isManualFallback
+                            ? 'bg-primary/10 border-primary/40 text-foreground cursor-pointer hover:border-primary/70 hover:bg-primary/15 group/fb'
+                            : isAutoFallbackActive
+                              ? 'bg-amber-500/10 border-amber-500/30 text-foreground cursor-not-allowed opacity-90'
+                              : 'bg-muted/20 border-dashed border-border/80 text-muted-foreground cursor-pointer hover:border-primary/50 hover:bg-primary/5 hover:text-foreground group/fb'
                         }`}
+                        title={
+                          isManualFallback
+                            ? '当前已主动启用备用节点（点击取消并恢复自动兜底模式）'
+                            : isAutoFallbackActive
+                              ? '主节点连接超时，系统已自动切换至备用节点兜底（主节点故障时无需手动指定）'
+                              : '点击主动启用备用节点（锁定流量至备用节点，测速超时也不切回）'
+                        }
                       >
                         <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
                           <ShieldCheck
                             className={`w-3 h-3 shrink-0 ${
-                              isFallbackActive
-                                ? 'text-emerald-500 animate-pulse'
-                                : 'text-muted-foreground/60'
+                              isManualFallback
+                                ? 'text-primary animate-pulse'
+                                : isAutoFallbackActive
+                                  ? 'text-amber-500 animate-pulse'
+                                  : 'text-muted-foreground/60 group-hover/fb:text-primary'
                             }`}
                           />
                           {fbProfileName && (
@@ -760,21 +795,39 @@ export const PortTableView: React.FC = () => {
                           </span>
                         </div>
 
-                        {isFallbackActive ? (
+                        {isManualFallback ? (
                           <Badge
                             variant="primary"
                             size="sm"
                             dot
-                            className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 animate-pulse font-medium"
+                            className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-primary/20 text-primary border-primary/40 font-medium animate-pulse group-hover/fb:bg-primary/30"
                           >
-                            兜底接管中
+                            <span className="group-hover/fb:hidden">
+                              已主动锁定
+                            </span>
+                            <span className="hidden group-hover/fb:inline">
+                              点击恢复自动
+                            </span>
+                          </Badge>
+                        ) : isAutoFallbackActive ? (
+                          <Badge
+                            variant="warning"
+                            size="sm"
+                            dot
+                            className="!text-[9px] !py-0 !px-1.5 shrink-0 animate-pulse"
+                            title="主节点超时，系统已自动切换至备用节点兜底"
+                          >
+                            自动兜底中
                           </Badge>
                         ) : (
-                          <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0 bg-secondary/80 px-1 rounded">
-                            待命
+                          <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0 bg-secondary/80 px-1.5 py-0.5 rounded transition-colors group-hover/fb:text-primary group-hover/fb:bg-primary/10">
+                            <span className="group-hover/fb:hidden">待命</span>
+                            <span className="hidden group-hover/fb:inline">
+                              点击主动启用
+                            </span>
                           </span>
                         )}
-                      </div>
+                      </button>
                     )}
                     {m.description?.trim() && (
                       <div
@@ -797,7 +850,7 @@ export const PortTableView: React.FC = () => {
                         className="focus:outline-none flex items-center"
                         title={
                           hasFallback
-                            ? '点击单端口测速 (同时测试主备节点)'
+                            ? '点击单端口测速 (同时测速主节点与备用节点)'
                             : '点击单端口测速'
                         }
                       >
@@ -824,25 +877,34 @@ export const PortTableView: React.FC = () => {
                       </button>
 
                       {hasFallback && (
-                        <Badge
-                          variant={fbLatencyProps.variant}
-                          size="sm"
-                          dot={fbLatencyProps.dot}
-                          className="font-mono !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1"
-                          title={`Fallback 备用节点 (${m.fallbackNodeName}) 延迟`}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleSingleFallbackDelayTest(m.id, m.port)
+                          }
+                          disabled={!m.enabled || isTestingFb}
+                          className="focus:outline-none flex items-center"
+                          title={`点击单独测试备用节点 (${m.fallbackNodeName}) 延迟`}
                         >
-                          <span className="font-sans font-semibold text-[9px] opacity-75">
-                            备
-                          </span>
-                          {isTesting ? (
-                            <span className="flex items-center gap-1">
-                              <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                              测速中
+                          <Badge
+                            variant={fbLatencyProps.variant}
+                            size="sm"
+                            dot={fbLatencyProps.dot}
+                            className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1"
+                          >
+                            <span className="font-sans font-semibold text-[9px] opacity-75">
+                              备
                             </span>
-                          ) : (
-                            fbLatencyProps.label
-                          )}
-                        </Badge>
+                            {isTestingFb ? (
+                              <span className="flex items-center gap-1">
+                                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                测速中
+                              </span>
+                            ) : (
+                              fbLatencyProps.label
+                            )}
+                          </Badge>
+                        </button>
                       )}
                     </div>
                     {/* Actions Group */}

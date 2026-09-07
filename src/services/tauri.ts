@@ -181,6 +181,45 @@ export async function togglePortMapping(
   }
   return invoke<PortMapping>('toggle_port_mapping', { id, enabled })
 }
+export async function toggleManualFallback(
+  id: string,
+  manualFallback: boolean,
+): Promise<PortMapping> {
+  if (!isTauriEnvironment()) {
+    return {
+      id,
+      port: 7891,
+      protocol: 'mixed',
+      profileId: 'mock-profile',
+      nodeName: 'mock-node',
+      enabled: true,
+      bypassCn: true,
+      manualFallback,
+    }
+  }
+  return invoke<PortMapping>('toggle_manual_fallback', {
+    id,
+    manualFallback,
+  })
+}
+
+export async function testPortFallbackDelay(
+  id: string,
+  testUrl?: string,
+  timeoutMs?: number,
+): Promise<number> {
+  if (!isTauriEnvironment()) {
+    const { promise, resolve } = Promise.withResolvers<void>()
+    setTimeout(resolve, 200 + Math.random() * 300)
+    await promise
+    return Math.floor(25 + Math.random() * 120)
+  }
+  return invoke<number>('test_port_fallback_delay', {
+    id,
+    testUrl: testUrl || null,
+    timeoutMs: timeoutMs || null,
+  })
+}
 
 export async function testPortMappingDelay(
   id: string,

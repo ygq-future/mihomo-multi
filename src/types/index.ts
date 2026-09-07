@@ -25,6 +25,7 @@ export interface PortMapping {
   fallbackProfileId?: string | null
   fallbackNodeName?: string | null
   bypassCn: boolean
+  manualFallback?: boolean
 }
 
 export interface PortFallbackStatus {
@@ -34,6 +35,7 @@ export interface PortFallbackStatus {
   fallbackNode: string
   activeNode: string
   isFallbackActive: boolean
+  manualFallback?: boolean
   primaryLatency?: number | null
   fallbackLatency?: number | null
   lastUpdated: number

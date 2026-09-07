@@ -92,14 +92,9 @@ export const App: React.FC = () => {
 
       unlistenPortUpdated = await listen<PortMapping>(
         'port-mapping-updated',
-        (event) => {
-          const payload = event.payload
+        () => {
           fetchPortMappings().catch(() => {})
           fetchStatus().catch(() => {})
-          toast.info(
-            `端口 ${payload.port} 已在托盘切换为「${payload.enabled ? '启用' : '禁用'}」`,
-            '托盘端口状态更新',
-          )
         },
       )
 

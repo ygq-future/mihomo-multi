@@ -5,6 +5,7 @@ use tracing::{error, info, warn};
 
 struct PortRuntimeInfo {
     is_fallback_active: bool,
+    manual_fallback: bool,
     active_latency: Option<u32>,
 }
 
@@ -30,7 +31,8 @@ fn build_tray_menu_internal(
                 let has_fallback = m.fallback_node_name.as_ref().is_some_and(|fb| !fb.trim().is_empty());
 
                 let runtime_info = runtime_infos.get(&m.id);
-                let is_fallback_active = runtime_info.map(|r| r.is_fallback_active).unwrap_or(false);
+                let is_fallback_active = runtime_info.map(|r| r.is_fallback_active).unwrap_or(m.manual_fallback);
+                let is_manual = runtime_info.map(|r| r.manual_fallback).unwrap_or(m.manual_fallback);
 
                 // 节点列：只展示当前活动的节点
                 let node = if has_fallback && is_fallback_active {
@@ -47,7 +49,11 @@ fn build_tray_menu_internal(
                     "未运行"
                 } else if has_fallback {
                     if is_fallback_active {
-                        "正常(备)"
+                        if is_manual {
+                            "备(锁定)"
+                        } else {
+                            "备(兜底)"
+                        }
                     } else {
                         "正常(主)"
                     }
@@ -101,81 +107,147 @@ async fn query_runtime_infos(app: &AppHandle) -> std::collections::HashMap<Strin
     let engine = state.engine.clone();
 
     for m in mappings.into_iter().filter(|m| m.enabled) {
-        if let Some(fb) = &m.fallback_node_name
-            && !fb.trim().is_empty()
-        {
+        let has_fallback = m.fallback_node_name.as_ref().is_some_and(|fb| !fb.trim().is_empty());
+        let (is_fallback_active, manual_fallback) = if has_fallback && m.manual_fallback {
+            (true, true)
+        } else if has_fallback {
             let group_name = format!("fb-{}", m.port);
-            if let Ok(detail) = engine.get_proxy_detail(&group_name).await {
+            let active = if let Ok(detail) = engine.get_proxy_detail(&group_name).await {
                 let active_node = detail.now.unwrap_or_default();
-                let is_fallback_active = active_node.ends_with(fb);
-
-                let (target_node, target_profile_id) = if is_fallback_active {
-                    (
-                        fb.as_str(),
-                        m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id),
-                    )
-                } else {
-                    (m.node_name.as_str(), m.profile_id.as_str())
-                };
-                let target_runtime_name = if let Some(pname) = profile_map.get(target_profile_id) {
-                    format!("[{}] {}", pname, target_node)
-                } else {
-                    target_node.to_string()
-                };
-
-                let active_latency = engine
-                    .get_proxy_detail(&target_runtime_name)
-                    .await
-                    .ok()
-                    .and_then(|p| p.history.last().map(|h| h.delay))
-                    .filter(|&d| d > 0);
-
-                runtime_infos.insert(
-                    m.id,
-                    PortRuntimeInfo {
-                        is_fallback_active,
-                        active_latency,
-                    },
-                );
-                continue;
-            }
-        }
-
-        let primary_runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
-            format!("[{}] {}", pname, m.node_name)
+                let fb = m.fallback_node_name.as_deref().unwrap_or_default();
+                active_node.ends_with(fb)
+            } else {
+                false
+            };
+            (active, false)
         } else {
-            m.node_name.clone()
+            (false, false)
         };
 
-        if let Ok(p_detail) = engine.get_proxy_detail(&primary_runtime_name).await {
-            let active_latency = p_detail.history.last().map(|h| h.delay).filter(|&d| d > 0);
-            runtime_infos.insert(
-                m.id,
-                PortRuntimeInfo {
-                    is_fallback_active: false,
-                    active_latency,
-                },
-            );
-        }
+        let (target_node, target_profile_id) = if is_fallback_active {
+            (
+                m.fallback_node_name.as_deref().unwrap_or(&m.node_name),
+                m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id),
+            )
+        } else {
+            (m.node_name.as_str(), m.profile_id.as_str())
+        };
+
+        let target_runtime_name = if let Some(pname) = profile_map.get(target_profile_id) {
+            format!("[{}] {}", pname, target_node)
+        } else {
+            target_node.to_string()
+        };
+
+        // Latency resolution order:
+        // 1. Kernel history (if populated)
+        // 2. LatencyProbe cache by runtime name
+        // 3. LatencyProbe cache by node name
+        // 4. PortMapping latency
+        let kernel_latency = engine
+            .get_proxy_detail(&target_runtime_name)
+            .await
+            .ok()
+            .and_then(|p| p.history.last().map(|h| h.delay))
+            .filter(|&d| d > 0);
+
+        let active_latency = kernel_latency
+            .or_else(|| state.latency_probe.get_latency(&target_runtime_name).flatten())
+            .or_else(|| state.latency_probe.get_latency(target_node).flatten())
+            .or(if !is_fallback_active { m.latency } else { None });
+
+        runtime_infos.insert(
+            m.id,
+            PortRuntimeInfo {
+                is_fallback_active,
+                manual_fallback,
+                active_latency,
+            },
+        );
     }
 
     runtime_infos
 }
 
+fn compute_menu_fingerprint(
+    mappings: &[crate::models::PortMapping],
+    runtime_infos: &std::collections::HashMap<String, PortRuntimeInfo>,
+    is_running: bool,
+) -> String {
+    let mut fp = String::new();
+    fp.push_str(if is_running { "RUN;" } else { "STOP;" });
+    for m in mappings {
+        let r = runtime_infos.get(&m.id);
+        let active_lat = r.and_then(|x| x.active_latency).or(m.latency).unwrap_or(0);
+        let fb_active = r.map(|x| x.is_fallback_active).unwrap_or(m.manual_fallback);
+        let manual = r.map(|x| x.manual_fallback).unwrap_or(m.manual_fallback);
+        fp.push_str(&format!(
+            "{}:{}:{}:{}:{};",
+            m.port, m.enabled, active_lat, fb_active, manual
+        ));
+    }
+    fp
+}
+
+static LAST_TRAY_FINGERPRINT: parking_lot::Mutex<Option<String>> =
+    parking_lot::Mutex::new(None);
+#[cfg(windows)]
+fn is_tray_menu_active() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowA;
+    unsafe {
+        let hwnd = FindWindowA(c"#32768".as_ptr().cast(), std::ptr::null());
+        hwnd as isize != 0
+    }
+}
+
+#[cfg(not(windows))]
+fn is_tray_menu_active() -> bool {
+    false
+}
+
+
 pub fn update_tray_menu(app: &AppHandle) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Some(tray) = app_handle.tray_by_id("main-tray") {
-            let runtime_infos = query_runtime_infos(&app_handle).await;
-            match build_tray_menu_internal(&app_handle, &runtime_infos) {
-                Ok(menu) => {
-                    if let Err(e) = tray.set_menu(Some(menu)) {
-                        warn!("Failed to set updated tray menu: {}", e);
-                    }
+        let Some(tray) = app_handle.tray_by_id("main-tray") else {
+            return;
+        };
+        let Some(state) = app_handle.try_state::<crate::state::AppState>() else {
+            return;
+        };
+
+        // If a popup menu is currently open on screen, never call set_menu!
+        // Calling set_menu while a menu is open forces Windows to immediately dismiss it.
+        if is_tray_menu_active() {
+            return;
+        }
+
+        let is_running = state.engine.get_status().running;
+        let mut mappings = state.port_router.get_port_mappings();
+        mappings.sort_by_key(|m| m.port);
+
+        let runtime_infos = query_runtime_infos(&app_handle).await;
+        let current_fp = compute_menu_fingerprint(&mappings, &runtime_infos, is_running);
+
+        {
+            let mut guard = LAST_TRAY_FINGERPRINT.lock();
+            if let Some(last_fp) = &*guard
+                && last_fp == &current_fp
+            {
+                // Content has not changed: avoid calling set_menu to prevent closing open context menus!
+                return;
+            }
+            *guard = Some(current_fp);
+        }
+
+        match build_tray_menu_internal(&app_handle, &runtime_infos) {
+            Ok(menu) => {
+                if let Err(e) = tray.set_menu(Some(menu)) {
+                    warn!("Failed to set updated tray menu: {}", e);
                 }
-                Err(e) => {
-                    warn!("Failed to build updated tray menu: {}", e);
-                }
+            }
+            Err(e) => {
+                warn!("Failed to build updated tray menu: {}", e);
             }
         }
     });
@@ -247,24 +319,30 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main")
-                    && let Ok(is_visible) = window.is_visible()
-                {
-                    if is_visible {
-                        let _ = window.hide();
-                    } else {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
+            match event {
+                TrayIconEvent::Enter { .. } => {
+                    let app = tray.app_handle();
+                    update_tray_menu(app);
+                }
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                } => {
+                    let app = tray.app_handle();
+                    if let Some(window) = app.get_webview_window("main")
+                        && let Ok(is_visible) = window.is_visible()
+                    {
+                        if is_visible {
+                            let _ = window.hide();
+                        } else {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
                     }
                 }
+                _ => {}
             }
         });
 

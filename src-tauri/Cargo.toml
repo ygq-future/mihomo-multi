@@ -42,6 +42,7 @@ windows-sys = { version = "0.59.0", features = [
     "Win32_Security",
     "Win32_Networking_WinSock",
     "Win32_NetworkManagement_IpHelper",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [target.'cfg(unix)'.dependencies]

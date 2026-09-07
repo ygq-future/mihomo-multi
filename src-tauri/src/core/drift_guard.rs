@@ -329,6 +329,7 @@ proxies:
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
+            manual_fallback: false,
         };
         // 2. Drifted mapping (Node missing)
         let drifted_mapping = PortMapping {
@@ -343,6 +344,7 @@ proxies:
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
+            manual_fallback: false,
         };
         // 3. Drifted mapping (Profile missing)
         let missing_profile_mapping = PortMapping {
@@ -357,6 +359,7 @@ proxies:
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
+            manual_fallback: false,
         };
         let mappings = vec![
             healthy_mapping.clone(),
@@ -402,6 +405,7 @@ proxies:
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
+            manual_fallback: false,
         };
         let single_report = DriftGuard::check_single(&empty_mapping, &manager);
         assert_eq!(single_report.status, DriftStatus::EmptyProfile);
@@ -450,6 +454,7 @@ proxies:
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
+            manual_fallback: false,
         };
 
         // 2. Port 2: Main node drifted, fallback active
@@ -465,6 +470,7 @@ proxies:
             fallback_profile_id: None,
             fallback_node_name: Some("Backup-Node".to_string()),
             bypass_cn: true,
+            manual_fallback: false,
         };
 
         // 3. Port 3: Same profile, drifted without fallback
@@ -480,6 +486,7 @@ proxies:
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
+            manual_fallback: false,
         };
 
         // 4. Port 4: Non-existent profile
@@ -495,6 +502,7 @@ proxies:
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
+            manual_fallback: false,
         };
 
         let mappings = vec![port1.clone(), port2.clone(), port3.clone(), port4.clone()];
@@ -553,6 +561,7 @@ proxies:
             fallback_profile_id: Some(p2.id.clone()),
             fallback_node_name: Some("HK-Backup".to_string()),
             bypass_cn: true,
+            manual_fallback: false,
         };
 
         let report = DriftGuard::check_single(&mapping, &manager);

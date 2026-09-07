@@ -14,6 +14,7 @@ export interface PortSlice {
   fallbackStatuses: Record<string, PortFallbackStatus>
   portLoading: boolean
   testingPortIds: Record<string, boolean>
+  testingFbPortIds: Record<string, boolean>
   isTestingAllPorts: boolean
   portError: string | null
   editingPortMapping: PortMapping | null
@@ -25,7 +26,16 @@ export interface PortSlice {
   savePortMapping: (mapping: PortMapping) => Promise<PortMapping>
   deletePortMapping: (id: string) => Promise<void>
   togglePortMapping: (id: string, enabled: boolean) => Promise<PortMapping>
+  toggleManualFallback: (
+    id: string,
+    manualFallback: boolean,
+  ) => Promise<PortMapping>
   testPortDelay: (
+    id: string,
+    testUrl?: string,
+    timeoutMs?: number,
+  ) => Promise<number | null>
+  testPortFallbackDelay: (
     id: string,
     testUrl?: string,
     timeoutMs?: number,
@@ -50,6 +60,7 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
   fallbackStatuses: {},
   portLoading: false,
   testingPortIds: {},
+  testingFbPortIds: {},
   isTestingAllPorts: false,
   portError: null,
   editingPortMapping: null,
@@ -258,10 +269,92 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
       throw err
     }
   },
+  toggleManualFallback: async (id, manualFallback) => {
+    // Immediate optimistic update to eliminate intermediate states and race conditions
+    set((state) => ({
+      portMappings: state.portMappings.map((p) =>
+        p.id === id ? { ...p, manualFallback } : p,
+      ),
+      fallbackStatuses: state.fallbackStatuses[id]
+        ? {
+            ...state.fallbackStatuses,
+            [id]: {
+              ...state.fallbackStatuses[id],
+              manualFallback,
+              isFallbackActive: manualFallback,
+            },
+          }
+        : state.fallbackStatuses,
+    }))
+
+    try {
+      const updated = await api.toggleManualFallback(id, manualFallback)
+      set((state) => ({
+        portMappings: state.portMappings.map((p) =>
+          p.id === id ? updated : p,
+        ),
+      }))
+      get()
+        .fetchFallbackStatuses()
+        .catch(() => {})
+      return updated
+    } catch (err) {
+      // Rollback optimistic update on error
+      set((state) => ({
+        portMappings: state.portMappings.map((p) =>
+          p.id === id ? { ...p, manualFallback: !manualFallback } : p,
+        ),
+        fallbackStatuses: state.fallbackStatuses[id]
+          ? {
+              ...state.fallbackStatuses,
+              [id]: {
+                ...state.fallbackStatuses[id],
+                manualFallback: !manualFallback,
+              },
+            }
+          : state.fallbackStatuses,
+      }))
+      const errMsg = err instanceof Error ? err.message : String(err)
+      set({ portError: errMsg })
+      throw err
+    }
+  },
+
+  testPortFallbackDelay: async (id, testUrl, timeoutMs) => {
+    set((state) => ({
+      testingFbPortIds: { ...state.testingFbPortIds, [id]: true },
+      portError: null,
+    }))
+
+    try {
+      const latency = await api.testPortFallbackDelay(id, testUrl, timeoutMs)
+      set((state) => ({
+        testingFbPortIds: { ...state.testingFbPortIds, [id]: false },
+      }))
+
+      get()
+        .fetchFallbackStatuses()
+        .catch(() => {})
+
+      return latency
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      set((state) => ({
+        testingFbPortIds: { ...state.testingFbPortIds, [id]: false },
+        portError: errMsg.includes('未运行') ? errMsg : state.portError,
+      }))
+      return null
+    }
+  },
 
   testPortDelay: async (id, testUrl, timeoutMs) => {
+    const mapping = get().portMappings.find((m) => m.id === id)
+    const hasFb = Boolean(mapping?.fallbackNodeName)
     set((state) => ({
       testingPortIds: { ...state.testingPortIds, [id]: true },
+      testingFbPortIds: hasFb
+        ? { ...state.testingFbPortIds, [id]: true }
+        : state.testingFbPortIds,
       portError: null,
     }))
 
@@ -272,10 +365,10 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
           p.id === id ? { ...p, latency } : p,
         ),
         testingPortIds: { ...state.testingPortIds, [id]: false },
+        testingFbPortIds: { ...state.testingFbPortIds, [id]: false },
       }))
 
-      const mapping = get().portMappings.find((m) => m.id === id)
-      if (mapping?.fallbackNodeName) {
+      if (hasFb) {
         get()
           .fetchFallbackStatuses()
           .catch(() => {})
@@ -289,6 +382,7 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
           p.id === id ? { ...p, latency: null } : p,
         ),
         testingPortIds: { ...state.testingPortIds, [id]: false },
+        testingFbPortIds: { ...state.testingFbPortIds, [id]: false },
         portError: errMsg.includes('未运行') ? errMsg : state.portError,
       }))
       return null
@@ -300,27 +394,57 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
     if (mappings.length === 0) return []
 
     const testingMap: Record<string, boolean> = {}
+    const testingFbMap: Record<string, boolean> = {}
     for (const m of mappings) {
       testingMap[m.id] = true
+      if (m.fallbackNodeName) {
+        testingFbMap[m.id] = true
+      }
     }
 
     set({
       isTestingAllPorts: true,
       testingPortIds: { ...get().testingPortIds, ...testingMap },
+      testingFbPortIds: { ...get().testingFbPortIds, ...testingFbMap },
       portError: null,
     })
 
     try {
       const results = await api.testAllPortMappingsDelay(testUrl, timeoutMs)
-      set({ isTestingAllPorts: false })
-      await get().fetchPortMappings()
+      const cleanTestingMap: Record<string, boolean> = {}
+      const cleanTestingFbMap: Record<string, boolean> = {}
+      for (const m of mappings) {
+        cleanTestingMap[m.id] = false
+        cleanTestingFbMap[m.id] = false
+      }
+      set((state) => ({
+        isTestingAllPorts: false,
+        testingPortIds: { ...state.testingPortIds, ...cleanTestingMap },
+        testingFbPortIds: { ...state.testingFbPortIds, ...cleanTestingFbMap },
+      }))
+      await Promise.all([
+        get()
+          .fetchPortMappings()
+          .catch(() => {}),
+        get()
+          .fetchFallbackStatuses()
+          .catch(() => {}),
+      ])
       return results
     } catch (err) {
+      const cleanTestingMap: Record<string, boolean> = {}
+      const cleanTestingFbMap: Record<string, boolean> = {}
+      for (const m of mappings) {
+        cleanTestingMap[m.id] = false
+        cleanTestingFbMap[m.id] = false
+      }
       const errMsg = err instanceof Error ? err.message : String(err)
-      set({
+      set((state) => ({
         isTestingAllPorts: false,
-        portError: errMsg.includes('未运行') ? errMsg : get().portError,
-      })
+        testingPortIds: { ...state.testingPortIds, ...cleanTestingMap },
+        testingFbPortIds: { ...state.testingFbPortIds, ...cleanTestingFbMap },
+        portError: errMsg.includes('未运行') ? errMsg : state.portError,
+      }))
       return []
     }
   },

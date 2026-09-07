@@ -227,13 +227,17 @@ impl MinimalRuntimeConfig {
                     proxy_groups.push(RuntimeProxyGroup {
                         name: group_name.clone(),
                         group_type: "fallback".to_string(),
-                        proxies: vec![primary, fallback],
+                        proxies: vec![primary, fallback.clone()],
                         url: params.test_url.to_string(),
                         interval: params.fallback_interval,
                         timeout: params.timeout_ms,
                         lazy: params.fallback_lazy,
                     });
-                    group_name
+                    if m.manual_fallback {
+                        fallback
+                    } else {
+                        group_name
+                    }
                 }
                 (Some(primary), None) => primary,
                 (None, Some(fallback)) => {
@@ -328,6 +332,7 @@ mod tests {
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: false,
+            manual_fallback: false,
         };
         let mapping2 = PortMapping {
             id: "test-2".to_string(),
@@ -341,6 +346,7 @@ mod tests {
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: false,
+            manual_fallback: false,
         };
         let mapping_disabled = PortMapping {
             id: "test-3".to_string(),
@@ -354,6 +360,7 @@ mod tests {
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: false,
+            manual_fallback: false,
         };
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "AirportA".to_string());
@@ -426,6 +433,7 @@ password: pass
             fallback_profile_id: None,
             fallback_node_name: Some("HK-Node-02".to_string()),
             bypass_cn: false,
+            manual_fallback: false,
         };
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "AirportA".to_string());
@@ -486,6 +494,7 @@ password: pass
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
+            manual_fallback: false,
         };
         let mapping_global = PortMapping {
             id: "test-global".to_string(),
@@ -499,6 +508,7 @@ password: pass
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: false,
+            manual_fallback: false,
         };
 
         let mut profile_map = HashMap::new();
@@ -557,6 +567,7 @@ password: pass
             fallback_profile_id: Some("prof-2".to_string()),
             fallback_node_name: Some("HK-Backup".to_string()),
             bypass_cn: false,
+            manual_fallback: false,
         };
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "MainAirport".to_string());
@@ -602,6 +613,64 @@ password: pass
         assert_eq!(config.proxy_groups.len(), 1);
         assert_eq!(config.proxy_groups[0].name, "fb-7896");
         assert_eq!(config.proxy_groups[0].proxies, vec!["[MainAirport] HK-01", "[BackupAirport] HK-Backup"]);
+    }
+
+    #[test]
+    fn test_runtime_config_generation_with_manual_fallback() {
+        let mapping = PortMapping {
+            id: "test-manual-fb".to_string(),
+            port: 7897,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: "HK-Node-01".to_string(),
+            enabled: true,
+            latency: None,
+            description: Some("Manual Fallback Test".to_string()),
+            fallback_profile_id: None,
+            fallback_node_name: Some("HK-Node-02".to_string()),
+            bypass_cn: false,
+            manual_fallback: true,
+        };
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let raw_proxy_yaml1 = r#"
+name: "[AirportA] HK-Node-01"
+type: ss
+server: 1.1.1.1
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let raw_proxy_yaml2 = r#"
+name: "[AirportA] HK-Node-02"
+type: ss
+server: 1.1.1.2
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let p1: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml1).unwrap();
+        let p2: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml2).unwrap();
+        let proxies = vec![p1, p2];
+
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+        };
+
+        let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], proxies, &profile_map);
+        let yaml = config.to_yaml().expect("YAML serialize failed");
+        // The group fb-7897 is created for health check
+        assert!(yaml.contains("name: fb-7897"));
+        // But the inbound routing goes directly to the fallback node, never switching back
+        assert!(yaml.contains("IN-PORT,7897,[AirportA] HK-Node-02"));
     }
 }
 

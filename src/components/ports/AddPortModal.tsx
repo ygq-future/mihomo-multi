@@ -668,8 +668,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           />
           <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">
             单段输入直接匹配节点名称；支持空格两段式筛选（“订阅
-            节点”，两者均支持模糊匹配；输入“订阅
-            ”可直接列出该订阅全部节点），英文区分大小写。
+            节点”，两者均支持模糊匹配；输入“订阅 ”可直接列出该订阅全部节点）。
           </p>
         </div>
 

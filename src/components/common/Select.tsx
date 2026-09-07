@@ -59,22 +59,21 @@ function normalizeEmojiToAscii(text: string): string {
 }
 
 /**
- * 跳字子序列模糊匹配（大小写敏感）
+ * 跳字子序列模糊匹配（不区分大小写）
  * target: 目标文本
  * query: 搜索词
  */
-function fuzzySubsequenceMatchCaseSensitive(
-  target: string,
-  query: string,
-): boolean {
+function fuzzySubsequenceMatch(target: string, query: string): boolean {
   if (!query) return true
+  const lowerTarget = target.toLowerCase()
+  const lowerQuery = query.toLowerCase()
   let qIdx = 0
-  for (let i = 0; i < target.length && qIdx < query.length; i++) {
-    if (target[i] === query[qIdx]) {
+  for (let i = 0; i < lowerTarget.length && qIdx < lowerQuery.length; i++) {
+    if (lowerTarget[i] === lowerQuery[qIdx]) {
       qIdx++
     }
   }
-  return qIdx === query.length
+  return qIdx === lowerQuery.length
 }
 export function Select<T extends string | number = string | number>({
   id,
@@ -146,9 +145,9 @@ export function Select<T extends string | number = string | number>({
       return options
     }
 
-    // 1. 无空格：单段搜索，只匹配节点名称，排除订阅组，大小写严格敏感
+    // 1. 无空格：单段搜索，只匹配节点名称，排除订阅组，不区分大小写
     if (!trimmed.includes(' ')) {
-      const q = normalizeEmojiToAscii(trimmed)
+      const q = normalizeEmojiToAscii(trimmed).toLowerCase()
       return options.filter((opt) => {
         let nodeName = opt.searchTarget || ''
         if (!nodeName) {
@@ -156,14 +155,14 @@ export function Select<T extends string | number = string | number>({
           nodeName = match ? match[2] : opt.label
         }
 
-        const normalizedTarget = normalizeEmojiToAscii(nodeName)
+        const normalizedTarget = normalizeEmojiToAscii(nodeName).toLowerCase()
         if (
           normalizedTarget.includes(q) ||
-          fuzzySubsequenceMatchCaseSensitive(normalizedTarget, q)
+          fuzzySubsequenceMatch(normalizedTarget, q)
         ) {
           return true
         }
-        if (opt.description && opt.description.includes(q)) {
+        if (opt.description?.toLowerCase().includes(q)) {
           return true
         }
         return false
@@ -181,8 +180,10 @@ export function Select<T extends string | number = string | number>({
     }
 
     const [groupQueryRaw, nodeQueryRaw] = parts
-    const groupQ = normalizeEmojiToAscii(groupQueryRaw)
-    const nodeQ = nodeQueryRaw ? normalizeEmojiToAscii(nodeQueryRaw) : ''
+    const groupQ = normalizeEmojiToAscii(groupQueryRaw).toLowerCase()
+    const nodeQ = nodeQueryRaw
+      ? normalizeEmojiToAscii(nodeQueryRaw).toLowerCase()
+      : ''
 
     return options.filter((opt) => {
       let groupName = opt.group || ''
@@ -198,24 +199,24 @@ export function Select<T extends string | number = string | number>({
         }
       }
 
-      const normalizedGroupName = normalizeEmojiToAscii(groupName)
-      const normalizedNodeName = normalizeEmojiToAscii(nodeName)
+      const normalizedGroupName = normalizeEmojiToAscii(groupName).toLowerCase()
+      const normalizedNodeName = normalizeEmojiToAscii(nodeName).toLowerCase()
 
       // 第一段匹配订阅组（模糊跳字匹配，如 mj 匹配 mojie）
       const matchGroup =
         normalizedGroupName.includes(groupQ) ||
-        fuzzySubsequenceMatchCaseSensitive(normalizedGroupName, groupQ)
+        fuzzySubsequenceMatch(normalizedGroupName, groupQ)
 
       if (!matchGroup) return false
 
       // 若第二段尚未输入（如 "mojie "），则展示该订阅组下所有节点
       if (!nodeQ) return true
 
-      // 第二段匹配节点名称，大小写严格敏感
+      // 第二段匹配节点名称
       const matchNode =
         normalizedNodeName.includes(nodeQ) ||
-        fuzzySubsequenceMatchCaseSensitive(normalizedNodeName, nodeQ) ||
-        (opt.description ? opt.description.includes(nodeQ) : false)
+        fuzzySubsequenceMatch(normalizedNodeName, nodeQ) ||
+        Boolean(opt.description?.toLowerCase().includes(nodeQ))
 
       return matchNode
     })

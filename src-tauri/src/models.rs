@@ -59,6 +59,8 @@ pub struct PortMapping {
     pub fallback_node_name: Option<String>,
     #[serde(default = "default_true")]
     pub bypass_cn: bool,
+    #[serde(default)]
+    pub manual_fallback: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +71,8 @@ pub struct PortFallbackStatus {
     pub fallback_node: String,
     pub active_node: String,
     pub is_fallback_active: bool,
+    #[serde(default)]
+    pub manual_fallback: bool,
     pub primary_latency: Option<u32>,
     pub fallback_latency: Option<u32>,
     pub last_updated: u64,

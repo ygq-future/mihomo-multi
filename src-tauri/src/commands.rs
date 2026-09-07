@@ -183,6 +183,23 @@ pub async fn toggle_port_mapping(
         .map_err(|err| err.to_string())
 }
 #[tauri::command]
+pub async fn toggle_manual_fallback(
+    app: AppHandle,
+    id: String,
+    manual_fallback: bool,
+    state: State<'_, AppState>,
+) -> Result<PortMapping, String> {
+    let res = state
+        .port_router
+        .toggle_manual_fallback(&id, manual_fallback)
+        .await
+        .map_err(|err| err.to_string())?;
+
+    crate::tray::update_tray_menu(&app);
+    Ok(res)
+}
+
+#[tauri::command]
 pub async fn test_port_mapping_delay(
     app: AppHandle,
     id: String,
@@ -227,7 +244,10 @@ pub async fn test_port_mapping_delay(
     if let Some(fb_name) = &mapping.fallback_node_name
         && !fb_name.trim().is_empty()
     {
-        let fb_profile_id = mapping.fallback_profile_id.as_deref().unwrap_or(&mapping.profile_id);
+        let fb_profile_id = mapping
+            .fallback_profile_id
+            .as_deref()
+            .unwrap_or(&mapping.profile_id);
         let fb_profile = state.profile_manager.get_profile_by_id(fb_profile_id);
         let fb_runtime_name = if let Some(prof) = fb_profile.as_ref() {
             format!("[{}] {}", prof.name, fb_name)
@@ -241,11 +261,10 @@ pub async fn test_port_mapping_delay(
                 Some(&fb_runtime_name),
                 Some(actual_url),
                 Some(actual_timeout),
-                None,
+                Some(&id),
             )
             .await;
     }
-
     match res {
         Ok(delay) => {
             let _ = state.port_router.update_port_latency(&id, Some(delay));
@@ -259,6 +278,64 @@ pub async fn test_port_mapping_delay(
         }
     }
 }
+#[tauri::command]
+pub async fn test_port_fallback_delay(
+    app: AppHandle,
+    id: String,
+    test_url: Option<String>,
+    timeout_ms: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<u32, String> {
+    let status = state.engine.get_status();
+    if !status.running {
+        return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
+    }
+
+    let mapping = state
+        .port_router
+        .get_port_mapping_by_id(&id)
+        .ok_or_else(|| format!("未找到 ID 为 '{}' 的端口映射", id))?;
+
+    let fb_name = mapping
+        .fallback_node_name
+        .as_ref()
+        .filter(|fb| !fb.trim().is_empty())
+        .ok_or_else(|| "该端口未配置备用节点".to_string())?;
+
+    let fb_profile_id = mapping
+        .fallback_profile_id
+        .as_deref()
+        .unwrap_or(&mapping.profile_id);
+    let fb_profile = state.profile_manager.get_profile_by_id(fb_profile_id);
+    let fb_runtime_name = if let Some(prof) = fb_profile.as_ref() {
+        format!("[{}] {}", prof.name, fb_name)
+    } else {
+        fb_name.clone()
+    };
+
+    let (default_url, default_timeout) = {
+        let cfg = state.config.read();
+        (cfg.test_url.clone(), cfg.timeout_ms)
+    };
+    let actual_url = test_url.as_deref().unwrap_or(&default_url);
+    let actual_timeout = timeout_ms.unwrap_or(default_timeout);
+
+    let res = state
+        .latency_probe
+        .test_node(
+            fb_name,
+            Some(&fb_runtime_name),
+            Some(actual_url),
+            Some(actual_timeout),
+            Some(&id),
+        )
+        .await;
+
+    crate::tray::update_tray_menu(&app);
+
+    res.map_err(|err| err.to_string())
+}
+
 
 #[tauri::command]
 pub async fn test_all_port_mappings_delay(
@@ -340,7 +417,10 @@ pub async fn test_all_port_mappings_delay(
 }
 
 #[tauri::command]
-pub async fn get_port_fallback_statuses(state: State<'_, AppState>) -> Result<Vec<PortFallbackStatus>, String> {
+pub async fn get_port_fallback_statuses(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<PortFallbackStatus>, String> {
     let status = state.engine.get_status();
     if !status.running {
         return Ok(Vec::new());
@@ -367,56 +447,82 @@ pub async fn get_port_fallback_statuses(state: State<'_, AppState>) -> Result<Ve
         };
 
         let group_name = format!("fb-{}", m.port);
-        if let Ok(detail) = engine.get_proxy_detail(&group_name).await {
+        let is_fallback_active = if m.manual_fallback {
+            true
+        } else if let Ok(detail) = engine.get_proxy_detail(&group_name).await {
             let active_node = detail.now.clone().unwrap_or_default();
-            let is_fallback_active = active_node.ends_with(&fallback_node);
+            active_node.ends_with(&fallback_node)
+        } else {
+            false
+        };
 
-            let primary_runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
-                format!("[{}] {}", pname, m.node_name)
-            } else {
-                m.node_name.clone()
-            };
+        let active_node = if is_fallback_active {
+            fallback_node.clone()
+        } else {
+            m.node_name.clone()
+        };
 
-            let fb_profile_id = m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id);
-            let fb_runtime_name = if let Some(pname) = profile_map.get(fb_profile_id) {
-                format!("[{}] {}", pname, fallback_node)
-            } else {
-                fallback_node.clone()
-            };
+        let primary_runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
+            format!("[{}] {}", pname, m.node_name)
+        } else {
+            m.node_name.clone()
+        };
 
-            let primary_latency = engine
-                .get_proxy_detail(&primary_runtime_name)
-                .await
-                .ok()
-                .and_then(|p| p.history.last().map(|h| h.delay))
-                .filter(|&d| d > 0);
+        let fb_profile_id = m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id);
+        let fb_runtime_name = if let Some(pname) = profile_map.get(fb_profile_id) {
+            format!("[{}] {}", pname, fallback_node)
+        } else {
+            fallback_node.clone()
+        };
 
-            let fallback_latency = engine
-                .get_proxy_detail(&fb_runtime_name)
-                .await
-                .ok()
-                .and_then(|p| p.history.last().map(|h| h.delay))
-                .filter(|&d| d > 0);
+        let kernel_primary_latency = engine
+            .get_proxy_detail(&primary_runtime_name)
+            .await
+            .ok()
+            .and_then(|p| p.history.last().map(|h| h.delay))
+            .filter(|&d| d > 0);
 
-            // Keep port manager latency in sync with kernel health check
-            if primary_latency.is_some() || is_fallback_active {
-                let _ = state.port_router.update_port_latency(&m.id, primary_latency);
-            }
+        let primary_latency = kernel_primary_latency
+            .or_else(|| state.latency_probe.get_latency(&primary_runtime_name).flatten())
+            .or_else(|| state.latency_probe.get_latency(&m.node_name).flatten())
+            .or(m.latency);
 
-            statuses.push(PortFallbackStatus {
-                mapping_id: m.id,
-                port: m.port,
-                primary_node: m.node_name,
-                fallback_node,
-                active_node,
-                is_fallback_active,
-                primary_latency,
-                fallback_latency,
-                last_updated: now_ts,
-            });
+        let kernel_fallback_latency = engine
+            .get_proxy_detail(&fb_runtime_name)
+            .await
+            .ok()
+            .and_then(|p| p.history.last().map(|h| h.delay))
+            .filter(|&d| d > 0);
+
+        let fallback_latency = kernel_fallback_latency
+            .or_else(|| state.latency_probe.get_latency(&fb_runtime_name).flatten())
+            .or_else(|| state.latency_probe.get_latency(&fallback_node).flatten());
+        if let Some(d) = kernel_primary_latency {
+            state.latency_probe.set_latency(&primary_runtime_name, Some(d));
+            state.latency_probe.set_latency(&m.node_name, Some(d));
         }
+        if let Some(d) = kernel_fallback_latency {
+            state.latency_probe.set_latency(&fb_runtime_name, Some(d));
+            state.latency_probe.set_latency(&fallback_node, Some(d));
+        }
+
+        // Port mapping latency represents the primary node latency; never overwrite with fallback latency!
+        let _ = state.port_router.update_port_latency(&m.id, primary_latency);
+        statuses.push(PortFallbackStatus {
+            mapping_id: m.id,
+            port: m.port,
+            primary_node: m.node_name,
+            fallback_node,
+            active_node,
+            is_fallback_active,
+            manual_fallback: m.manual_fallback,
+            primary_latency,
+            fallback_latency,
+            last_updated: now_ts,
+        });
     }
 
+    crate::tray::update_tray_menu(&app);
     Ok(statuses)
 }
 
@@ -682,15 +788,16 @@ pub async fn test_node_delay(
     let actual_timeout = timeout_ms.unwrap_or(default_timeout);
 
     let all_nodes = state.profile_manager.get_all_nodes();
-    let runtime_name = all_nodes
+    let target_node = all_nodes
         .into_iter()
-        .find(|n| n.name == node_name || n.runtime_name.as_deref() == Some(&node_name))
-        .and_then(|n| n.runtime_name);
+        .find(|n| n.name == node_name || n.runtime_name.as_deref() == Some(&node_name));
+    let raw_name = target_node.as_ref().map(|n| n.name.clone()).unwrap_or_else(|| node_name.clone());
+    let runtime_name = target_node.and_then(|n| n.runtime_name);
 
     let res = state
         .latency_probe
         .test_node(
-            &node_name,
+            &raw_name,
             runtime_name.as_deref(),
             Some(actual_url),
             Some(actual_timeout),
@@ -701,7 +808,10 @@ pub async fn test_node_delay(
 
     let mappings = state.port_router.get_port_mappings();
     for m in mappings {
-        if m.node_name == node_name || runtime_name.as_deref() == Some(&m.node_name) {
+        let matches = m.node_name == raw_name
+            || m.node_name == node_name
+            || runtime_name.as_deref() == Some(&m.node_name);
+        if matches {
             let _ = state.port_router.update_port_latency(&m.id, Some(res));
         }
     }
@@ -733,10 +843,13 @@ pub async fn test_nodes_delay_batch(
 
     let all_nodes = state.profile_manager.get_all_nodes();
     let mut runtime_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut raw_name_map = std::collections::HashMap::new();
     for n in all_nodes {
+        raw_name_map.insert(n.name.clone(), n.name.clone());
         if let Some(rt) = n.runtime_name {
-            runtime_map.insert(n.name, rt.clone());
-            runtime_map.insert(rt.clone(), rt);
+            runtime_map.insert(n.name.clone(), rt.clone());
+            runtime_map.insert(rt.clone(), rt.clone());
+            raw_name_map.insert(rt, n.name);
         }
     }
 
@@ -764,8 +877,9 @@ pub async fn test_nodes_delay_batch(
 
     let mappings = state.port_router.get_port_mappings();
     for res in &results {
+        let raw_name = raw_name_map.get(&res.name).cloned().unwrap_or_else(|| res.name.clone());
         for m in &mappings {
-            if m.node_name == res.name {
+            if m.node_name == res.name || m.node_name == raw_name {
                 let _ = state.port_router.update_port_latency(&m.id, res.latency);
             }
         }

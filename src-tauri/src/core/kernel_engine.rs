@@ -641,6 +641,7 @@ mod tests {
             fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
+            manual_fallback: false,
         };
 
         let raw_proxy_yaml = r#"
