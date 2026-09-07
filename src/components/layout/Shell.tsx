@@ -1,14 +1,17 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
+import { Check, LogOut } from 'lucide-react'
 import type React from 'react'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
+import { Button, Modal } from '../common'
 import { PortTableView } from '../views/PortTableView'
 import { ProfileListView } from '../views/ProfileListView'
 import { ProxyGridView } from '../views/ProxyGridView'
 import { SettingView } from '../views/SettingView'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
-
 function resolveImageSrc(src: string): string {
   if (!src) return ''
   if (
@@ -27,7 +30,42 @@ function resolveImageSrc(src: string): string {
 }
 
 export const Shell: React.FC = () => {
-  const { activeTab, config } = useAppStore()
+  const { activeTab, config, saveConfig } = useAppStore()
+  const [showExitModal, setShowExitModal] = useState(false)
+  const [closeToTrayChecked, setCloseToTrayChecked] = useState(false)
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    listen('request-window-close', () => {
+      setCloseToTrayChecked(false)
+      setShowExitModal(true)
+    })
+      .then((fn) => {
+        unlisten = fn
+      })
+      .catch(() => {})
+
+    return () => {
+      if (unlisten) unlisten()
+    }
+  }, [])
+
+  const handleConfirmExit = async () => {
+    if (closeToTrayChecked) {
+      if (config) {
+        try {
+          await saveConfig({ ...config, closeToTray: true })
+        } catch {
+          // continue
+        }
+      }
+      setShowExitModal(false)
+      await api.hideWindow()
+    } else {
+      setShowExitModal(false)
+      await api.exitApp()
+    }
+  }
 
   // Apply theme globally whenever config.theme changes
   useEffect(() => {
@@ -126,6 +164,66 @@ export const Shell: React.FC = () => {
           <main className="flex-1 overflow-y-auto">{renderContent()}</main>
         </div>
       </div>
+
+      {/* Exit Confirmation Modal */}
+      {showExitModal && (
+        <Modal
+          isOpen={showExitModal}
+          onClose={() => setShowExitModal(false)}
+          title="退出程序"
+          subtitle="确定要完全退出应用吗？"
+          maxWidth="sm"
+          icon={<LogOut className="w-4 h-4 text-primary" />}
+          bodyClassName="p-5"
+          footer={
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowExitModal(false)}
+              >
+                取消
+              </Button>
+              <Button
+                variant={closeToTrayChecked ? 'primary' : 'danger'}
+                size="sm"
+                onClick={handleConfirmExit}
+              >
+                {closeToTrayChecked ? '最小化到托盘' : '退出程序'}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {closeToTrayChecked
+                ? '已开启最小化到托盘，主窗口将隐藏至系统托盘，后台代理与端口监听持续运行。'
+                : '退出后将停止 Mihomo 后台内核并中断所有端口的代理转发。'}
+            </p>
+
+            <label className="flex items-center gap-2.5 p-3 rounded-lg border border-border/80 bg-secondary/20 hover:bg-secondary/40 select-none cursor-pointer transition-colors group">
+              <span
+                className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                  closeToTrayChecked
+                    ? 'bg-primary border-primary text-primary-foreground shadow-sm'
+                    : 'border-border/80 bg-background/60 group-hover:border-primary/50'
+                }`}
+              >
+                {closeToTrayChecked && <Check className="w-3 h-3 stroke-[3]" />}
+              </span>
+              <span className="text-xs font-medium text-foreground/90">
+                最小化到系统托盘（保持后台运行并记住选择）
+              </span>
+              <input
+                type="checkbox"
+                checked={closeToTrayChecked}
+                onChange={(e) => setCloseToTrayChecked(e.target.checked)}
+                className="sr-only"
+              />
+            </label>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

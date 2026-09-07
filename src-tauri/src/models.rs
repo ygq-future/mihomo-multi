@@ -233,6 +233,12 @@ pub struct AppConfig {
     pub fallback_interval: u32,
     #[serde(default)]
     pub fallback_lazy: bool,
+    #[serde(default)]
+    pub system_proxy_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_proxy_port: Option<u16>,
+    #[serde(default)]
+    pub system_proxy_bypass_user: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -284,8 +290,19 @@ impl Default for AppConfig {
             timeout_ms: 3000,
             fallback_interval: 5,
             fallback_lazy: false,
+            system_proxy_enabled: false,
+            system_proxy_port: None,
+            system_proxy_bypass_user: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemProxyStatus {
+    pub enabled: bool,
+    pub port: Option<u16>,
+    pub bypass_domains: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

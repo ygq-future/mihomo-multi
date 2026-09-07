@@ -3,11 +3,11 @@ use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::is_port_available;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, CoreStatus, DriftStatus, LanIpInfo,
-    NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode,
+    NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, SystemProxyStatus,
 };
 use crate::state::AppState;
 use std::process::Command;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[tauri::command]
 pub async fn get_app_status(state: State<'_, AppState>) -> Result<AppStatus, String> {
@@ -40,12 +40,19 @@ pub async fn start_core(app: AppHandle, state: State<'_, AppState>) -> Result<Co
     let _ = state.sync_runtime_config().await;
     let config = state.config.read().clone();
     let res = state.engine.start(Some(&app), &config).map_err(|err| err.to_string())?;
+    if config.system_proxy_enabled && let Some(port) = config.system_proxy_port {
+        let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user);
+    }
     crate::tray::update_tray_menu(&app);
     Ok(res)
 }
 
 #[tauri::command]
 pub async fn stop_core(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let config = state.config.read().clone();
+    if config.system_proxy_enabled {
+        let _ = crate::core::sysproxy::clear_system_proxy();
+    }
     state.engine.stop().map_err(|err| err.to_string())?;
     crate::tray::update_tray_menu(&app);
     Ok(())
@@ -59,6 +66,9 @@ pub async fn restart_core(app: AppHandle, state: State<'_, AppState>) -> Result<
         .engine
         .restart(Some(&app), &config)
         .map_err(|err| err.to_string())?;
+    if config.system_proxy_enabled && let Some(port) = config.system_proxy_port {
+        let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user);
+    }
     crate::tray::update_tray_menu(&app);
     Ok(res)
 }
@@ -78,14 +88,12 @@ pub async fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String>
 
 #[tauri::command]
 pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Result<(), String> {
-    let old_port = state.config.read().controller_port;
-    if config.controller_port != old_port {
+    let old_config = state.config.read().clone();
+    if config.controller_port != old_config.controller_port {
         let core_status = state.engine.get_status();
-        // Check if the target port is currently held by our own running core (ABA scenario / revert to active port)
         let is_current_active_core_port = core_status.running && core_status.controller_port == config.controller_port;
 
         if !is_current_active_core_port {
-            // 1. Probe if the new controller port is available on localhost
             if !is_port_available(config.controller_port) {
                 return Err(format!(
                     "端口 {} 已被本地其他应用程序占用，无法设为控制器端口，请换用其他端口（如 9090）。",
@@ -93,7 +101,6 @@ pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Resul
                 ));
             }
 
-            // 2. Check if any active port mapping already uses this port
             let mappings = state.port_router.get_port_mappings();
             if mappings.iter().any(|m| m.port == config.controller_port && m.enabled) {
                 return Err(format!(
@@ -104,13 +111,25 @@ pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Resul
         }
     }
 
+    if config.system_proxy_enabled != old_config.system_proxy_enabled
+        || config.system_proxy_port != old_config.system_proxy_port
+        || config.system_proxy_bypass_user != old_config.system_proxy_bypass_user
+    {
+        if config.system_proxy_enabled {
+            if let Some(port) = config.system_proxy_port {
+                let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user);
+            }
+        } else {
+            let _ = crate::core::sysproxy::clear_system_proxy();
+        }
+    }
+
     *state.config.write() = config.clone();
     let config_path = state.app_dir.join("config.json");
     if let Ok(json) = serde_json::to_string_pretty(&config) {
         let _ = std::fs::write(config_path, json);
     }
 
-    // Sync Windows autostart configuration
     if let Ok(exe_path) = std::env::current_exe() {
         if config.auto_launch {
             let _ = crate::core::autostart::enable_autostart(&exe_path, config.silent_start);
@@ -121,6 +140,63 @@ pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Resul
 
     let _ = state.sync_runtime_config().await;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn set_system_proxy(
+    enabled: bool,
+    port: Option<u16>,
+    state: State<'_, AppState>,
+) -> Result<SystemProxyStatus, String> {
+    let mut config = state.config.read().clone();
+
+    if enabled {
+        let p = port.ok_or_else(|| "启用系统代理必须指定端口".to_string())?;
+        let mappings = state.port_router.get_port_mappings();
+        let is_valid = mappings.iter().any(|m| m.port == p && m.enabled);
+        if !is_valid {
+            return Err(format!("端口 {} 未在监听列表中或未启用，无法设为系统代理", p));
+        }
+
+        crate::core::sysproxy::apply_system_proxy(p, &config.system_proxy_bypass_user)
+            .map_err(|e| e.to_string())?;
+
+        config.system_proxy_enabled = true;
+        config.system_proxy_port = Some(p);
+    } else {
+        crate::core::sysproxy::clear_system_proxy().map_err(|e| e.to_string())?;
+        config.system_proxy_enabled = false;
+        config.system_proxy_port = None;
+    }
+
+    *state.config.write() = config.clone();
+    let config_path = state.app_dir.join("config.json");
+    if let Ok(json) = serde_json::to_string_pretty(&config) {
+        let _ = std::fs::write(config_path, json);
+    }
+
+    let bypass_domains = crate::core::sysproxy::build_combined_bypass_list(&config.system_proxy_bypass_user);
+    Ok(SystemProxyStatus {
+        enabled: config.system_proxy_enabled,
+        port: config.system_proxy_port,
+        bypass_domains,
+    })
+}
+
+#[tauri::command]
+pub async fn get_system_proxy_status(state: State<'_, AppState>) -> Result<SystemProxyStatus, String> {
+    let config = state.config.read().clone();
+    let bypass_domains = crate::core::sysproxy::build_combined_bypass_list(&config.system_proxy_bypass_user);
+    Ok(SystemProxyStatus {
+        enabled: config.system_proxy_enabled,
+        port: config.system_proxy_port,
+        bypass_domains,
+    })
+}
+
+#[tauri::command]
+pub async fn get_default_bypass_list() -> Result<Vec<String>, String> {
+    Ok(crate::core::sysproxy::get_default_bypass_list())
 }
 
 // ----------------------------------------------------------------------------
@@ -163,11 +239,25 @@ pub async fn save_port_mapping(
 
 #[tauri::command]
 pub async fn delete_port_mapping(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let target_port = state.port_router.get_port_mapping_by_id(&id).map(|m| m.port);
     state
         .port_router
         .delete_port_mapping(&id)
         .await
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+
+    let mut config = state.config.read().clone();
+    if config.system_proxy_enabled && target_port == config.system_proxy_port {
+        let _ = crate::core::sysproxy::clear_system_proxy();
+        config.system_proxy_enabled = false;
+        config.system_proxy_port = None;
+        *state.config.write() = config.clone();
+        let config_path = state.app_dir.join("config.json");
+        if let Ok(json) = serde_json::to_string_pretty(&config) {
+            let _ = std::fs::write(config_path, json);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -176,11 +266,27 @@ pub async fn toggle_port_mapping(
     enabled: bool,
     state: State<'_, AppState>,
 ) -> Result<PortMapping, String> {
-    state
+    let target_port = state.port_router.get_port_mapping_by_id(&id).map(|m| m.port);
+    let updated = state
         .port_router
         .toggle_port_mapping(&id, enabled)
         .await
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+
+    if !enabled {
+        let mut config = state.config.read().clone();
+        if config.system_proxy_enabled && target_port == config.system_proxy_port {
+            let _ = crate::core::sysproxy::clear_system_proxy();
+            config.system_proxy_enabled = false;
+            config.system_proxy_port = None;
+            *state.config.write() = config.clone();
+            let config_path = state.app_dir.join("config.json");
+            if let Ok(json) = serde_json::to_string_pretty(&config) {
+                let _ = std::fs::write(config_path, json);
+            }
+        }
+    }
+    Ok(updated)
 }
 #[tauri::command]
 pub async fn toggle_manual_fallback(
@@ -929,4 +1035,36 @@ pub async fn upgrade_kernel(
 
     crate::tray::update_tray_menu(&app);
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn reset_window_size(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_size(tauri::LogicalSize::new(1000.0, 680.0));
+        let _ = window.center();
+    }
+    if let Ok(config_dir) = app.path().app_config_dir() {
+        let state_file = config_dir.join(".window-state.json");
+        let _ = std::fs::remove_file(state_file);
+    }
+    if let Ok(data_dir) = app.path().app_local_data_dir() {
+        let state_file = data_dir.join(".window-state.json");
+        let _ = std::fs::remove_file(state_file);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn exit_app(app: AppHandle) -> Result<(), String> {
+    let _ = crate::core::sysproxy::clear_system_proxy();
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn hide_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+    Ok(())
 }

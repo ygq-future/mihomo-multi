@@ -4,14 +4,17 @@ import {
   Download,
   ExternalLink,
   FolderOpen,
+  Globe,
   Image as ImageIcon,
   Monitor,
   Moon,
   Network,
   Palette,
   Play,
+  Plus,
   Power,
   RefreshCw,
+  RotateCcw,
   ShieldCheck,
   Sliders,
   Sparkles,
@@ -20,6 +23,7 @@ import {
   Terminal,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -36,6 +40,71 @@ import {
   Switch,
   toast,
 } from '../common'
+
+function isValidBypassRule(value: string): boolean {
+  const val = value.trim()
+  if (!val) return false
+
+  // 1. localhost or <local>
+  if (/^(?:localhost|<local>)$/i.test(val)) {
+    return true
+  }
+
+  // 2. IPv4 wildcard (e.g. 127.*, 10.*, 192.168.*, 172.16.*)
+  if (/^(?:\d{1,3}\.){1,3}\*$/.test(val)) {
+    const parts = val.replace(/\.\*$/, '').split('.')
+    return parts.every((p) => {
+      const num = Number(p)
+      return num >= 0 && num <= 255
+    })
+  }
+
+  // 3. IPv4 standard address (e.g. 192.168.1.1, 10.0.0.1)
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(val)) {
+    const parts = val.split('.')
+    return parts.every((p) => {
+      const num = Number(p)
+      return num >= 0 && num <= 255
+    })
+  }
+
+  // 4. IPv4 CIDR (e.g. 10.0.0.0/8, 192.168.0.0/16, 172.16.0.0/12)
+  if (/^(?:\d{1,3}\.){3}\d{1,3}\/(?:[0-9]|[1-2][0-9]|3[0-2])$/.test(val)) {
+    const [ip] = val.split('/')
+    const parts = ip.split('.')
+    return parts.every((p) => {
+      const num = Number(p)
+      return num >= 0 && num <= 255
+    })
+  }
+
+  // 5. IPv6 or IPv6 wildcard (e.g. ::1, fe80::*, 2001:db8::1)
+  if (
+    /^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}(\/\d{1,3}|\*)?$/.test(val) &&
+    val.includes(':')
+  ) {
+    return true
+  }
+
+  // 6. Wildcard domain prefix: *.lan, *.local, *.google.com, .lan, etc.
+  if (
+    /^(?:\*\.|\.)[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?)*$/.test(
+      val,
+    )
+  ) {
+    return true
+  }
+
+  // 7. Standard multi-label domain (must contain at least one dot): example.com, router.lan, sub.domain.org
+  if (
+    /^[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?)+$/.test(
+      val,
+    )
+  ) {
+    return true
+  }
+  return false
+}
 
 const logLevelOptions = [
   { value: 'info', label: 'Info (标准信息)' },
@@ -82,11 +151,13 @@ export const SettingView: React.FC = () => {
   const {
     coreStatus,
     config,
+    portMappings,
     startCore,
     stopCore,
     restartCore,
     fetchConfig,
     saveConfig,
+    setSystemProxy,
     openAppDataDir,
     coreLoading,
     fetchStatus,
@@ -130,6 +201,117 @@ export const SettingView: React.FC = () => {
   const [updateInfo, setUpdateInfo] = useState<KernelUpdateCheckResult | null>(
     null,
   )
+
+  // System Proxy State
+  const [newBypassInput, setNewBypassInput] = useState<string>('')
+  const [defaultBypassList, setDefaultBypassList] = useState<string[]>([])
+
+  useEffect(() => {
+    api
+      .getDefaultBypassList()
+      .then(setDefaultBypassList)
+      .catch(() => {})
+  }, [])
+
+  const enabledPorts = portMappings
+    .filter((m) => m.enabled)
+    .sort((a, b) => a.port - b.port)
+
+  const handleToggleSystemProxy = async (checked: boolean) => {
+    if (checked) {
+      const targetPort =
+        config?.systemProxyPort &&
+        enabledPorts.some((m) => m.port === config.systemProxyPort)
+          ? config.systemProxyPort
+          : enabledPorts[0]?.port
+
+      if (!targetPort) {
+        toast.error('当前无可用且已启用的监听端口，请先在端口管理中启用端口')
+        return
+      }
+
+      try {
+        await setSystemProxy(true, targetPort)
+        toast.success(`已将端口 ${targetPort} 设为系统代理并同步环境变量`)
+      } catch (err) {
+        toast.error(
+          `开启系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    } else {
+      try {
+        await setSystemProxy(false)
+        toast.success('已关闭系统代理并清除环境变量')
+      } catch (err) {
+        toast.error(
+          `关闭系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    }
+  }
+
+  const handlePortSelectChange = async (portStr: string) => {
+    const port = Number(portStr)
+    if (!port) return
+    try {
+      await setSystemProxy(true, port)
+      toast.success(`已切换系统代理端口至 ${port}`)
+    } catch (err) {
+      toast.error(
+        `切换系统代理端口失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
+
+  const handleAddBypass = async () => {
+    const trimmed = newBypassInput.trim()
+    if (!trimmed) return
+    if (!config) return
+
+    if (!isValidBypassRule(trimmed)) {
+      toast.error(
+        '请输入合法的域名 (如 *.example.com)、IP (如 192.168.1.1) 或网段 (如 10.0.0.0/8)',
+      )
+      return
+    }
+
+    const lower = trimmed.toLowerCase()
+    const currentList = config.systemProxyBypassUser || []
+    if (currentList.some((d) => d.toLowerCase() === lower)) {
+      toast.warning(`排除项「${trimmed}」已在自定义排除列表中`)
+      return
+    }
+
+    if (defaultBypassList.some((d) => d.toLowerCase() === lower)) {
+      toast.warning(`排除项「${trimmed}」已存在于系统内置排除项中`)
+      return
+    }
+
+    const updated = [...currentList, trimmed]
+    try {
+      await saveConfig({ ...config, systemProxyBypassUser: updated })
+      setNewBypassInput('')
+      toast.success(`已添加排除域名/IP: ${trimmed}`)
+    } catch (err) {
+      toast.error(
+        `添加失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
+
+  const handleRemoveBypass = async (item: string) => {
+    if (!config) return
+    const currentList = config.systemProxyBypassUser || []
+    const updated = currentList.filter((d) => d !== item)
+    try {
+      await saveConfig({ ...config, systemProxyBypassUser: updated })
+      toast.success(`已移除排除项: ${item}`)
+    } catch (err) {
+      toast.error(
+        `移除失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
 
   const handleCheckKernelUpdate = async () => {
     setCheckingUpdate(true)
@@ -425,6 +607,17 @@ export const SettingView: React.FC = () => {
       ...config,
       silentStart: checked,
     })
+  }
+
+  const handleResetWindowSize = async () => {
+    try {
+      await api.resetWindowSize()
+      toast.success('窗口大小已重置为默认推荐尺寸 (1000 × 680)')
+    } catch (err) {
+      toast.error(
+        `重置窗口尺寸失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
   }
 
   const handlePortBlur = async () => {
@@ -878,6 +1071,163 @@ export const SettingView: React.FC = () => {
         </div>
       </div>
 
+      {/* System Proxy Card */}
+      <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
+        <div className="pb-3 border-b border-border">
+          <div className="flex items-center gap-2.5">
+            <Globe className="w-5 h-5 text-primary" />
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
+                系统代理设置 (System Proxy)
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                接管操作系统网络代理，多监听端口单选互斥，并在 Windows
+                下联动写入用户环境变量 (all_proxy, http_proxy, https_proxy,
+                no_proxy)
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* Main Switch */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <label className="text-xs font-medium text-foreground">
+                启用系统代理
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                将选定监听端口设为系统全局代理。内核停止或应用退出时将自动清理，防止系统断网
+              </p>
+            </div>
+            <Switch
+              checked={config?.systemProxyEnabled ?? false}
+              onChange={handleToggleSystemProxy}
+              size="md"
+            />
+          </div>
+
+          {/* Port Select when Enabled */}
+          {config?.systemProxyEnabled && (
+            <div className="pt-3 border-t border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="space-y-0.5">
+                <label className="text-xs font-medium text-foreground">
+                  绑定的监听端口
+                </label>
+                <p className="text-[11px] text-muted-foreground">
+                  从当前已启用的监听端口中选择作为系统代理出口 (严格单选互斥)
+                </p>
+              </div>
+              <div className="w-full sm:w-80">
+                {enabledPorts.length === 0 ? (
+                  <span className="text-xs text-rose-500 font-medium">
+                    暂无已启用的监听端口，请先在端口管理中启用
+                  </span>
+                ) : (
+                  <Select
+                    value={String(
+                      config?.systemProxyPort ?? enabledPorts[0]?.port ?? '',
+                    )}
+                    onChange={(val) => handlePortSelectChange(String(val))}
+                    options={enabledPorts.map((m) => ({
+                      value: String(m.port),
+                      label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName}${
+                        m.description ? ` · ${m.description}` : ''
+                      })`,
+                    }))}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Bypass Domains Section */}
+          <div className="pt-3 border-t border-border/70 space-y-3">
+            <div>
+              <label className="text-xs font-medium text-foreground">
+                排除域名与 IP (Bypass Domains / no_proxy)
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                匹配列表中的网络请求将不经过系统代理直连访问，同时同步注入到系统的
+                no_proxy 环境变量中
+              </p>
+            </div>
+
+            {/* Add Custom Bypass Input */}
+            <div className="flex items-center gap-2 max-w-lg">
+              <Input
+                value={newBypassInput}
+                onChange={(e) => setNewBypassInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    handleAddBypass()
+                  }
+                }}
+                placeholder="输入排除域名或 IP (如 *.example.com, 10.0.0.0/8)..."
+              />
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={handleAddBypass}
+                icon={<Plus className="w-3.5 h-3.5" />}
+              >
+                添加
+              </Button>
+            </div>
+
+            {/* Custom Bypass Tags */}
+            {config?.systemProxyBypassUser &&
+              config.systemProxyBypassUser.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    自定义排除项 ({config.systemProxyBypassUser.length})：
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {config.systemProxyBypassUser.map((domain) => (
+                      <Badge
+                        key={domain}
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center gap-1 font-mono text-xs py-0.5 px-2 bg-accent/40"
+                      >
+                        <span>{domain}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveBypass(domain)}
+                          className="text-muted-foreground hover:text-destructive transition-colors ml-0.5"
+                          title="移除此排除项"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            {/* Default Bypass Tags (Preview) */}
+            <div className="space-y-1.5 pt-1">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                系统内置排除项 (局域网与本地回环)：
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {defaultBypassList.map((item) => (
+                  <Badge
+                    key={item}
+                    variant="secondary"
+                    size="sm"
+                    className="font-mono text-[10px] text-muted-foreground/80 py-0 px-1.5"
+                  >
+                    {item}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* 2. Appearance & Personalization Card */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
         <div className="pb-3 border-b border-border">
@@ -1134,6 +1484,26 @@ export const SettingView: React.FC = () => {
               onChange={handleSilentStartToggle}
               size="md"
             />
+          </div>
+
+          <div className="flex items-center justify-between pt-3 border-t border-border/70">
+            <div className="space-y-0.5">
+              <span className="text-xs font-medium text-foreground">
+                重置窗口为默认推荐尺寸
+              </span>
+              <p className="text-[11px] text-muted-foreground">
+                将窗口尺寸重置为 1000 × 680
+                并居中，清除旧的窗口记忆缓存，完美呈现 4 列节点与 3 列端口
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetWindowSize}
+              icon={<RotateCcw className="w-3.5 h-3.5" />}
+            >
+              恢复默认大小
+            </Button>
           </div>
         </div>
       </div>

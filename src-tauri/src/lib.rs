@@ -9,7 +9,7 @@ pub mod tray;
 
 use commands::*;
 use state::AppState;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -76,6 +76,13 @@ pub fn run() {
                     error!("Failed to auto-start Mihomo core: {}", err);
                 } else {
                     info!("Mihomo core auto-started successfully");
+                    if config.system_proxy_enabled {
+                        if let Some(port) = config.system_proxy_port {
+                            let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user);
+                        }
+                    } else {
+                        let _ = crate::core::sysproxy::clear_system_proxy();
+                    }
                     tray::update_tray_menu(&handle);
                 }
             });
@@ -127,20 +134,31 @@ pub fn run() {
             get_lan_ip_addresses,
             check_kernel_update,
             upgrade_kernel,
+            set_system_proxy,
+            get_system_proxy_status,
+            get_default_bypass_list,
+            reset_window_size,
+            exit_app,
+            hide_window,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
-                if let Some(state) = window.try_state::<AppState>()
-                    && state.config.read().close_to_tray
-                {
-                    api.prevent_close();
-                    let _ = window.hide();
-                    info!("Window close prevented, minimized to system tray");
+                if let Some(state) = window.try_state::<AppState>() {
+                    let close_to_tray = state.config.read().close_to_tray;
+                    if close_to_tray {
+                        api.prevent_close();
+                        let _ = window.hide();
+                        info!("Window close prevented, minimized to system tray");
+                    } else {
+                        api.prevent_close();
+                        let _ = window.emit("request-window-close", ());
+                    }
                 }
             }
             tauri::WindowEvent::Destroyed => {
                 if let Some(state) = window.try_state::<AppState>() {
                     info!("Window destroyed, ensuring sidecar process and background services are terminated");
+                    let _ = crate::core::sysproxy::clear_system_proxy();
                     state.auto_updater.stop();
                     let _ = state.engine.stop();
                 }

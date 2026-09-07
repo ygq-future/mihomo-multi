@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Mihomo Multi",
-        "width": 1100,
-        "height": 750,
+        "width": 1000,
+        "height": 680,
         "minWidth": 850,
         "minHeight": 600,
         "resizable": true,

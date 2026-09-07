@@ -24,6 +24,7 @@ export interface BaseAppState {
   restartCore: () => Promise<void>
   fetchConfig: () => Promise<void>
   saveConfig: (config: AppConfig) => Promise<void>
+  setSystemProxy: (enabled: boolean, port?: number | null) => Promise<void>
 }
 
 export type RootStore = BaseAppState & ProfileSlice & ProxySlice & PortSlice
@@ -148,6 +149,26 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
       set({
         error: err instanceof Error ? err.message : String(err),
       })
+      throw err
+    }
+  },
+
+  setSystemProxy: async (enabled: boolean, port?: number | null) => {
+    try {
+      const status = await api.setSystemProxy(enabled, port)
+      const currentConfig = get().config
+      if (currentConfig) {
+        set({
+          config: {
+            ...currentConfig,
+            systemProxyEnabled: status.enabled,
+            systemProxyPort: status.port ?? null,
+          },
+        })
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: msg })
       throw err
     }
   },

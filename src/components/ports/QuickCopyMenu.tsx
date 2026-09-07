@@ -14,6 +14,7 @@ export interface QuickCopyMenuProps {
   port: number
   protocol: InboundProtocol
   hostIp?: string
+  bypassDomains?: string[]
   onCopySuccess: (text: string) => void
 }
 
@@ -21,6 +22,7 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
   port,
   protocol,
   hostIp,
+  bypassDomains,
   onCopySuccess,
 }) => {
   const [isOpen, setIsOpen] = useState(false)
@@ -125,7 +127,37 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
     }
   }, [isOpen, isClosing, updatePos, closeMenu])
 
+  const isWin =
+    typeof navigator !== 'undefined' &&
+    (/win/i.test(navigator.userAgent) ||
+      /windows/i.test(navigator.platform || ''))
+
+  const noProxyStr =
+    bypassDomains && bypassDomains.length > 0
+      ? bypassDomains.filter((d) => d.toLowerCase() !== '<local>').join(',')
+      : 'localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16'
+
+  const httpProxyUrl = `http://${host}:${port}`
+  const allProxyUrl =
+    protocol === 'socks5'
+      ? `socks5://${host}:${port}`
+      : `http://${host}:${port}`
+
+  const envCommand = isWin
+    ? `$env:HTTP_PROXY="${httpProxyUrl}"; $env:HTTPS_PROXY="${httpProxyUrl}"; $env:ALL_PROXY="${allProxyUrl}"; $env:NO_PROXY="${noProxyStr}"`
+    : `export http_proxy="${httpProxyUrl}"; export https_proxy="${httpProxyUrl}"; export all_proxy="${allProxyUrl}"; export no_proxy="${noProxyStr}"; export HTTP_PROXY="${httpProxyUrl}"; export HTTPS_PROXY="${httpProxyUrl}"; export ALL_PROXY="${allProxyUrl}"; export NO_PROXY="${noProxyStr}"`
+
   const copyOptions = [
+    {
+      label: isWin
+        ? '终端环境变量命令 (PowerShell)'
+        : '终端环境变量命令 (Shell export)',
+      value: envCommand,
+      desc: isWin
+        ? '$env:HTTP_PROXY="http://..."'
+        : 'export http_proxy=... (全大小写兼容)',
+      icon: <Terminal className="w-3 h-3 text-primary" />,
+    },
     {
       label: '纯地址 (Host:Port)',
       value: `${host}:${port}`,

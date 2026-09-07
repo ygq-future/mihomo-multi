@@ -148,6 +148,15 @@ export interface AppConfig {
   timeoutMs: number
   fallbackInterval: number
   fallbackLazy: boolean
+  systemProxyEnabled: boolean
+  systemProxyPort?: number | null
+  systemProxyBypassUser: string[]
+}
+
+export interface SystemProxyStatus {
+  enabled: boolean
+  port?: number | null
+  bypassDomains: string[]
 }
 
 export interface AppStatus {

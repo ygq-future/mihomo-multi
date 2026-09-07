@@ -14,6 +14,7 @@ import type {
   PortMapping,
   ProfileItem,
   ProxyNode,
+  SystemProxyStatus,
 } from '../types'
 
 function isTauriEnvironment(): boolean {
@@ -119,6 +120,9 @@ export async function getConfig(): Promise<AppConfig> {
       timeoutMs: 3000,
       fallbackInterval: 5,
       fallbackLazy: false,
+      systemProxyEnabled: false,
+      systemProxyPort: null,
+      systemProxyBypassUser: [],
     }
   }
   return invoke<AppConfig>('get_config')
@@ -520,4 +524,76 @@ export async function upgradeKernel(): Promise<KernelUpgradeResult> {
     }
   }
   return invoke<KernelUpgradeResult>('upgrade_kernel')
+}
+
+export async function setSystemProxy(
+  enabled: boolean,
+  port?: number | null,
+): Promise<SystemProxyStatus> {
+  if (!isTauriEnvironment()) {
+    return {
+      enabled,
+      port: enabled ? (port ?? 7890) : null,
+      bypassDomains: ['localhost', '127.*', '10.*', '192.168.*', '<local>'],
+    }
+  }
+  return invoke<SystemProxyStatus>('set_system_proxy', {
+    enabled,
+    port: port ?? null,
+  })
+}
+
+export async function getSystemProxyStatus(): Promise<SystemProxyStatus> {
+  if (!isTauriEnvironment()) {
+    return {
+      enabled: false,
+      port: null,
+      bypassDomains: ['localhost', '127.*', '10.*', '192.168.*', '<local>'],
+    }
+  }
+  return invoke<SystemProxyStatus>('get_system_proxy_status')
+}
+
+export async function getDefaultBypassList(): Promise<string[]> {
+  if (!isTauriEnvironment()) {
+    return [
+      'localhost',
+      '127.*',
+      '10.*',
+      '172.16.*',
+      '172.17.*',
+      '172.18.*',
+      '172.19.*',
+      '172.20.*',
+      '172.21.*',
+      '172.22.*',
+      '172.23.*',
+      '172.24.*',
+      '172.25.*',
+      '172.26.*',
+      '172.27.*',
+      '172.28.*',
+      '172.29.*',
+      '172.30.*',
+      '172.31.*',
+      '192.168.*',
+      '<local>',
+    ]
+  }
+  return invoke<string[]>('get_default_bypass_list')
+}
+
+export async function resetWindowSize(): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('reset_window_size')
+}
+
+export async function exitApp(): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('exit_app')
+}
+
+export async function hideWindow(): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('hide_window')
 }

@@ -223,12 +223,23 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
 
   deletePortMapping: async (id) => {
     set({ portLoading: true, portError: null })
+    const targetPort = get().portMappings.find((p) => p.id === id)?.port
     try {
       await api.deletePortMapping(id)
       const [driftReports, occupiedPorts] = await Promise.all([
         api.getDriftReports().catch(() => []),
         api.getOccupiedPorts().catch(() => []),
       ])
+      const storeState = get() as unknown as {
+        config?: { systemProxyPort?: number | null }
+        fetchConfig?: () => Promise<void>
+      }
+      if (
+        storeState.config?.systemProxyPort &&
+        targetPort === storeState.config.systemProxyPort
+      ) {
+        storeState.fetchConfig?.().catch(() => {})
+      }
       set((state) => ({
         portMappings: state.portMappings.filter((p) => p.id !== id),
         driftReports,
@@ -252,6 +263,19 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
     try {
       const updated = await api.togglePortMapping(id, enabled)
       const occupiedPorts = await api.getOccupiedPorts().catch(() => [])
+      if (!enabled) {
+        const targetPort = updated.port
+        const storeState = get() as unknown as {
+          config?: { systemProxyPort?: number | null }
+          fetchConfig?: () => Promise<void>
+        }
+        if (
+          storeState.config?.systemProxyPort &&
+          targetPort === storeState.config.systemProxyPort
+        ) {
+          storeState.fetchConfig?.().catch(() => {})
+        }
+      }
       set((state) => ({
         portMappings: state.portMappings.map((p) =>
           p.id === id ? updated : p,

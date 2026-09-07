@@ -293,7 +293,13 @@ export function getProtocolBadgeProps(type: string): {
     case 'ss':
     case 'shadowsocks':
       return {
-        label: 'Shadowsocks',
+        label: 'SS',
+        className: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+      }
+    case 'ssr':
+    case 'shadowsocksr':
+      return {
+        label: 'SSR',
         className: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
       }
     case 'vmess':

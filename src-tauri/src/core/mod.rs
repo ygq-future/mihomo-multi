@@ -11,3 +11,4 @@ pub mod port_router;
 pub mod port_probe;
 pub mod profile_manager;
 pub mod supervisor;
+pub mod sysproxy;

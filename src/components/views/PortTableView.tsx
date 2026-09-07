@@ -1,10 +1,10 @@
 import {
   AlertTriangle,
   Edit2,
+  Globe,
   Loader2,
   Network,
   Plus,
-  Search,
   ShieldCheck,
   Trash2,
   Wrench,
@@ -18,7 +18,6 @@ import { extractRegion, getLatencyBadgeProps } from '../../utils/proxy'
 import {
   Badge,
   Button,
-  Input,
   Modal,
   RegionFlag,
   Select,
@@ -34,6 +33,7 @@ export const PortTableView: React.FC = () => {
     config,
     fetchConfig,
     saveConfig,
+    setSystemProxy,
     portMappings,
     occupiedPorts,
     driftReports,
@@ -70,19 +70,6 @@ export const PortTableView: React.FC = () => {
 
   // LAN IPs state for allow_lan mode
   const [lanIps, setLanIps] = useState<LanIpInfo[]>([])
-
-  // Search and filter state (Persistent)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedProtocol, setSelectedProtocol] = useState<string>(() => {
-    return typeof window !== 'undefined'
-      ? localStorage.getItem('port_filter_protocol') || 'all'
-      : 'all'
-  })
-  const [selectedStatus, setSelectedStatus] = useState<string>(() => {
-    return typeof window !== 'undefined'
-      ? localStorage.getItem('port_filter_status') || 'all'
-      : 'all'
-  })
 
   useEffect(() => {
     fetchPortMappings().catch(() => {})
@@ -193,24 +180,6 @@ export const PortTableView: React.FC = () => {
     }
   }, [portMappings, profileNodes, fetchProfileNodes])
 
-  const handleProtocolFilterChange = (val: string) => {
-    setSelectedProtocol(val)
-    try {
-      localStorage.setItem('port_filter_protocol', val)
-    } catch {
-      // ignore
-    }
-  }
-
-  const handleStatusFilterChange = (val: string) => {
-    setSelectedStatus(val)
-    try {
-      localStorage.setItem('port_filter_status', val)
-    } catch {
-      // ignore
-    }
-  }
-
   // Drift map for easy lookup
   const driftMap = useMemo(() => {
     const map: Record<string, PortDriftReport> = {}
@@ -229,70 +198,34 @@ export const PortTableView: React.FC = () => {
     return map
   }, [profiles])
 
-  // Filtered and sorted port mappings (Ascending by port number)
-  const filteredMappings = useMemo(() => {
-    const list = portMappings.filter((m) => {
-      const drift = driftMap[m.id]
-      const isDrifted = drift && drift.status !== 'healthy'
+  // Sorted port mappings (Ascending by port number)
+  const sortedMappings = useMemo(() => {
+    return [...portMappings].sort((a, b) => a.port - b.port)
+  }, [portMappings])
 
-      // Protocol filter
-      if (selectedProtocol !== 'all' && m.protocol !== selectedProtocol) {
-        return false
-      }
+  const enabledPorts = useMemo(() => {
+    return portMappings.filter((m) => m.enabled).sort((a, b) => a.port - b.port)
+  }, [portMappings])
 
-      // Status filter
-      if (selectedStatus === 'enabled' && !m.enabled) return false
-      if (selectedStatus === 'disabled' && m.enabled) return false
-      if (selectedStatus === 'drifted' && !isDrifted) return false
-      if (
-        selectedStatus === 'fallback' &&
-        !fallbackStatuses[m.id]?.isFallbackActive
-      ) {
-        return false
-      }
-      // Search query filter (port, node_name, profile_name, description)
-      if (searchQuery.trim()) {
-        const query = searchQuery.trim().toLowerCase()
-        const portStr = String(m.port)
-        const nodeStr = m.nodeName.toLowerCase()
-        const profStr = (profileMap[m.profileId] || '').toLowerCase()
-        const descStr = (m.description || '').toLowerCase()
-
-        return (
-          portStr.includes(query) ||
-          nodeStr.includes(query) ||
-          profStr.includes(query) ||
-          descStr.includes(query)
-        )
-      }
-
-      return true
-    })
-
-    return list.sort((a, b) => a.port - b.port)
-  }, [
-    portMappings,
-    driftMap,
-    selectedProtocol,
-    selectedStatus,
-    searchQuery,
-    profileMap,
-    fallbackStatuses,
-  ])
-
-  const fallbackActiveCount = useMemo(() => {
-    return Object.values(fallbackStatuses).filter((s) => s.isFallbackActive)
-      .length
-  }, [fallbackStatuses])
   const totalPorts = portMappings.length
-  const activePorts = portMappings.filter((m) => m.enabled).length
+  const activePorts = enabledPorts.length
 
   const handleToggle = async (m: PortMapping, checked: boolean) => {
     setTogglingPortIds((prev) => ({ ...prev, [m.id]: true }))
     try {
+      const isSysProxy =
+        config?.systemProxyEnabled && config?.systemProxyPort === m.port
+      if (!checked && isSysProxy) {
+        await setSystemProxy(false)
+      }
       await togglePortMapping(m.id, checked)
+      await fetchConfig()
       fetchStatus().catch(() => {})
-      toast.success(`端口 ${m.port} 已${checked ? '启用' : '禁用'}`)
+      if (!checked && isSysProxy) {
+        toast.success(`端口 ${m.port} 已禁用，已同步解除系统代理并清除环境变量`)
+      } else {
+        toast.success(`端口 ${m.port} 已${checked ? '启用' : '禁用'}`)
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
@@ -304,9 +237,20 @@ export const PortTableView: React.FC = () => {
     if (!deletingMapping) return
     setIsDeleting(true)
     try {
+      const isSysProxy =
+        config?.systemProxyEnabled &&
+        config?.systemProxyPort === deletingMapping.port
+      if (isSysProxy) {
+        await setSystemProxy(false)
+      }
       await deletePortMapping(deletingMapping.id)
+      await fetchConfig()
       fetchStatus().catch(() => {})
-      toast.success(`端口 ${deletingMapping.port} 映射已删除`)
+      if (isSysProxy) {
+        toast.success(`端口 ${deletingMapping.port} 已删除，已同步解除系统代理`)
+      } else {
+        toast.success(`端口 ${deletingMapping.port} 映射已删除`)
+      }
       setDeletingMapping(null)
     } catch {
       // Error handled in store
@@ -350,64 +294,106 @@ export const PortTableView: React.FC = () => {
     await testAllPortsDelay()
     toast.success('全部已启用端口测速完成')
   }
+  const handleTopToggleSystemProxy = async (checked: boolean) => {
+    if (checked) {
+      const targetPort =
+        config?.systemProxyPort &&
+        enabledPorts.some((m) => m.port === config.systemProxyPort)
+          ? config.systemProxyPort
+          : enabledPorts[0]?.port
+
+      if (!targetPort) {
+        toast.error('当前无可用且已启用的监听端口，请先启用端口')
+        return
+      }
+
+      try {
+        await setSystemProxy(true, targetPort)
+        toast.success(`已将端口 ${targetPort} 设为系统代理并同步环境变量`)
+      } catch (err) {
+        toast.error(
+          `开启系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    } else {
+      try {
+        await setSystemProxy(false)
+        toast.success('已关闭系统代理并清除环境变量')
+      } catch (err) {
+        toast.error(
+          `关闭系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    }
+  }
+
+  const handleTopSelectSystemProxyPort = async (portStr: string) => {
+    const port = Number(portStr)
+    if (!port) return
+    try {
+      await setSystemProxy(true, port)
+      toast.success(`已切换系统代理端口至 ${port}`)
+    } catch (err) {
+      toast.error(
+        `切换系统代理端口失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
 
   return (
     <div className="h-full flex flex-col p-6 space-y-4 w-full overflow-hidden">
       {/* Top Sticky Single-Row Action Bar Card */}
-      <div className="bg-card border border-border rounded-xl p-3.5 shadow-sm shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        {/* Left: Search Input + Protocol Filter + Status Filter */}
-        <div className="flex items-center gap-2.5 flex-1 min-w-0">
-          <div className="flex-1 max-w-sm">
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索端口号、节点名、订阅或备注..."
-              prefixIcon={
-                <Search className="w-3.5 h-3.5 text-muted-foreground" />
-              }
-              clearable
-              onClear={() => setSearchQuery('')}
+      <div className="bg-card border border-border rounded-xl p-3 shadow-sm shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        {/* Left: System Proxy Control Group & LAN IP Selector */}
+        <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
+          <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/80 shrink-0">
+            <div className="flex items-center gap-1.5 text-xs font-semibold shrink-0">
+              <Globe
+                className={`w-3.5 h-3.5 ${
+                  config?.systemProxyEnabled
+                    ? 'text-sky-500 animate-pulse'
+                    : 'text-muted-foreground'
+                }`}
+              />
+              <span
+                className={
+                  config?.systemProxyEnabled
+                    ? 'text-sky-600 dark:text-sky-400'
+                    : 'text-foreground'
+                }
+              >
+                系统代理
+              </span>
+            </div>
+            <Switch
+              checked={config?.systemProxyEnabled ?? false}
+              onChange={handleTopToggleSystemProxy}
+              size="sm"
             />
+            {config?.systemProxyEnabled && (
+              <div className="w-52 ml-1">
+                {enabledPorts.length === 0 ? (
+                  <span className="text-[11px] text-rose-500 font-medium">
+                    无可用端口
+                  </span>
+                ) : (
+                  <Select
+                    value={String(
+                      config?.systemProxyPort ?? enabledPorts[0]?.port ?? '',
+                    )}
+                    onChange={(val) =>
+                      handleTopSelectSystemProxyPort(String(val))
+                    }
+                    options={enabledPorts.map((m) => ({
+                      value: String(m.port),
+                      label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName})`,
+                    }))}
+                  />
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="w-28 shrink-0">
-            <Select
-              value={selectedProtocol}
-              onChange={(val) => handleProtocolFilterChange(String(val))}
-              options={[
-                { value: 'all', label: '全部协议' },
-                { value: 'mixed', label: 'Mixed' },
-                { value: 'http', label: 'HTTP' },
-                { value: 'socks5', label: 'SOCKS5' },
-              ]}
-            />
-          </div>
-
-          <div className="w-32 shrink-0">
-            <Select
-              value={selectedStatus}
-              onChange={(val) => handleStatusFilterChange(String(val))}
-              options={[
-                { value: 'all', label: '全部状态' },
-                { value: 'enabled', label: '仅已启用' },
-                { value: 'disabled', label: '仅已停用' },
-                {
-                  value: 'drifted',
-                  label: `⚠️ 异常漂移 (${
-                    driftReports.filter((r) => r.status !== 'healthy').length
-                  })`,
-                },
-                ...(fallbackActiveCount > 0
-                  ? [
-                      {
-                        value: 'fallback',
-                        label: `🛡️ 备用兜底 (${fallbackActiveCount})`,
-                      },
-                    ]
-                  : []),
-              ]}
-            />
-          </div>
           {config?.allowLan && (
             <div className="w-44 shrink-0">
               <Select
@@ -480,27 +466,9 @@ export const PortTableView: React.FC = () => {
               </Button>
             </div>
           </div>
-        ) : filteredMappings.length === 0 ? (
-          <div className="border border-dashed border-border rounded-xl p-10 flex flex-col items-center justify-center text-center space-y-3 bg-card/20">
-            <Search className="w-6 h-6 text-muted-foreground" />
-            <div className="text-xs text-muted-foreground">
-              未找到与当前搜索或筛选条件匹配的端口映射
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setSearchQuery('')
-                handleProtocolFilterChange('all')
-                handleStatusFilterChange('all')
-              }}
-            >
-              重置筛选条件
-            </Button>
-          </div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
-            {filteredMappings.map((m) => {
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
+            {sortedMappings.map((m) => {
               const isTesting = testingPortIds[m.id] || false
               const profileName = profileMap[m.profileId] || '未知订阅'
               const drift = driftMap[m.id]
@@ -568,6 +536,8 @@ export const PortTableView: React.FC = () => {
                 fbLatency,
                 isTestingFb,
               )
+              const isCurrentSystemProxy =
+                config?.systemProxyEnabled && config?.systemProxyPort === m.port
               return (
                 <div
                   key={m.id}
@@ -582,10 +552,11 @@ export const PortTableView: React.FC = () => {
                             ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10'
                             : isFallbackWarning
                               ? 'border-amber-500/60 bg-amber-500/5 dark:bg-amber-500/10'
-                              : 'border-border'
+                              : isCurrentSystemProxy
+                                ? 'border-sky-500/70 bg-sky-500/[0.04] dark:bg-sky-500/[0.08] ring-1 ring-sky-500/30'
+                                : 'border-border'
                   }`}
                 >
-                  {/* Top Row: Local Port + Inbound Protocol Badge + Switch */}
                   <div className="flex items-center justify-between gap-2 min-w-0">
                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
                       {isStoppedWarning ? (
@@ -645,18 +616,20 @@ export const PortTableView: React.FC = () => {
                           全局代理
                         </Badge>
                       )}
+                      {isCurrentSystemProxy && (
+                        <Badge
+                          variant="outline"
+                          size="sm"
+                          className="!text-[10px] !py-0.5 !px-1.5 font-medium bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/40 shrink-0"
+                          title="当前端口已作为系统代理"
+                        >
+                          系统代理
+                        </Badge>
+                      )}
 
                       {isStoppedWarning ? (
                         <span className="text-[10px] text-amber-500 font-medium shrink-0">
                           (监听已停止)
-                        </span>
-                      ) : isOccupiedWarning ? (
-                        <span className="text-[10px] text-rose-500 font-medium shrink-0">
-                          (端口冲突)
-                        </span>
-                      ) : isFallbackWarning ? (
-                        <span className="text-[10px] text-amber-500 font-medium shrink-0">
-                          (备用兜底)
                         </span>
                       ) : null}
                     </div>
@@ -740,25 +713,29 @@ export const PortTableView: React.FC = () => {
                     {hasFallback && (
                       <button
                         type="button"
-                        disabled={isAutoFallbackActive}
+                        disabled={!m.enabled || isAutoFallbackActive}
                         onClick={(e) => {
                           e.stopPropagation()
-                          if (isAutoFallbackActive) return
+                          if (!m.enabled || isAutoFallbackActive) return
                           handleToggleManualFallback(m.id, isManualFallback)
                         }}
                         className={`w-full flex items-center justify-between gap-1.5 text-[11px] px-2 py-1 rounded-md border select-none transition-all ${
-                          isManualFallback
-                            ? 'bg-primary/10 border-primary/40 text-foreground cursor-pointer hover:border-primary/70 hover:bg-primary/15 group/fb'
-                            : isAutoFallbackActive
-                              ? 'bg-amber-500/10 border-amber-500/30 text-foreground cursor-not-allowed opacity-90'
-                              : 'bg-muted/20 border-dashed border-border/80 text-muted-foreground cursor-pointer hover:border-primary/50 hover:bg-primary/5 hover:text-foreground group/fb'
+                          !m.enabled
+                            ? 'bg-muted/10 border-border/40 text-muted-foreground/50 cursor-not-allowed'
+                            : isManualFallback
+                              ? 'bg-primary/10 border-primary/40 text-foreground cursor-pointer hover:border-primary/70 hover:bg-primary/15 group/fb'
+                              : isAutoFallbackActive
+                                ? 'bg-amber-500/10 border-amber-500/30 text-foreground cursor-not-allowed opacity-90'
+                                : 'bg-muted/20 border-dashed border-border/80 text-muted-foreground cursor-pointer hover:border-primary/50 hover:bg-primary/5 hover:text-foreground group/fb'
                         }`}
                         title={
-                          isManualFallback
-                            ? '当前已主动启用备用节点（点击取消并恢复自动兜底模式）'
-                            : isAutoFallbackActive
-                              ? '主节点连接超时，系统已自动切换至备用节点兜底（主节点故障时无需手动指定）'
-                              : '点击主动启用备用节点（锁定流量至备用节点，测速超时也不切回）'
+                          !m.enabled
+                            ? '端口已停用，无法切换备用节点'
+                            : isManualFallback
+                              ? '当前已主动启用备用节点（点击取消并恢复自动兜底模式）'
+                              : isAutoFallbackActive
+                                ? '主节点连接超时，系统已自动切换至备用节点兜底（主节点故障时无需手动指定）'
+                                : '点击主动启用备用节点（锁定流量至备用节点，测速超时也不切回）'
                         }
                       >
                         <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
@@ -840,14 +817,15 @@ export const PortTableView: React.FC = () => {
                   </div>
 
                   {/* Bottom Row: Latency Badge + Actions */}
-                  <div className="pt-2 border-t border-border/50 flex items-center justify-between gap-1.5 text-[11px]">
+                  {/* Bottom Row: Latency Badge + Actions */}
+                  <div className="pt-2 border-t border-border/50 flex flex-nowrap items-center justify-between gap-1.5 text-[11px]">
                     {/* Latency Badges Area (Clickable for Single Delay Test) */}
-                    <div className="flex items-center gap-1.5 min-w-0">
+                    <div className="flex flex-nowrap items-center gap-1.5 min-w-0 shrink-0">
                       <button
                         type="button"
                         onClick={() => handleSingleDelayTest(m.id, m.port)}
                         disabled={!m.enabled || isTesting}
-                        className="focus:outline-none flex items-center"
+                        className="focus:outline-none flex items-center shrink-0"
                         title={
                           hasFallback
                             ? '点击单端口测速 (同时测速主节点与备用节点)'
@@ -858,7 +836,7 @@ export const PortTableView: React.FC = () => {
                           variant={latencyProps.variant}
                           size="sm"
                           dot={latencyProps.dot}
-                          className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1"
+                          className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1 shrink-0 whitespace-nowrap"
                         >
                           {hasFallback && (
                             <span className="font-sans font-semibold text-[9px] opacity-75">
@@ -883,14 +861,14 @@ export const PortTableView: React.FC = () => {
                             handleSingleFallbackDelayTest(m.id, m.port)
                           }
                           disabled={!m.enabled || isTestingFb}
-                          className="focus:outline-none flex items-center"
+                          className="focus:outline-none flex items-center shrink-0"
                           title={`点击单独测试备用节点 (${m.fallbackNodeName}) 延迟`}
                         >
                           <Badge
                             variant={fbLatencyProps.variant}
                             size="sm"
                             dot={fbLatencyProps.dot}
-                            className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1"
+                            className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1 shrink-0 whitespace-nowrap"
                           >
                             <span className="font-sans font-semibold text-[9px] opacity-75">
                               备
@@ -913,6 +891,7 @@ export const PortTableView: React.FC = () => {
                         port={m.port}
                         protocol={m.protocol}
                         hostIp={activeHostIp}
+                        bypassDomains={config?.systemProxyBypassUser}
                         onCopySuccess={toast.success}
                       />
 

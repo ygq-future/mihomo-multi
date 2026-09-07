@@ -69,7 +69,7 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
             {node.name}
           </span>
           <span
-            className="shrink-0 max-w-[80px] truncate text-right text-[10px] text-muted-foreground/80"
+            className="shrink-0 max-w-[85px] truncate text-right text-[10px] text-muted-foreground/80"
             title={node.profileName}
           >
             {node.profileName}
@@ -115,9 +115,11 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
               variant={isBound ? 'outline' : 'secondary'}
               size="sm"
               disabled={isBound}
-              className={`!text-[10px] !px-2 !py-0.5 h-5 gap-1 ${
+              className={`!text-[10px] ${
+                isBound ? '!px-1.5 font-mono' : '!px-2'
+              } !py-0.5 h-5 gap-1 ${
                 isBound
-                  ? 'opacity-40 text-muted-foreground bg-secondary/30'
+                  ? 'opacity-60 text-muted-foreground bg-secondary/30'
                   : ''
               }`}
               onClick={() =>
@@ -133,7 +135,7 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
                   : '绑定到本地入站端口'
               }
             >
-              {isBound ? `已绑 ${boundPort}` : '绑定'}
+              {isBound ? String(boundPort) : '绑定'}
             </Button>
           </div>
         </div>
@@ -644,7 +646,7 @@ export const ProxyGridView: React.FC = () => {
             </Button>
           </div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2.5">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2.5">
             {processedNodes.map((node) => {
               const nodeKey = node.runtimeName || node.name
               const latency =
