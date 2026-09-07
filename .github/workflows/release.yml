@@ -48,7 +48,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libasound2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libasound2-dev squashfs-tools
 
       - name: Install Node dependencies
         run: pnpm install
@@ -97,7 +97,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libasound2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libasound2-dev squashfs-tools
 
       - name: Install Node dependencies
         run: pnpm install
@@ -132,7 +132,7 @@ jobs:
             bundle_args: '--bundles dmg'
             rust_targets: 'aarch64-apple-darwin'
           - name: 'macOS Intel'
-            os: macos-13
+            os: macos-latest
             target: 'x86_64-apple-darwin'
             bundle_args: '--bundles dmg'
             rust_targets: 'x86_64-apple-darwin'
@@ -171,7 +171,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libasound2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libasound2-dev squashfs-tools
 
       - name: Install Node dependencies
         run: pnpm install
