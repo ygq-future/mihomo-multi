@@ -53,6 +53,9 @@ jobs:
       - name: Install Node dependencies
         run: pnpm install
 
+      - name: Prepare Sidecar Binary
+        run: node scripts/dev-sidecar.mjs
+
       - name: Check code formatting (Biome)
         run: pnpm format:check
 
@@ -101,6 +104,9 @@ jobs:
 
       - name: Install Node dependencies
         run: pnpm install
+
+      - name: Prepare Sidecar Binary
+        run: node scripts/dev-sidecar.mjs
 
       - name: Run test suite
         run: cargo test --manifest-path src-tauri/Cargo.toml
