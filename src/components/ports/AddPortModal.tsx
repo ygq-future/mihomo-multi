@@ -143,8 +143,10 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
 
   // Check port availability on debounced port change
   useEffect(() => {
-    const portNum = Number.parseInt(port, 10)
-    if (!portNum || portNum < 1024 || portNum > 65535) {
+    const trimmedPort = port.trim()
+    const isPureInteger = /^\d+$/.test(trimmedPort)
+    const portNum = isPureInteger ? Number.parseInt(trimmedPort, 10) : 0
+    if (!isPureInteger || !portNum || portNum < 1024 || portNum > 65535) {
       setIsPortAvailable(null)
       return
     }
@@ -394,9 +396,11 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     e.preventDefault()
     setError(null)
 
-    const portNum = Number.parseInt(port, 10)
-    if (!portNum || portNum < 1024 || portNum > 65535) {
-      setError('端口号必须在 1024 ~ 65535 范围内')
+    const trimmedPort = port.trim()
+    const isPureInteger = /^\d+$/.test(trimmedPort)
+    const portNum = isPureInteger ? Number.parseInt(trimmedPort, 10) : 0
+    if (!isPureInteger || !portNum || portNum < 1024 || portNum > 65535) {
+      setError('端口号必须为整数且在 1024 ~ 65535 范围内')
       return
     }
 
@@ -563,6 +567,8 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
               <Input
                 id="port-input"
                 type="number"
+                integerOnly
+                step={1}
                 min={1024}
                 max={65535}
                 value={port}

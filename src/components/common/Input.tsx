@@ -12,8 +12,8 @@ export interface InputProps
   onClear?: () => void
   required?: boolean
   loading?: boolean
+  integerOnly?: boolean
 }
-
 export const Input: React.FC<InputProps> = ({
   label,
   error,
@@ -29,6 +29,10 @@ export const Input: React.FC<InputProps> = ({
   value,
   disabled,
   onFocus,
+  integerOnly = false,
+  onKeyDown,
+  onChange,
+  inputMode,
   ...props
 }) => {
   const showClear = clearable && Boolean(value) && onClear && !loading
@@ -37,10 +41,43 @@ export const Input: React.FC<InputProps> = ({
     // Automatically move cursor to the end of text on focus
     const val = e.currentTarget.value
     if (typeof val === 'string' || typeof val === 'number') {
-      const len = String(val).length
-      e.currentTarget.setSelectionRange(len, len)
+      try {
+        const len = String(val).length
+        e.currentTarget.setSelectionRange(len, len)
+      } catch {
+        // Some browsers throw InvalidStateError for setSelectionRange on input[type="number"]
+      }
     }
     onFocus?.(e)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (integerOnly) {
+      // Disallow decimal point, exponent e/E, and signs +/-
+      if (
+        e.key === '.' ||
+        e.key === 'e' ||
+        e.key === 'E' ||
+        e.key === '+' ||
+        e.key === '-' ||
+        e.key === ','
+      ) {
+        e.preventDefault()
+        return
+      }
+    }
+    onKeyDown?.(e)
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (integerOnly) {
+      const rawValue = e.target.value
+      const cleanedValue = rawValue.replace(/\D/g, '')
+      if (rawValue !== cleanedValue) {
+        e.target.value = cleanedValue
+      }
+    }
+    onChange?.(e)
   }
 
   return (
@@ -67,7 +104,9 @@ export const Input: React.FC<InputProps> = ({
           value={value}
           disabled={disabled || loading}
           onFocus={handleFocus}
-          autoComplete="off"
+          onKeyDown={handleKeyDown}
+          onChange={handleChange}
+          inputMode={inputMode ?? (integerOnly ? 'numeric' : undefined)}
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}

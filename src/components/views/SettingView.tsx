@@ -307,9 +307,11 @@ export const SettingView: React.FC = () => {
   }
 
   const handleTimeoutBlur = async () => {
-    const ms = Number.parseInt(timeoutMsInput, 10)
-    if (!ms || ms < 500 || ms > 60000) {
-      toast.error('超时时间建议在 500 ~ 60000 ms 范围内')
+    const trimmed = timeoutMsInput.trim()
+    const isPureInteger = /^\d+$/.test(trimmed)
+    const ms = isPureInteger ? Number.parseInt(trimmed, 10) : 0
+    if (!isPureInteger || !ms || ms < 500 || ms > 60000) {
+      toast.error('超时时间必须为整数且在 500 ~ 60000 ms 范围内')
       setTimeoutMsInput(String(config?.timeoutMs ?? 3000))
       return
     }
@@ -324,9 +326,11 @@ export const SettingView: React.FC = () => {
   }
 
   const handleFallbackIntervalBlur = async () => {
-    const sec = Number.parseInt(fallbackIntervalInput, 10)
-    if (!sec || sec < 2 || sec > 300) {
-      toast.error('检测间隔建议在 2 ~ 300 秒范围内')
+    const trimmed = fallbackIntervalInput.trim()
+    const isPureInteger = /^\d+$/.test(trimmed)
+    const sec = isPureInteger ? Number.parseInt(trimmed, 10) : 0
+    if (!isPureInteger || !sec || sec < 2 || sec > 300) {
+      toast.error('检测间隔必须为整数且在 2 ~ 300 秒范围内')
       setFallbackIntervalInput(String(config?.fallbackInterval ?? 5))
       return
     }
@@ -424,12 +428,19 @@ export const SettingView: React.FC = () => {
   }
 
   const handlePortBlur = async () => {
-    const portNum = Number.parseInt(controllerPortInput, 10)
-    if (Number.isNaN(portNum) || portNum < 1024 || portNum > 65535) {
+    const trimmed = controllerPortInput.trim()
+    const isPureInteger = /^\d+$/.test(trimmed)
+    const portNum = isPureInteger ? Number.parseInt(trimmed, 10) : Number.NaN
+    if (
+      !isPureInteger ||
+      Number.isNaN(portNum) ||
+      portNum < 1024 ||
+      portNum > 65535
+    ) {
       if (config) {
         setControllerPortInput(String(config.controllerPort))
       }
-      setPortError('端口号必须在 1024 ~ 65535 范围内')
+      setPortError('端口号必须为整数且在 1024 ~ 65535 范围内')
       setTimeout(() => setPortError(null), 3500)
       return
     }
@@ -689,6 +700,8 @@ export const SettingView: React.FC = () => {
               <Input
                 id="controller-port-input"
                 type="number"
+                integerOnly
+                step={1}
                 min={1024}
                 max={65535}
                 loading={isSavingPort}
@@ -791,6 +804,8 @@ export const SettingView: React.FC = () => {
                 <Input
                   id="probe-timeout-input"
                   type="number"
+                  integerOnly
+                  step={1}
                   min={500}
                   max={60000}
                   value={timeoutMsInput}
@@ -825,6 +840,8 @@ export const SettingView: React.FC = () => {
                 <Input
                   id="fallback-interval-input"
                   type="number"
+                  integerOnly
+                  step={1}
                   min={2}
                   max={300}
                   value={fallbackIntervalInput}
