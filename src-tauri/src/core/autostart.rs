@@ -1,6 +1,8 @@
 use std::path::Path;
+#[cfg(windows)]
 use tracing::{info, warn};
 
+#[cfg(windows)]
 const APP_REG_KEY: &str = "MihomoMulti";
 
 #[cfg(windows)]

@@ -564,5 +564,29 @@ mod tests {
                 Some(&AppPackageType::Portable)
             );
         }
+
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        {
+            assert_eq!(all.len(), 3);
+            assert_eq!(
+                recommended_installer.as_ref().map(|a| &a.package_type),
+                Some(&AppPackageType::Installer)
+            );
+
+            let (recommended_portable, _) = match_platform_assets(&assets, false);
+            assert_eq!(
+                recommended_portable.as_ref().map(|a| &a.package_type),
+                Some(&AppPackageType::Portable)
+            );
+        }
+
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        {
+            assert_eq!(all.len(), 2);
+            assert_eq!(
+                recommended_installer.as_ref().map(|a| &a.package_type),
+                Some(&AppPackageType::Installer)
+            );
+        }
 }
 }
