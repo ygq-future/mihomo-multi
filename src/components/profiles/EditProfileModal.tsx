@@ -3,6 +3,7 @@ import type React from 'react'
 import { useEffect, useState } from 'react'
 import type { ProfileItem } from '../../types'
 import { Button, Input, Modal, Select } from '../common'
+import { PROFILE_INTERVAL_OPTIONS } from '../../constants/profile'
 
 interface EditProfileModalProps {
   profile: ProfileItem | null
@@ -15,13 +16,6 @@ interface EditProfileModalProps {
     intervalMins: number,
   ) => Promise<void>
 }
-
-const intervalOptions = [
-  { value: 0, label: '不自动更新（仅手动刷新）' },
-  { value: 360, label: '每 6 小时自动更新' },
-  { value: 720, label: '每 12 小时自动更新' },
-  { value: 1440, label: '每 24 小时 (1天) 自动更新' },
-]
 
 export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   profile,
@@ -158,7 +152,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
           <Select
             value={intervalMins}
             onChange={(val) => setIntervalMins(Number(val))}
-            options={intervalOptions}
+            options={PROFILE_INTERVAL_OPTIONS}
             disabled={loading}
           />
         </div>

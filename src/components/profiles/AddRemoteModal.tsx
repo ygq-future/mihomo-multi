@@ -2,19 +2,13 @@ import { AlertCircle, Globe } from 'lucide-react'
 import type React from 'react'
 import { useState } from 'react'
 import { Button, Input, Modal, Select } from '../common'
+import { PROFILE_INTERVAL_OPTIONS } from '../../constants/profile'
 
 interface AddRemoteModalProps {
   isOpen: boolean
   onClose: () => void
   onSubmit: (name: string, url: string, intervalMins: number) => Promise<void>
 }
-
-const intervalOptions = [
-  { value: 0, label: '不自动更新（仅手动刷新）' },
-  { value: 360, label: '每 6 小时自动更新' },
-  { value: 720, label: '每 12 小时自动更新' },
-  { value: 1440, label: '每 24 小时 (1天) 自动更新' },
-]
 
 export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
   isOpen,
@@ -125,7 +119,7 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
           <Select
             value={intervalMins}
             onChange={(val) => setIntervalMins(Number(val))}
-            options={intervalOptions}
+            options={PROFILE_INTERVAL_OPTIONS}
             disabled={loading}
           />
         </div>

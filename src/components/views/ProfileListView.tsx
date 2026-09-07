@@ -140,11 +140,13 @@ export const ProfileListView: React.FC = () => {
 
   const formatInterval = (mins: number) => {
     if (mins === 0) return '手动更新'
-    if (mins >= 60) {
-      const hours = Math.round(mins / 60)
-      return `每 ${hours} 小时`
+    if (mins < 60) return `每 ${mins} 分钟`
+    if (mins >= 1440 && mins % 1440 === 0) {
+      const days = mins / 1440
+      return `每 ${days} 天`
     }
-    return `每 ${mins} 分钟`
+    const hours = Math.round(mins / 60)
+    return `每 ${hours} 小时`
   }
 
   const totalNodes = profiles.reduce((acc, p) => acc + p.nodeCount, 0)
