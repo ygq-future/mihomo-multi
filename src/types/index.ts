@@ -151,6 +151,7 @@ export interface AppConfig {
   systemProxyEnabled: boolean
   systemProxyPort?: number | null
   systemProxyBypassUser: string[]
+  systemProxySyncEnv: boolean
 }
 
 export interface SystemProxyStatus {

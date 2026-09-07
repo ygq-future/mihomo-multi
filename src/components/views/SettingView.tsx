@@ -269,7 +269,11 @@ export const SettingView: React.FC = () => {
 
       try {
         await setSystemProxy(true, targetPort)
-        toast.success(`已将端口 ${targetPort} 设为系统代理并同步环境变量`)
+        if (config?.systemProxySyncEnv ?? true) {
+          toast.success(`已将端口 ${targetPort} 设为系统代理并同步环境变量`)
+        } else {
+          toast.success(`已将端口 ${targetPort} 设为系统代理`)
+        }
       } catch (err) {
         toast.error(
           `开启系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
@@ -278,12 +282,35 @@ export const SettingView: React.FC = () => {
     } else {
       try {
         await setSystemProxy(false)
-        toast.success('已关闭系统代理并清除环境变量')
+        if (config?.systemProxySyncEnv ?? true) {
+          toast.success('已关闭系统代理并清除环境变量')
+        } else {
+          toast.success('已关闭系统代理')
+        }
       } catch (err) {
         toast.error(
           `关闭系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
         )
       }
+    }
+  }
+
+  const handleToggleSyncEnv = async (checked: boolean) => {
+    if (!config) return
+    try {
+      await saveConfig({
+        ...config,
+        systemProxySyncEnv: checked,
+      })
+      toast.success(
+        checked
+          ? '已开启环境变量联动同步'
+          : '已关闭环境变量联动同步 (不再写入 all_proxy/http_proxy 等)',
+      )
+    } catch (err) {
+      toast.error(
+        `更新设置失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
     }
   }
 
@@ -1214,7 +1241,7 @@ export const SettingView: React.FC = () => {
                 系统代理设置 (System Proxy)
               </h3>
               <p className="text-xs text-muted-foreground">
-                接管操作系统网络代理，多监听端口单选互斥，并在 Windows
+                接管操作系统网络代理，多监听端口单选互斥，并支持在 Windows
                 下联动写入用户环境变量 (all_proxy, http_proxy, https_proxy,
                 no_proxy)
               </p>
@@ -1274,6 +1301,25 @@ export const SettingView: React.FC = () => {
             </div>
           )}
 
+          {/* Sync User Environment Variables Switch */}
+          <div className="pt-3 border-t border-border/70 flex items-center justify-between">
+            <div className="space-y-0.5">
+              <label className="text-xs font-medium text-foreground">
+                联动设置用户环境变量 (Windows)
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                开启系统代理时，联动写入 all_proxy、http_proxy、https_proxy 与
+                no_proxy
+                用户环境变量，方便终端命令行工具自动走代理。关闭则仅设置系统代理，不修改环境变量
+              </p>
+            </div>
+            <Switch
+              checked={config?.systemProxySyncEnv ?? true}
+              onChange={handleToggleSyncEnv}
+              size="md"
+            />
+          </div>
+
           {/* Bypass Domains Section */}
           <div className="pt-3 border-t border-border/70 space-y-3">
             <div>
@@ -1281,7 +1327,7 @@ export const SettingView: React.FC = () => {
                 排除域名与 IP (Bypass Domains / no_proxy)
               </label>
               <p className="text-[11px] text-muted-foreground">
-                匹配列表中的网络请求将不经过系统代理直连访问，同时同步注入到系统的
+                匹配列表中的网络请求将不经过系统代理直连访问，若开启环境变量同步将同时注入到系统的
                 no_proxy 环境变量中
               </p>
             </div>

@@ -79,7 +79,7 @@ pub fn run() {
                     info!("Mihomo core auto-started successfully");
                     if config.system_proxy_enabled {
                         if let Some(port) = config.system_proxy_port {
-                            let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user);
+                            let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user, config.system_proxy_sync_env);
                         }
                     } else {
                         let _ = crate::core::sysproxy::clear_system_proxy();

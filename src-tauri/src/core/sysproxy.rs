@@ -41,16 +41,19 @@ pub fn build_combined_bypass_list(user_bypass: &[String]) -> Vec<String> {
 }
 
 /// Applies system proxy to the OS and environment variables
-pub fn apply_system_proxy(port: u16, user_bypass: &[String]) -> AppResult<()> {
-    info!(port = port, "Applying system proxy");
+pub fn apply_system_proxy(port: u16, user_bypass: &[String], sync_env: bool) -> AppResult<()> {
+    info!(port = port, sync_env = sync_env, "Applying system proxy");
     let combined_bypass = build_combined_bypass_list(user_bypass);
 
     #[cfg(windows)]
     {
         windows::set_system_proxy_windows(port, &combined_bypass)?;
-        windows::set_user_env_proxy_windows(port, &combined_bypass)?;
+        if sync_env {
+            windows::set_user_env_proxy_windows(port, &combined_bypass)?;
+        } else {
+            windows::clear_user_env_proxy_windows()?;
+        }
     }
-
     #[cfg(target_os = "macos")]
     {
         macos::set_system_proxy_macos(port, &combined_bypass)?;

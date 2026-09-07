@@ -247,6 +247,8 @@ pub struct AppConfig {
     pub system_proxy_port: Option<u16>,
     #[serde(default)]
     pub system_proxy_bypass_user: Vec<String>,
+    #[serde(default = "default_true")]
+    pub system_proxy_sync_env: bool,
 }
 
 fn default_true() -> bool {
@@ -301,6 +303,7 @@ impl Default for AppConfig {
             system_proxy_enabled: false,
             system_proxy_port: None,
             system_proxy_bypass_user: Vec::new(),
+            system_proxy_sync_env: true,
         }
     }
 }

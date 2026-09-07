@@ -309,7 +309,11 @@ export const PortTableView: React.FC = () => {
 
       try {
         await setSystemProxy(true, targetPort)
-        toast.success(`已将端口 ${targetPort} 设为系统代理并同步环境变量`)
+        if (config?.systemProxySyncEnv ?? true) {
+          toast.success(`已将端口 ${targetPort} 设为系统代理并同步环境变量`)
+        } else {
+          toast.success(`已将端口 ${targetPort} 设为系统代理`)
+        }
       } catch (err) {
         toast.error(
           `开启系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
@@ -318,7 +322,11 @@ export const PortTableView: React.FC = () => {
     } else {
       try {
         await setSystemProxy(false)
-        toast.success('已关闭系统代理并清除环境变量')
+        if (config?.systemProxySyncEnv ?? true) {
+          toast.success('已关闭系统代理并清除环境变量')
+        } else {
+          toast.success('已关闭系统代理')
+        }
       } catch (err) {
         toast.error(
           `关闭系统代理失败: ${err instanceof Error ? err.message : String(err)}`,

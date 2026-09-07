@@ -127,6 +127,7 @@ export async function getConfig(): Promise<AppConfig> {
       systemProxyEnabled: false,
       systemProxyPort: null,
       systemProxyBypassUser: [],
+      systemProxySyncEnv: true,
     }
   }
   return invoke<AppConfig>('get_config')

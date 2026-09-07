@@ -42,7 +42,7 @@ pub async fn start_core(app: AppHandle, state: State<'_, AppState>) -> Result<Co
     let config = state.config.read().clone();
     let res = state.engine.start(Some(&app), &config).map_err(|err| err.to_string())?;
     if config.system_proxy_enabled && let Some(port) = config.system_proxy_port {
-        let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user);
+        let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user, config.system_proxy_sync_env);
     }
     crate::tray::update_tray_menu(&app);
     Ok(res)
@@ -68,7 +68,7 @@ pub async fn restart_core(app: AppHandle, state: State<'_, AppState>) -> Result<
         .restart(Some(&app), &config)
         .map_err(|err| err.to_string())?;
     if config.system_proxy_enabled && let Some(port) = config.system_proxy_port {
-        let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user);
+        let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user, config.system_proxy_sync_env);
     }
     crate::tray::update_tray_menu(&app);
     Ok(res)
@@ -115,10 +115,11 @@ pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Resul
     if config.system_proxy_enabled != old_config.system_proxy_enabled
         || config.system_proxy_port != old_config.system_proxy_port
         || config.system_proxy_bypass_user != old_config.system_proxy_bypass_user
+        || config.system_proxy_sync_env != old_config.system_proxy_sync_env
     {
         if config.system_proxy_enabled {
             if let Some(port) = config.system_proxy_port {
-                let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user);
+                let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user, config.system_proxy_sync_env);
             }
         } else {
             let _ = crate::core::sysproxy::clear_system_proxy();
@@ -159,7 +160,7 @@ pub async fn set_system_proxy(
             return Err(format!("端口 {} 未在监听列表中或未启用，无法设为系统代理", p));
         }
 
-        crate::core::sysproxy::apply_system_proxy(p, &config.system_proxy_bypass_user)
+        crate::core::sysproxy::apply_system_proxy(p, &config.system_proxy_bypass_user, config.system_proxy_sync_env)
             .map_err(|e| e.to_string())?;
 
         config.system_proxy_enabled = true;
