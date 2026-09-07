@@ -114,6 +114,29 @@ pub struct ProfileNodeIndexEntry {
     pub node_names: HashSet<String>,
 }
 
+struct TempFileCleanup {
+    path: PathBuf,
+    active: bool,
+}
+
+impl TempFileCleanup {
+    fn new(path: PathBuf) -> Self {
+        Self { path, active: true }
+    }
+
+    fn disarm(&mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for TempFileCleanup {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
 /// Atomically write bytes to a file by writing to a sibling temporary file and renaming it.
 pub fn atomic_write_file(path: &Path, content: &[u8]) -> AppResult<()> {
     if let Some(parent) = path.parent() {
@@ -128,20 +151,53 @@ pub fn atomic_write_file(path: &Path, content: &[u8]) -> AppResult<()> {
         None => PathBuf::from(format!(".tmp_{}", Uuid::new_v4())),
     };
 
-    if let Err(err) = std::fs::write(&temp_path, content) {
-        let _ = std::fs::remove_file(&temp_path);
-        return Err(AppError::Io(err));
-    }
+    let mut cleanup = TempFileCleanup::new(temp_path.clone());
 
-    if let Err(_err) = std::fs::rename(&temp_path, path) {
+    std::fs::write(&temp_path, content).map_err(AppError::Io)?;
+
+    let mut rename_result = std::fs::rename(&temp_path, path);
+    if rename_result.is_err() {
         let _ = std::fs::remove_file(path);
-        if let Err(err2) = std::fs::rename(&temp_path, path) {
-            let _ = std::fs::remove_file(&temp_path);
-            return Err(AppError::Io(err2));
+        for attempt in 0..5 {
+            rename_result = std::fs::rename(&temp_path, path);
+            if rename_result.is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10 * (attempt + 1)));
         }
     }
 
+    rename_result.map_err(AppError::Io)?;
+    cleanup.disarm();
     Ok(())
+}
+
+/// Recursively sweep and clean any stale `.tmp_*` files left behind by interrupted writes or crashes.
+pub fn clean_stale_temp_files(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file()
+            && let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && name.starts_with(".tmp_")
+        {
+            let _ = std::fs::remove_file(&path);
+        } else if path.is_dir()
+            && let Ok(sub_entries) = std::fs::read_dir(&path)
+        {
+            for sub_entry in sub_entries.flatten() {
+                let sub_path = sub_entry.path();
+                if sub_path.is_file()
+                    && let Some(name) = sub_path.file_name().and_then(|n| n.to_str())
+                    && name.starts_with(".tmp_")
+                {
+                    let _ = std::fs::remove_file(&sub_path);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone)]

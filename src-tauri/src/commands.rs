@@ -554,6 +554,7 @@ pub async fn get_port_fallback_statuses(
 
     let engine = state.engine.clone();
     let mut statuses = Vec::new();
+    let mut latency_updates: Vec<(String, Option<u32>)> = Vec::new();
     let now_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -620,12 +621,12 @@ pub async fn get_port_fallback_statuses(
             .or_else(|| state.latency_probe.get_latency(&fb_runtime_name).flatten())
             .or_else(|| state.latency_probe.get_latency(&fallback_node).flatten());
         if let Some(d) = kernel_primary_latency {
-            state.latency_probe.set_latency(&primary_runtime_name, Some(d));
-            state.latency_probe.set_latency(&m.node_name, Some(d));
+            latency_updates.push((primary_runtime_name, Some(d)));
+            latency_updates.push((m.node_name.clone(), Some(d)));
         }
         if let Some(d) = kernel_fallback_latency {
-            state.latency_probe.set_latency(&fb_runtime_name, Some(d));
-            state.latency_probe.set_latency(&fallback_node, Some(d));
+            latency_updates.push((fb_runtime_name, Some(d)));
+            latency_updates.push((fallback_node.clone(), Some(d)));
         }
 
         // Port mapping latency represents the primary node latency; never overwrite with fallback latency!
@@ -642,6 +643,10 @@ pub async fn get_port_fallback_statuses(
             fallback_latency,
             last_updated: now_ts,
         });
+    }
+
+    if !latency_updates.is_empty() {
+        state.latency_probe.set_latencies_batch(&latency_updates);
     }
 
     crate::tray::update_tray_menu(&app);

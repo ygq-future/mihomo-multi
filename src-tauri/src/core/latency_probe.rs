@@ -91,6 +91,7 @@ pub struct LatencyProbe {
     emitter: Arc<dyn LatencyEventEmitter>,
     active_token: Arc<RwLock<Option<CancellationToken>>>,
     concurrency_pool: Arc<Semaphore>,
+    persist_lock: Arc<parking_lot::Mutex<()>>,
 }
 
 impl LatencyProbe {
@@ -109,6 +110,7 @@ impl LatencyProbe {
             emitter,
             active_token: Arc::new(RwLock::new(None)),
             concurrency_pool: Arc::new(Semaphore::new(DEFAULT_PROBE_CONCURRENCY)),
+            persist_lock: Arc::new(parking_lot::Mutex::new(())),
         }
     }
 
@@ -128,6 +130,7 @@ impl LatencyProbe {
 
     /// Persist in-memory latencies to disk atomically
     pub fn persist_cache(&self) -> AppResult<()> {
+        let _guard = self.persist_lock.lock();
         let snapshot = self.cache.read().clone();
         let json = serde_json::to_string_pretty(&snapshot)?;
         atomic_write_file(&self.storage_path, json.as_bytes())?;
@@ -144,10 +147,40 @@ impl LatencyProbe {
         self.cache.read().get(name).copied()
     }
 
-    /// Manually update or record a latency in the authoritative cache
+    /// Manually update or record a latency in the authoritative cache with diff guard
     pub fn set_latency(&self, name: &str, latency: Option<u32>) {
-        self.cache.write().insert(name.to_string(), latency);
-        let _ = self.persist_cache();
+        let changed = {
+            let mut cache = self.cache.write();
+            if cache.get(name).copied() != Some(latency) {
+                cache.insert(name.to_string(), latency);
+                true
+            } else {
+                false
+            }
+        };
+        if changed {
+            let _ = self.persist_cache();
+        }
+    }
+
+    /// Batch update latencies with diff guard, triggering disk persist at most once
+    pub fn set_latencies_batch(&self, updates: &[(String, Option<u32>)]) {
+        if updates.is_empty() {
+            return;
+        }
+        let mut changed = false;
+        {
+            let mut cache = self.cache.write();
+            for (name, latency) in updates {
+                if cache.get(name).copied() != Some(*latency) {
+                    cache.insert(name.clone(), *latency);
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            let _ = self.persist_cache();
+        }
     }
 
     /// Clear all cached latencies

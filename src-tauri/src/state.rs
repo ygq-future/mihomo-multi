@@ -27,6 +27,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(app_dir: PathBuf) -> Self {
+        crate::core::profile_manager::clean_stale_temp_files(&app_dir);
         let work_dir = app_dir.join("core");
         let engine = Arc::new(KernelEngine::new(work_dir));
         let profile_manager = Arc::new(ProfileManager::new(app_dir.clone()));
