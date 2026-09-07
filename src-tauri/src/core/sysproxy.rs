@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use tracing::info;
+use tracing::{debug, info, warn};
 
 pub const DEFAULT_BYPASS_ITEMS: &[&str] = &[
     "localhost",

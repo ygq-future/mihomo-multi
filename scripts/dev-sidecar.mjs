@@ -15,37 +15,56 @@ const TEMP_DIR = path.join(rootDir, 'node_modules', '.sidecar-temp')
 
 const TARGET_MAP = {
   'x86_64-pc-windows-msvc': {
-    name: 'mihomo-windows-amd64-v2',
+    candidates: [
+      'mihomo-windows-amd64-v2',
+      'mihomo-windows-amd64-compatible',
+      'mihomo-windows-amd64',
+    ],
     ext: 'zip',
     targetFile: 'mihomo-x86_64-pc-windows-msvc.exe',
   },
   'i686-pc-windows-msvc': {
-    name: 'mihomo-windows-386',
+    candidates: ['mihomo-windows-386'],
     ext: 'zip',
     targetFile: 'mihomo-i686-pc-windows-msvc.exe',
   },
   'aarch64-pc-windows-msvc': {
-    name: 'mihomo-windows-arm64',
+    candidates: ['mihomo-windows-arm64'],
     ext: 'zip',
     targetFile: 'mihomo-aarch64-pc-windows-msvc.exe',
   },
   'x86_64-apple-darwin': {
-    name: 'mihomo-darwin-amd64-go122',
+    candidates: [
+      'mihomo-darwin-amd64-compatible',
+      'mihomo-darwin-amd64-v1',
+      'mihomo-darwin-amd64-v2',
+      'mihomo-darwin-amd64-go122',
+      'mihomo-darwin-amd64',
+    ],
     ext: 'gz',
     targetFile: 'mihomo-x86_64-apple-darwin',
   },
   'aarch64-apple-darwin': {
-    name: 'mihomo-darwin-arm64-go122',
+    candidates: [
+      'mihomo-darwin-arm64',
+      'mihomo-darwin-arm64-go122',
+      'mihomo-darwin-arm64-v1',
+    ],
     ext: 'gz',
     targetFile: 'mihomo-aarch64-apple-darwin',
   },
   'x86_64-unknown-linux-gnu': {
-    name: 'mihomo-linux-amd64-v2',
+    candidates: [
+      'mihomo-linux-amd64-v2',
+      'mihomo-linux-amd64-compatible',
+      'mihomo-linux-amd64-v1',
+      'mihomo-linux-amd64',
+    ],
     ext: 'gz',
     targetFile: 'mihomo-x86_64-unknown-linux-gnu',
   },
   'aarch64-unknown-linux-gnu': {
-    name: 'mihomo-linux-arm64',
+    candidates: ['mihomo-linux-arm64'],
     ext: 'gz',
     targetFile: 'mihomo-aarch64-unknown-linux-gnu',
   },
@@ -162,52 +181,65 @@ async function downloadSingleTarget(targetKey, force) {
   }
 
   const version = await getLatestVersion()
-  const archiveName = `${targetConfig.name}-${version}.${targetConfig.ext}`
-  const downloadUrl = `https://github.com/MetaCubeX/mihomo/releases/download/${version}/${archiveName}`
+  const candidates = targetConfig.candidates || [targetConfig.name]
+  let buffer = null
+  let successfulArchiveName = null
 
-  console.log(`[dev-sidecar] Downloading sidecar binary: ${downloadUrl}`)
-  await fsp.mkdir(TEMP_DIR, { recursive: true })
-  const tempArchive = path.join(TEMP_DIR, archiveName)
-
-  try {
-    const response = await fetchWithRetry(downloadUrl)
-    const arrayBuffer = await response.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-    await fsp.writeFile(tempArchive, buffer)
-    console.log(
-      `[dev-sidecar] Downloaded ${archiveName} (${(
-        buffer.length / 1024 / 1024
-      ).toFixed(2)} MB)`,
-    )
-
-    if (targetConfig.ext === 'zip') {
-      const zip = new AdmZip(tempArchive)
-      const zipEntries = zip.getEntries()
-      const exeEntry = zipEntries.find(
-        (entry) =>
-          entry.entryName.endsWith('.exe') || !entry.entryName.includes('.'),
+  for (const candidate of candidates) {
+    const archiveName = `${candidate}-${version}.${targetConfig.ext}`
+    const downloadUrl = `https://github.com/MetaCubeX/mihomo/releases/download/${version}/${archiveName}`
+    console.log(`[dev-sidecar] Trying download: ${downloadUrl}`)
+    try {
+      const response = await fetchWithRetry(downloadUrl, {}, 2)
+      const arrayBuffer = await response.arrayBuffer()
+      buffer = Buffer.from(arrayBuffer)
+      successfulArchiveName = archiveName
+      console.log(
+        `[dev-sidecar] Downloaded ${archiveName} (${(
+          buffer.length / 1024 / 1024
+        ).toFixed(2)} MB)`,
       )
-      if (!exeEntry) {
-        throw new Error(`No executable found in archive ${archiveName}`)
-      }
-      const data = exeEntry.getData()
-      await fsp.writeFile(destinationPath, data)
-    } else if (targetConfig.ext === 'gz') {
-      const decompressed = zlib.gunzipSync(buffer)
-      await fsp.writeFile(destinationPath, decompressed)
+      break
+    } catch (err) {
+      console.warn(
+        `[dev-sidecar] Candidate ${candidate} unavailable (${err.message})`,
+      )
     }
-
-    if (process.platform !== 'win32') {
-      await fsp.chmod(destinationPath, 0o755)
-    }
-
-    console.log(
-      `[dev-sidecar] Successfully installed sidecar binary to: ${destinationPath}`,
-    )
-    return destinationPath
-  } finally {
-    await fsp.rm(TEMP_DIR, { recursive: true, force: true }).catch(() => {})
   }
+
+  if (!buffer) {
+    throw new Error(
+      `Failed to download any candidate binary for ${targetKey} (${candidates.join(
+        ', ',
+      )})`,
+    )
+  }
+
+  if (targetConfig.ext === 'zip') {
+    const zip = new AdmZip(buffer)
+    const zipEntries = zip.getEntries()
+    const exeEntry = zipEntries.find(
+      (entry) =>
+        entry.entryName.endsWith('.exe') || !entry.entryName.includes('.'),
+    )
+    if (!exeEntry) {
+      throw new Error(`No executable found in archive ${successfulArchiveName}`)
+    }
+    const data = exeEntry.getData()
+    await fsp.writeFile(destinationPath, data)
+  } else if (targetConfig.ext === 'gz') {
+    const decompressed = zlib.gunzipSync(buffer)
+    await fsp.writeFile(destinationPath, decompressed)
+  }
+
+  if (process.platform !== 'win32') {
+    await fsp.chmod(destinationPath, 0o755)
+  }
+
+  console.log(
+    `[dev-sidecar] Successfully installed sidecar binary to: ${destinationPath}`,
+  )
+  return destinationPath
 }
 
 async function main() {
