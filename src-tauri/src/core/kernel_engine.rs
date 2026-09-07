@@ -638,6 +638,7 @@ mod tests {
             enabled: true,
             latency: None,
             description: None,
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
         };

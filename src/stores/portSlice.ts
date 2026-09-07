@@ -114,12 +114,17 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
         const profile = mapping
           ? storeState.profiles?.find((p) => p.id === mapping.profileId)
           : null
+        const fbProfile = mapping
+          ? storeState.profiles?.find(
+              (p) => p.id === (mapping.fallbackProfileId || mapping.profileId),
+            )
+          : null
 
         const mainKey = profile
           ? `[${profile.name}] ${s.primaryNode}`
           : s.primaryNode
-        const fbKey = profile
-          ? `[${profile.name}] ${s.fallbackNode}`
+        const fbKey = fbProfile
+          ? `[${fbProfile.name}] ${s.fallbackNode}`
           : s.fallbackNode
 
         if (s.primaryLatency !== undefined && s.primaryLatency !== null) {

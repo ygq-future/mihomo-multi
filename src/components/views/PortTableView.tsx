@@ -1,7 +1,6 @@
 import {
   AlertTriangle,
   Edit2,
-  Globe,
   Loader2,
   Network,
   Plus,
@@ -526,9 +525,12 @@ export const PortTableView: React.FC = () => {
               const isFallbackWarning =
                 isRunning && m.enabled && hasFallback && isFallbackActive
 
+              const fbProfileName =
+                (m.fallbackProfileId && profileMap[m.fallbackProfileId]) ||
+                profileName
               const fbNodeKey =
-                profileName && m.fallbackNodeName
-                  ? `[${profileName}] ${m.fallbackNodeName}`
+                fbProfileName && m.fallbackNodeName
+                  ? `[${fbProfileName}] ${m.fallbackNodeName}`
                   : m.fallbackNodeName || ''
               const fbLatency = m.fallbackNodeName
                 ? fbNodeKey in latencies && latencies[fbNodeKey] !== undefined
@@ -650,13 +652,25 @@ export const PortTableView: React.FC = () => {
                           code={extractRegion(m.nodeName).code}
                           size="md"
                         />
+                        {profileName && (
+                          <span
+                            className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
+                            title={`所属订阅: ${profileName}`}
+                          >
+                            {profileName}
+                          </span>
+                        )}
                         <span
                           className={`truncate flex-1 font-semibold ${
                             isFallbackActive
                               ? 'text-muted-foreground line-through decoration-amber-500/60'
                               : ''
                           }`}
-                          title={m.nodeName}
+                          title={
+                            profileName
+                              ? `[${profileName}] ${m.nodeName}`
+                              : m.nodeName
+                          }
                         >
                           {m.nodeName}
                         </span>
@@ -715,16 +729,32 @@ export const PortTableView: React.FC = () => {
                         }`}
                       >
                         <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
-                          <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                            ↳ 备:
-                          </span>
+                          <ShieldCheck
+                            className={`w-3 h-3 shrink-0 ${
+                              isFallbackActive
+                                ? 'text-emerald-500 animate-pulse'
+                                : 'text-muted-foreground/60'
+                            }`}
+                          />
+                          {fbProfileName && (
+                            <span
+                              className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
+                              title={`所属订阅: ${fbProfileName}`}
+                            >
+                              {fbProfileName}
+                            </span>
+                          )}
                           <RegionFlag
                             code={extractRegion(m.fallbackNodeName || '').code}
                             size="sm"
                           />
                           <span
                             className="truncate font-medium text-[11px]"
-                            title={m.fallbackNodeName || ''}
+                            title={
+                              fbProfileName
+                                ? `[${fbProfileName}] ${m.fallbackNodeName}`
+                                : m.fallbackNodeName || ''
+                            }
                           >
                             {m.fallbackNodeName}
                           </span>
@@ -746,24 +776,14 @@ export const PortTableView: React.FC = () => {
                         )}
                       </div>
                     )}
-
-                    <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-                      <span
-                        className="truncate flex items-center gap-1"
-                        title={profileName}
+                    {m.description?.trim() && (
+                      <div
+                        className="text-[10px] text-muted-foreground truncate italic pt-0.5"
+                        title={m.description}
                       >
-                        <Globe className="w-3 h-3 shrink-0" />
-                        {profileName}
-                      </span>
-                      {m.description && (
-                        <span
-                          className="truncate max-w-[120px] text-right italic"
-                          title={m.description}
-                        >
-                          {m.description}
-                        </span>
-                      )}
-                    </div>
+                        {m.description}
+                      </div>
+                    )}
                   </div>
 
                   {/* Bottom Row: Latency Badge + Actions */}

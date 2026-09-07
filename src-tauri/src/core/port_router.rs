@@ -529,6 +529,7 @@ mod tests {
             protocol: InboundProtocol::Mixed,
             profile_id: profile_id.to_string(),
             node_name: node_name.to_string(),
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
             enabled,

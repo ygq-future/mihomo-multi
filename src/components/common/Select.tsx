@@ -1,4 +1,4 @@
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, X } from 'lucide-react'
 import type React from 'react'
 import {
   useCallback,
@@ -17,6 +17,10 @@ export interface SelectOption<T = string | number> {
   description?: string
   disabled?: boolean
   rightNode?: React.ReactNode
+  /** 可选所属分组/订阅组名称，用于两段式搜索 */
+  group?: string
+  /** 可选原始目标名称（不带分组前缀），用于无空格搜索时排除订阅组干扰 */
+  searchTarget?: string
 }
 
 export interface SelectProps<T = string | number> {
@@ -30,6 +34,8 @@ export interface SelectProps<T = string | number> {
   width?: string
   prefixIcon?: React.ReactNode
   filterable?: boolean
+  clearable?: boolean
+  onClear?: () => void
   noDataText?: string
 }
 
@@ -42,36 +48,34 @@ interface DropdownPosition {
 }
 
 /**
- * 搜索文本标准化：将 Unicode 区域指示字符（国旗 Emoji，如 🇭🇰 / 🇸🇬 / 🇯🇵）
- * 自动换算还原为 ASCII 字母（HK / SG / JP 等），以便英文代码或缩写能精准匹配。
+ * 搜索文本标准化：仅将 Unicode 区域指示字符（国旗 Emoji，如 🇭🇰 / 🇸🇬 / 🇯🇵）
+ * 换算还原为对应 ASCII 大写字母（HK / SG / JP 等），严格保留原有字符大小写。
  */
-function normalizeForSearch(text: string): string {
-  return text
-    .replace(/[\uD83C][\uDDE6-\uDDFF]/g, (m) => {
-      const codePoint = m.codePointAt(0) ?? 0
-      return String.fromCharCode(codePoint - 0x1f1e6 + 65)
-    })
-    .toLowerCase()
+function normalizeEmojiToAscii(text: string): string {
+  return text.replace(/[\uD83C][\uDDE6-\uDDFF]/g, (m) => {
+    const codePoint = m.codePointAt(0) ?? 0
+    return String.fromCharCode(codePoint - 0x1f1e6 + 65)
+  })
 }
 
 /**
- * 跳字子序列模糊匹配（大小写不敏感）
+ * 跳字子序列模糊匹配（大小写敏感）
  * target: 目标文本
  * query: 搜索词
  */
-function fuzzySubsequenceMatch(target: string, query: string): boolean {
-  const q = query.trim().toLowerCase()
-  if (!q) return true
-  const t = target.toLowerCase()
+function fuzzySubsequenceMatchCaseSensitive(
+  target: string,
+  query: string,
+): boolean {
+  if (!query) return true
   let qIdx = 0
-  for (let i = 0; i < t.length && qIdx < q.length; i++) {
-    if (t[i] === q[qIdx]) {
+  for (let i = 0; i < target.length && qIdx < query.length; i++) {
+    if (target[i] === query[qIdx]) {
       qIdx++
     }
   }
-  return qIdx === q.length
+  return qIdx === query.length
 }
-
 export function Select<T extends string | number = string | number>({
   id,
   value,
@@ -83,6 +87,8 @@ export function Select<T extends string | number = string | number>({
   width = 'w-full',
   prefixIcon,
   filterable = true,
+  clearable = false,
+  onClear,
   noDataText = '无匹配选项',
 }: SelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false)
@@ -135,19 +141,83 @@ export function Select<T extends string | number = string | number>({
   }, [])
 
   const filteredOptions = useMemo(() => {
-    const q = normalizeForSearch(searchQuery.trim())
-    if (!filterable || !q) {
+    const trimmed = searchQuery.trimStart()
+    if (!filterable || !trimmed) {
       return options
     }
+
+    // 1. 无空格：单段搜索，只匹配节点名称，排除订阅组，大小写严格敏感
+    if (!trimmed.includes(' ')) {
+      const q = normalizeEmojiToAscii(trimmed)
+      return options.filter((opt) => {
+        let nodeName = opt.searchTarget || ''
+        if (!nodeName) {
+          const match = opt.label.match(/^\[(.*?)\]\s*(.*)$/)
+          nodeName = match ? match[2] : opt.label
+        }
+
+        const normalizedTarget = normalizeEmojiToAscii(nodeName)
+        if (
+          normalizedTarget.includes(q) ||
+          fuzzySubsequenceMatchCaseSensitive(normalizedTarget, q)
+        ) {
+          return true
+        }
+        if (opt.description && opt.description.includes(q)) {
+          return true
+        }
+        return false
+      })
+    }
+
+    // 2. 有空格：两段式搜索模式
+    const parts = trimmed.split(' ').filter(Boolean)
+    if (parts.length === 0) {
+      return options
+    }
+    // 限制只能两段，多于两段则不匹配，防止混淆
+    if (parts.length > 2) {
+      return []
+    }
+
+    const [groupQueryRaw, nodeQueryRaw] = parts
+    const groupQ = normalizeEmojiToAscii(groupQueryRaw)
+    const nodeQ = nodeQueryRaw ? normalizeEmojiToAscii(nodeQueryRaw) : ''
+
     return options.filter((opt) => {
-      const normalizedLabel = normalizeForSearch(opt.label)
-      if (fuzzySubsequenceMatch(normalizedLabel, q)) {
-        return true
+      let groupName = opt.group || ''
+      let nodeName = opt.searchTarget || ''
+
+      if (!groupName || !nodeName) {
+        const match = opt.label.match(/^\[(.*?)\]\s*(.*)$/)
+        if (match) {
+          if (!groupName) groupName = match[1]
+          if (!nodeName) nodeName = match[2]
+        } else {
+          nodeName = opt.label
+        }
       }
-      if (opt.description && opt.description.toLowerCase().includes(q)) {
-        return true
-      }
-      return false
+
+      const normalizedGroupName = normalizeEmojiToAscii(groupName)
+      const normalizedNodeName = normalizeEmojiToAscii(nodeName)
+
+      // 第一段匹配订阅组（模糊跳字匹配，如 mj 匹配 mojie）
+      const matchGroup =
+        normalizedGroupName.includes(groupQ) ||
+        fuzzySubsequenceMatchCaseSensitive(normalizedGroupName, groupQ)
+
+      if (!matchGroup) return false
+
+      // 若第二段尚未输入（如 "mojie "），则展示该订阅组下所有节点
+      if (!nodeQ) return true
+
+      // 第二段匹配节点名称，大小写严格敏感
+      const matchNode =
+        normalizedNodeName.includes(nodeQ) ||
+        fuzzySubsequenceMatchCaseSensitive(normalizedNodeName, nodeQ) ||
+        (opt.description ? opt.description.includes(nodeQ) : false)
+
+      return matchNode
     })
   }, [options, filterable, searchQuery])
 
@@ -433,11 +503,31 @@ export function Select<T extends string | number = string | number>({
           />
         </div>
 
-        <ChevronDown
-          className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-200 shrink-0 ${
-            isOpen && !isClosing ? 'rotate-180' : ''
-          }`}
-        />
+        <div className="flex items-center gap-1 shrink-0">
+          {clearable && value && !disabled && (
+            <button
+              type="button"
+              aria-label="清空选项"
+              onClick={(e) => {
+                e.stopPropagation()
+                setSearchQuery('')
+                if (onClear) {
+                  onClear()
+                } else {
+                  onChange('' as unknown as T)
+                }
+              }}
+              className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <ChevronDown
+            className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-200 ${
+              isOpen && !isClosing ? 'rotate-180' : ''
+            }`}
+          />
+        </div>
       </div>
 
       {/* Portal Dropdown Menu Panel */}

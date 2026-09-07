@@ -227,7 +227,9 @@ pub async fn test_port_mapping_delay(
     if let Some(fb_name) = &mapping.fallback_node_name
         && !fb_name.trim().is_empty()
     {
-        let fb_runtime_name = if let Some(prof) = profile.as_ref() {
+        let fb_profile_id = mapping.fallback_profile_id.as_deref().unwrap_or(&mapping.profile_id);
+        let fb_profile = state.profile_manager.get_profile_by_id(fb_profile_id);
+        let fb_runtime_name = if let Some(prof) = fb_profile.as_ref() {
             format!("[{}] {}", prof.name, fb_name)
         } else {
             fb_name.clone()
@@ -298,7 +300,8 @@ pub async fn test_all_port_mappings_delay(
         if let Some(fb_name) = &m.fallback_node_name
             && !fb_name.trim().is_empty()
         {
-            let fb_runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
+            let fb_profile_id = m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id);
+            let fb_runtime_name = if let Some(pname) = profile_map.get(fb_profile_id) {
                 format!("[{}] {}", pname, fb_name)
             } else {
                 fb_name.clone()
@@ -374,7 +377,8 @@ pub async fn get_port_fallback_statuses(state: State<'_, AppState>) -> Result<Ve
                 m.node_name.clone()
             };
 
-            let fb_runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
+            let fb_profile_id = m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id);
+            let fb_runtime_name = if let Some(pname) = profile_map.get(fb_profile_id) {
                 format!("[{}] {}", pname, fallback_node)
             } else {
                 fallback_node.clone()

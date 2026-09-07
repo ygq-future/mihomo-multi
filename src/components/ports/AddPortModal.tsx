@@ -1,7 +1,6 @@
 import {
   AlertCircle,
   AlertTriangle,
-  Globe,
   Loader2,
   Network,
   Radio,
@@ -27,6 +26,7 @@ import {
   Modal,
   RegionFlag,
   Select,
+  type SelectOption,
   Switch,
 } from '../common'
 
@@ -71,6 +71,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const [protocol, setProtocol] = useState<InboundProtocol>('mixed')
   const [selectedProfileId, setSelectedProfileId] = useState<string>('')
   const [selectedNodeName, setSelectedNodeName] = useState<string>('')
+  const [fallbackProfileId, setFallbackProfileId] = useState<string>('')
   const [fallbackNodeName, setFallbackNodeName] = useState<string>('')
   const [description, setDescription] = useState<string>('')
   const [bypassCn, setBypassCn] = useState<boolean>(true)
@@ -100,13 +101,16 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         setProtocol(initialMapping.protocol)
         setSelectedProfileId(initialMapping.profileId)
         setSelectedNodeName(initialMapping.nodeName)
+        setFallbackProfileId(
+          initialMapping.fallbackProfileId || initialMapping.profileId,
+        )
         setFallbackNodeName(initialMapping.fallbackNodeName || '')
         setDescription(initialMapping.description || '')
         setBypassCn(initialMapping.bypassCn ?? true)
       } else {
-        const profId = initialProfileId || (profiles[0] ? profiles[0].id : '')
-        setSelectedProfileId(profId)
+        setSelectedProfileId(initialProfileId || '')
         setSelectedNodeName(initialNodeName || '')
+        setFallbackProfileId('')
         setFallbackNodeName('')
         // Sequential backend auto-allocation starting from 7891 (accounts for both self and system occupancy)
         api
@@ -126,12 +130,16 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     }
   }, [isOpen, initialProfileId, initialNodeName, initialMapping, profiles])
 
-  // Ensure nodes for selected profile are loaded
+  // Ensure nodes for all profiles are loaded
   useEffect(() => {
-    if (selectedProfileId && !profileNodes[selectedProfileId]) {
-      fetchProfileNodes(selectedProfileId).catch(() => {})
+    if (isOpen) {
+      for (const p of profiles) {
+        if (!profileNodes[p.id]) {
+          fetchProfileNodes(p.id).catch(() => {})
+        }
+      }
     }
-  }, [selectedProfileId, profileNodes, fetchProfileNodes])
+  }, [isOpen, profiles, profileNodes, fetchProfileNodes])
 
   // Check port availability on debounced port change
   useEffect(() => {
@@ -180,130 +188,77 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     }
   }, [port, isEditing, initialMapping])
 
-  const availableNodes = useMemo(() => {
-    if (!selectedProfileId) return []
-    return profileNodes[selectedProfileId] || []
-  }, [selectedProfileId, profileNodes])
+  const allAvailableNodes = useMemo(() => {
+    const result: Array<{
+      name: string
+      type: string
+      server: string
+      port: number
+      profileId: string
+      profileName: string
+      uniqueKey: string
+      displayName: string
+    }> = []
+    for (const p of profiles) {
+      const nodes = profileNodes[p.id] || []
+      for (const n of nodes) {
+        result.push({
+          ...n,
+          profileId: p.id,
+          profileName: p.name,
+          uniqueKey: `${p.id}:::${n.name}`,
+          displayName: `[${p.name}] ${n.name}`,
+        })
+      }
+    }
+    return result
+  }, [profiles, profileNodes])
 
   const selectedNode = useMemo(() => {
-    return availableNodes.find((n) => n.name === selectedNodeName)
-  }, [availableNodes, selectedNodeName])
+    if (!selectedNodeName || !selectedProfileId) return null
+    return (
+      allAvailableNodes.find(
+        (n) => n.profileId === selectedProfileId && n.name === selectedNodeName,
+      ) || null
+    )
+  }, [allAvailableNodes, selectedProfileId, selectedNodeName])
 
   const selectedFallbackNode = useMemo(() => {
-    if (!fallbackNodeName) return null
-    return availableNodes.find((n) => n.name === fallbackNodeName) || null
-  }, [availableNodes, fallbackNodeName])
+    if (!fallbackNodeName || !fallbackProfileId) return null
+    return (
+      allAvailableNodes.find(
+        (n) => n.profileId === fallbackProfileId && n.name === fallbackNodeName,
+      ) || null
+    )
+  }, [allAvailableNodes, fallbackProfileId, fallbackNodeName])
+
   const selectedNodeRegion = useMemo(() => {
     if (!selectedNodeName) return null
     return extractRegion(selectedNodeName)
   }, [selectedNodeName])
 
-  const selectedProfile = useMemo(() => {
-    return profiles.find((p) => p.id === selectedProfileId)
-  }, [profiles, selectedProfileId])
-  const fallbackNodeOptions = useMemo(() => {
-    if (!selectedNodeRegion || !selectedNodeName) return []
-    const profName = selectedProfile?.name || ''
-    const sameRegionNodes = availableNodes.filter(
-      (n) =>
-        n.name !== selectedNodeName &&
-        extractRegion(n.name).code === selectedNodeRegion.code,
-    )
-
-    const options = [
-      {
-        value: '',
-        label: '不启用备用节点 (单节点绑定)',
-        description: '仅主节点监听，不进行自动故障转移',
-      },
-    ]
-
-    for (const n of sameRegionNodes) {
-      const key = profName ? `[${profName}] ${n.name}` : n.name
-      const latency = nodeKeyHasLatency(key, n.name, latencies)
-      const latencyProps = getLatencyBadgeProps(latency, false)
-      const region = extractRegion(n.name)
-
-      options.push({
-        value: n.name,
-        label: n.name,
-        description: `${formatProtocolName(n.type)} 协议 · 同属 ${region.name || region.code}`,
-        icon: <RegionFlag code={region.code} size="sm" />,
-        rightNode: (
-          <Badge
-            variant={latencyProps.variant}
-            size="sm"
-            dot={latencyProps.dot}
-            className="!text-[10px] !py-0.5 !px-1.5 font-mono"
-          >
-            {latencyProps.label}
-          </Badge>
-        ),
-      } as (typeof options)[0])
-    }
-
-    return options
-  }, [
-    selectedNodeRegion,
-    selectedNodeName,
-    availableNodes,
-    selectedProfile,
-    latencies,
-  ])
-
-  const mainNodeKey =
-    selectedProfile && selectedNode
-      ? `[${selectedProfile.name}] ${selectedNode.name}`
-      : selectedNode?.name || ''
-  const mainLatency = selectedNode
-    ? nodeKeyHasLatency(mainNodeKey, selectedNode.name, latencies)
-    : undefined
-  const mainLatencyProps = getLatencyBadgeProps(mainLatency, false)
-  const mainProtocolProps = selectedNode
-    ? getProtocolBadgeProps(selectedNode.type)
-    : null
-
-  const fallbackNodeKey =
-    selectedProfile && selectedFallbackNode
-      ? `[${selectedProfile.name}] ${selectedFallbackNode.name}`
-      : selectedFallbackNode?.name || ''
-  const fbLatency = selectedFallbackNode
-    ? nodeKeyHasLatency(fallbackNodeKey, selectedFallbackNode.name, latencies)
-    : undefined
-  const fbLatencyProps = selectedFallbackNode
-    ? getLatencyBadgeProps(fbLatency, false)
-    : null
-  const fbProtocolProps = selectedFallbackNode
-    ? getProtocolBadgeProps(selectedFallbackNode.type)
-    : null
-
   const boundNodeMap = useMemo(() => {
     const map = new Map<string, number>()
     for (const m of portMappings) {
       if (!initialMapping || m.id !== initialMapping.id) {
-        map.set(`${m.profileId}_${m.nodeName}`, m.port)
+        map.set(`${m.profileId}:::${m.nodeName}`, m.port)
       }
     }
     return map
   }, [portMappings, initialMapping])
 
   const sortedNodes = useMemo(() => {
-    const list = [...availableNodes]
-    const profName = selectedProfile?.name || ''
+    const list = [...allAvailableNodes]
     return list.sort((a, b) => {
-      const keyA = profName ? `[${profName}] ${a.name}` : a.name
-      const keyB = profName ? `[${profName}] ${b.name}` : b.name
-      const isBoundA = boundNodeMap.has(`${selectedProfileId}_${a.name}`)
-      const isBoundB = boundNodeMap.has(`${selectedProfileId}_${b.name}`)
+      const isBoundA = boundNodeMap.has(a.uniqueKey)
+      const isBoundB = boundNodeMap.has(b.uniqueKey)
 
-      // 1. Unbound nodes come first
       if (isBoundA !== isBoundB) {
         return isBoundA ? 1 : -1
       }
 
-      // 2. Sort by latency (lowest first, timeouts later, untested last)
-      const latA = nodeKeyHasLatency(keyA, a.name, latencies)
-      const latB = nodeKeyHasLatency(keyB, b.name, latencies)
+      const latA = nodeKeyHasLatency(a.displayName, a.name, latencies)
+      const latB = nodeKeyHasLatency(b.displayName, b.name, latencies)
 
       const scoreA =
         latA !== undefined && latA !== null
@@ -322,62 +277,118 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         return scoreA - scoreB
       }
 
-      return a.name.localeCompare(b.name, 'zh-Hans-CN')
+      return a.displayName.localeCompare(b.displayName, 'zh-Hans-CN')
     })
-  }, [
-    availableNodes,
-    selectedProfile,
-    selectedProfileId,
-    boundNodeMap,
-    latencies,
-  ])
-
-  const profileOptions = useMemo(() => {
-    return profiles.map((p) => ({
-      value: p.id,
-      label: `${p.name} (${p.nodeCount} 节点)`,
-    }))
-  }, [profiles])
+  }, [allAvailableNodes, boundNodeMap, latencies])
 
   const nodeOptions = useMemo(() => {
-    const profName = selectedProfile?.name || ''
     return sortedNodes.map((n) => {
-      const boundPort = boundNodeMap.get(`${selectedProfileId}_${n.name}`)
-      const isBound = boundPort !== undefined
-      const key = profName ? `[${profName}] ${n.name}` : n.name
-      const latency = nodeKeyHasLatency(key, n.name, latencies)
+      const boundPort = boundNodeMap.get(n.uniqueKey)
+      const latency = nodeKeyHasLatency(n.displayName, n.name, latencies)
       const latencyProps = getLatencyBadgeProps(latency, false)
       const region = extractRegion(n.name)
 
       return {
-        value: n.name,
-        label: n.name,
-        description: isBound
-          ? `已绑定到端口 ${boundPort}`
-          : `${formatProtocolName(n.type)} 协议`,
-        disabled: isBound,
+        value: n.uniqueKey,
+        label: n.displayName,
+        group: n.profileName,
+        searchTarget: n.name,
+        description: boundPort
+          ? `已绑定至端口 ${boundPort} · ${formatProtocolName(n.type)} 协议`
+          : `${formatProtocolName(n.type)} 协议 · ${region.name || region.code}`,
         icon: <RegionFlag code={region.code} size="sm" />,
+        disabled: Boolean(boundPort),
         rightNode: (
-          <div className="flex items-center gap-1.5 shrink-0">
-            {isBound ? (
-              <span className="text-[10px] text-muted-foreground font-mono bg-secondary px-1.5 py-0.5 rounded">
-                已绑端口 {boundPort}
-              </span>
-            ) : (
+          <div className="flex items-center gap-1.5">
+            {boundPort && (
               <Badge
-                variant={latencyProps.variant}
+                variant="outline"
                 size="sm"
-                dot={latencyProps.dot}
-                className="!text-[10px] !py-0.5 !px-1.5 font-mono"
+                className="!text-[10px] !py-0.5 !px-1.5"
               >
-                {latencyProps.label}
+                占用 :{boundPort}
               </Badge>
             )}
+            <Badge
+              variant={latencyProps.variant}
+              size="sm"
+              dot={latencyProps.dot}
+              className="!text-[10px] !py-0.5 !px-1.5 font-mono"
+            >
+              {latencyProps.label}
+            </Badge>
           </div>
         ),
       }
     })
-  }, [sortedNodes, selectedProfile, selectedProfileId, boundNodeMap, latencies])
+  }, [sortedNodes, boundNodeMap, latencies])
+
+  const fallbackNodeOptions = useMemo(() => {
+    if (!selectedNodeRegion || !selectedNode) return []
+
+    const sameRegionNodes = allAvailableNodes.filter(
+      (n) =>
+        n.uniqueKey !== selectedNode.uniqueKey &&
+        extractRegion(n.name).code === selectedNodeRegion.code,
+    )
+
+    const options: SelectOption<string>[] = [
+      {
+        value: '',
+        label: '不启用备用节点 (单节点绑定)',
+        description: '仅主节点监听，不进行自动故障转移',
+      },
+    ]
+
+    for (const n of sameRegionNodes) {
+      const latency = nodeKeyHasLatency(n.displayName, n.name, latencies)
+      const latencyProps = getLatencyBadgeProps(latency, false)
+      const region = extractRegion(n.name)
+
+      options.push({
+        value: n.uniqueKey,
+        label: n.displayName,
+        group: n.profileName,
+        searchTarget: n.name,
+        description: `${formatProtocolName(n.type)} 协议 · 同属 ${region.name || region.code}`,
+        icon: <RegionFlag code={region.code} size="sm" />,
+        rightNode: (
+          <Badge
+            variant={latencyProps.variant}
+            size="sm"
+            dot={latencyProps.dot}
+            className="!text-[10px] !py-0.5 !px-1.5 font-mono"
+          >
+            {latencyProps.label}
+          </Badge>
+        ),
+      })
+    }
+
+    return options
+  }, [selectedNodeRegion, selectedNode, allAvailableNodes, latencies])
+
+  const mainLatency = selectedNode
+    ? nodeKeyHasLatency(selectedNode.displayName, selectedNode.name, latencies)
+    : undefined
+  const mainLatencyProps = getLatencyBadgeProps(mainLatency, false)
+  const mainProtocolProps = selectedNode
+    ? getProtocolBadgeProps(selectedNode.type)
+    : null
+
+  const fbLatency = selectedFallbackNode
+    ? nodeKeyHasLatency(
+        selectedFallbackNode.displayName,
+        selectedFallbackNode.name,
+        latencies,
+      )
+    : undefined
+  const fbLatencyProps = selectedFallbackNode
+    ? getLatencyBadgeProps(fbLatency, false)
+    : null
+  const fbProtocolProps = selectedFallbackNode
+    ? getProtocolBadgeProps(selectedFallbackNode.type)
+    : null
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -412,6 +423,9 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         protocol,
         profileId: selectedProfileId,
         nodeName: selectedNodeName,
+        fallbackProfileId: fallbackNodeName.trim()
+          ? fallbackProfileId
+          : undefined,
         fallbackNodeName: fallbackNodeName.trim() || undefined,
         bypassCn,
         enabled: isEditing && initialMapping ? initialMapping.enabled : true,
@@ -607,28 +621,6 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           </div>
         </div>
 
-        {/* Profile Select */}
-        <div>
-          <label
-            htmlFor="profile-select"
-            className="block text-xs font-medium text-foreground mb-1.5"
-          >
-            所属订阅配置 <span className="text-destructive">*</span>
-          </label>
-          <Select
-            id="profile-select"
-            value={selectedProfileId}
-            onChange={(val) => {
-              setSelectedProfileId(String(val))
-              setSelectedNodeName('')
-              setFallbackNodeName('')
-            }}
-            options={profileOptions}
-            placeholder="选择订阅配置"
-            prefixIcon={<Globe className="w-3.5 h-3.5 text-muted-foreground" />}
-          />
-        </div>
-
         {/* Node Select */}
         <div>
           <label
@@ -639,30 +631,46 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           </label>
           <Select
             id="node-select"
-            value={selectedNodeName}
+            value={selectedNode ? selectedNode.uniqueKey : ''}
             onChange={(val) => {
-              const nextMain = String(val)
-              setSelectedNodeName(nextMain)
-              // Reset fallback if region changed or conflicts with new main
-              if (fallbackNodeName) {
-                const nextRegion = extractRegion(nextMain)
-                const currentFbRegion = extractRegion(fallbackNodeName)
-                if (
-                  fallbackNodeName === nextMain ||
-                  nextRegion.code !== currentFbRegion.code
-                ) {
-                  setFallbackNodeName('')
+              const key = String(val)
+              const found = allAvailableNodes.find((n) => n.uniqueKey === key)
+              if (found) {
+                setSelectedProfileId(found.profileId)
+                setSelectedNodeName(found.name)
+                // Reset fallback if region changed or conflicts with new main
+                if (fallbackNodeName && fallbackProfileId) {
+                  const nextRegion = extractRegion(found.name)
+                  const currentFbRegion = extractRegion(fallbackNodeName)
+                  if (
+                    (found.name === fallbackNodeName &&
+                      found.profileId === fallbackProfileId) ||
+                    nextRegion.code !== currentFbRegion.code
+                  ) {
+                    setFallbackNodeName('')
+                    setFallbackProfileId('')
+                  }
                 }
+              } else {
+                setSelectedProfileId('')
+                setSelectedNodeName('')
+                setFallbackNodeName('')
+                setFallbackProfileId('')
               }
             }}
             options={nodeOptions}
             placeholder={
-              availableNodes.length === 0
-                ? '该订阅暂无可用节点'
-                : '选择要绑定的节点'
+              allAvailableNodes.length === 0
+                ? '暂无可用代理节点，请先添加订阅'
+                : '搜索或选择要绑定的代理节点'
             }
             prefixIcon={<Radio className="w-3.5 h-3.5 text-primary" />}
           />
+          <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">
+            单段输入直接匹配节点名称；支持空格两段式筛选（“订阅
+            节点”，两者均支持模糊匹配；输入“订阅
+            ”可直接列出该订阅全部节点），英文区分大小写。
+          </p>
         </div>
 
         {/* Same-region Fallback Node Select - directly below main node select */}
@@ -693,10 +701,29 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
               <>
                 <Select
                   id="fallback-select"
-                  value={fallbackNodeName}
-                  onChange={(val) => setFallbackNodeName(String(val))}
+                  value={
+                    selectedFallbackNode ? selectedFallbackNode.uniqueKey : ''
+                  }
+                  onChange={(val) => {
+                    const key = String(val)
+                    if (!key) {
+                      setFallbackProfileId('')
+                      setFallbackNodeName('')
+                      return
+                    }
+                    const found = allAvailableNodes.find(
+                      (n) => n.uniqueKey === key,
+                    )
+                    if (found) {
+                      setFallbackProfileId(found.profileId)
+                      setFallbackNodeName(found.name)
+                    } else {
+                      setFallbackProfileId('')
+                      setFallbackNodeName('')
+                    }
+                  }}
                   options={fallbackNodeOptions}
-                  placeholder="选择同地区备用节点 (可选)"
+                  placeholder="选择同地区备用节点 (可选，支持跨订阅)"
                   prefixIcon={
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
                   }
@@ -786,19 +813,13 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           </div>
         )}
         {/* Bypass CN Switch */}
-        <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-secondary/30">
-          <div className="space-y-0.5 pr-3">
-            <label
-              htmlFor="bypass-cn-switch"
-              className="text-xs font-medium text-foreground cursor-pointer block"
-            >
-              智能绕过大陆网站 (直连)
-            </label>
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              开启后中国大陆域名与 IP 走直连
-              (DIRECT)；关闭则所有流量全局走绑定代理节点
-            </p>
-          </div>
+        <div className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-secondary/20">
+          <label
+            htmlFor="bypass-cn-switch"
+            className="text-xs font-medium text-foreground cursor-pointer"
+          >
+            智能绕过大陆网站 (直连)
+          </label>
           <Switch
             id="bypass-cn-switch"
             checked={bypassCn}
@@ -806,7 +827,6 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             size="sm"
           />
         </div>
-
         {/* Description Input */}
         <div>
           <label

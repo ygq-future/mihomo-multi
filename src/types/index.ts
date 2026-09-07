@@ -22,6 +22,7 @@ export interface PortMapping {
   enabled: boolean
   latency?: number | null
   description?: string
+  fallbackProfileId?: string | null
   fallbackNodeName?: string | null
   bypassCn: boolean
 }

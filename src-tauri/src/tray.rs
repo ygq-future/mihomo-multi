@@ -109,11 +109,18 @@ async fn query_runtime_infos(app: &AppHandle) -> std::collections::HashMap<Strin
                 let active_node = detail.now.unwrap_or_default();
                 let is_fallback_active = active_node.ends_with(fb);
 
-                let target_node = if is_fallback_active { fb } else { &m.node_name };
-                let target_runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
+                let (target_node, target_profile_id) = if is_fallback_active {
+                    (
+                        fb.as_str(),
+                        m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id),
+                    )
+                } else {
+                    (m.node_name.as_str(), m.profile_id.as_str())
+                };
+                let target_runtime_name = if let Some(pname) = profile_map.get(target_profile_id) {
                     format!("[{}] {}", pname, target_node)
                 } else {
-                    target_node.clone()
+                    target_node.to_string()
                 };
 
                 let active_latency = engine

@@ -53,7 +53,7 @@ impl DriftGuard {
 
     fn check_single_internal(
         mapping: &PortMapping,
-        _profile_manager: &ProfileManager,
+        profile_manager: &ProfileManager,
         profile_map: &std::collections::HashMap<String, String>,
         node_cache: &std::collections::HashMap<String, Result<Vec<String>, String>>,
     ) -> PortDriftReport {
@@ -137,12 +137,21 @@ impl DriftGuard {
 
         // 3. Check node existence in memory
         let main_node_exists = candidate_names.iter().any(|name| name == &mapping.node_name);
+        let fb_profile_id = mapping
+            .fallback_profile_id
+            .as_deref()
+            .unwrap_or(&mapping.profile_id);
         let fallback_node_exists = mapping
             .fallback_node_name
             .as_ref()
-            .map(|fb| candidate_names.iter().any(|name| name == fb))
+            .map(|fb| {
+                if fb_profile_id == mapping.profile_id {
+                    candidate_names.iter().any(|name| name == fb)
+                } else {
+                    profile_manager.has_node(fb_profile_id, fb)
+                }
+            })
             .unwrap_or(false);
-
         if main_node_exists {
             let message = if let Some(fb) = &mapping.fallback_node_name {
                 if fallback_node_exists {
@@ -317,6 +326,7 @@ proxies:
             enabled: true,
             latency: None,
             description: None,
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
         };
@@ -330,6 +340,7 @@ proxies:
             enabled: true,
             latency: None,
             description: None,
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
         };
@@ -343,6 +354,7 @@ proxies:
             enabled: true,
             latency: None,
             description: None,
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
         };
@@ -387,6 +399,7 @@ proxies:
             enabled: true,
             latency: None,
             description: None,
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
         };
@@ -434,6 +447,7 @@ proxies:
             enabled: true,
             latency: None,
             description: None,
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
         };
@@ -448,6 +462,7 @@ proxies:
             enabled: true,
             latency: None,
             description: None,
+            fallback_profile_id: None,
             fallback_node_name: Some("Backup-Node".to_string()),
             bypass_cn: true,
         };
@@ -462,6 +477,7 @@ proxies:
             enabled: true,
             latency: None,
             description: None,
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
         };
@@ -476,6 +492,7 @@ proxies:
             enabled: true,
             latency: None,
             description: None,
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
         };
@@ -514,5 +531,32 @@ proxies:
         let report_after_update = DriftGuard::check_single(&port1, &manager);
         assert_eq!(report_after_update.status, DriftStatus::NodeMissing);
         assert_eq!(report_after_update.fallback_action, "DIRECT");
+    }
+
+    #[test]
+    fn test_drift_guard_cross_profile_fallback() {
+        let manager = ProfileManager::new_in_memory();
+        let yaml1 = "proxies:\n  - name: HK-01\n    type: ss\n    server: 1.1.1.1\n    port: 8388\n";
+        let yaml2 = "proxies:\n  - name: HK-Backup\n    type: ss\n    server: 2.2.2.2\n    port: 8388\n";
+        let p1 = manager.add_in_memory_profile("Airport1".to_string(), yaml1).unwrap();
+        let p2 = manager.add_in_memory_profile("Airport2".to_string(), yaml2).unwrap();
+
+        let mapping = PortMapping {
+            id: "p-cross".to_string(),
+            port: 10005,
+            protocol: InboundProtocol::Mixed,
+            profile_id: p1.id.clone(),
+            node_name: "HK-Gone".to_string(),
+            enabled: true,
+            latency: None,
+            description: None,
+            fallback_profile_id: Some(p2.id.clone()),
+            fallback_node_name: Some("HK-Backup".to_string()),
+            bypass_cn: true,
+        };
+
+        let report = DriftGuard::check_single(&mapping, &manager);
+        assert_eq!(report.status, DriftStatus::NodeMissing);
+        assert_eq!(report.fallback_action, "FALLBACK:HK-Backup");
     }
 }

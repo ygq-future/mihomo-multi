@@ -216,11 +216,11 @@ impl MinimalRuntimeConfig {
             };
 
             let target_node = resolve_node_target(&m.node_name, &m.profile_id);
+            let fb_profile_id = m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id);
             let fallback_node = m
                 .fallback_node_name
                 .as_ref()
-                .and_then(|fb_name| resolve_node_target(fb_name, &m.profile_id));
-
+                .and_then(|fb_name| resolve_node_target(fb_name, fb_profile_id));
             let target_action = match (target_node, fallback_node) {
                 (Some(primary), Some(fallback)) => {
                     let group_name = format!("fb-{}", m.port);
@@ -325,6 +325,7 @@ mod tests {
             enabled: true,
             latency: None,
             description: Some("Test Mapping 1".to_string()),
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: false,
         };
@@ -337,6 +338,7 @@ mod tests {
             enabled: true,
             latency: None,
             description: Some("Missing Node Mapping".to_string()),
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: false,
         };
@@ -349,6 +351,7 @@ mod tests {
             enabled: false,
             latency: None,
             description: Some("Disabled".to_string()),
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: false,
         };
@@ -420,6 +423,7 @@ password: pass
             enabled: true,
             latency: None,
             description: Some("Fallback Test".to_string()),
+            fallback_profile_id: None,
             fallback_node_name: Some("HK-Node-02".to_string()),
             bypass_cn: false,
         };
@@ -479,6 +483,7 @@ password: pass
             enabled: true,
             latency: None,
             description: Some("Bypass CN Test".to_string()),
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: true,
         };
@@ -491,6 +496,7 @@ password: pass
             enabled: true,
             latency: None,
             description: Some("Global Test".to_string()),
+            fallback_profile_id: None,
             fallback_node_name: None,
             bypass_cn: false,
         };
@@ -537,4 +543,65 @@ password: pass
         assert!(yaml.contains("IN-PORT,8889,[AirportA] HK-Node-01"));
         assert!(yaml.contains("MATCH,DIRECT"));
     }
+    #[test]
+    fn test_runtime_config_generation_with_cross_profile_fallback() {
+        let mapping = PortMapping {
+            id: "test-cross-fb".to_string(),
+            port: 7896,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: "HK-01".to_string(),
+            enabled: true,
+            latency: None,
+            description: Some("Cross Profile Fallback Test".to_string()),
+            fallback_profile_id: Some("prof-2".to_string()),
+            fallback_node_name: Some("HK-Backup".to_string()),
+            bypass_cn: false,
+        };
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "MainAirport".to_string());
+        profile_map.insert("prof-2".to_string(), "BackupAirport".to_string());
+
+        let raw_p1 = r#"
+name: "[MainAirport] HK-01"
+type: ss
+server: 1.1.1.1
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let raw_p2 = r#"
+name: "[BackupAirport] HK-Backup"
+type: ss
+server: 2.2.2.2
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let p1: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_p1).unwrap();
+        let p2: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_p2).unwrap();
+
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+        };
+
+        let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1, p2], &profile_map);
+        let yaml = config.to_yaml().expect("YAML serialize failed");
+        assert!(yaml.contains("name: fb-7896"));
+        assert!(yaml.contains("type: fallback"));
+        assert!(yaml.contains("- '[MainAirport] HK-01'"));
+        assert!(yaml.contains("- '[BackupAirport] HK-Backup'"));
+        assert!(yaml.contains("IN-PORT,7896,fb-7896"));
+        assert_eq!(config.proxy_groups.len(), 1);
+        assert_eq!(config.proxy_groups[0].name, "fb-7896");
+        assert_eq!(config.proxy_groups[0].proxies, vec!["[MainAirport] HK-01", "[BackupAirport] HK-Backup"]);
+    }
 }
+
