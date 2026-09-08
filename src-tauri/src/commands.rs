@@ -144,13 +144,18 @@ pub async fn save_config(app: AppHandle, config: AppConfig, state: State<'_, App
         }
     }
 
-    *state.config.write() = config.clone();
-    let config_path = state.app_dir.join("config.json");
-    if let Ok(json) = serde_json::to_string_pretty(&config) {
-        let _ = std::fs::write(config_path, json);
+    let config_changed = *state.config.read() != config;
+    if config_changed {
+        *state.config.write() = config.clone();
+        let config_path = state.app_dir.join("config.json");
+        if let Ok(json) = serde_json::to_string_pretty(&config) {
+            let _ = crate::core::profile_manager::atomic_write_file(&config_path, json.as_bytes());
+        }
     }
 
-    if let Ok(exe_path) = std::env::current_exe() {
+    if (config.auto_launch != old_config.auto_launch || config.silent_start != old_config.silent_start)
+        && let Ok(exe_path) = std::env::current_exe()
+    {
         if config.auto_launch {
             let _ = crate::core::autostart::enable_autostart(&exe_path, config.silent_start);
         } else {
@@ -158,7 +163,20 @@ pub async fn save_config(app: AppHandle, config: AppConfig, state: State<'_, App
         }
     }
 
-    let _ = state.sync_runtime_config().await;
+    // Only re-sync runtime configuration if settings affecting Mihomo (listeners, controller, timeout, lan, etc.) changed
+    let runtime_settings_changed = config.controller_port != old_config.controller_port
+        || config.controller_secret != old_config.controller_secret
+        || config.log_level != old_config.log_level
+        || config.allow_lan != old_config.allow_lan
+        || config.test_url != old_config.test_url
+        || config.timeout_ms != old_config.timeout_ms
+        || config.fallback_interval != old_config.fallback_interval
+        || config.fallback_lazy != old_config.fallback_lazy;
+
+    if runtime_settings_changed {
+        let _ = state.sync_runtime_config().await;
+    }
+
     crate::tray::update_tray_menu(&app);
     Ok(())
 }
@@ -194,7 +212,7 @@ pub async fn set_system_proxy(
     *state.config.write() = config.clone();
     let config_path = state.app_dir.join("config.json");
     if let Ok(json) = serde_json::to_string_pretty(&config) {
-        let _ = std::fs::write(config_path, json);
+        let _ = crate::core::profile_manager::atomic_write_file(&config_path, json.as_bytes());
     }
 
     let bypass_domains = crate::core::sysproxy::build_combined_bypass_list(&config.system_proxy_bypass_user);
@@ -289,7 +307,7 @@ pub async fn delete_port_mapping(id: String, state: State<'_, AppState>) -> Resu
         *state.config.write() = config.clone();
         let config_path = state.app_dir.join("config.json");
         if let Ok(json) = serde_json::to_string_pretty(&config) {
-            let _ = std::fs::write(config_path, json);
+            let _ = crate::core::profile_manager::atomic_write_file(&config_path, json.as_bytes());
         }
     }
     Ok(())
@@ -313,7 +331,7 @@ pub async fn toggle_port_mapping(id: String, enabled: bool, state: State<'_, App
             *state.config.write() = config.clone();
             let config_path = state.app_dir.join("config.json");
             if let Ok(json) = serde_json::to_string_pretty(&config) {
-                let _ = std::fs::write(config_path, json);
+                let _ = crate::core::profile_manager::atomic_write_file(&config_path, json.as_bytes());
             }
         }
     }

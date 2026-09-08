@@ -139,6 +139,14 @@ impl Drop for TempFileCleanup {
 
 /// Atomically write bytes to a file by writing to a sibling temporary file and renaming it.
 pub fn atomic_write_file(path: &Path, content: &[u8]) -> AppResult<()> {
+    // If file already exists and content is byte-for-byte identical, skip redundant write & rename
+    if path.is_file()
+        && let Ok(existing) = std::fs::read(path)
+        && existing == content
+    {
+        return Ok(());
+    }
+
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(AppError::Io)?;
     }

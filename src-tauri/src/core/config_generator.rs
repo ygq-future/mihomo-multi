@@ -326,13 +326,21 @@ impl MinimalRuntimeConfig {
         serde_yaml_ng::to_string(self).map_err(AppError::Yaml)
     }
 
-    pub fn write_to_file(&self, path: &Path) -> AppResult<()> {
+    /// Writes runtime configuration to disk only if content has changed.
+    /// Returns `Ok(true)` if the file was updated, or `Ok(false)` if the existing file is identical.
+    pub fn write_to_file(&self, path: &Path) -> AppResult<bool> {
+        let yaml = self.to_yaml()?;
+        if path.is_file()
+            && let Ok(existing) = std::fs::read_to_string(path)
+            && existing == yaml
+        {
+            return Ok(false);
+        }
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(AppError::Io)?;
         }
-        let yaml = self.to_yaml()?;
         std::fs::write(path, yaml).map_err(AppError::Io)?;
-        Ok(())
+        Ok(true)
     }
 }
 

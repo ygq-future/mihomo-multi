@@ -115,7 +115,8 @@ impl AppState {
         let runtime_config = self
             .engine
             .synthesize_config(&params, &active_mappings, raw_proxies, &profile_map);
-        self.engine.write_runtime_config(&runtime_config)
+        let (path, _) = self.engine.write_runtime_config(&runtime_config)?;
+        Ok(path)
     }
 
     /// Synchronizes all active port listeners and proxy nodes into runtime.yaml and triggers a hot reload if the core is running

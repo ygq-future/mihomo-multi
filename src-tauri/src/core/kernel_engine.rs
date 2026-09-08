@@ -446,14 +446,16 @@ impl KernelEngine {
     }
 
     /// Writes runtime configuration to disk in the engine's work directory (`runtime.yaml`).
-    pub fn write_runtime_config(&self, config: &MinimalRuntimeConfig) -> AppResult<PathBuf> {
+    /// Returns the path and a boolean indicating whether the file was actually modified.
+    pub fn write_runtime_config(&self, config: &MinimalRuntimeConfig) -> AppResult<(PathBuf, bool)> {
         std::fs::create_dir_all(&self.work_dir).map_err(AppError::Io)?;
         let runtime_path = self.work_dir.join("runtime.yaml");
-        config.write_to_file(&runtime_path)?;
-        Ok(runtime_path)
+        let changed = config.write_to_file(&runtime_path)?;
+        Ok((runtime_path, changed))
     }
 
     /// Synthesizes, writes to disk, and hot-reloads runtime configuration if the core is running on the configured controller port.
+    /// If the configuration is completely identical to the on-disk file, skips disk write and REST API reload.
     pub async fn apply_runtime_config(
         &self,
         params: &RuntimeGeneratorParams<'_>,
@@ -462,16 +464,18 @@ impl KernelEngine {
         profile_names: &HashMap<String, String>,
     ) -> AppResult<PathBuf> {
         let config = self.synthesize_config(params, mappings, raw_proxies, profile_names);
-        let runtime_path = self.write_runtime_config(&config)?;
+        let (runtime_path, changed) = self.write_runtime_config(&config)?;
 
         let core_status = self.get_status();
-        if core_status.running && core_status.controller_port == params.controller_port {
+        if changed && core_status.running && core_status.controller_port == params.controller_port {
             let path_str = runtime_path.to_string_lossy().to_string();
             if let Err(err) = self.adapter.reload_config(&path_str).await {
                 warn!("Hot-reloading Mihomo config after apply failed: {}", err);
             } else {
                 info!("Mihomo configuration reloaded with updated port listeners and proxies");
             }
+        } else if !changed {
+            tracing::debug!("Runtime configuration unchanged; skipping Mihomo hot-reload");
         }
 
         Ok(runtime_path)
@@ -497,14 +501,14 @@ mod tests {
 
         adapter.set_endpoint(9090, "secret123");
         assert_eq!(adapter.endpoint(), (9090, "secret123".to_string()));
-
         let temp_dir = std::env::temp_dir().join(format!("fake_ctrl_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let config_file = temp_dir.join("runtime.yaml");
-
         let sample_config = MinimalRuntimeConfig::new(9090, "secret123", "info");
-        sample_config.write_to_file(&config_file).unwrap();
-
+        let changed = sample_config.write_to_file(&config_file).unwrap();
+        assert!(changed);
+        let unchanged = sample_config.write_to_file(&config_file).unwrap();
+        assert!(!unchanged);
         let path_str = config_file.to_string_lossy().to_string();
         adapter.reload_config(&path_str).await.unwrap();
 
@@ -668,12 +672,21 @@ password: pass
         };
 
         let path = engine
-            .apply_runtime_config(&params, &[mapping], vec![raw_proxy], &profile_names)
+            .apply_runtime_config(&params, &[mapping.clone()], vec![raw_proxy], &profile_names)
             .await
             .expect("Apply runtime config");
 
         assert!(path.exists());
         assert_eq!(fake_adapter.reload_count(), 1);
+
+        // Second apply with identical params & mappings must be a no-op (no disk re-write, no Mihomo reload)
+        let raw_proxy2: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml).unwrap();
+        let path2 = engine
+            .apply_runtime_config(&params, &[mapping], vec![raw_proxy2], &profile_names)
+            .await
+            .expect("Apply runtime config identical");
+        assert_eq!(path2, path);
+        assert_eq!(fake_adapter.reload_count(), 1, "Redundant reload must be skipped when config is identical");
 
         let reloaded_config = fake_adapter.validate_last_config().expect("Valid config");
         assert_eq!(reloaded_config.listeners.len(), 1);
