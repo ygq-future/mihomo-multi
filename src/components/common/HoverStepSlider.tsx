@@ -88,14 +88,16 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   const maxStep = steps.length - 1
   const clampedPropValue = Math.max(0, Math.min(maxStep, value))
 
-  // Sync prop value when NOT dragging
+  // Sync prop value when NOT dragging and NOT during in-flight asynchronous loading
   useEffect(() => {
-    committedValueRef.current = clampedPropValue
-    if (!isDraggingRef.current) {
-      setContinuousValue(clampedPropValue)
-      latestContinuousRef.current = clampedPropValue
+    if (isDraggingRef.current) return
+    if (loading && clampedPropValue !== committedValueRef.current) {
+      return
     }
-  }, [clampedPropValue])
+    committedValueRef.current = clampedPropValue
+    setContinuousValue(clampedPropValue)
+    latestContinuousRef.current = clampedPropValue
+  }, [clampedPropValue, loading])
 
   const clearPendingTimer = useCallback(() => {
     if (hoverTimerRef.current !== null) {

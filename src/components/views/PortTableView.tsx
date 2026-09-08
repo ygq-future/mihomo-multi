@@ -220,8 +220,13 @@ export const PortTableView: React.FC = () => {
   const activePorts = enabledPorts.length
   type PortState = 'disabled' | 'enabled' | 'systemProxy'
 
+  const [pendingPortStates, setPendingPortStates] = useState<
+    Record<string, PortState>
+  >({})
+
   const handlePortStateChange = async (m: PortMapping, newState: PortState) => {
     setTogglingPortIds((prev) => ({ ...prev, [m.id]: true }))
+    setPendingPortStates((prev) => ({ ...prev, [m.id]: newState }))
     try {
       const isSysProxy =
         config?.systemProxyEnabled && config?.systemProxyPort === m.port
@@ -269,6 +274,11 @@ export const PortTableView: React.FC = () => {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setTogglingPortIds((prev) => ({ ...prev, [m.id]: false }))
+      setPendingPortStates((prev) => {
+        const next = { ...prev }
+        delete next[m.id]
+        return next
+      })
     }
   }
   const handleDeleteConfirm = async () => {
@@ -596,6 +606,27 @@ export const PortTableView: React.FC = () => {
               )
               const isCurrentSystemProxy =
                 config?.systemProxyEnabled && config?.systemProxyPort === m.port
+              const pendingState = pendingPortStates[m.id]
+              const isEffectiveSystemProxy =
+                pendingState !== undefined
+                  ? pendingState === 'systemProxy'
+                  : isCurrentSystemProxy
+              const isEffectiveEnabled =
+                pendingState !== undefined
+                  ? pendingState !== 'disabled'
+                  : m.enabled
+              const sliderValue =
+                pendingState !== undefined
+                  ? pendingState === 'disabled'
+                    ? 0
+                    : pendingState === 'systemProxy'
+                      ? 2
+                      : 1
+                  : !m.enabled
+                    ? 0
+                    : isCurrentSystemProxy
+                      ? 2
+                      : 1
               return (
                 <div
                   key={m.id}
@@ -604,13 +635,13 @@ export const PortTableView: React.FC = () => {
                       ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10'
                       : isOccupiedWarning
                         ? 'border-rose-500/40 bg-rose-500/5 dark:bg-rose-500/10'
-                        : !m.enabled
+                        : !isEffectiveEnabled
                           ? 'opacity-65 bg-secondary/10'
                           : isDrifted
                             ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10'
                             : isFallbackWarning
                               ? 'border-amber-500/60 bg-amber-500/5 dark:bg-amber-500/10'
-                              : isCurrentSystemProxy
+                              : isEffectiveSystemProxy
                                 ? 'border-sky-500/70 bg-sky-500/[0.04] dark:bg-sky-500/[0.08] ring-1 ring-sky-500/30'
                                 : 'border-border'
                   }`}
@@ -638,7 +669,7 @@ export const PortTableView: React.FC = () => {
                         >
                           <ShieldCheck className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
                         </span>
-                      ) : m.enabled && isRunning ? (
+                      ) : isEffectiveEnabled && isRunning ? (
                         <span
                           className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0 cursor-help"
                           title="正常监听中"
@@ -682,7 +713,7 @@ export const PortTableView: React.FC = () => {
                     </div>
 
                     <HoverStepSlider
-                      value={!m.enabled ? 0 : isCurrentSystemProxy ? 2 : 1}
+                      value={sliderValue}
                       onChange={(level) => {
                         const stateMap: Record<number, PortState> = {
                           0: 'disabled',
