@@ -27,7 +27,7 @@ pub fn run() {
     let window_state_flags =
         tauri_plugin_window_state::StateFlags::all() & !tauri_plugin_window_state::StateFlags::VISIBLE;
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(
@@ -58,8 +58,13 @@ pub fn run() {
             let is_silent = args.iter().any(|a| a == "--silent" || a == "-s") || app_state.config.read().silent_start;
             if let Some(main_win) = app_handle.get_webview_window("main") {
                 if is_silent {
-                    let _ = main_win.hide();
-                    info!("Silent start mode: main window minimized to tray on launch");
+                    if app_state.config.read().lightweight_mode {
+                        let _ = main_win.destroy();
+                        info!("Silent start mode with lightweight mode: main window destroyed to free WebView2");
+                    } else {
+                        let _ = main_win.hide();
+                        info!("Silent start mode: main window minimized to tray on launch");
+                    }
                 } else {
                     let _ = main_win.show();
                     let _ = main_win.set_focus();
@@ -148,11 +153,16 @@ pub fn run() {
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 if let Some(state) = window.try_state::<AppState>() {
-                    let close_to_tray = state.config.read().close_to_tray;
-                    if close_to_tray {
+                    let config = state.config.read().clone();
+                    if config.close_to_tray {
                         api.prevent_close();
-                        let _ = window.hide();
-                        info!("Window close prevented, minimized to system tray");
+                        if config.lightweight_mode {
+                            info!("Window close requested with lightweight mode: destroying window to free WebView2");
+                            let _ = window.destroy();
+                        } else {
+                            let _ = window.hide();
+                            info!("Window close prevented, minimized to system tray");
+                        }
                     } else {
                         api.prevent_close();
                         let _ = window.emit("request-window-close", ());
@@ -160,15 +170,27 @@ pub fn run() {
                 }
             }
             tauri::WindowEvent::Destroyed => {
-                if let Some(state) = window.try_state::<AppState>() {
-                    info!("Window destroyed, ensuring sidecar process and background services are terminated");
-                    let _ = crate::core::sysproxy::clear_system_proxy();
-                    state.auto_updater.stop();
-                    let _ = state.engine.stop();
-                }
+                info!("Window destroyed");
             }
             _ => {}
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::ExitRequested { api, code, .. } => {
+            if code.is_none() {
+                api.prevent_exit();
+            }
+        }
+        tauri::RunEvent::Exit => {
+            if let Some(state) = app_handle.try_state::<AppState>() {
+                info!("Application exiting, ensuring sidecar process and background services are terminated");
+                let _ = crate::core::sysproxy::clear_system_proxy();
+                state.auto_updater.stop();
+                let _ = state.engine.stop();
+            }
+        }
+        _ => {}
+    });
 }

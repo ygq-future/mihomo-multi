@@ -1108,6 +1108,15 @@ pub async fn exit_app(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn hide_window(app: AppHandle) -> Result<(), String> {
+    if let Some(state) = app.try_state::<AppState>() {
+        let is_lightweight = state.config.read().lightweight_mode;
+        if is_lightweight {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.destroy();
+            }
+            return Ok(());
+        }
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }

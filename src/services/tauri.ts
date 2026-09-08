@@ -116,6 +116,7 @@ export async function getConfig(): Promise<AppConfig> {
       closeToTray: true,
       autoLaunch: false,
       silentStart: false,
+      lightweightMode: false,
       acrylicEffect: false,
       acrylicBlur: 12,
       acrylicOpacity: 65,

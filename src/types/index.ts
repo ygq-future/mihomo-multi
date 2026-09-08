@@ -148,6 +148,7 @@ export interface AppConfig {
   closeToTray: boolean
   autoLaunch: boolean
   silentStart: boolean
+  lightweightMode: boolean
   acrylicEffect: boolean
   acrylicBlur: number
   acrylicOpacity: number

@@ -189,6 +189,7 @@ export const SettingView: React.FC = () => {
   const [closeToTray, setCloseToTray] = useState<boolean>(true)
   const [autoLaunch, setAutoLaunch] = useState<boolean>(false)
   const [silentStart, setSilentStart] = useState<boolean>(false)
+  const [lightweightMode, setLightweightMode] = useState<boolean>(false)
 
   // Probe & Fallback Strategy
   const [testUrl, setTestUrl] = useState<string>(
@@ -575,6 +576,7 @@ export const SettingView: React.FC = () => {
       setCloseToTray(config.closeToTray ?? true)
       setAutoLaunch(config.autoLaunch ?? false)
       setSilentStart(config.silentStart ?? false)
+      setLightweightMode(config.lightweightMode ?? false)
       setTestUrl(config.testUrl ?? 'http://cp.cloudflare.com/generate_204')
       setTimeoutMsInput(String(config.timeoutMs ?? 3000))
       setFallbackIntervalInput(String(config.fallbackInterval ?? 5))
@@ -795,6 +797,19 @@ export const SettingView: React.FC = () => {
       ...config,
       silentStart: checked,
     })
+  }
+  const handleLightweightModeToggle = async (checked: boolean) => {
+    setLightweightMode(checked)
+    if (!config) return
+    await saveConfig({
+      ...config,
+      lightweightMode: checked,
+    })
+    toast.success(
+      checked
+        ? '已开启轻量模式 (关闭窗口后彻底释放前端 WebView2 内存)'
+        : '已关闭轻量模式 (关闭窗口后保留前端进程，支持即时呼出)',
+    )
   }
 
   const handleResetWindowSize = async () => {
@@ -1810,6 +1825,27 @@ export const SettingView: React.FC = () => {
             <Switch
               checked={silentStart}
               onChange={handleSilentStartToggle}
+              size="md"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-foreground">
+                  轻量后台模式 (内存极致优化)
+                </span>
+                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded">
+                  节省 ~60MB
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                关闭主窗口到托盘时彻底销毁前端 WebView
+                渲染进程，仅保留托盘与代理核心挂机；从托盘重新唤醒时按需重新加载
+              </p>
+            </div>
+            <Switch
+              checked={lightweightMode}
+              onChange={handleLightweightModeToggle}
               size="md"
             />
           </div>

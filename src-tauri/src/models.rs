@@ -224,6 +224,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub silent_start: bool,
     #[serde(default)]
+    pub lightweight_mode: bool,
+    #[serde(default)]
     pub acrylic_effect: bool,
     #[serde(default = "default_acrylic_blur")]
     pub acrylic_blur: u8,
@@ -291,6 +293,7 @@ impl Default for AppConfig {
             close_to_tray: true,
             auto_launch: false,
             silent_start: false,
+            lightweight_mode: false,
             acrylic_effect: false,
             acrylic_blur: 12,
             acrylic_opacity: 65,

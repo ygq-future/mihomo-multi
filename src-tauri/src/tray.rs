@@ -1,13 +1,44 @@
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tracing::{error, info, warn};
+use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 struct PortRuntimeInfo {
     is_fallback_active: bool,
     manual_fallback: bool,
     active_latency: Option<u32>,
 }
+pub fn ensure_main_window_open(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    } else {
+        let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+            .title("Mihomo Multi")
+            .inner_size(1000.0, 680.0)
+            .min_inner_size(850.0, 600.0)
+            .resizable(true)
+            .fullscreen(false)
+            .visible(false);
+
+
+        match builder.build() {
+            Ok(window) => {
+                let _ = window.restore_state(StateFlags::all() & !StateFlags::VISIBLE);
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+                info!("Main window recreated successfully in lightweight mode");
+            }
+            Err(e) => {
+                error!("Failed to recreate main window: {}", e);
+            }
+        }
+    }
+}
+
 
 fn build_tray_menu_internal(
     app: &AppHandle,
@@ -347,11 +378,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 
             match event_id {
                 "show_window" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
-                    }
+                    ensure_main_window_open(app);
                 }
                 "restart_core" => {
                     let app_handle = app.clone();
@@ -388,16 +415,28 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 ..
             } => {
                 let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main")
-                    && let Ok(is_visible) = window.is_visible()
-                {
-                    if is_visible {
-                        let _ = window.hide();
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Ok(is_visible) = window.is_visible() {
+                        if is_visible {
+                            let is_lightweight = app
+                                .try_state::<crate::state::AppState>()
+                                .map(|s| s.config.read().lightweight_mode)
+                                .unwrap_or(false);
+                            if is_lightweight {
+                                let _ = window.destroy();
+                            } else {
+                                let _ = window.hide();
+                            }
+                        } else {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
                     } else {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
+                        ensure_main_window_open(app);
                     }
+                } else {
+                    ensure_main_window_open(app);
                 }
             }
             _ => {}
