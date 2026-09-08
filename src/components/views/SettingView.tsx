@@ -157,6 +157,7 @@ const themeOptions = [
 
 export const SettingView: React.FC = () => {
   const {
+    appStatus,
     coreStatus,
     config,
     portMappings,
@@ -170,7 +171,6 @@ export const SettingView: React.FC = () => {
     coreLoading,
     fetchStatus,
   } = useAppStore()
-
   const [controllerPortInput, setControllerPortInput] = useState<string>('9999')
   const [isSavingPort, setIsSavingPort] = useState<boolean>(false)
   const [portError, setPortError] = useState<string | null>(null)
@@ -224,6 +224,11 @@ export const SettingView: React.FC = () => {
   const [appUpdateProgress, setAppUpdateProgress] =
     useState<AppUpdateProgressPayload | null>(null)
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string>('')
+  const currentAppVersion = (
+    appStatus?.version ||
+    appUpdateInfo?.currentVersion ||
+    APP_VERSION
+  ).replace(/^v/i, '')
 
   // MRS Rule Providers State
   const [rulesInfo, setRulesInfo] = useState<MrsRulesInfo | null>(null)
@@ -1874,7 +1879,7 @@ export const SettingView: React.FC = () => {
                   软件关于与更新 (About & Update)
                 </h3>
                 <Badge variant="primary" size="sm" className="font-mono">
-                  v{APP_VERSION}
+                  v{currentAppVersion}
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground">
@@ -1922,7 +1927,7 @@ export const SettingView: React.FC = () => {
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
             <span className="text-muted-foreground">当前运行版本</span>
             <div className="font-mono font-medium text-foreground">
-              v{APP_VERSION}
+              v{currentAppVersion}
             </div>
           </div>
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">

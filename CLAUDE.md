@@ -140,3 +140,14 @@ Single-context layout (`CONTEXT.md` at root, system ADRs in `docs/adr/`). See `d
 ## 八、 业务事实与验收回答红线 (Fact-Based Grounding Redline)
 
 在向用户说明任何业务逻辑、功能实现、数据存储路径、配置存放位置或验收步骤时，**必须严格核实并基于代码中的真实实现与运行时行为**（例如 Tauri 真实的 `app_local_data_dir()` 存储位置、真实生成的 YAML 规则等）。**严禁脱离代码凭经验、模版或假设推测编造任何路径、参数或行为**。凡涉及具体路径与数据交互，必须先在代码中核准真实逻辑后再给出结论。
+
+---
+
+## 九、 版本协同与发版核对红线 (Version Synchronization & Release Redline)
+
+1. **全链路版本一致性**：在版本迭代、更新版本号或发布新版本前，必须严格核验并确保以下 4 处配置/常量中的版本号完全一致，严禁出现前后端版本脱节：
+   * `package.json`：前端基础元数据中的 `version`；
+   * `src-tauri/Cargo.toml`：Rust 后端包中的 `[package].version`；
+   * `src-tauri/tauri.conf.json`：Tauri 桌面应用打包配置中的 `version`；
+   * `src/constants/app.ts`：前端静态兜底常量 `APP_VERSION`。
+2. **发版前强制检查**：在执行生产构建（`pnpm build` / `pnpm tauri build`）或推送 Release Tag 前，开发者与 AI Agent 必须将其作为前置检查项完成核对，杜绝因常量遗漏更新导致界面显示旧版本或更新状态误判。
