@@ -18,6 +18,7 @@ import { extractRegion, getLatencyBadgeProps } from '../../utils/proxy'
 import {
   Badge,
   Button,
+  HoverStepSlider,
   Modal,
   RegionFlag,
   Select,
@@ -217,22 +218,52 @@ export const PortTableView: React.FC = () => {
 
   const totalPorts = portMappings.length
   const activePorts = enabledPorts.length
+  type PortState = 'disabled' | 'enabled' | 'systemProxy'
 
-  const handleToggle = async (m: PortMapping, checked: boolean) => {
+  const handlePortStateChange = async (m: PortMapping, newState: PortState) => {
     setTogglingPortIds((prev) => ({ ...prev, [m.id]: true }))
     try {
       const isSysProxy =
         config?.systemProxyEnabled && config?.systemProxyPort === m.port
-      if (!checked && isSysProxy) {
-        await setSystemProxy(false)
-      }
-      await togglePortMapping(m.id, checked)
-      await fetchConfig()
-      fetchStatus().catch(() => {})
-      if (!checked && isSysProxy) {
-        toast.success(`端口 ${m.port} 已禁用，已同步解除系统代理并清除环境变量`)
-      } else {
-        toast.success(`端口 ${m.port} 已${checked ? '启用' : '禁用'}`)
+
+      if (newState === 'disabled') {
+        if (isSysProxy) {
+          await setSystemProxy(false)
+        }
+        if (m.enabled) {
+          await togglePortMapping(m.id, false)
+        }
+        await fetchConfig()
+        fetchStatus().catch(() => {})
+        if (isSysProxy) {
+          toast.success(
+            `端口 ${m.port} 已停用，已同步解除系统代理并清除环境变量`,
+          )
+        } else {
+          toast.success(`端口 ${m.port} 已停用`)
+        }
+      } else if (newState === 'enabled') {
+        if (isSysProxy) {
+          await setSystemProxy(false)
+          toast.success(`端口 ${m.port} 已解除系统代理并保留监听`)
+        } else if (!m.enabled) {
+          await togglePortMapping(m.id, true)
+          toast.success(`端口 ${m.port} 已启用监听`)
+        }
+        await fetchConfig()
+        fetchStatus().catch(() => {})
+      } else if (newState === 'systemProxy') {
+        if (!m.enabled) {
+          await togglePortMapping(m.id, true)
+        }
+        await setSystemProxy(true, m.port)
+        await fetchConfig()
+        fetchStatus().catch(() => {})
+        if (config?.systemProxySyncEnv ?? true) {
+          toast.success(`已将端口 ${m.port} 设为系统代理并同步环境变量`)
+        } else {
+          toast.success(`已将端口 ${m.port} 设为系统代理`)
+        }
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
@@ -240,7 +271,6 @@ export const PortTableView: React.FC = () => {
       setTogglingPortIds((prev) => ({ ...prev, [m.id]: false }))
     }
   }
-
   const handleDeleteConfirm = async () => {
     if (!deletingMapping) return
     setIsDeleting(true)
@@ -329,7 +359,10 @@ export const PortTableView: React.FC = () => {
       }
     } else {
       try {
-        await setSystemProxy(false)
+        // Retain the current target port in config memory when turning off
+        const currentPort =
+          config?.systemProxyPort ?? enabledPorts[0]?.port ?? null
+        await setSystemProxy(false, currentPort)
         if (config?.systemProxySyncEnv ?? true) {
           toast.success('已关闭系统代理并清除环境变量')
         } else {
@@ -347,11 +380,19 @@ export const PortTableView: React.FC = () => {
     const port = Number(portStr)
     if (!port) return
     try {
-      await setSystemProxy(true, port)
-      toast.success(`已切换系统代理端口至 ${port}`)
+      if (config?.systemProxyEnabled) {
+        await setSystemProxy(true, port)
+        toast.success(`已切换系统代理端口至 ${port}`)
+      } else if (config) {
+        await saveConfig({
+          ...config,
+          systemProxyPort: port,
+        })
+        toast.success(`已设置预设系统代理端口为 ${port}`)
+      }
     } catch (err) {
       toast.error(
-        `切换系统代理端口失败: ${err instanceof Error ? err.message : String(err)}`,
+        `更新系统代理端口失败: ${err instanceof Error ? err.message : String(err)}`,
       )
     }
   }
@@ -386,28 +427,29 @@ export const PortTableView: React.FC = () => {
               onChange={handleTopToggleSystemProxy}
               size="sm"
             />
-            {config?.systemProxyEnabled && (
-              <div className="w-52 ml-1">
-                {enabledPorts.length === 0 ? (
-                  <span className="text-[11px] text-rose-500 font-medium">
-                    无可用端口
-                  </span>
-                ) : (
-                  <Select
-                    value={String(
-                      config?.systemProxyPort ?? enabledPorts[0]?.port ?? '',
-                    )}
-                    onChange={(val) =>
-                      handleTopSelectSystemProxyPort(String(val))
-                    }
-                    options={enabledPorts.map((m) => ({
-                      value: String(m.port),
-                      label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName})`,
-                    }))}
-                  />
-                )}
-              </div>
-            )}
+            <div className="w-52 ml-1">
+              {enabledPorts.length === 0 ? (
+                <span className="text-[11px] text-muted-foreground font-medium">
+                  无已启用端口
+                </span>
+              ) : (
+                <Select
+                  value={
+                    config?.systemProxyPort &&
+                    enabledPorts.some((m) => m.port === config.systemProxyPort)
+                      ? String(config.systemProxyPort)
+                      : String(enabledPorts[0]?.port ?? '')
+                  }
+                  onChange={(val) =>
+                    handleTopSelectSystemProxyPort(String(val))
+                  }
+                  options={enabledPorts.map((m) => ({
+                    value: String(m.port),
+                    label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName})`,
+                  }))}
+                />
+              )}
+            </div>
           </div>
 
           {config?.allowLan && (
@@ -632,17 +674,6 @@ export const PortTableView: React.FC = () => {
                           全局代理
                         </Badge>
                       )}
-                      {isCurrentSystemProxy && (
-                        <Badge
-                          variant="outline"
-                          size="sm"
-                          className="!text-[10px] !py-0.5 !px-1.5 font-medium bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/40 shrink-0"
-                          title="当前端口已作为系统代理"
-                        >
-                          系统代理
-                        </Badge>
-                      )}
-
                       {isStoppedWarning ? (
                         <span className="text-[10px] text-amber-500 font-medium shrink-0">
                           (监听已停止)
@@ -650,12 +681,19 @@ export const PortTableView: React.FC = () => {
                       ) : null}
                     </div>
 
-                    <Switch
-                      checked={m.enabled}
+                    <HoverStepSlider
+                      value={!m.enabled ? 0 : isCurrentSystemProxy ? 2 : 1}
+                      onChange={(level) => {
+                        const stateMap: Record<number, PortState> = {
+                          0: 'disabled',
+                          1: 'enabled',
+                          2: 'systemProxy',
+                        }
+                        const nextState = stateMap[level] ?? 'disabled'
+                        handlePortStateChange(m, nextState)
+                      }}
                       loading={!!togglingPortIds[m.id]}
-                      onChange={(checked) => handleToggle(m, checked)}
                       disabled={isTesting || !!togglingPortIds[m.id]}
-                      size="sm"
                     />
                   </div>
 

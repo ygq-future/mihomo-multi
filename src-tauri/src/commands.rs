@@ -206,7 +206,9 @@ pub async fn set_system_proxy(
     } else {
         crate::core::sysproxy::clear_system_proxy().map_err(|e| e.to_string())?;
         config.system_proxy_enabled = false;
-        config.system_proxy_port = None;
+        if let Some(p) = port {
+            config.system_proxy_port = Some(p);
+        }
     }
 
     *state.config.write() = config.clone();

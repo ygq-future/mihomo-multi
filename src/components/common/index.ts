@@ -1,5 +1,6 @@
 export * from './Badge'
 export * from './Button'
+export * from './HoverStepSlider'
 export * from './Input'
 export * from './Modal'
 export * from './RegionFlag'
