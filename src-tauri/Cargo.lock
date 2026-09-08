@@ -1954,6 +1954,7 @@ dependencies = [
 name = "mihomo-multi"
 version = "1.0.0"
 dependencies = [
+ "chrono",
  "flate2",
  "libc",
  "log",

@@ -1,14 +1,125 @@
 use crate::core::config_generator::MinimalRuntimeConfig;
 use crate::error::{AppError, AppResult};
 use crate::models::{AppConfig, CoreStatus};
+use chrono::{Duration, Local, NaiveDate};
 use parking_lot::Mutex;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::Manager;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
+/// Default log retention days (30 days)
+pub const DEFAULT_LOG_RETENTION_DAYS: u32 = 30;
+
+/// Clean up log files older than `retention_days` in `log_dir`.
+/// Matches `mihomo-YYYY-MM-DD.log` and checks file modification time for legacy files.
+pub fn clean_expired_logs(log_dir: &Path, retention_days: u32) {
+    let entries = match std::fs::read_dir(log_dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let today = Local::now().date_naive();
+    let cutoff_date = today - Duration::days(retention_days as i64);
+    let now_system = std::time::SystemTime::now();
+    let max_age_duration = std::time::Duration::from_secs(retention_days as u64 * 86400);
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        // Check if file follows `mihomo-YYYY-MM-DD.log` pattern
+        if let Some(date_str) = file_name
+            .strip_prefix("mihomo-")
+            .and_then(|s| s.strip_suffix(".log"))
+            && let Ok(file_date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+        {
+            if file_date < cutoff_date {
+                info!("Deleting expired log file (dated {}): {}", date_str, path.display());
+                let _ = std::fs::remove_file(&path);
+            }
+            continue;
+        }
+
+        // For legacy files (e.g. `mihomo.log`) or any other .log files, check file modified time
+        if file_name.ends_with(".log")
+            && let Ok(meta) = entry.metadata()
+            && let Ok(modified) = meta.modified()
+            && let Ok(age) = now_system.duration_since(modified)
+            && age > max_age_duration
+        {
+            info!("Deleting expired legacy log file: {}", path.display());
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+/// Pipe reader that reads stdout/stderr lines from Mihomo and writes them into daily-rotated log files.
+fn spawn_log_pipe_writer(
+    reader: Box<dyn std::io::Read + Send>,
+    log_dir: PathBuf,
+    stream_name: &'static str,
+) {
+    std::thread::Builder::new()
+        .name(format!("mihomo-log-{}", stream_name))
+        .spawn(move || {
+            let mut buf_reader = BufReader::new(reader);
+            let mut line = String::new();
+            let mut current_date: Option<NaiveDate> = None;
+            let mut current_file: Option<File> = None;
+
+            loop {
+                line.clear();
+                match buf_reader.read_line(&mut line) {
+                    Ok(0) => break, // EOF, child process exited or pipe closed
+                    Ok(_) => {
+                        let today = Local::now().date_naive();
+                        if current_date != Some(today) || current_file.is_none() {
+                            current_date = Some(today);
+                            let log_file_name = format!("mihomo-{}.log", today.format("%Y-%m-%d"));
+                            let log_path = log_dir.join(log_file_name);
+                            match std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(&log_path)
+                            {
+                                Ok(f) => {
+                                    current_file = Some(f);
+                                    clean_expired_logs(&log_dir, DEFAULT_LOG_RETENTION_DAYS);
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Failed to open rotated log file '{}': {}",
+                                        log_path.display(),
+                                        e
+                                    );
+                                }
+                            }
+                        }
+
+                        if let Some(file) = &mut current_file {
+                            let _ = file.write_all(line.as_bytes());
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Error reading from Mihomo {} pipe: {}", stream_name, e);
+                        break;
+                    }
+                }
+            }
+        })
+        .ok();
+}
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 #[cfg(windows)]
@@ -361,35 +472,20 @@ impl CoreSupervisor {
             let _ = crate::core::geo_manager::ensure_mrs_rules(mrs_app_handle.as_ref(), &mrs_work_dir).await;
         });
 
-        // Setup log file redirection
+        // Setup log directory and initial cleanup
         let log_dir = self.work_dir.join("logs");
         std::fs::create_dir_all(&log_dir).ok();
-        let log_path = log_dir.join("mihomo.log");
-        let log_file = match std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .map_err(AppError::Io)
-        {
-            Ok(f) => f,
-            Err(e) => {
-                inner.last_error = Some(e.to_string());
-                return Err(e);
-            }
-        };
-        let log_file_err = match log_file.try_clone().map_err(AppError::Io) {
-            Ok(f) => f,
-            Err(e) => {
-                inner.last_error = Some(e.to_string());
-                return Err(e);
-            }
-        };
+        clean_expired_logs(&log_dir, DEFAULT_LOG_RETENTION_DAYS);
+
+        let today = Local::now().date_naive();
+        let today_log_name = format!("mihomo-{}.log", today.format("%Y-%m-%d"));
+        let today_log_path = log_dir.join(today_log_name);
 
         info!(
-            "Spawning Mihomo sidecar from '{}' with work dir '{}', logging to '{}'",
+            "Spawning Mihomo sidecar from '{}' with work dir '{}', logging to '{}/mihomo-YYYY-MM-DD.log'",
             sidecar_path.display(),
             self.work_dir.display(),
-            log_path.display()
+            log_dir.display()
         );
 
         let mut cmd = Command::new(&sidecar_path);
@@ -397,9 +493,8 @@ impl CoreSupervisor {
             .arg(&self.work_dir)
             .arg("-f")
             .arg(&runtime_yaml_path)
-            .stdout(Stdio::from(log_file))
-            .stderr(Stdio::from(log_file_err));
-
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -418,6 +513,13 @@ impl CoreSupervisor {
             }
         };
 
+        if let Some(stdout) = child.stdout.take() {
+            spawn_log_pipe_writer(Box::new(stdout), log_dir.clone(), "stdout");
+        }
+        if let Some(stderr) = child.stderr.take() {
+            spawn_log_pipe_writer(Box::new(stderr), log_dir.clone(), "stderr");
+        }
+
         // Brief delay to detect immediate crashes
         std::thread::sleep(std::time::Duration::from_millis(150));
         match child.try_wait() {
@@ -425,7 +527,7 @@ impl CoreSupervisor {
                 let err_msg = format!(
                     "Mihomo 内核启动失败并异常退出 (退出码: {})。详情请查看日志文件: {}",
                     status,
-                    log_path.display()
+                    today_log_path.display()
                 );
                 inner.last_error = Some(err_msg.clone());
                 return Err(AppError::SidecarExecution(err_msg));
@@ -488,7 +590,7 @@ impl CoreSupervisor {
         let mut inner = self.inner.lock();
         let running = if inner.simulated {
             inner.pid.is_some()
-        } else if let Some(ref mut child) = inner.child {
+        } else if let Some(child) = &mut inner.child {
             match child.try_wait() {
                 Ok(None) => true,
                 _ => {
@@ -562,5 +664,39 @@ mod tests {
         assert!(status.pid.is_none());
         assert_eq!(status.uptime_seconds, 0);
         assert_eq!(status.controller_port, 9999);
+    }
+
+    #[test]
+    fn test_clean_expired_logs() {
+        let temp_dir = std::env::temp_dir().join(format!("mihomo_log_test_{}", std::time::UNIX_EPOCH.elapsed().unwrap().as_nanos()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // Create valid recent log (today)
+        let today_str = Local::now().date_naive().format("%Y-%m-%d").to_string();
+        let recent_log = temp_dir.join(format!("mihomo-{}.log", today_str));
+        std::fs::write(&recent_log, "today log").unwrap();
+
+        // Create log from 10 days ago (should be kept)
+        let ten_days_ago = Local::now().date_naive() - Duration::days(10);
+        let keep_log = temp_dir.join(format!("mihomo-{}.log", ten_days_ago.format("%Y-%m-%d")));
+        std::fs::write(&keep_log, "10 days ago log").unwrap();
+
+        // Create log from 31 days ago (should be deleted)
+        let expired_date = Local::now().date_naive() - Duration::days(31);
+        let expired_log = temp_dir.join(format!("mihomo-{}.log", expired_date.format("%Y-%m-%d")));
+        std::fs::write(&expired_log, "expired log").unwrap();
+
+        // Create irrelevant non-log file
+        let other_file = temp_dir.join("config.yaml");
+        std::fs::write(&other_file, "irrelevant").unwrap();
+
+        clean_expired_logs(&temp_dir, 30);
+
+        assert!(recent_log.exists(), "Today's log must be kept");
+        assert!(keep_log.exists(), "10-day-old log must be kept under 30 days retention");
+        assert!(!expired_log.exists(), "31-day-old log must be cleaned up");
+        assert!(other_file.exists(), "Non-log files must not be deleted");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
