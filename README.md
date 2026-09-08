@@ -117,6 +117,21 @@ pnpm tauri build
 
 ---
 
+## 🍏 macOS 安装常见问题处理 (Gatekeeper)
+
+从 GitHub Releases 下载 `.dmg` 安装后，macOS 门禁系统可能会提示：**“已损坏，打不开。您应该将它移到废纸篓”** 或 **“无法打开，因为无法验证开发者”**。
+
+这是由于应用尚未购买商业开发者证书签名，被系统赋予了隔离标记。可通过以下命令一键解除隔离：
+
+```bash
+# 将应用移动到“应用程序”目录后，在终端执行：
+sudo xattr -rd com.apple.quarantine /Applications/Mihomo\ Multi.app
+```
+
+或在 **“系统设置” -> “隐私与安全性”** 中找到被阻止的应用，点击 **“仍要打开”** 即可正常使用。
+
+---
+
 ## 📄 开源协议
 
 本项目采用 [MIT License](LICENSE) 开源协议。
