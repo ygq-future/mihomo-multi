@@ -38,6 +38,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": [
+      "resources/**/*"
+    ],
     "externalBin": [
       "binaries/mihomo"
     ]

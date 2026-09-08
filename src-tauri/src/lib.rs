@@ -146,6 +146,8 @@ pub fn run() {
             reset_window_size,
             exit_app,
             hide_window,
+            get_rules_info,
+            update_rules,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {

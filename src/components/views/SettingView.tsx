@@ -35,6 +35,7 @@ import type {
   AppUpdateCheckResult,
   AppUpdateProgressPayload,
   KernelUpdateCheckResult,
+  MrsRulesInfo,
   UwpLoopbackStats,
 } from '../../types'
 import { formatUptime } from '../../utils/time'
@@ -224,6 +225,9 @@ export const SettingView: React.FC = () => {
     useState<AppUpdateProgressPayload | null>(null)
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string>('')
 
+  // MRS Rule Providers State
+  const [rulesInfo, setRulesInfo] = useState<MrsRulesInfo | null>(null)
+  const [updatingRules, setUpdatingRules] = useState<boolean>(false)
   useEffect(() => {
     let unlisten: (() => void) | undefined
     listen<AppUpdateProgressPayload>('app-update-progress', (event) => {
@@ -247,6 +251,10 @@ export const SettingView: React.FC = () => {
     api
       .getUwpLoopbackStatus()
       .then(setUwpStats)
+      .catch(() => {})
+    api
+      .getRulesInfo()
+      .then(setRulesInfo)
       .catch(() => {})
   }, [])
 
@@ -446,6 +454,21 @@ export const SettingView: React.FC = () => {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setUpgradingKernel(false)
+    }
+  }
+
+  const handleUpdateRules = async () => {
+    if (updatingRules) return
+    setUpdatingRules(true)
+    try {
+      toast.info('正在请求官方最新 MRS 规则集，请稍候...')
+      const res = await api.updateRules()
+      setRulesInfo(res)
+      toast.success('国内分流规则库已成功更新为最新版本！')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUpdatingRules(false)
     }
   }
 
@@ -1021,6 +1044,62 @@ export const SettingView: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* MRS Rule Providers Info & Update */}
+          <div className="p-3 rounded-lg bg-background/60 border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-foreground">
+                  国内分流规则库 (MRS 二进制)
+                </span>
+                {rulesInfo?.all_present ? (
+                  <Badge variant="success" size="sm">
+                    已就绪 (4/4)
+                  </Badge>
+                ) : (
+                  <Badge variant="warning" size="sm">
+                    缺少 {rulesInfo?.missing.length ?? 0} 个文件
+                  </Badge>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                包含 111,004 条中国域名及完整中国 IP CIDR。采用紧凑 Meta
+                规则集格式，极速匹配且仅占极小内存
+              </p>
+              <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground/80 font-mono">
+                <span>
+                  最后更新：
+                  {rulesInfo?.last_updated_at
+                    ? new Date(
+                        rulesInfo.last_updated_at * 1000,
+                      ).toLocaleString()
+                    : '跟随安装包内置'}
+                </span>
+                {rulesInfo?.total_size ? (
+                  <span>
+                    库体积：{(rulesInfo.total_size / 1024).toFixed(1)} KB
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div className="shrink-0">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleUpdateRules}
+                disabled={updatingRules}
+                icon={
+                  updatingRules ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  )
+                }
+              >
+                {updatingRules ? '正在更新规则...' : '立即更新规则库'}
+              </Button>
+            </div>
+          </div>
         </div>
 
         {/* Network & Controller Configuration */}

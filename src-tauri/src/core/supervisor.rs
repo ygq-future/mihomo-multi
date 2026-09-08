@@ -350,9 +350,15 @@ impl CoreSupervisor {
         };
         let version = self.query_version(&sidecar_path);
 
-        let geo_work_dir = self.work_dir.clone();
+        // Clean up legacy Geo files (.dat / .metadb / .mmdb) to reclaim disk space
+        crate::core::geo_manager::cleanup_legacy_geo_files(&self.work_dir);
+
+        // Seed MRS rules synchronously before process spawn so Mihomo finds rules immediately
+        let _ = crate::core::geo_manager::seed_bundled_mrs_rules(app_handle, &self.work_dir);
+        let mrs_work_dir = self.work_dir.clone();
+        let mrs_app_handle = app_handle.cloned();
         tauri::async_runtime::spawn(async move {
-            let _ = crate::core::geo_manager::ensure_geo_databases(&geo_work_dir).await;
+            let _ = crate::core::geo_manager::ensure_mrs_rules(mrs_app_handle.as_ref(), &mrs_work_dir).await;
         });
 
         // Setup log file redirection

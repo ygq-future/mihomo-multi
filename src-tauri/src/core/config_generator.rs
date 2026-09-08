@@ -27,18 +27,53 @@ pub struct RuntimeProxyGroup {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RuntimeGeoXUrl {
-    pub geoip: String,
-    pub geosite: String,
+pub struct RuntimeRuleProvider {
+    #[serde(rename = "type")]
+    pub provider_type: String,
+    pub behavior: String,
+    pub format: String,
+    pub path: String,
 }
 
-impl Default for RuntimeGeoXUrl {
-    fn default() -> Self {
-        Self {
-            geoip: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat".to_string(),
-            geosite: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat".to_string(),
-        }
-    }
+pub fn default_rule_providers() -> BTreeMap<String, RuntimeRuleProvider> {
+    let mut providers = BTreeMap::new();
+    providers.insert(
+        "private_domain".to_string(),
+        RuntimeRuleProvider {
+            provider_type: "file".to_string(),
+            behavior: "domain".to_string(),
+            format: "mrs".to_string(),
+            path: "./rules/geosite-private.mrs".to_string(),
+        },
+    );
+    providers.insert(
+        "cn_domain".to_string(),
+        RuntimeRuleProvider {
+            provider_type: "file".to_string(),
+            behavior: "domain".to_string(),
+            format: "mrs".to_string(),
+            path: "./rules/geosite-cn.mrs".to_string(),
+        },
+    );
+    providers.insert(
+        "private_ip".to_string(),
+        RuntimeRuleProvider {
+            provider_type: "file".to_string(),
+            behavior: "ipcidr".to_string(),
+            format: "mrs".to_string(),
+            path: "./rules/geoip-private.mrs".to_string(),
+        },
+    );
+    providers.insert(
+        "cn_ip".to_string(),
+        RuntimeRuleProvider {
+            provider_type: "file".to_string(),
+            behavior: "ipcidr".to_string(),
+            format: "mrs".to_string(),
+            path: "./rules/geoip-cn.mrs".to_string(),
+        },
+    );
+    providers
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimeDnsConfig {
@@ -122,14 +157,8 @@ pub struct MinimalRuntimeConfig {
     #[serde(default)]
     pub dns: RuntimeDnsConfig,
     pub ipv6: bool,
-    #[serde(rename = "geodata-mode")]
-    pub geodata_mode: bool,
-    #[serde(rename = "geo-auto-update")]
-    pub geo_auto_update: bool,
-    #[serde(rename = "geo-update-interval")]
-    pub geo_update_interval: u32,
-    #[serde(rename = "geox-url")]
-    pub geox_url: RuntimeGeoXUrl,
+    #[serde(rename = "rule-providers", skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub rule_providers: BTreeMap<String, RuntimeRuleProvider>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub listeners: Vec<RuntimeListener>,
     #[serde(rename = "proxy-groups", skip_serializing_if = "Vec::is_empty", default)]
@@ -155,10 +184,7 @@ impl MinimalRuntimeConfig {
             tcp_concurrent: true,
             unified_delay: true,
             dns: RuntimeDnsConfig::default(),
-            geodata_mode: true,
-            geo_auto_update: true,
-            geo_update_interval: 24,
-            geox_url: RuntimeGeoXUrl::default(),
+            rule_providers: default_rule_providers(),
             listeners: Vec::new(),
             proxies: Vec::new(),
             proxy_groups: Vec::new(),
@@ -261,10 +287,10 @@ impl MinimalRuntimeConfig {
                 sub_rules.insert(
                     sub_rule_name.clone(),
                     vec![
-                        "GEOIP,private,DIRECT,no-resolve".to_string(),
-                        "GEOSITE,private,DIRECT".to_string(),
-                        "GEOSITE,cn,DIRECT".to_string(),
-                        "GEOIP,cn,DIRECT".to_string(),
+                        "RULE-SET,private_ip,DIRECT,no-resolve".to_string(),
+                        "RULE-SET,private_domain,DIRECT".to_string(),
+                        "RULE-SET,cn_domain,DIRECT".to_string(),
+                        "RULE-SET,cn_ip,DIRECT,no-resolve".to_string(),
                         format!("MATCH,{}", target_action),
                     ],
                 );
@@ -287,10 +313,7 @@ impl MinimalRuntimeConfig {
             tcp_concurrent: true,
             unified_delay: true,
             dns: RuntimeDnsConfig::default(),
-            geodata_mode: true,
-            geo_auto_update: true,
-            geo_update_interval: 24,
-            geox_url: RuntimeGeoXUrl::default(),
+            rule_providers: default_rule_providers(),
             listeners,
             proxy_groups,
             proxies,
@@ -539,14 +562,14 @@ password: pass
             MinimalRuntimeConfig::with_mappings(&params, &[mapping_bypass, mapping_global], vec![p1], &profile_map);
 
         let yaml = config.to_yaml().expect("YAML serialize failed");
-        assert!(yaml.contains("geodata-mode: true"));
-        assert!(yaml.contains("geo-auto-update: true"));
+        assert!(yaml.contains("rule-providers:"));
+        assert!(yaml.contains("cn_domain:"));
         assert!(yaml.contains("sub-rules:"));
         assert!(yaml.contains("sub-rule-8888:"));
-        assert!(yaml.contains("- GEOIP,private,DIRECT,no-resolve"));
-        assert!(yaml.contains("- GEOSITE,private,DIRECT"));
-        assert!(yaml.contains("- GEOSITE,cn,DIRECT"));
-        assert!(yaml.contains("- GEOIP,cn,DIRECT"));
+        assert!(yaml.contains("- RULE-SET,private_ip,DIRECT,no-resolve"));
+        assert!(yaml.contains("- RULE-SET,private_domain,DIRECT"));
+        assert!(yaml.contains("- RULE-SET,cn_domain,DIRECT"));
+        assert!(yaml.contains("- RULE-SET,cn_ip,DIRECT,no-resolve"));
         assert!(yaml.contains("- MATCH,[AirportA] HK-Node-01"));
 
         assert!(yaml.contains("SUB-RULE,(IN-PORT,8888),sub-rule-8888"));

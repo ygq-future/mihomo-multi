@@ -1103,3 +1103,21 @@ pub async fn hide_window(app: AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[tauri::command]
+pub async fn get_rules_info(state: State<'_, AppState>) -> Result<crate::core::geo_manager::MrsRulesInfo, String> {
+    let work_dir = state.engine.work_dir();
+    Ok(crate::core::geo_manager::get_mrs_rules_info(work_dir))
+}
+
+#[tauri::command]
+pub async fn update_rules(state: State<'_, AppState>) -> Result<crate::core::geo_manager::MrsRulesInfo, String> {
+    let work_dir = state.engine.work_dir();
+    let res = crate::core::geo_manager::update_mrs_rules(work_dir).await.map_err(|e| e.to_string())?;
+    // If engine is active, reload config seamlessly
+    if state.engine.get_status().running {
+        let runtime_path = work_dir.join("runtime.yaml");
+        let _ = state.engine.reload_config(&runtime_path.to_string_lossy()).await;
+    }
+    Ok(res)
+}

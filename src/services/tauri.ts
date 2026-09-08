@@ -18,6 +18,7 @@ import type {
   UwpLoopbackStats,
   AppUpdateCheckResult,
   AppUpdateInstallResult,
+  MrsRulesInfo,
 } from '../types'
 import { APP_VERSION } from '../constants'
 
@@ -705,4 +706,28 @@ export async function exitApp(): Promise<void> {
 export async function hideWindow(): Promise<void> {
   if (!isTauriEnvironment()) return
   return invoke<void>('hide_window')
+}
+
+export async function getRulesInfo(): Promise<MrsRulesInfo> {
+  if (!isTauriEnvironment()) {
+    return {
+      all_present: true,
+      missing: [],
+      last_updated_at: Math.floor(Date.now() / 1000),
+      total_size: 576916,
+    }
+  }
+  return invoke<MrsRulesInfo>('get_rules_info')
+}
+
+export async function updateRules(): Promise<MrsRulesInfo> {
+  if (!isTauriEnvironment()) {
+    return {
+      all_present: true,
+      missing: [],
+      last_updated_at: Math.floor(Date.now() / 1000),
+      total_size: 576916,
+    }
+  }
+  return invoke<MrsRulesInfo>('update_rules')
 }

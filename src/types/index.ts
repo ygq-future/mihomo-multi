@@ -224,3 +224,10 @@ export interface KernelUpgradeResult {
   targetPath: string
   isPortable: boolean
 }
+
+export interface MrsRulesInfo {
+  all_present: boolean
+  missing: string[]
+  last_updated_at?: number | null
+  total_size: number
+}
