@@ -138,8 +138,8 @@ export const Sidebar: React.FC = () => {
         {/* 1. 实时网速独立盒子 */}
         {sidebarCollapsed ? (
           <div
-            className="p-1.5 mx-2 mb-2 rounded-xl border border-border bg-background/50 flex flex-col items-center gap-1 cursor-help select-none"
-            title={`实时汇总网速\n总上传: ${formatTraffic(traffic.up)}\n总下载: ${formatTraffic(traffic.down)}`}
+            className="p-1.5 mx-2 mb-2 rounded-xl border border-border bg-background/50 flex flex-col items-center gap-1 cursor-default select-none"
+            title="实时网速汇总"
           >
             {/* 上传：上下结构 */}
             <div className="flex flex-col items-center w-full py-0.5">
@@ -168,10 +168,7 @@ export const Sidebar: React.FC = () => {
               </span>
             </div>
             <div className="grid grid-cols-2 gap-1.5">
-              <div
-                className="p-1.5 rounded-lg bg-card/60 border border-border/40 flex items-center gap-1.5 min-w-0"
-                title={`总上传网速: ${formatTraffic(traffic.up)}`}
-              >
+              <div className="p-1.5 rounded-lg bg-card/60 border border-border/40 flex items-center gap-1.5 min-w-0">
                 <Upload className="w-3.5 h-3.5 text-sky-500 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="text-[9px] text-muted-foreground leading-none">
@@ -182,10 +179,7 @@ export const Sidebar: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div
-                className="p-1.5 rounded-lg bg-card/60 border border-border/40 flex items-center gap-1.5 min-w-0"
-                title={`总下载网速: ${formatTraffic(traffic.down)}`}
-              >
+              <div className="p-1.5 rounded-lg bg-card/60 border border-border/40 flex items-center gap-1.5 min-w-0">
                 <Download className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="text-[9px] text-muted-foreground leading-none">
@@ -204,7 +198,7 @@ export const Sidebar: React.FC = () => {
         {sidebarCollapsed ? (
           <div className="p-2 mx-2 mb-2 rounded-xl border border-border bg-background/50 flex flex-col items-center gap-2">
             <div
-              className="flex items-center justify-center cursor-help py-1"
+              className="flex items-center justify-center cursor-default py-1"
               title={`Mihomo 内核: ${isRunning ? '运行中' : '已停止'}${
                 isRunning
                   ? `\nPID: ${coreStatus?.pid ?? '-'}\n控制端口: ${

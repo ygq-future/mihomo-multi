@@ -5,122 +5,118 @@
 </p>
 
 <p align="center">
-  <b>A lightweight, high-performance desktop client for multi-port proxy listener binding powered by Mihomo (Clash.Meta) and Tauri v2.</b>
-</p>
-
-<p align="center">
-  <a href="README.zh-CN.md">简体中文</a> | <b>English</b>
+  <b>基于 Mihomo (Clash.Meta) 内核与 Tauri v2 构建的轻量级高性能多端口代理监听绑定桌面客户端。</b>
 </p>
 
 ---
 
-## 💡 Why Mihomo Multi-Port?
+## 💡 为什么需要 Mihomo Multi-Port？
 
-Most mainstream desktop proxy clients are designed for general web browsing and typically expose only a single global mixed proxy port (e.g. `7890`).
+传统主流代理桌面客户端主要面向个人日常上网分流，通常仅开放一个全局混合代理端口（如 `7890`）。
 
-When you need **multiple independent local listening ports routed to distinct egress proxy nodes** (for example: fingerprint browser isolation, multi-account automation, web crawlers, or isolated test environments like `7891 -> 🇯🇵 Japan 01`, `7892 -> 🇭🇰 Hong Kong 02`, `7893 -> 🇺🇸 US 01`), traditional workarounds require running multiple heavy GUI applications simultaneously. This wastes substantial system memory and is cumbersome to maintain.
+当您需要**多个独立的本地监听端口分别绑定到不同的出站节点**时（例如：指纹浏览器多开防关联、多账号自动化运营、分布式网络爬虫、跨环境隔离测试，要求 `7891 -> 🇯🇵 日本01`，`7892 -> 🇭🇰 香港02`，`7893 -> 🇺🇸 美国01`），传统方案往往需要同时开启多个笨重的客户端软件，导致系统资源极度浪费且配置繁琐。
 
-**Mihomo Multi-Port** is purpose-built to solve this problem with an ultra-focused, minimalist architecture:
-* 🎯 **Single Core Responsibility**: Pure `Add Inbound Port Listener -> Bind Specific Proxy Node (1:1)`.
-* ⚡ **Ultra-Low Resource Footprint**: Managed by a single supervised Mihomo sidecar core (~30MB background RAM), eliminating the overhead of multiple bloated GUI clients.
-* 🔄 **Millisecond Hot-Reload**: Adding, updating, deleting, or toggling port listeners is applied in real-time via Mihomo REST API (`PUT /configs?force=true`) **without restarting processes or interrupting active connections**.
-* 🛡️ **Deterministic 1:1 Routing**: Strict `IN-PORT` routing rules ensure each port never drifts or randomly switches exit IP addresses.
-* 🚀 **Zero Unnecessary Bloat**: No TUN virtual adapter driver dependencies, no complex rule merge scripts, and no unnecessary bloat.
-
----
-
-## ✨ Key Features
-
-### 1. Multi-Port Inbound Management & 1:1 Binding
-- **Flexible Inbound Protocols**: Configure unlimited local listening ports supporting Mixed (SOCKS5/HTTP), pure HTTP, or pure SOCKS5 protocols.
-- **Port Conflict Pre-Check**: Automatically checks local port availability via socket binding tests before saving or enabling to prevent port collision errors.
-- **Independent Toggling & Editing**: Toggle, edit bound nodes, or update port descriptions independently per port.
-- **One-Click Proxy Helpers**: Quick-copy menu to instantly copy `127.0.0.1:<port>`, `http://...`, `socks5://...`, or terminal-ready cURL test commands.
-
-### 2. Controlled System Proxy & Disconnect Guard
-- **Strict Mutual Exclusion**: System proxy is globally strictly mutually exclusive—bound to at most 1 enabled listening port at any time.
-- **Smart Bypass List**: Built-in LAN and loopback bypasses (`localhost`, `127.*`, `10.*`, `192.168.*`, etc.) with customizable user bypass entries.
-- **Environment Variable Synchronization**: Automatically synchronizes current user-level environment variables on Windows (`all_proxy`, `http_proxy`, `https_proxy`, `no_proxy`) for terminal tools.
-- **Lifecycle Disconnect Guard**: System proxy and environment variables are unconditionally restored whenever the bound port is disabled/deleted, the core stops, or the app exits/crashes.
-
-### 3. Profile & Subscription Management
-- **Versatile Import**: Supports remote subscription URLs (with compatible User-Agent headers) and local Clash YAML file imports.
-- **Automated Silent Updates**: Configurable periodic background auto-updates alongside one-click manual refresh.
-- **Profile Node Inspection**: Quick modal to inspect parsed nodes and protocol types directly from any profile card.
-
-### 4. Proxy Explorer & Batch Latency Testing
-- **Visual Card Grid**: Clean card view of all parsed nodes with country/region flags and protocol badges (Shadowsocks, VMess, Trojan, VLESS, Hysteria2, etc.).
-- **High-Concurrency Ping Testing**: Real-time batch latency testing with intuitive color coding (fast, normal, slow, timeout).
-- **Quick-Bind Action**: Instantly launch port binding modal directly from any node card with pre-filled configuration.
-
-### 5. Node Drift Fault-Tolerance (Drift Guard)
-- If a bound node is renamed or removed during subscription updates, traffic safely falls back to DIRECT routing accompanied by a clear UI warning rather than crashing the core or failing configuration loads.
-
-### 6. Core & Asset Lifecycle Management
-- **Mihomo Core Online Upgrade**: Built-in updater to check MetaCubeX releases, view changelogs, and upgrade the Mihomo binary with one click.
-- **GEO Database Maintenance**: In-app status checking and online one-click updates for GeoIP and GeoSite database files.
-
-### 7. Desktop Integration & System Tray
-- **System Tray Resident**: Minimize to system tray, quick toggle window visibility, and seamless background operation.
-- **Auto-Launch on Boot**: Optional silent startup when logging into the system.
-- **Real-Time Traffic Monitor**: Real-time upload/download speed and connection count indicators in the top bar.
-
-### 8. Child Process Safety Guarantee
-- Mihomo sidecar is supervised with Windows JobObject and signal handling to guarantee child processes are reliably killed on application exit or crash, preventing orphan processes.
+**Mihomo Multi-Port** 专为解决该痛点而生，采用极致聚焦与做减法的架构设计：
+* 🎯 **单一核心职责**：只做 `添加本地端口监听 -> 精准 1:1 绑定指定节点`。
+* ⚡ **极低资源底噪**：由单个受控的 Mihomo Sidecar 内核统一调度，后台内存占用极低（~30MB），告别多开臃肿客户端。
+* 🔄 **毫秒级配置热重载**：新增、修改、删除或启停端口映射时，均通过 Mihomo REST API 实时无缝热加载，**不重启内核进程，不断开现有长连接**。
+* 🛡️ **确定性 1:1 路由**：严格基于 `IN-PORT` 规则精确出站，杜绝隐式轮询漂移与多账号 IP 串线风险。
+* 🚀 **零无用包袱**：不引入 TUN 虚拟网卡驱动，不引入复杂的外部分流脚本，运行稳定轻巧。
 
 ---
 
-## 🛠️ Tech Stack
+## ✨ 核心特性
 
-* **Framework**: [Tauri v2](https://v2.tauri.app/)
-* **Backend**: [Rust](https://www.rust-lang.org/) (2024 Edition) + [Tokio](https://tokio.rs/) async runtime
-* **Frontend**: [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Tailwind CSS](https://tailwindcss.com/) + [Lucide Icons](https://lucide.dev/)
-* **State Management**: [Zustand](https://github.com/pmndrs/zustand)
-* **Proxy Core**: [Mihomo (Clash.Meta)](https://github.com/MetaCubeX/mihomo) Sidecar
-* **Standards & Tooling**: [Biome](https://biomejs.dev/) + ESLint + `rustfmt` + Clippy
+### 1. 多端口独立监听与 1:1 精确绑定
+- **灵活入站协议**：支持配置任意数量的本地入站端口，支持 Mixed（混合代理）、纯 HTTP、纯 SOCKS5 协议。
+- **端口冲突前置探测**：在保存或启用端口前，自动调用系统网络栈探测本地端口可用性，防止端口占用导致错误。
+- **独立启停与编辑**：各端口独立受控，支持单独启用、停用、切换绑定节点或修改描述。
+- **一键快捷复制**：集成快捷复制菜单，一键复制 `127.0.0.1:<端口>`、`http://...`、`socks5://...` 或可直接在终端运行的 cURL 代理测试命令。
+
+### 2. 受控系统代理与防断网守护
+- **严格单选互斥**：系统代理全局严格单选，至多同时绑定 1 个已启用的监听端口，状态清晰可溯。
+- **智能 Bypass 绕过名单**：内置私有网络与回环地址（`localhost`、`127.*`、`10.*`、`192.168.*` 等），支持用户自定义追加绕过域名或 IP。
+- **系统环境变量联动**：Windows 平台下开启系统代理时，联动设置当前用户级环境变量（`all_proxy`、`http_proxy`、`https_proxy`、`no_proxy`），全面覆盖终端与命令行工具。
+- **生命周期安全红线**：当绑定端口停用/删除、内核停止或客户端正常退出/异常崩溃时，自动强制清理系统代理与环境变量设置，**彻底杜绝断网残留**。
+
+### 3. 订阅与配置闭环管理
+- **多样化导入方式**：支持远程订阅 URL 下载拉取（携带标准兼容 User-Agent）与本地 Clash YAML 文件导入。
+- **自动化静默同步**：支持设置后台定时自动更新间隔，亦支持一键手动全量同步。
+- **订阅内置节点检视**：内置卡片式弹窗，无需切换页面即可快速查看特定订阅下解析出的全部节点列表与类型。
+
+### 4. 节点仪表盘与高并发批量测速
+- **可视化网格呈现**：卡片式直观呈现所有解析节点，自动识别并显示所属国家/地区旗帜与协议类型徽章（Shadowsocks、VMess、Trojan、VLESS、Hysteria2 等）。
+- **高并发真实延迟测速**：直观展示节点可用性与真实延迟，色标区分优/良/差/超时。
+- **卡片快捷一键绑定**：在节点卡片上一键发起端口映射创建，自动预填该节点，简化配置操作。
+
+### 5. 节点漂移安全防护 (Drift Guard)
+- 当订阅更新后，若原已绑定的节点被机场服务商重命名或下线，防护引擎会自动将该端口的流量安全降级至 DIRECT 直连并伴随 UI 显式告警，**绝不引发内核配置解析失败或程序崩溃**。
+
+### 6. 内核与规则资产在线运维
+- **Mihomo 内核在线升级**：内置内核更新检测器，支持在线检查官方最新发布版本、查看 Release 说明，并支持一键热下载升级。
+- **GEO 规则数据库运维**：支持一键检查并在线更新 GeoIP 与 GeoSite 数据库资产。
+
+### 7. 桌面集成与系统托盘
+- **系统托盘驻留**：支持最小化至托盘、快捷显示/隐藏主窗口与一键退出。
+- **开机自启动**：支持设置随系统开机静默自启。
+- **实时流量监控**：顶部导航栏集成实时上行/下行速率与连接数监测。
+
+### 8. 子进程生命周期守护
+- 主程序启动时拉起 Mihomo Sidecar 伴生进程，利用 Windows JobObject 与进程信号处理机制将内核与主程序生命周期深度绑定，退出或崩溃时彻底清理，**严禁产生后台孤儿僵尸进程**。
 
 ---
 
-## 🚀 Quick Start & Development
+## 🛠️ 技术栈
 
-### Prerequisites
+* **核心框架**：[Tauri v2](https://v2.tauri.app/)
+* **后端语言**：[Rust](https://www.rust-lang.org/) (2024 Edition) + [Tokio](https://tokio.rs/) 异步运行时
+* **前端技术**：[React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Tailwind CSS](https://tailwindcss.com/) + [Lucide Icons](https://lucide.dev/)
+* **全局状态**：[Zustand](https://github.com/pmndrs/zustand)
+* **底层代理内核**：[Mihomo (Clash.Meta)](https://github.com/MetaCubeX/mihomo) Sidecar
+* **工程化规范**：[Biome](https://biomejs.dev/) + ESLint + `rustfmt` + Clippy
+
+---
+
+## 🚀 快速上手与本地开发
+
+### 环境要求
 * [Node.js](https://nodejs.org/) (>= 20.x) & [pnpm](https://pnpm.io/) (>= 9.x)
-* [Rust Toolchain](https://www.rust-lang.org/tools/install) (>= 1.80.x)
+* [Rust 工具链](https://www.rust-lang.org/tools/install) (>= 1.80.x)
 
-### Local Setup
+### 本地运行
 
 ```bash
-# 1. Clone the repository
+# 1. 克隆代码仓库
 git clone https://github.com/ygq-future/mihomo-multi.git
 cd mihomo-multi
 
-# 2. Install frontend dependencies
+# 2. 安装前端依赖
 pnpm install
 
-# 3. Download the Mihomo sidecar binary for current OS/Arch
+# 3. 自动下载适配当前操作系统的 Mihomo Sidecar 二进制
 pnpm dev:sidecar
 
-# 4. Start local development
+# 4. 启动本地开发环境
 pnpm dev
-# or
+# 或
 pnpm tauri dev
 ```
 
-### Build & Package
+### 构建打包
 
 ```bash
-# Code formatting and lint checks
+# 代码格式化与语法检查
 pnpm format
 pnpm lint
 
-# Build production distributable installer
+# 构建生产分发安装包
 pnpm build
-# or
+# 或
 pnpm tauri build
 ```
 
 ---
 
-## 📄 License
+## 📄 开源协议
 
-Distributed under the [MIT License](LICENSE).
+本项目采用 [MIT License](LICENSE) 开源协议。

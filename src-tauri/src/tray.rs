@@ -217,6 +217,37 @@ fn is_tray_menu_active() -> bool {
 fn is_tray_menu_active() -> bool {
     false
 }
+pub fn format_tray_tooltip(app: &AppHandle) -> String {
+    let Some(state) = app.try_state::<crate::state::AppState>() else {
+        return "Mihomo Multi-Port".to_string();
+    };
+
+    let mappings = state.port_router.get_port_mappings();
+    let total_ports = mappings.len();
+    let enabled_ports = mappings.iter().filter(|m| m.enabled).count();
+
+    let config = state.config.read();
+    let sys_proxy_str = if config.system_proxy_enabled {
+        if let Some(port) = config.system_proxy_port {
+            format!("已开启 (:{port})")
+        } else {
+            "已开启".to_string()
+        }
+    } else {
+        "未开启".to_string()
+    };
+
+    let core_status = if state.engine.get_status().running {
+        "运行中"
+    } else {
+        "已停止"
+    };
+
+    format!(
+        "Mihomo Multi-Port\n内核状态: {}\n监听端口: {} 个已启用 (共 {} 个)\n系统代理: {}",
+        core_status, enabled_ports, total_ports, sys_proxy_str
+    )
+}
 
 pub fn update_tray_menu(app: &AppHandle) {
     update_tray_menu_with_fallback_statuses(app, Vec::new());
@@ -234,6 +265,11 @@ pub fn update_tray_menu_with_fallback_statuses(
         let Some(state) = app_handle.try_state::<crate::state::AppState>() else {
             return;
         };
+        let tooltip = format_tray_tooltip(&app_handle);
+        if let Err(e) = tray.set_tooltip(Some(tooltip)) {
+            warn!("Failed to set updated tray tooltip: {}", e);
+        }
+
 
         // If a popup menu is currently open on screen, never call set_menu!
         // Calling set_menu while a menu is open forces Windows to immediately dismiss it.
@@ -275,8 +311,10 @@ pub fn update_tray_menu_with_fallback_statuses(
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let initial_runtime_infos = std::collections::HashMap::new();
     let menu = build_tray_menu_internal(app, &initial_runtime_infos)?;
+    let initial_tooltip = format_tray_tooltip(app);
 
     let tray_builder = TrayIconBuilder::with_id("main-tray")
+        .tooltip(initial_tooltip)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {

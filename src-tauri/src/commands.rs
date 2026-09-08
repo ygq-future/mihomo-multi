@@ -102,7 +102,7 @@ pub async fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String>
 }
 
 #[tauri::command]
-pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn save_config(app: AppHandle, config: AppConfig, state: State<'_, AppState>) -> Result<(), String> {
     let old_config = state.config.read().clone();
     if config.controller_port != old_config.controller_port {
         let core_status = state.engine.get_status();
@@ -159,11 +159,13 @@ pub async fn save_config(config: AppConfig, state: State<'_, AppState>) -> Resul
     }
 
     let _ = state.sync_runtime_config().await;
+    crate::tray::update_tray_menu(&app);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn set_system_proxy(
+    app: AppHandle,
     enabled: bool,
     port: Option<u16>,
     state: State<'_, AppState>,
@@ -196,6 +198,7 @@ pub async fn set_system_proxy(
     }
 
     let bypass_domains = crate::core::sysproxy::build_combined_bypass_list(&config.system_proxy_bypass_user);
+    crate::tray::update_tray_menu(&app);
     Ok(SystemProxyStatus {
         enabled: config.system_proxy_enabled,
         port: config.system_proxy_port,
