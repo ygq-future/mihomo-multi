@@ -363,6 +363,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                                 error!("Failed to restart core from tray: {}", e);
                             } else {
                                 info!("Mihomo core restarted from tray");
+                                state.ensure_system_proxy_active();
                                 update_tray_menu(&app_handle);
                             }
                         }

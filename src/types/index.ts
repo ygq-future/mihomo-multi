@@ -123,6 +123,15 @@ export interface CoreStatus {
   sidecarPath: string
   lastError?: string
 }
+export interface KernelCrashedPayload {
+  reason: string
+  systemProxySuspended: boolean
+  suspendedPort?: number | null
+}
+
+export interface ProxyRestoredPayload {
+  port: number
+}
 
 export interface LanIpInfo {
   ip: string

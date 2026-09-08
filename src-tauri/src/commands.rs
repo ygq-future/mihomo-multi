@@ -41,15 +41,7 @@ pub async fn start_core(app: AppHandle, state: State<'_, AppState>) -> Result<Co
     let _ = state.sync_runtime_config().await;
     let config = state.config.read().clone();
     let res = state.engine.start(Some(&app), &config).map_err(|err| err.to_string())?;
-    if config.system_proxy_enabled
-        && let Some(port) = config.system_proxy_port
-    {
-        let _ = crate::core::sysproxy::apply_system_proxy(
-            port,
-            &config.system_proxy_bypass_user,
-            config.system_proxy_sync_env,
-        );
-    }
+    state.ensure_system_proxy_active();
     crate::tray::update_tray_menu(&app);
     Ok(res)
 }
@@ -60,6 +52,7 @@ pub async fn stop_core(app: AppHandle, state: State<'_, AppState>) -> Result<(),
     if config.system_proxy_enabled {
         let _ = crate::core::sysproxy::clear_system_proxy();
     }
+    state.clear_suspended_system_proxy();
     state.engine.stop().map_err(|err| err.to_string())?;
     crate::tray::update_tray_menu(&app);
     Ok(())
@@ -73,15 +66,7 @@ pub async fn restart_core(app: AppHandle, state: State<'_, AppState>) -> Result<
         .engine
         .restart(Some(&app), &config)
         .map_err(|err| err.to_string())?;
-    if config.system_proxy_enabled
-        && let Some(port) = config.system_proxy_port
-    {
-        let _ = crate::core::sysproxy::apply_system_proxy(
-            port,
-            &config.system_proxy_bypass_user,
-            config.system_proxy_sync_env,
-        );
-    }
+    state.ensure_system_proxy_active();
     crate::tray::update_tray_menu(&app);
     Ok(res)
 }
@@ -152,6 +137,9 @@ pub async fn save_config(app: AppHandle, config: AppConfig, state: State<'_, App
             let _ = crate::core::profile_manager::atomic_write_file(&config_path, json.as_bytes());
         }
     }
+        if !config.system_proxy_enabled {
+            state.clear_suspended_system_proxy();
+        }
 
     if (config.auto_launch != old_config.auto_launch || config.silent_start != old_config.silent_start)
         && let Ok(exe_path) = std::env::current_exe()
@@ -189,7 +177,7 @@ pub async fn set_system_proxy(
     state: State<'_, AppState>,
 ) -> Result<SystemProxyStatus, String> {
     let mut config = state.config.read().clone();
-
+    state.clear_suspended_system_proxy();
     if enabled {
         let p = port.ok_or_else(|| "启用系统代理必须指定端口".to_string())?;
         let mappings = state.port_router.get_port_mappings();
@@ -210,7 +198,6 @@ pub async fn set_system_proxy(
             config.system_proxy_port = Some(p);
         }
     }
-
     *state.config.write() = config.clone();
     let config_path = state.app_dir.join("config.json");
     if let Ok(json) = serde_json::to_string_pretty(&config) {

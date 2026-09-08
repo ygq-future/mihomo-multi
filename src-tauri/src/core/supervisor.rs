@@ -194,6 +194,8 @@ impl Drop for JobObjectGuard {
     }
 }
 
+pub type CrashCallback = Arc<dyn Fn(String) + Send + Sync>;
+
 struct SupervisorInner {
     child: Option<Child>,
     start_time: Option<Instant>,
@@ -206,12 +208,28 @@ struct SupervisorInner {
     #[cfg(windows)]
     job_object: Option<JobObjectGuard>,
     simulated: bool,
+    generation: u64,
+    intentional_stop: bool,
+    crash_reported: bool,
+}
+
+impl SupervisorInner {
+    fn record_crash(&mut self, err_msg: String) -> (bool, String) {
+        self.last_error = Some(err_msg.clone());
+        self.child = None;
+        self.start_time = None;
+        self.pid = None;
+        let should_report = !self.crash_reported && !self.intentional_stop;
+        self.crash_reported = true;
+        (should_report, err_msg)
+    }
 }
 
 #[derive(Clone)]
 pub struct CoreSupervisor {
     inner: Arc<Mutex<SupervisorInner>>,
     work_dir: PathBuf,
+    crash_handler: Arc<parking_lot::RwLock<Option<CrashCallback>>>,
 }
 
 impl CoreSupervisor {
@@ -231,11 +249,15 @@ impl CoreSupervisor {
             #[cfg(windows)]
             job_object,
             simulated: false,
+            generation: 0,
+            intentional_stop: false,
+            crash_reported: false,
         };
 
         Self {
             inner: Arc::new(Mutex::new(inner)),
             work_dir,
+            crash_handler: Arc::new(parking_lot::RwLock::new(None)),
         }
     }
 
@@ -252,12 +274,20 @@ impl CoreSupervisor {
             #[cfg(windows)]
             job_object: None,
             simulated: true,
+            generation: 0,
+            intentional_stop: false,
+            crash_reported: false,
         };
 
         Self {
             inner: Arc::new(Mutex::new(inner)),
             work_dir,
+            crash_handler: Arc::new(parking_lot::RwLock::new(None)),
         }
+    }
+
+    pub fn set_crash_handler(&self, handler: CrashCallback) {
+        *self.crash_handler.write() = Some(handler);
     }
 
     pub fn get_host_target() -> &'static str {
@@ -449,6 +479,9 @@ impl CoreSupervisor {
             inner.controller_port = config.controller_port;
             inner.secret = config.controller_secret.clone();
             inner.last_error = None;
+            inner.intentional_stop = false;
+            inner.crash_reported = false;
+            inner.generation += 1;
             return Ok(self.status_from_inner(&inner));
         }
 
@@ -556,12 +589,66 @@ impl CoreSupervisor {
         inner.controller_port = config.controller_port;
         inner.secret = config.controller_secret.clone();
         inner.last_error = None;
+        inner.intentional_stop = false;
+        inner.crash_reported = false;
+        inner.generation += 1;
+        let current_gen = inner.generation;
 
-        Ok(self.status_from_inner(&inner))
+        let status = self.status_from_inner(&inner);
+        drop(inner);
+
+        // Spawn background watchdog task to monitor unexpected process exit
+        let inner_clone = self.inner.clone();
+        let crash_handler_clone = self.crash_handler.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let mut inner = inner_clone.lock();
+                if inner.generation != current_gen || inner.intentional_stop {
+                    break;
+                }
+
+                if let Some(ref mut child) = inner.child {
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            let (should_report, err_msg) =
+                                inner.record_crash(format!("Mihomo 内核异常退出 (退出码: {})", status));
+                            drop(inner);
+
+                            if should_report
+                                && let Some(ref handler) = *crash_handler_clone.read()
+                            {
+                                handler(err_msg);
+                            }
+                            break;
+                        }
+                        Err(err) => {
+                            let (should_report, err_msg) =
+                                inner.record_crash(format!("检查 Mihomo 子进程状态异常: {}", err));
+                            drop(inner);
+
+                            if should_report
+                                && let Some(ref handler) = *crash_handler_clone.read()
+                            {
+                                handler(err_msg);
+                            }
+                            break;
+                        }
+                        Ok(None) => {}
+                    }
+                } else {
+                    break;
+                }
+            }
+        });
+
+        Ok(status)
     }
 
     pub fn stop(&self) -> AppResult<()> {
         let mut inner = self.inner.lock();
+        inner.intentional_stop = true;
+        inner.generation += 1;
         if inner.simulated {
             inner.pid = None;
             inner.start_time = None;
@@ -588,20 +675,26 @@ impl CoreSupervisor {
 
     pub fn get_status(&self) -> CoreStatus {
         let mut inner = self.inner.lock();
-        let running = if inner.simulated {
-            inner.pid.is_some()
+        let (running, crash_err) = if inner.simulated {
+            (inner.pid.is_some(), None)
         } else if let Some(child) = &mut inner.child {
             match child.try_wait() {
-                Ok(None) => true,
-                _ => {
-                    inner.child = None;
-                    inner.start_time = None;
-                    inner.pid = None;
-                    false
+                Ok(None) => (true, None),
+                Ok(Some(status)) => {
+                    let (should_report, err_msg) =
+                        inner.record_crash(format!("Mihomo 内核异常退出 (退出码: {})", status));
+                    let err = if should_report { Some(err_msg) } else { None };
+                    (false, err)
+                }
+                Err(e) => {
+                    let (should_report, err_msg) =
+                        inner.record_crash(format!("检查 Mihomo 子进程异常: {}", e));
+                    let err = if should_report { Some(err_msg) } else { None };
+                    (false, err)
                 }
             }
         } else {
-            false
+            (false, None)
         };
 
         let uptime = if running {
@@ -610,7 +703,7 @@ impl CoreSupervisor {
             0
         };
 
-        CoreStatus {
+        let status = CoreStatus {
             running,
             pid: if running { inner.pid } else { None },
             controller_port: inner.controller_port,
@@ -619,9 +712,18 @@ impl CoreSupervisor {
             uptime_seconds: uptime,
             sidecar_path: inner.sidecar_path.to_string_lossy().to_string(),
             last_error: inner.last_error.clone(),
-        }
-    }
+        };
 
+        drop(inner);
+
+        if let Some(err) = crash_err
+            && let Some(ref handler) = *self.crash_handler.read()
+        {
+            handler(err);
+        }
+
+        status
+    }
     fn status_from_inner(&self, inner: &SupervisorInner) -> CoreStatus {
         let uptime = inner.start_time.map(|t| t.elapsed().as_secs()).unwrap_or(0);
         let running = if inner.simulated {
@@ -640,8 +742,20 @@ impl CoreSupervisor {
             last_error: inner.last_error.clone(),
         }
     }
-}
 
+    #[cfg(test)]
+    pub fn trigger_simulated_crash(&self, err_msg: &str) {
+        let mut inner = self.inner.lock();
+        let (should_report, msg) = inner.record_crash(err_msg.to_string());
+        drop(inner);
+
+        if should_report
+            && let Some(ref handler) = *self.crash_handler.read()
+        {
+            handler(msg);
+        }
+    }
+}
 impl Drop for CoreSupervisor {
     fn drop(&mut self) {
         if Arc::strong_count(&self.inner) == 1 {
@@ -698,5 +812,24 @@ mod tests {
         assert!(other_file.exists(), "Non-log files must not be deleted");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+    #[test]
+    fn test_core_supervisor_crash_callback() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "mihomo_crash_test_{}",
+            std::time::UNIX_EPOCH.elapsed().unwrap().as_nanos()
+        ));
+        let supervisor = CoreSupervisor::new_simulated(temp_dir);
+
+        let crash_received = Arc::new(parking_lot::Mutex::new(None));
+        let crash_clone = crash_received.clone();
+        supervisor.set_crash_handler(Arc::new(move |reason| {
+            *crash_clone.lock() = Some(reason);
+        }));
+
+        supervisor.trigger_simulated_crash("Fatal OOM crash");
+
+        let received = crash_received.lock().clone();
+        assert_eq!(received, Some("Fatal OOM crash".to_string()));
     }
 }

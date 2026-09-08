@@ -374,6 +374,10 @@ impl KernelEngine {
     pub fn get_status(&self) -> CoreStatus {
         self.supervisor.get_status()
     }
+    pub fn set_crash_handler(&self, handler: crate::core::supervisor::CrashCallback) {
+        self.supervisor.set_crash_handler(handler);
+    }
+
 
     // --- Controller REST Client Interactions ---
 

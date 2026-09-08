@@ -6,12 +6,13 @@ import { Shell } from './components/layout/Shell'
 import { useAppStore } from './stores/appStore'
 import type {
   AutoUpdateEventPayload,
+  KernelCrashedPayload,
   LatencyProgressPayload,
   LatencyUpdatePayload,
   PortDriftReport,
   PortMapping,
+  ProxyRestoredPayload,
 } from './types'
-
 export const App: React.FC = () => {
   const {
     fetchStatus,
@@ -43,6 +44,8 @@ export const App: React.FC = () => {
     let unlistenPortChanged: (() => void) | undefined
     let unlistenLatencyUpdate: (() => void) | undefined
     let unlistenLatencyProgress: (() => void) | undefined
+    let unlistenKernelCrashed: (() => void) | undefined
+    let unlistenProxyRestored: (() => void) | undefined
     const setupEventListeners = async () => {
       if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) {
         return
@@ -119,6 +122,40 @@ export const App: React.FC = () => {
           handleLatencyProgress(event.payload)
         },
       )
+      unlistenKernelCrashed = await listen<KernelCrashedPayload>(
+        'kernel-crashed',
+        (event) => {
+          const payload = event.payload
+          fetchStatus().catch(() => {})
+          fetchConfig().catch(() => {})
+
+          if (payload.systemProxySuspended) {
+            toast.error(
+              `Mihomo 内核异常退出${payload.reason ? `（${payload.reason}）` : ''}。为防止全系统断网，已自动关闭系统代理并切换为 DIRECT 直连。`,
+              '内核异常退出与断网保护',
+            )
+          } else {
+            toast.error(
+              `Mihomo 内核异常退出${payload.reason ? `（${payload.reason}）` : ''}，请检查内核运行日志。`,
+              '内核异常停止',
+            )
+          }
+        },
+      )
+
+      unlistenProxyRestored = await listen<ProxyRestoredPayload>(
+        'proxy-restored',
+        (event) => {
+          const payload = event.payload
+          fetchStatus().catch(() => {})
+          fetchConfig().catch(() => {})
+
+          toast.success(
+            `Mihomo 内核已恢复运行，系统代理已自动恢复绑定至端口 :${payload.port}。`,
+            '系统代理自动恢复',
+          )
+        },
+      )
     }
 
     setupEventListeners().catch(() => {})
@@ -133,6 +170,8 @@ export const App: React.FC = () => {
       if (unlistenPortChanged) unlistenPortChanged()
       if (unlistenLatencyUpdate) unlistenLatencyUpdate()
       if (unlistenLatencyProgress) unlistenLatencyProgress()
+      if (unlistenKernelCrashed) unlistenKernelCrashed()
+      if (unlistenProxyRestored) unlistenProxyRestored()
     }
   }, [
     fetchStatus,
