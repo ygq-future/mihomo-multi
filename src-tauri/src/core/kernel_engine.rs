@@ -676,7 +676,7 @@ password: pass
         };
 
         let path = engine
-            .apply_runtime_config(&params, &[mapping.clone()], vec![raw_proxy], &profile_names)
+            .apply_runtime_config(&params, std::slice::from_ref(&mapping), vec![raw_proxy], &profile_names)
             .await
             .expect("Apply runtime config");
 
