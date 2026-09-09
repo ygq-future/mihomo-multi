@@ -177,7 +177,6 @@ impl AppState {
         false
     }
 
-
     /// Checks if a system proxy was suspended due to a kernel crash and restores it if valid.
     pub fn try_restore_suspended_system_proxy(&self) -> bool {
         let suspended = self.suspended_system_proxy.write().take();

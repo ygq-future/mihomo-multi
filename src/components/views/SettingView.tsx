@@ -25,7 +25,7 @@ import {
   Upload,
   X,
 } from 'lucide-react'
-import { listen } from '@tauri-apps/api/event'
+
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { APP_NAME, APP_VERSION, GITHUB_REPO_URL } from '../../constants'
@@ -38,7 +38,8 @@ import type {
   MrsRulesInfo,
   UwpLoopbackStats,
 } from '../../types'
-import { formatUptime } from '../../utils/time'
+
+import { createEventScope } from '../../services/events'
 import {
   Badge,
   Button,
@@ -48,6 +49,7 @@ import {
   Switch,
   toast,
 } from '../common'
+import { LiveUptimeDisplay } from './LiveUptimeDisplay'
 
 function isValidBypassRule(value: string): boolean {
   const val = value.trim()
@@ -200,7 +202,6 @@ export const SettingView: React.FC = () => {
     useState<string>('5')
   const [fallbackLazy, setFallbackLazy] = useState<boolean>(false)
   const [appDataDir, setAppDataDir] = useState<string>('')
-  const [liveUptime, setLiveUptime] = useState<number>(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -235,17 +236,15 @@ export const SettingView: React.FC = () => {
   const [rulesInfo, setRulesInfo] = useState<MrsRulesInfo | null>(null)
   const [updatingRules, setUpdatingRules] = useState<boolean>(false)
   useEffect(() => {
-    let unlisten: (() => void) | undefined
-    listen<AppUpdateProgressPayload>('app-update-progress', (event) => {
-      setAppUpdateProgress(event.payload)
-    })
-      .then((fn) => {
-        unlisten = fn
+    const scope = createEventScope()
+    scope
+      .listen<AppUpdateProgressPayload>('app-update-progress', (event) => {
+        setAppUpdateProgress(event.payload)
       })
       .catch(() => {})
 
     return () => {
-      if (unlisten) unlisten()
+      scope.dispose()
     }
   }, [])
 
@@ -587,27 +586,6 @@ export const SettingView: React.FC = () => {
       setFallbackLazy(config.fallbackLazy ?? false)
     }
   }, [config])
-
-  // Sync baseline uptime from backend
-  useEffect(() => {
-    if (coreStatus?.uptimeSeconds !== undefined) {
-      setLiveUptime(coreStatus.uptimeSeconds)
-    }
-  }, [coreStatus?.uptimeSeconds])
-
-  // Smooth local 1-second ticker for seamless Uptime increments
-  useEffect(() => {
-    if (!isRunning) {
-      setLiveUptime(0)
-      return
-    }
-
-    const timer = setInterval(() => {
-      setLiveUptime((prev) => prev + 1)
-    }, 1000)
-
-    return () => clearInterval(timer)
-  }, [isRunning])
 
   const handleLogLevelChange = async (newLevel: string | number) => {
     const levelStr = String(newLevel)
@@ -954,9 +932,10 @@ export const SettingView: React.FC = () => {
 
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
             <span className="text-muted-foreground">运行时间 (Uptime)</span>
-            <div className="font-mono font-medium text-foreground">
-              {isRunning ? formatUptime(liveUptime) : '0s'}
-            </div>
+            <LiveUptimeDisplay
+              isRunning={isRunning}
+              uptimeSeconds={coreStatus?.uptimeSeconds}
+            />
           </div>
         </div>
 

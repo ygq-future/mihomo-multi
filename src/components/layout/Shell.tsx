@@ -1,5 +1,5 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { createEventScope } from '../../services/events'
 import { Check, LogOut } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
@@ -30,23 +30,23 @@ function resolveImageSrc(src: string): string {
 }
 
 export const Shell: React.FC = () => {
-  const { activeTab, config, saveConfig } = useAppStore()
+  const activeTab = useAppStore((state) => state.activeTab)
+  const config = useAppStore((state) => state.config)
+  const saveConfig = useAppStore((state) => state.saveConfig)
   const [showExitModal, setShowExitModal] = useState(false)
   const [closeToTrayChecked, setCloseToTrayChecked] = useState(false)
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined
-    listen('request-window-close', () => {
-      setCloseToTrayChecked(false)
-      setShowExitModal(true)
-    })
-      .then((fn) => {
-        unlisten = fn
+    const scope = createEventScope()
+    scope
+      .listen('request-window-close', () => {
+        setCloseToTrayChecked(false)
+        setShowExitModal(true)
       })
       .catch(() => {})
 
     return () => {
-      if (unlisten) unlisten()
+      scope.dispose()
     }
   }, [])
 

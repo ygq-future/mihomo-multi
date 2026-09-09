@@ -259,11 +259,7 @@ impl MinimalRuntimeConfig {
                         timeout: params.timeout_ms,
                         lazy: params.fallback_lazy,
                     });
-                    if m.manual_fallback {
-                        fallback
-                    } else {
-                        group_name
-                    }
+                    if m.manual_fallback { fallback } else { group_name }
                 }
                 (Some(primary), None) => primary,
                 (None, Some(fallback)) => {
@@ -643,7 +639,10 @@ password: pass
         assert!(yaml.contains("IN-PORT,7896,fb-7896"));
         assert_eq!(config.proxy_groups.len(), 1);
         assert_eq!(config.proxy_groups[0].name, "fb-7896");
-        assert_eq!(config.proxy_groups[0].proxies, vec!["[MainAirport] HK-01", "[BackupAirport] HK-Backup"]);
+        assert_eq!(
+            config.proxy_groups[0].proxies,
+            vec!["[MainAirport] HK-01", "[BackupAirport] HK-Backup"]
+        );
     }
 
     #[test]
@@ -704,4 +703,3 @@ password: pass
         assert!(yaml.contains("IN-PORT,7897,[AirportA] HK-Node-02"));
     }
 }
-

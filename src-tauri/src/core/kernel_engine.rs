@@ -378,7 +378,6 @@ impl KernelEngine {
         self.supervisor.set_crash_handler(handler);
     }
 
-
     // --- Controller REST Client Interactions ---
 
     pub async fn reload_config(&self, config_path: &str) -> AppResult<()> {
@@ -690,7 +689,11 @@ password: pass
             .await
             .expect("Apply runtime config identical");
         assert_eq!(path2, path);
-        assert_eq!(fake_adapter.reload_count(), 1, "Redundant reload must be skipped when config is identical");
+        assert_eq!(
+            fake_adapter.reload_count(),
+            1,
+            "Redundant reload must be skipped when config is identical"
+        );
 
         let reloaded_config = fake_adapter.validate_last_config().expect("Valid config");
         assert_eq!(reloaded_config.listeners.len(), 1);

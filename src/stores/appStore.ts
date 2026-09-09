@@ -4,6 +4,7 @@ import type { AppConfig, AppStatus, CoreStatus } from '../types'
 import { type PortSlice, createPortSlice } from './portSlice'
 import { type ProfileSlice, createProfileSlice } from './profileSlice'
 import { type ProxySlice, createProxySlice } from './proxySlice'
+let inFlightStatusPromise: Promise<void> | null = null
 
 export type TabType = 'ports' | 'proxies' | 'profiles' | 'settings'
 
@@ -57,17 +58,54 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   },
 
   fetchStatus: async () => {
-    try {
-      const appStatus = await api.getAppStatus()
-      const core = appStatus.core
-      set({
-        appStatus,
-        coreStatus: core,
-        error: core.running ? null : (core.lastError ?? null),
-      })
-    } catch (err) {
-      set({ error: err instanceof Error ? err.message : String(err) })
+    if (inFlightStatusPromise) {
+      return inFlightStatusPromise
     }
+
+    inFlightStatusPromise = (async () => {
+      try {
+        const appStatus = await api.getAppStatus()
+        const core = appStatus.core
+        const state = get()
+        const currentCore = state.coreStatus
+        const currentApp = state.appStatus
+
+        // Check if coreStatus actually changed (ignoring purely uptimeSeconds if other fields unchanged)
+        const coreChanged =
+          !currentCore ||
+          currentCore.running !== core.running ||
+          currentCore.pid !== core.pid ||
+          currentCore.controllerPort !== core.controllerPort ||
+          currentCore.secret !== core.secret ||
+          currentCore.lastError !== core.lastError ||
+          currentCore.uptimeSeconds !== core.uptimeSeconds
+
+        const appChanged =
+          !currentApp ||
+          currentApp.version !== appStatus.version ||
+          currentApp.totalPorts !== appStatus.totalPorts ||
+          currentApp.activePorts !== appStatus.activePorts ||
+          currentApp.totalProfiles !== appStatus.totalProfiles ||
+          currentApp.totalNodes !== appStatus.totalNodes ||
+          coreChanged
+
+        if (!coreChanged && !appChanged) {
+          return
+        }
+
+        set({
+          appStatus: appChanged ? appStatus : currentApp,
+          coreStatus: coreChanged ? core : currentCore,
+          error: core.running ? null : (core.lastError ?? null),
+        })
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      } finally {
+        inFlightStatusPromise = null
+      }
+    })()
+
+    return inFlightStatusPromise
   },
 
   startCore: async () => {

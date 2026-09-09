@@ -147,18 +147,18 @@ pub fn clear_all_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
 #[cfg(windows)]
 mod windows {
     use super::*;
+    use std::process::Command;
     use std::ptr::null_mut;
     use windows_sys::Win32::Foundation::ERROR_SUCCESS;
     use windows_sys::Win32::Networking::WinInet::{
-        InternetSetOptionW, INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED,
+        INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED, InternetSetOptionW,
     };
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegDeleteValueW, RegEnumKeyExW, RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ,
-        KEY_SET_VALUE, REG_DWORD, REG_SZ,
+        HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE, REG_DWORD, REG_SZ, RegCloseKey, RegDeleteValueW,
+        RegEnumKeyExW, RegOpenKeyExW, RegSetValueExW,
     };
-    use std::process::Command;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
+        HWND_BROADCAST, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE,
     };
 
     const INTERNET_SETTINGS_SUBKEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
@@ -270,11 +270,7 @@ mod windows {
     }
 
     pub fn set_system_proxy_windows(port: u16, bypass_list: &[String]) -> AppResult<()> {
-        let key = open_reg_key(
-            HKEY_CURRENT_USER,
-            INTERNET_SETTINGS_SUBKEY,
-            KEY_READ | KEY_SET_VALUE,
-        )?;
+        let key = open_reg_key(HKEY_CURRENT_USER, INTERNET_SETTINGS_SUBKEY, KEY_READ | KEY_SET_VALUE)?;
 
         let server_str = format!("127.0.0.1:{}", port);
         let override_str = bypass_list.join(";");
@@ -289,11 +285,7 @@ mod windows {
     }
 
     pub fn clear_system_proxy_windows() -> AppResult<()> {
-        if let Ok(key) = open_reg_key(
-            HKEY_CURRENT_USER,
-            INTERNET_SETTINGS_SUBKEY,
-            KEY_READ | KEY_SET_VALUE,
-        ) {
+        if let Ok(key) = open_reg_key(HKEY_CURRENT_USER, INTERNET_SETTINGS_SUBKEY, KEY_READ | KEY_SET_VALUE) {
             let _ = set_reg_dword(key.0, "ProxyEnable", 0);
             notify_wininet_refresh();
             info!("Windows Internet Settings proxy disabled");
@@ -391,10 +383,7 @@ mod windows {
             Err(_) => return 0,
         };
 
-        output
-            .windows(4)
-            .filter(|window| *window == b"SID:")
-            .count()
+        output.windows(4).filter(|window| *window == b"SID:").count()
     }
 
     pub fn exempt_all_uwp_windows() -> AppResult<()> {
@@ -441,10 +430,7 @@ mod windows {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::Internal(format!(
-                "执行 UWP 回环豁免失败: {}",
-                stderr.trim()
-            )));
+            return Err(AppError::Internal(format!("执行 UWP 回环豁免失败: {}", stderr.trim())));
         }
 
         info!(count = sids.len(), "已完成所有 UWP 应用容器回环豁免");
@@ -469,10 +455,7 @@ mod windows {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::Internal(format!(
-                "清除 UWP 回环豁免失败: {}",
-                stderr.trim()
-            )));
+            return Err(AppError::Internal(format!("清除 UWP 回环豁免失败: {}", stderr.trim())));
         }
 
         info!("已清除所有 UWP 应用容器回环豁免");
@@ -489,10 +472,7 @@ mod macos {
     use std::process::Command;
     use tracing::{debug, warn};
     fn get_active_network_services() -> Vec<String> {
-        let output = match Command::new("networksetup")
-            .arg("-listnetworkserviceorder")
-            .output()
-        {
+        let output = match Command::new("networksetup").arg("-listnetworkserviceorder").output() {
             Ok(out) => String::from_utf8_lossy(&out.stdout).to_string(),
             Err(e) => {
                 warn!("Failed to list network services: {}", e);
@@ -657,8 +637,7 @@ mod tests {
         assert!(json.contains("\"exemptedCount\":42"));
         assert!(json.contains("\"totalCount\":100"));
 
-        let deserialized: crate::models::UwpLoopbackStats =
-            serde_json::from_str(&json).expect("should deserialize");
+        let deserialized: crate::models::UwpLoopbackStats = serde_json::from_str(&json).expect("should deserialize");
         assert_eq!(stats, deserialized);
     }
 }

@@ -5,8 +5,8 @@ use crate::models::{LatencyProgressPayload, LatencyUpdatePayload, NodeLatencyRes
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::{Notify, Semaphore};
 
@@ -400,13 +400,9 @@ impl LatencyProbe {
                     );
                 }
 
-                let probe_target = target
-                    .runtime_name
-                    .as_deref()
-                    .unwrap_or(target.name.as_str());
+                let probe_target = target.runtime_name.as_deref().unwrap_or(target.name.as_str());
                 let timeout_duration = Duration::from_millis(u64::from(target_timeout) + 1500);
-                let test_fut =
-                    engine.test_delay(probe_target, url_opt.as_deref(), Some(target_timeout));
+                let test_fut = engine.test_delay(probe_target, url_opt.as_deref(), Some(target_timeout));
 
                 let result = match tokio::time::timeout(timeout_duration, test_fut).await {
                     Ok(res) => res,
@@ -473,11 +469,7 @@ impl LatencyProbe {
 
         let final_results: Vec<NodeLatencyResult> = results_indexed
             .into_iter()
-            .map(|(_, name, _, _, latency, error)| NodeLatencyResult {
-                name,
-                latency,
-                error,
-            })
+            .map(|(_, name, _, _, latency, error)| NodeLatencyResult { name, latency, error })
             .collect();
 
         // Persist all accumulated latencies to disk atomically
@@ -486,9 +478,7 @@ impl LatencyProbe {
         // Mark testing finished
         {
             let mut guard = self.active_token.write();
-            if guard.as_ref().map(|t| t.is_cancelled()).unwrap_or(false)
-                || guard.is_some()
-            {
+            if guard.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) || guard.is_some() {
                 *guard = None;
             }
         }
@@ -635,9 +625,7 @@ mod tests {
         assert_eq!(probe.get_latency("[Profile] Good-Node"), Some(Some(35)));
 
         // Test Bad-Node
-        let err_res = probe
-            .test_node("Bad-Node", None, None, None, None)
-            .await;
+        let err_res = probe.test_node("Bad-Node", None, None, None, None).await;
         assert!(err_res.is_err());
         assert_eq!(probe.get_latency("Bad-Node"), Some(None));
 
@@ -669,16 +657,11 @@ mod tests {
         let probe = LatencyProbe::new(fake_adapter, &temp_dir, emitter.clone());
 
         let targets: Vec<BatchProbeTarget> = (1..=8)
-            .map(|i| {
-                BatchProbeTarget::new(format!("Node-{}", i))
-                    .with_runtime_name(format!("[Profile] Node-{}", i))
-            })
+            .map(|i| BatchProbeTarget::new(format!("Node-{}", i)).with_runtime_name(format!("[Profile] Node-{}", i)))
             .collect();
 
         // Bounded concurrency pool = 2
-        let results = probe
-            .test_nodes_batch(&targets, None, None, Some(2))
-            .await;
+        let results = probe.test_nodes_batch(&targets, None, None, Some(2)).await;
 
         assert_eq!(results.len(), 8);
         for (i, res) in results.iter().enumerate() {
@@ -718,16 +701,10 @@ mod tests {
         let emitter = Arc::new(MockLatencyEventEmitter::new());
         let probe = Arc::new(LatencyProbe::new(fake_adapter, &temp_dir, emitter.clone()));
 
-        let targets: Vec<BatchProbeTarget> = (1..=20)
-            .map(|i| BatchProbeTarget::new(format!("Node-{}", i)))
-            .collect();
+        let targets: Vec<BatchProbeTarget> = (1..=20).map(|i| BatchProbeTarget::new(format!("Node-{}", i))).collect();
 
         let probe_clone = probe.clone();
-        let handle = tokio::spawn(async move {
-            probe_clone
-                .test_nodes_batch(&targets, None, None, Some(1))
-                .await
-        });
+        let handle = tokio::spawn(async move { probe_clone.test_nodes_batch(&targets, None, None, Some(1)).await });
 
         // Sleep briefly and then cancel
         tokio::time::sleep(Duration::from_millis(30)).await;

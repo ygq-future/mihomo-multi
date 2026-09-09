@@ -121,7 +121,11 @@ pub fn get_mrs_rules_info(work_dir: &Path) -> MrsRulesInfo {
     MrsRulesInfo {
         all_present: missing.is_empty(),
         missing,
-        last_updated_at: if latest_modified > 0 { Some(latest_modified) } else { None },
+        last_updated_at: if latest_modified > 0 {
+            Some(latest_modified)
+        } else {
+            None
+        },
         total_size,
     }
 }
@@ -138,10 +142,7 @@ pub fn check_mrs_rules(work_dir: &Path) -> MrsRulesStatus {
     get_mrs_rules_info(work_dir)
 }
 
-pub fn seed_bundled_mrs_rules<R: tauri::Runtime>(
-    app: Option<&tauri::AppHandle<R>>,
-    work_dir: &Path,
-) -> AppResult<()> {
+pub fn seed_bundled_mrs_rules<R: tauri::Runtime>(app: Option<&tauri::AppHandle<R>>, work_dir: &Path) -> AppResult<()> {
     let rules_dir = get_rules_dir(work_dir);
     std::fs::create_dir_all(&rules_dir).map_err(AppError::Io)?;
 
@@ -178,11 +179,7 @@ pub fn seed_bundled_mrs_rules<R: tauri::Runtime>(
                 if let Err(e) = std::fs::copy(&src, &target) {
                     warn!("Failed to copy bundled MRS rule from {}: {}", src.display(), e);
                 } else {
-                    info!(
-                        "Seeded bundled MRS rule {} -> {}",
-                        src.display(),
-                        target.display()
-                    );
+                    info!("Seeded bundled MRS rule {} -> {}", src.display(), target.display());
                     break;
                 }
             }
@@ -264,10 +261,7 @@ async fn download_with_fallback(
     )))
 }
 
-pub async fn ensure_mrs_rules<R: tauri::Runtime>(
-    app: Option<&tauri::AppHandle<R>>,
-    work_dir: &Path,
-) -> AppResult<()> {
+pub async fn ensure_mrs_rules<R: tauri::Runtime>(app: Option<&tauri::AppHandle<R>>, work_dir: &Path) -> AppResult<()> {
     let rules_dir = get_rules_dir(work_dir);
     std::fs::create_dir_all(&rules_dir).map_err(AppError::Io)?;
 

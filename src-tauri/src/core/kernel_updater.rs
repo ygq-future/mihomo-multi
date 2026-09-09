@@ -174,10 +174,7 @@ struct GitHubReleaseResponse {
     html_url: Option<String>,
 }
 
-pub async fn check_kernel_update(
-    app: &tauri::AppHandle,
-    state: &AppState,
-) -> AppResult<KernelUpdateCheckResult> {
+pub async fn check_kernel_update(app: &tauri::AppHandle, state: &AppState) -> AppResult<KernelUpdateCheckResult> {
     let (is_portable, target_path) = get_kernel_destination(app)?;
     let client = build_http_client()?;
 
@@ -232,8 +229,8 @@ pub async fn check_kernel_update(
 
 fn extract_binary_from_zip(bytes: &[u8]) -> AppResult<Vec<u8>> {
     let reader = Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(reader)
-        .map_err(|e| AppError::Internal(format!("Failed to parse zip archive: {}", e)))?;
+    let mut archive =
+        zip::ZipArchive::new(reader).map_err(|e| AppError::Internal(format!("Failed to parse zip archive: {}", e)))?;
 
     for i in 0..archive.len() {
         let mut file = archive
@@ -248,7 +245,9 @@ fn extract_binary_from_zip(bytes: &[u8]) -> AppResult<Vec<u8>> {
         }
     }
 
-    Err(AppError::Internal("No executable found inside downloaded zip archive".to_string()))
+    Err(AppError::Internal(
+        "No executable found inside downloaded zip archive".to_string(),
+    ))
 }
 
 fn extract_binary_from_gz(bytes: &[u8]) -> AppResult<Vec<u8>> {
@@ -275,13 +274,11 @@ pub fn cleanup_downloading_files(dir: &Path) {
     }
 }
 
-pub async fn download_and_apply_kernel(
-    app: &tauri::AppHandle,
-    state: &AppState,
-) -> AppResult<KernelUpgradeResult> {
+pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState) -> AppResult<KernelUpgradeResult> {
     let (is_portable, target_path) = get_kernel_destination(app)?;
-    let target_spec = get_current_target_spec()
-        .ok_or_else(|| AppError::Internal("Current platform architecture is unsupported for auto-upgrade".to_string()))?;
+    let target_spec = get_current_target_spec().ok_or_else(|| {
+        AppError::Internal("Current platform architecture is unsupported for auto-upgrade".to_string())
+    })?;
 
     let client = build_http_client()?;
 
@@ -331,7 +328,10 @@ pub async fn download_and_apply_kernel(
     } else if target_spec.ext == "gz" {
         extract_binary_from_gz(&archive_bytes)?
     } else {
-        return Err(AppError::Internal(format!("Unsupported archive extension: {}", target_spec.ext)));
+        return Err(AppError::Internal(format!(
+            "Unsupported archive extension: {}",
+            target_spec.ext
+        )));
     };
 
     let target_dir = target_path
@@ -384,12 +384,22 @@ pub async fn download_and_apply_kernel(
 
     // 6. Clean replacement: remove target if exists, rename temp into place
     if target_path.exists() {
-        std::fs::remove_file(&target_path)
-            .map_err(|e| AppError::Internal(format!("Failed to remove old kernel file at {}: {}", target_path.display(), e)))?;
+        std::fs::remove_file(&target_path).map_err(|e| {
+            AppError::Internal(format!(
+                "Failed to remove old kernel file at {}: {}",
+                target_path.display(),
+                e
+            ))
+        })?;
     }
 
-    std::fs::rename(&temp_target, &target_path)
-        .map_err(|e| AppError::Internal(format!("Failed to place new kernel into {}: {}", target_path.display(), e)))?;
+    std::fs::rename(&temp_target, &target_path).map_err(|e| {
+        AppError::Internal(format!(
+            "Failed to place new kernel into {}: {}",
+            target_path.display(),
+            e
+        ))
+    })?;
 
     // Thorough cleanup of any leftover temporary files
     cleanup_downloading_files(target_dir);
@@ -416,10 +426,7 @@ mod tests {
 
     #[test]
     fn test_extract_version_number() {
-        assert_eq!(
-            extract_version_number("Mihomo Meta v1.19.30 windows amd64"),
-            "1.19.30"
-        );
+        assert_eq!(extract_version_number("Mihomo Meta v1.19.30 windows amd64"), "1.19.30");
         assert_eq!(extract_version_number("v1.19.30"), "1.19.30");
         assert_eq!(extract_version_number("1.19.31"), "1.19.31");
     }

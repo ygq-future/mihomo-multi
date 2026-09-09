@@ -1,7 +1,7 @@
 use crate::core::config_generator::RuntimeGeneratorParams;
 use crate::core::kernel_engine::KernelEngine;
 use crate::core::port_probe::is_port_available_with_lan;
-use crate::core::profile_manager::{atomic_write_file, ProfileManager};
+use crate::core::profile_manager::{ProfileManager, atomic_write_file};
 use crate::error::{AppError, AppResult};
 use crate::models::{AppConfig, PortMapping};
 use parking_lot::RwLock;
@@ -91,11 +91,7 @@ impl PortSyncDelegate for AppPortSyncDelegate {
 
     fn core_pid(&self) -> Option<u32> {
         let status = self.engine.get_status();
-        if status.running {
-            status.pid
-        } else {
-            None
-        }
+        if status.running { status.pid } else { None }
     }
 
     fn reserved_ports(&self) -> Vec<u16> {
@@ -263,11 +259,7 @@ impl PortRouter {
         is_port_available_with_lan(port, allow_lan, exclude_pid)
     }
 
-    pub fn get_next_available_port(
-        &self,
-        start_port: Option<u16>,
-        exclude_mapping_id: Option<&str>,
-    ) -> AppResult<u16> {
+    pub fn get_next_available_port(&self, start_port: Option<u16>, exclude_mapping_id: Option<&str>) -> AppResult<u16> {
         let start = start_port.unwrap_or(7891);
         for candidate in start..=u16::MAX {
             if self.check_port_available(candidate, exclude_mapping_id) {
@@ -461,11 +453,7 @@ impl PortRouter {
             .get_port_mapping_by_id(id)
             .ok_or_else(|| AppError::PortMappingNotFound(format!("Port mapping with ID '{}' not found", id)))?;
 
-        if target
-            .fallback_node_name
-            .as_ref()
-            .is_none_or(|fb| fb.trim().is_empty())
-        {
+        if target.fallback_node_name.as_ref().is_none_or(|fb| fb.trim().is_empty()) {
             return Err(AppError::InvalidConfig(
                 "该端口未配置备用节点，无法切换备用模式".to_string(),
             ));
@@ -492,7 +480,6 @@ impl PortRouter {
 
         Ok(target)
     }
-
 
     pub fn update_port_latency(&self, id: &str, latency: Option<u32>) -> AppResult<()> {
         let mut found = false;
@@ -588,7 +575,10 @@ mod tests {
 
         // Attempting to bind the SAME proxy node (Tokyo-01 in prof-1) to a DIFFERENT port MUST fail
         let m2 = create_test_mapping("map-2", 10081, "prof-1", "Tokyo-01", false);
-        let err = router.save_port_mapping(m2).await.expect_err("Should reject duplicate node binding");
+        let err = router
+            .save_port_mapping(m2)
+            .await
+            .expect_err("Should reject duplicate node binding");
 
         match err {
             AppError::DuplicateNodeBinding { node_name, port } => {
@@ -615,7 +605,9 @@ mod tests {
         let router = PortRouter::with_delegate(temp_dir.clone(), delegate.clone());
 
         // Find a safe available port
-        let port = router.get_next_available_port(Some(12340), None).expect("Find available port");
+        let port = router
+            .get_next_available_port(Some(12340), None)
+            .expect("Find available port");
         let m1 = create_test_mapping("map-toggle", port, "prof-1", "Node-A", false);
         router.save_port_mapping(m1).await.expect("Save mapping");
 
@@ -630,7 +622,9 @@ mod tests {
 
         // Verify persistence to disk
         let router_reloaded = PortRouter::with_delegate(temp_dir.clone(), delegate.clone());
-        let loaded = router_reloaded.get_port_mapping_by_id("map-toggle").expect("Found persisted mapping");
+        let loaded = router_reloaded
+            .get_port_mapping_by_id("map-toggle")
+            .expect("Found persisted mapping");
         assert!(loaded.enabled);
 
         // Delete mapping

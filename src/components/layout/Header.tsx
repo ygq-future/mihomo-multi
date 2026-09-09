@@ -23,15 +23,13 @@ const tabTitles: Record<string, { title: string; subtitle: string }> = {
 }
 
 export const Header: React.FC = () => {
-  const {
-    activeTab,
-    config,
-    coreStatus,
-    restartCore,
-    startCore,
-    coreLoading,
-    error,
-  } = useAppStore()
+  const activeTab = useAppStore((state) => state.activeTab)
+  const config = useAppStore((state) => state.config)
+  const coreStatus = useAppStore((state) => state.coreStatus)
+  const restartCore = useAppStore((state) => state.restartCore)
+  const startCore = useAppStore((state) => state.startCore)
+  const coreLoading = useAppStore((state) => state.coreLoading)
+  const error = useAppStore((state) => state.error)
   const info = tabTitles[activeTab] || tabTitles.ports
 
   const isRunning = coreStatus?.running ?? false

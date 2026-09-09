@@ -122,6 +122,7 @@ function mountPolling(store) {
       hasFallback: state.portMappings.some(
         (mapping) => mapping.enabled && mapping.fallbackNodeName,
       ),
+      isWindowVisible: true,
       portMappings: state.portMappings,
       fetchFallbackStatuses: state.fetchFallbackStatuses,
       setInterval: setTimer,

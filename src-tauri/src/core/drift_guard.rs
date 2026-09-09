@@ -137,10 +137,7 @@ impl DriftGuard {
 
         // 3. Check node existence in memory
         let main_node_exists = candidate_names.iter().any(|name| name == &mapping.node_name);
-        let fb_profile_id = mapping
-            .fallback_profile_id
-            .as_deref()
-            .unwrap_or(&mapping.profile_id);
+        let fb_profile_id = mapping.fallback_profile_id.as_deref().unwrap_or(&mapping.profile_id);
         let fallback_node_exists = mapping
             .fallback_node_name
             .as_ref()

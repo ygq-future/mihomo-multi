@@ -137,9 +137,9 @@ pub async fn save_config(app: AppHandle, config: AppConfig, state: State<'_, App
             let _ = crate::core::profile_manager::atomic_write_file(&config_path, json.as_bytes());
         }
     }
-        if !config.system_proxy_enabled {
-            state.clear_suspended_system_proxy();
-        }
+    if !config.system_proxy_enabled {
+        state.clear_suspended_system_proxy();
+    }
 
     if (config.auto_launch != old_config.auto_launch || config.silent_start != old_config.silent_start)
         && let Ok(exe_path) = std::env::current_exe()
@@ -1122,7 +1122,7 @@ pub async fn hide_window(app: AppHandle) -> Result<(), String> {
         }
     }
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
+        crate::tray::hide_main_webview_window(&window);
     }
     Ok(())
 }
@@ -1142,7 +1142,9 @@ pub async fn app_ready(app: AppHandle) -> Result<(), String> {
             tracing::info!("Frontend app_ready received in silent start mode; keeping window hidden");
             return Ok(());
         }
-        if !state.initial_window_shown.swap(true, std::sync::atomic::Ordering::SeqCst)
+        if !state
+            .initial_window_shown
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
             && let Some(window) = app.get_webview_window("main")
         {
             let _ = window.show();
@@ -1161,7 +1163,9 @@ pub async fn get_rules_info(state: State<'_, AppState>) -> Result<crate::core::g
 #[tauri::command]
 pub async fn update_rules(state: State<'_, AppState>) -> Result<crate::core::geo_manager::MrsRulesInfo, String> {
     let work_dir = state.engine.work_dir();
-    let res = crate::core::geo_manager::update_mrs_rules(work_dir).await.map_err(|e| e.to_string())?;
+    let res = crate::core::geo_manager::update_mrs_rules(work_dir)
+        .await
+        .map_err(|e| e.to_string())?;
     // If engine is active, reload config seamlessly
     if state.engine.get_status().running {
         let runtime_path = work_dir.join("runtime.yaml");

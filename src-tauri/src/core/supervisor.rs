@@ -39,9 +39,7 @@ pub fn clean_expired_logs(log_dir: &Path, retention_days: u32) {
         };
 
         // Check if file follows `mihomo-YYYY-MM-DD.log` pattern
-        if let Some(date_str) = file_name
-            .strip_prefix("mihomo-")
-            .and_then(|s| s.strip_suffix(".log"))
+        if let Some(date_str) = file_name.strip_prefix("mihomo-").and_then(|s| s.strip_suffix(".log"))
             && let Ok(file_date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
         {
             if file_date < cutoff_date {
@@ -65,11 +63,7 @@ pub fn clean_expired_logs(log_dir: &Path, retention_days: u32) {
 }
 
 /// Pipe reader that reads stdout/stderr lines from Mihomo and writes them into daily-rotated log files.
-fn spawn_log_pipe_writer(
-    reader: Box<dyn std::io::Read + Send>,
-    log_dir: PathBuf,
-    stream_name: &'static str,
-) {
+fn spawn_log_pipe_writer(reader: Box<dyn std::io::Read + Send>, log_dir: PathBuf, stream_name: &'static str) {
     std::thread::Builder::new()
         .name(format!("mihomo-log-{}", stream_name))
         .spawn(move || {
@@ -88,21 +82,13 @@ fn spawn_log_pipe_writer(
                             current_date = Some(today);
                             let log_file_name = format!("mihomo-{}.log", today.format("%Y-%m-%d"));
                             let log_path = log_dir.join(log_file_name);
-                            match std::fs::OpenOptions::new()
-                                .create(true)
-                                .append(true)
-                                .open(&log_path)
-                            {
+                            match std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
                                 Ok(f) => {
                                     current_file = Some(f);
                                     clean_expired_logs(&log_dir, DEFAULT_LOG_RETENTION_DAYS);
                                 }
                                 Err(e) => {
-                                    error!(
-                                        "Failed to open rotated log file '{}': {}",
-                                        log_path.display(),
-                                        e
-                                    );
+                                    error!("Failed to open rotated log file '{}': {}", log_path.display(), e);
                                 }
                             }
                         }
@@ -615,9 +601,7 @@ impl CoreSupervisor {
                                 inner.record_crash(format!("Mihomo 内核异常退出 (退出码: {})", status));
                             drop(inner);
 
-                            if should_report
-                                && let Some(ref handler) = *crash_handler_clone.read()
-                            {
+                            if should_report && let Some(ref handler) = *crash_handler_clone.read() {
                                 handler(err_msg);
                             }
                             break;
@@ -627,9 +611,7 @@ impl CoreSupervisor {
                                 inner.record_crash(format!("检查 Mihomo 子进程状态异常: {}", err));
                             drop(inner);
 
-                            if should_report
-                                && let Some(ref handler) = *crash_handler_clone.read()
-                            {
+                            if should_report && let Some(ref handler) = *crash_handler_clone.read() {
                                 handler(err_msg);
                             }
                             break;
@@ -687,8 +669,7 @@ impl CoreSupervisor {
                     (false, err)
                 }
                 Err(e) => {
-                    let (should_report, err_msg) =
-                        inner.record_crash(format!("检查 Mihomo 子进程异常: {}", e));
+                    let (should_report, err_msg) = inner.record_crash(format!("检查 Mihomo 子进程异常: {}", e));
                     let err = if should_report { Some(err_msg) } else { None };
                     (false, err)
                 }
@@ -749,9 +730,7 @@ impl CoreSupervisor {
         let (should_report, msg) = inner.record_crash(err_msg.to_string());
         drop(inner);
 
-        if should_report
-            && let Some(ref handler) = *self.crash_handler.read()
-        {
+        if should_report && let Some(ref handler) = *self.crash_handler.read() {
             handler(msg);
         }
     }
@@ -782,7 +761,10 @@ mod tests {
 
     #[test]
     fn test_clean_expired_logs() {
-        let temp_dir = std::env::temp_dir().join(format!("mihomo_log_test_{}", std::time::UNIX_EPOCH.elapsed().unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "mihomo_log_test_{}",
+            std::time::UNIX_EPOCH.elapsed().unwrap().as_nanos()
+        ));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         // Create valid recent log (today)

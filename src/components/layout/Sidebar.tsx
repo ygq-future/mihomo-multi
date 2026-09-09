@@ -1,18 +1,9 @@
-import {
-  Compass,
-  Download,
-  Layers,
-  Network,
-  RefreshCw,
-  Settings,
-  Upload,
-} from 'lucide-react'
+import { Compass, Layers, Network, RefreshCw, Settings } from 'lucide-react'
 import type React from 'react'
 import appLogo from '../../../src-tauri/icons/icon.png'
 import { type TabType, useAppStore } from '../../stores/appStore'
 import { Button } from '../common'
-import { useTraffic } from '../../hooks/useTraffic'
-import { formatCompactTraffic, formatTraffic } from '../../utils/traffic'
+import { TrafficWidget } from './TrafficWidget'
 
 const navItems: { id: TabType; label: string; icon: React.ElementType }[] = [
   { id: 'ports', label: '端口映射', icon: Network },
@@ -22,24 +13,16 @@ const navItems: { id: TabType; label: string; icon: React.ElementType }[] = [
 ]
 
 export const Sidebar: React.FC = () => {
-  const {
-    activeTab,
-    setActiveTab,
-    sidebarCollapsed,
-    toggleSidebar,
-    coreStatus,
-    restartCore,
-    coreLoading,
-  } = useAppStore()
+  const activeTab = useAppStore((state) => state.activeTab)
+  const setActiveTab = useAppStore((state) => state.setActiveTab)
+  const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed)
+  const toggleSidebar = useAppStore((state) => state.toggleSidebar)
+  const coreStatus = useAppStore((state) => state.coreStatus)
+  const restartCore = useAppStore((state) => state.restartCore)
+  const coreLoading = useAppStore((state) => state.coreLoading)
 
   const isRunning = coreStatus?.running ?? false
   const activeIndex = navItems.findIndex((item) => item.id === activeTab)
-  const traffic = useTraffic(
-    isRunning,
-    coreStatus?.controllerPort,
-    coreStatus?.secret,
-  )
-
   return (
     <aside
       className={`${
@@ -136,63 +119,12 @@ export const Sidebar: React.FC = () => {
       {/* Bottom Section: Traffic Widget + Core Supervisor Widget */}
       <div className="flex flex-col">
         {/* 1. 实时网速独立盒子 */}
-        {sidebarCollapsed ? (
-          <div
-            className="p-1.5 mx-2 mb-2 rounded-xl border border-border bg-background/50 flex flex-col items-center gap-1 cursor-default select-none"
-            title="实时网速汇总"
-          >
-            {/* 上传：上下结构 */}
-            <div className="flex flex-col items-center w-full py-0.5">
-              <Upload className="w-3 h-3 text-sky-500 shrink-0 mb-0.5" />
-              <span className="font-mono text-[10px] text-foreground font-medium leading-none text-center">
-                {formatCompactTraffic(traffic.up)}
-              </span>
-            </div>
-
-            <div className="w-4/5 h-px bg-border/40" />
-
-            {/* 下载：上下结构 */}
-            <div className="flex flex-col items-center w-full py-0.5">
-              <Download className="w-3 h-3 text-emerald-500 shrink-0 mb-0.5" />
-              <span className="font-mono text-[10px] text-foreground font-medium leading-none text-center">
-                {formatCompactTraffic(traffic.down)}
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="p-2.5 mx-2.5 mb-2 rounded-xl border border-border bg-background/50 space-y-1.5 select-none">
-            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-              <span className="font-medium">实时网速</span>
-              <span className="text-[10px] text-muted-foreground/70 font-mono">
-                汇总
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              <div className="p-1.5 rounded-lg bg-card/60 border border-border/40 flex items-center gap-1.5 min-w-0">
-                <Upload className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[9px] text-muted-foreground leading-none">
-                    上传
-                  </div>
-                  <div className="font-mono text-[10px] text-foreground font-medium truncate mt-0.5">
-                    {formatTraffic(traffic.up)}
-                  </div>
-                </div>
-              </div>
-              <div className="p-1.5 rounded-lg bg-card/60 border border-border/40 flex items-center gap-1.5 min-w-0">
-                <Download className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[9px] text-muted-foreground leading-none">
-                    下载
-                  </div>
-                  <div className="font-mono text-[10px] text-foreground font-medium truncate mt-0.5">
-                    {formatTraffic(traffic.down)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <TrafficWidget
+          collapsed={sidebarCollapsed}
+          isRunning={isRunning}
+          port={coreStatus?.controllerPort}
+          secret={coreStatus?.secret}
+        />
 
         {/* 2. 内核控制独立盒子 */}
         {sidebarCollapsed ? (

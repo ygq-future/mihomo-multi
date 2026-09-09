@@ -26,6 +26,7 @@ import {
   toast,
 } from '../common'
 import { AddPortModal } from '../ports/AddPortModal'
+import { useWindowVisibility } from '../../services/useWindowVisibility'
 import { QuickCopyMenu } from '../ports/QuickCopyMenu'
 
 export const PortTableView: React.FC = () => {
@@ -83,9 +84,12 @@ export const PortTableView: React.FC = () => {
     }
   }, [fetchPortMappings, fetchProfiles, config, fetchConfig])
 
-  // Wait five seconds after each completed refresh while fallback ports are active.
+  const isWindowVisible = useWindowVisibility()
+
+  // Wait five seconds after each completed refresh while fallback ports are active,
+  // and pause polling completely when the window is hidden/minimized to tray.
   useEffect(() => {
-    if (!isRunning || !hasFallback) return
+    if (!isRunning || !hasFallback || !isWindowVisible) return
 
     let disposed = false
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -102,7 +106,7 @@ export const PortTableView: React.FC = () => {
       disposed = true
       clearTimeout(timer)
     }
-  }, [isRunning, hasFallback, fetchFallbackStatuses])
+  }, [isRunning, hasFallback, isWindowVisible, fetchFallbackStatuses])
 
   // Fetch LAN IPs and perform auto-cleaning of invalid selected IP when allow_lan is active
   useEffect(() => {

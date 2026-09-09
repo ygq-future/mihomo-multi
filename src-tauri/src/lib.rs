@@ -56,7 +56,9 @@ pub fn run() {
             // Silent start check and window presentation
             let args: Vec<String> = std::env::args().collect();
             let is_silent = args.iter().any(|a| a == "--silent" || a == "-s") || app_state.config.read().silent_start;
-            app_state.is_silent_start.store(is_silent, std::sync::atomic::Ordering::SeqCst);
+            app_state
+                .is_silent_start
+                .store(is_silent, std::sync::atomic::Ordering::SeqCst);
 
             if let Some(main_win) = app_handle.get_webview_window("main") {
                 let theme = app_state.config.read().theme.clone();
@@ -76,7 +78,10 @@ pub fn run() {
                     let fallback_state = app_state.clone();
                     tauri::async_runtime::spawn(async move {
                         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-                        if !fallback_state.initial_window_shown.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        if !fallback_state
+                            .initial_window_shown
+                            .swap(true, std::sync::atomic::Ordering::SeqCst)
+                        {
                             let _ = fallback_win.show();
                             info!("1500ms fallback timer triggered: main window displayed");
                         }
@@ -175,7 +180,7 @@ pub fn run() {
                             info!("Window close requested with lightweight mode: destroying window");
                             let _ = window.destroy();
                         } else {
-                            let _ = window.hide();
+                            crate::tray::hide_main_window(window);
                             info!("Window close prevented, minimized to system tray");
                         }
                     } else {

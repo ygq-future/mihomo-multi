@@ -240,7 +240,11 @@ mod tests {
                 break;
             }
         }
-        assert!(available, "Port {} should become available after dropping listener", port);
+        assert!(
+            available,
+            "Port {} should become available after dropping listener",
+            port
+        );
     }
 
     #[test]

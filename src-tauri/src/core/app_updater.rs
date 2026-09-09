@@ -141,17 +141,28 @@ pub fn match_platform_assets(
 
         #[cfg(target_os = "windows")]
         {
-            let is_win = name_lower.contains("windows") || name_lower.contains("win") || name_lower.ends_with(".exe") || name_lower.ends_with(".msi");
+            let is_win = name_lower.contains("windows")
+                || name_lower.contains("win")
+                || name_lower.ends_with(".exe")
+                || name_lower.ends_with(".msi");
             if is_win {
                 #[cfg(target_arch = "x86_64")]
-                let arch_match = name_lower.contains("x64") || name_lower.contains("x86_64") || name_lower.contains("amd64") || (!name_lower.contains("arm64") && !name_lower.contains("386") && !name_lower.contains("ia32"));
+                let arch_match = name_lower.contains("x64")
+                    || name_lower.contains("x86_64")
+                    || name_lower.contains("amd64")
+                    || (!name_lower.contains("arm64") && !name_lower.contains("386") && !name_lower.contains("ia32"));
                 #[cfg(target_arch = "aarch64")]
                 let arch_match = name_lower.contains("arm64") || name_lower.contains("aarch64");
                 #[cfg(target_arch = "x86")]
-                let arch_match = name_lower.contains("386") || name_lower.contains("x86") || name_lower.contains("ia32");
+                let arch_match =
+                    name_lower.contains("386") || name_lower.contains("x86") || name_lower.contains("ia32");
 
                 if arch_match {
-                    let package_type = if name_lower.ends_with(".msi") || name_lower.contains("setup") || name_lower.contains("installer") || (name_lower.ends_with(".exe") && !name_lower.contains("portable")) {
+                    let package_type = if name_lower.ends_with(".msi")
+                        || name_lower.contains("setup")
+                        || name_lower.contains("installer")
+                        || (name_lower.ends_with(".exe") && !name_lower.contains("portable"))
+                    {
                         AppPackageType::Installer
                     } else {
                         AppPackageType::Portable
@@ -172,9 +183,8 @@ pub fn match_platform_assets(
             let is_mac = name_lower.contains("darwin") || name_lower.contains("mac") || name_lower.ends_with(".dmg");
             if is_mac {
                 #[cfg(target_arch = "aarch64")]
-                let arch_match = name_lower.contains("arm64")
-                    || name_lower.contains("aarch64")
-                    || name_lower.contains("universal");
+                let arch_match =
+                    name_lower.contains("arm64") || name_lower.contains("aarch64") || name_lower.contains("universal");
                 #[cfg(target_arch = "x86_64")]
                 let arch_match = name_lower.contains("x64")
                     || name_lower.contains("x86_64")
@@ -200,10 +210,12 @@ pub fn match_platform_assets(
 
         #[cfg(target_os = "linux")]
         {
-            let is_linux = name_lower.contains("linux") || name_lower.ends_with(".appimage") || name_lower.ends_with(".deb");
+            let is_linux =
+                name_lower.contains("linux") || name_lower.ends_with(".appimage") || name_lower.ends_with(".deb");
             if is_linux {
                 #[cfg(target_arch = "x86_64")]
-                let arch_match = name_lower.contains("x64") || name_lower.contains("x86_64") || name_lower.contains("amd64");
+                let arch_match =
+                    name_lower.contains("x64") || name_lower.contains("x86_64") || name_lower.contains("amd64");
                 #[cfg(target_arch = "aarch64")]
                 let arch_match = name_lower.contains("arm64") || name_lower.contains("aarch64");
 
@@ -593,5 +605,5 @@ mod tests {
                 Some(&AppPackageType::Installer)
             );
         }
-}
+    }
 }

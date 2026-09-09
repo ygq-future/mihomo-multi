@@ -1,8 +1,8 @@
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
-use tracing::{error, info, warn};
 use tauri_plugin_window_state::{StateFlags, WindowExt};
+use tracing::{error, info, warn};
 
 struct PortRuntimeInfo {
     is_fallback_active: bool,
@@ -13,6 +13,17 @@ pub fn activate_window(window: &tauri::WebviewWindow) {
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
+    let _ = window.emit("window-visibility-change", true);
+}
+
+pub fn hide_main_window<R: tauri::Runtime>(window: &tauri::Window<R>) {
+    let _ = window.emit("window-visibility-change", false);
+    let _ = window.hide();
+}
+
+pub fn hide_main_webview_window<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
+    let _ = window.emit("window-visibility-change", false);
+    let _ = window.hide();
 }
 
 pub fn apply_window_bg_color(window: &tauri::WebviewWindow, theme: &str) {
@@ -29,7 +40,6 @@ pub fn apply_window_bg_color(window: &tauri::WebviewWindow, theme: &str) {
     let _ = window.set_background_color(Some(bg));
 }
 
-
 pub fn ensure_main_window_open(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         activate_window(&window);
@@ -41,7 +51,6 @@ pub fn ensure_main_window_open(app: &AppHandle) {
             .resizable(true)
             .fullscreen(false)
             .visible(false);
-
 
         match builder.build() {
             Ok(window) => {
@@ -60,7 +69,6 @@ pub fn ensure_main_window_open(app: &AppHandle) {
         }
     }
 }
-
 
 fn build_tray_menu_internal(
     app: &AppHandle,
@@ -323,7 +331,6 @@ pub fn update_tray_menu_with_fallback_statuses(
             warn!("Failed to set updated tray tooltip: {}", e);
         }
 
-
         // If a popup menu is currently open on screen, never call set_menu!
         // Calling set_menu while a menu is open forces Windows to immediately dismiss it.
         if is_tray_menu_active() {
@@ -447,7 +454,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                             if is_lightweight {
                                 let _ = window.destroy();
                             } else {
-                                let _ = window.hide();
+                                hide_main_webview_window(&window);
                             }
                         } else {
                             activate_window(&window);

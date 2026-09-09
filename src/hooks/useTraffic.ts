@@ -10,19 +10,21 @@ export interface TrafficData {
  * @param running 内核是否运行中
  * @param port 控制器端口 (如 9999)
  * @param secret 控制器密钥
+ * @param enabled 是否开启订阅 (例如当窗口在后台隐藏时置为 false，彻底关闭连接节省后台资源)
  */
 export function useTraffic(
   running: boolean,
   port?: number,
   secret?: string,
+  enabled: boolean = true,
 ): TrafficData {
   const [traffic, setTraffic] = useState<TrafficData>({ up: 0, down: 0 })
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
-    // 内核未运行或无端口时清零并关闭已有连接
-    if (!running || !port) {
+    // 内核未运行、无端口或窗口处于隐藏状态时，关闭已有连接并停止重连
+    if (!running || !port || !enabled) {
       if (wsRef.current) {
         wsRef.current.close()
         wsRef.current = null
@@ -31,7 +33,9 @@ export function useTraffic(
         clearTimeout(reconnectTimeoutRef.current)
         reconnectTimeoutRef.current = null
       }
-      setTraffic({ up: 0, down: 0 })
+      setTraffic((prev) =>
+        prev.up === 0 && prev.down === 0 ? prev : { up: 0, down: 0 },
+      )
       return
     }
 
@@ -50,17 +54,17 @@ export function useTraffic(
           if (isDisposed) return
           try {
             const data = JSON.parse(event.data)
-            setTraffic({
-              up: typeof data.up === 'number' ? data.up : 0,
-              down: typeof data.down === 'number' ? data.down : 0,
-            })
+            const up = typeof data.up === 'number' ? data.up : 0
+            const down = typeof data.down === 'number' ? data.down : 0
+            setTraffic((prev) =>
+              prev.up === up && prev.down === down ? prev : { up, down },
+            )
           } catch {
             // 忽略非标准消息
           }
         }
 
         ws.onerror = () => {
-          // 遇到异常关闭连接，由 onclose 触发重连
           if (ws.readyState === WebSocket.OPEN) {
             ws.close()
           }
@@ -69,7 +73,6 @@ export function useTraffic(
         ws.onclose = () => {
           wsRef.current = null
           if (!isDisposed) {
-            // 内核仍在运行中时，2 秒后尝试重连
             reconnectTimeoutRef.current = window.setTimeout(connect, 2000)
           }
         }
@@ -92,9 +95,11 @@ export function useTraffic(
         wsRef.current.close()
         wsRef.current = null
       }
-      setTraffic({ up: 0, down: 0 })
+      setTraffic((prev) =>
+        prev.up === 0 && prev.down === 0 ? prev : { up: 0, down: 0 },
+      )
     }
-  }, [running, port, secret])
+  }, [running, port, secret, enabled])
 
   return traffic
 }

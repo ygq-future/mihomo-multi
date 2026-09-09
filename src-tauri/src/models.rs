@@ -159,7 +159,6 @@ pub struct UwpLoopbackStats {
     pub total_count: usize,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AutoUpdateEventPayload {
