@@ -636,17 +636,17 @@ export const PortTableView: React.FC = () => {
                   key={m.id}
                   className={`p-3.5 rounded-xl border shadow-sm transition-all flex flex-col justify-between space-y-2.5 group ${
                     isStoppedWarning
-                      ? 'bg-card border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
+                      ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
                       : isOccupiedWarning
-                        ? 'bg-card border-rose-500/40 bg-rose-500/5 dark:bg-rose-500/10 hover:border-primary/40'
+                        ? 'border-rose-500/40 bg-rose-500/5 dark:bg-rose-500/10 hover:border-primary/40'
                         : !isEffectiveEnabled
                           ? 'bg-card/40 border-primary/20 hover:border-primary/40 opacity-70'
                           : isDrifted
-                            ? 'bg-card border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
+                            ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
                             : isFallbackWarning
-                              ? 'bg-card border-amber-500/60 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
+                              ? 'border-amber-500/60 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
                               : isEffectiveSystemProxy
-                                ? 'bg-card border-sky-500/70 bg-sky-500/[0.04] dark:bg-sky-500/[0.08] ring-1 ring-sky-500/30 hover:border-sky-500/90'
+                                ? 'border-sky-500/70 bg-sky-500/[0.04] dark:bg-sky-500/[0.08] ring-1 ring-sky-500/30 hover:border-sky-500/90'
                                 : 'bg-card border-border hover:border-primary/40'
                   }`}
                 >
