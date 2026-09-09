@@ -43,7 +43,7 @@
 </p>
 
 <p align="center">
-  <img src="https://s3.bmp.ovh/2026/09/09/r8W39oUn.png" alt="Mihomo Multi 多端口代理运行展示" width="95%" />
+  <img src="https://s3.bmp.ovh/2026/09/09/1Zu9Rl5Z.png" alt="Mihomo Multi 节点列表与延迟测速" width="95%" />
 </p>
 ---
 
