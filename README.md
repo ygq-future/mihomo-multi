@@ -32,6 +32,21 @@
 
 ---
 
+## 📸 界面预览 (Screenshots)
+
+<p align="center">
+  <img src="https://s3.bmp.ovh/2026/09/09/r8W39oUn.png" alt="Mihomo Multi 端口管理与状态概览" width="95%" />
+</p>
+
+<p align="center">
+  <img src="https://s3.bmp.ovh/2026/09/09/JkjRjONa.png" alt="Mihomo Multi 添加端口监听与节点绑定" width="95%" />
+</p>
+
+<p align="center">
+  <img src="https://s3.bmp.ovh/2026/09/09/r8W39oUn.png" alt="Mihomo Multi 多端口代理运行展示" width="95%" />
+</p>
+---
+
 ## 🎯 为什么选择 Mihomo Multi？
 
 | 痛点与特性 | 传统客户端“多开代理” | 🚀 Mihomo Multi |
