@@ -91,19 +91,16 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
               onClick={() => onTestDelay(nodeKey)}
               disabled={isTesting || isTestingAll}
               className="focus:outline-none"
-              title="点击单独测速"
+              title={isTesting ? '正在测速中...' : '点击单独测速'}
             >
               <Badge
                 variant={latencyProps.variant}
                 size="sm"
                 dot={latencyProps.dot}
-                className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5"
+                className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 min-w-[36px] justify-center"
               >
                 {isTesting ? (
-                  <span className="flex items-center gap-1">
-                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                    测速中
-                  </span>
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
                 ) : (
                   latencyProps.label
                 )}

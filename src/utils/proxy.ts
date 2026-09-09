@@ -268,7 +268,7 @@ export function formatProtocolName(type: string): string {
       return 'Trojan'
     case 'hysteria2':
     case 'hy2':
-      return 'Hysteria2'
+      return 'Hy2'
     case 'tuic':
       return 'Tuic'
     case 'snell':
@@ -320,7 +320,7 @@ export function getProtocolBadgeProps(type: string): {
     case 'hysteria2':
     case 'hy2':
       return {
-        label: 'Hysteria2',
+        label: 'Hy2',
         className: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
       }
     case 'tuic':
