@@ -1,137 +1,132 @@
-# Mihomo Multi-Port
+# Mihomo Multi (Clash Multi)
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" width="128" height="128" alt="Mihomo Multi-Port Logo" />
+  <img src="src-tauri/icons/icon.png" width="120" height="120" alt="Mihomo Multi Logo" />
 </p>
 
 <p align="center">
-  <b>基于 Mihomo (Clash.Meta) 内核与 Tauri v2 构建的轻量级高性能多端口代理监听绑定桌面客户端。</b>
+  <b>极简、轻量、高性能的 Mihomo (Clash.Meta) 多端口监听与代理多开桌面客户端</b>
+  <br />
+  <i>A Lightweight, High-Performance Multi-Port Proxy Client Based on Mihomo (Clash.Meta) & Tauri v2</i>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ygq-future/mihomo-multi/releases"><img src="https://img.shields.io/github/v/release/ygq-future/mihomo-multi?color=blue&label=Release" alt="Release"></a>
+  <a href="https://github.com/ygq-future/mihomo-multi/releases"><img src="https://img.shields.io/github/downloads/ygq-future/mihomo-multi/total?color=success&label=Downloads" alt="Downloads"></a>
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-informational" alt="Platform">
+  <img src="https://img.shields.io/badge/Kernel-Mihomo%20(Clash.Meta)-orange" alt="Kernel">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="License"></a>
 </p>
 
 ---
 
-## 💡 为什么需要 Mihomo Multi-Port？
+## 📖 软件简介 (About)
 
-传统主流代理桌面客户端主要面向个人日常上网分流，通常仅开放一个全局混合代理端口（如 `7890`）。
+**Mihomo Multi**（又称 **Clash Multi**）是一款专为**多端口监听**与**代理多开**需求打造的现代桌面客户端。
 
-当您需要**多个独立的本地监听端口分别绑定到不同的出站节点**时（例如：指纹浏览器多开防关联、多账号自动化运营、分布式网络爬虫、跨环境隔离测试，要求 `7891 -> 🇯🇵 日本01`，`7892 -> 🇭🇰 香港02`，`7893 -> 🇺🇸 美国01`），传统方案往往需要同时开启多个笨重的客户端软件，导致系统资源极度浪费且配置繁琐。
+传统代理客户端通常仅开放单个全局混合端口（如 `7890`）。当您需要为不同应用分配不同节点出口（例如：`7891 -> 🇯🇵 日本`，`7892 -> 🇭🇰 香港`，`7893 -> 🇺🇸 美国`）时，传统做法往往是同时多开好几个臃肿的代理软件，导致内存飙升、端口冲突且极易串线。
 
-**Mihomo Multi-Port** 专为解决该痛点而生，采用极致聚焦与做减法的架构设计：
-* 🎯 **单一核心职责**：只做 `添加本地端口监听 -> 精准 1:1 绑定指定节点`。
-* ⚡ **极低资源底噪**：由单个受控的 Mihomo Sidecar 内核统一调度，后台内存占用极低（~30MB），告别多开臃肿客户端。
-* 🔄 **毫秒级配置热重载**：新增、修改、删除或启停端口映射时，均通过 Mihomo REST API 实时无缝热加载，**不重启内核进程，不断开现有长连接**。
-* 🛡️ **确定性 1:1 路由**：严格基于 `IN-PORT` 规则精确出站，杜绝隐式轮询漂移与多账号 IP 串线风险。
-* 🚀 **零无用包袱**：不引入 TUN 虚拟网卡驱动，不引入复杂的外部分流脚本，运行稳定轻巧。
+**Mihomo Multi 彻底改变了这一现状**：通过单个受控的轻量级 Mihomo 内核，即可为每个本地端口精确绑定独立的出站节点，实现真正确定、隔离、零漂移的“一个软件，多个代理端口”。
+
+> **核心定位**：专注做好 `本地端口监听 -> 1:1 精确绑定指定代理节点`，不做臃肿复杂的多层规则与虚拟网卡驱动，回归纯粹与稳定。
 
 ---
 
-## ✨ 核心特性
+## 🎯 为什么选择 Mihomo Multi？
 
-### 1. 多端口独立监听与 1:1 精确绑定
-- **灵活入站协议**：支持配置任意数量的本地入站端口，支持 Mixed（混合代理）、纯 HTTP、纯 SOCKS5 协议。
-- **端口冲突前置探测**：在保存或启用端口前，自动调用系统网络栈探测本地端口可用性，防止端口占用导致错误。
-- **独立启停与编辑**：各端口独立受控，支持单独启用、停用、切换绑定节点或修改描述。
-- **一键快捷复制**：集成快捷复制菜单，一键复制 `127.0.0.1:<端口>`、`http://...`、`socks5://...` 或可直接在终端运行的 cURL 代理测试命令。
-
-### 2. 受控系统代理与防断网守护
-- **严格单选互斥**：系统代理全局严格单选，至多同时绑定 1 个已启用的监听端口，状态清晰可溯。
-- **智能 Bypass 绕过名单**：内置私有网络与回环地址（`localhost`、`127.*`、`10.*`、`192.168.*` 等），支持用户自定义追加绕过域名或 IP。
-- **系统环境变量联动**：Windows 平台下开启系统代理时，联动设置当前用户级环境变量（`all_proxy`、`http_proxy`、`https_proxy`、`no_proxy`），全面覆盖终端与命令行工具。
-- **生命周期安全红线**：当绑定端口停用/删除、内核停止或客户端正常退出/异常崩溃时，自动强制清理系统代理与环境变量设置，**彻底杜绝断网残留**。
-
-### 3. 订阅与配置闭环管理
-- **多样化导入方式**：支持远程订阅 URL 下载拉取（携带标准兼容 User-Agent）与本地 Clash YAML 文件导入。
-- **自动化静默同步**：支持设置后台定时自动更新间隔，亦支持一键手动全量同步。
-- **订阅内置节点检视**：内置卡片式弹窗，无需切换页面即可快速查看特定订阅下解析出的全部节点列表与类型。
-
-### 4. 节点仪表盘与高并发批量测速
-- **可视化网格呈现**：卡片式直观呈现所有解析节点，自动识别并显示所属国家/地区旗帜与协议类型徽章（Shadowsocks、VMess、Trojan、VLESS、Hysteria2 等）。
-- **高并发真实延迟测速**：直观展示节点可用性与真实延迟，色标区分优/良/差/超时。
-- **卡片快捷一键绑定**：在节点卡片上一键发起端口映射创建，自动预填该节点，简化配置操作。
-
-### 5. 节点漂移安全防护 (Drift Guard)
-- 当订阅更新后，若原已绑定的节点被机场服务商重命名或下线，防护引擎会自动将该端口的流量安全降级至 DIRECT 直连并伴随 UI 显式告警，**绝不引发内核配置解析失败或程序崩溃**。
-
-### 6. 内核与规则资产在线运维
-- **Mihomo 内核在线升级**：内置内核更新检测器，支持在线检查官方最新发布版本、查看 Release 说明，并支持一键热下载升级。
-- **GEO 规则数据库运维**：支持一键检查并在线更新 GeoIP 与 GeoSite 数据库资产。
-
-### 7. 桌面集成与系统托盘
-- **系统托盘驻留**：支持最小化至托盘、快捷显示/隐藏主窗口与一键退出。
-- **开机自启动**：支持设置随系统开机静默自启。
-- **实时流量监控**：顶部导航栏集成实时上行/下行速率与连接数监测。
-
-### 8. 子进程生命周期守护
-- 主程序启动时拉起 Mihomo Sidecar 伴生进程，利用 Windows JobObject 与进程信号处理机制将内核与主程序生命周期深度绑定，退出或崩溃时彻底清理，**严禁产生后台孤儿僵尸进程**。
+| 痛点与特性 | 传统客户端“多开代理” | 🚀 Mihomo Multi |
+| :--- | :--- | :--- |
+| **内存与系统占用** | 多开 3~5 个客户端，内存占用 500MB~1GB+ | **单内核调度，常驻内存仅 ~30MB** |
+| **端口与节点绑定** | 配置混乱，容易相互抢占端口 | **独立端口 1:1 精确映射，确定性路由** |
+| **IP 漂移与串线风险**| 规则分流易误判，多账号易串 IP | **严格基于端口隔离，绝无隐式轮询漂移** |
+| **配置变更体验** | 每次修改都需要重启软件或断线重连 | **毫秒级 REST API 热重载，已有长连接不断** |
+| **断网与系统残留** | 退出时常残留系统代理导致断网 | **严格互斥防断网守护，退出自动彻底清理** |
 
 ---
 
-## 🛠️ 技术栈
+## 💡 典型应用场景 (Use Cases)
 
-* **核心框架**：[Tauri v2](https://v2.tauri.app/)
-* **后端语言**：[Rust](https://www.rust-lang.org/) (2024 Edition) + [Tokio](https://tokio.rs/) 异步运行时
-* **前端技术**：[React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Tailwind CSS](https://tailwindcss.com/) + [Lucide Icons](https://lucide.dev/)
-* **全局状态**：[Zustand](https://github.com/pmndrs/zustand)
-* **底层代理内核**：[Mihomo (Clash.Meta)](https://github.com/MetaCubeX/mihomo) Sidecar
-* **工程化规范**：[Biome](https://biomejs.dev/) + ESLint + `rustfmt` + Clippy
+- 🌐 **指纹浏览器多开防关联**：配合 AdsPower、Hubstudio、BitBrowser、比特浏览器等，一机分配多个独立端口，各窗口独享独立原生 IP。
+- 📱 **海外多账号矩阵运营**：TikTok、Facebook、Twitter、Amazon、Shopee 等跨国业务，多账号多地区环境严格物理隔离。
+- 🕷️ **网络爬虫与并发采集**：多线程或分布式爬虫为不同 Worker 赋予不同的本地监听端口，实现稳定的多出口 IP 分流。
+- 💻 **开发测试与隔离排查**：前端/后端开发人员跨地区网络联调，无需频繁切换全局代理即可在不同终端直接使用不同代理。
 
 ---
 
-## 🚀 快速上手与本地开发
+## ✨ 核心功能 (Features)
 
-### 环境要求
-* [Node.js](https://nodejs.org/) (>= 20.x) & [pnpm](https://pnpm.io/) (>= 9.x)
-* [Rust 工具链](https://www.rust-lang.org/tools/install) (>= 1.80.x)
+### 1. 任意数量端口监听 & 1:1 节点独占绑定
+- 支持创建任意数量的本地监听端口，支持 Mixed（混合代理）、纯 HTTP 与纯 SOCKS5 协议。
+- 精准绑定指定节点，出站 IP 绝对确定；内置端口冲突前置检测，防止占用报错。
+- 一键快速复制 `127.0.0.1:<端口>`、协议链接及终端 cURL 测试命令。
 
-### 本地运行
+### 2. 毫秒级无感热重载 (Hot-Reload)
+- 增删改查端口映射或切换绑定节点时，均通过内核 REST API 进行毫秒级热加载。
+- **无需重启客户端或后台内核进程，已有长连接与下载会话不受任何干扰**。
+
+### 3. 极低资源底噪 (Ultra-low Footprint)
+- 基于 Tauri v2 (Rust) + React 构建，告别笨重的 Electron。
+- 后台仅运行单个轻量 Mihomo Sidecar，占用内存低至 ~30MB，运行流畅无感知。
+
+### 4. 受控系统代理与防断网守护 (Fail-Safe Proxy)
+- **严格单选互斥**：系统代理全局至多绑定 1 个已启用端口，状态一目了然。
+- **智能 Bypass 绕过**：内置私有/回环网络白名单，支持用户自定义追加绕过规则。
+- **防断网保障**：端口停用、内核停止或客户端退出时，无条件清理系统代理与环境变量，杜绝断网残留。
+
+### 5. 订阅与节点全生命周期管理
+- 支持远程 URL 订阅下载（内置标准兼容 User-Agent）与本地 Clash YAML 导入。
+- 支持后台自动定时更新与一键手动全量同步。
+- 节点卡片化可视化展示，支持国家/地区国旗与协议徽章识别、高并发真实延迟批量测速。
+
+---
+
+## 📥 下载与安装 (Downloads)
+
+前往 [GitHub Releases](https://github.com/ygq-future/mihomo-multi/releases) 下载适合您操作系统的安装包：
+
+- **Windows**: 下载 `.msi` 或 `.exe` 安装程序直接安装运行。
+- **macOS**: 下载 `.dmg` 拖入 Applications 目录即可。
+
+> **🍏 macOS 首次打开提示“已损坏”或“无法验证开发者”？**  
+> 打开终端执行以下命令解除系统的 Gatekeeper 隔离标记即可：  
+> ```bash
+> sudo xattr -rd com.apple.quarantine /Applications/Mihomo\ Multi.app
+> ```
+
+---
+
+## 🛠️ 开发者快速上手 (Development)
+
+本项目适合想要进行二次开发或自行打包的用户：
 
 ```bash
-# 1. 克隆代码仓库
+# 1. 克隆代码仓库并安装依赖
 git clone https://github.com/ygq-future/mihomo-multi.git
-cd mihomo-multi
+cd mihomo-multi && pnpm install
 
-# 2. 安装前端依赖
-pnpm install
-
-# 3. 自动下载适配当前操作系统的 Mihomo Sidecar 二进制
+# 2. 自动拉取适配当前平台的 Mihomo Sidecar 内核
 pnpm dev:sidecar
 
-# 4. 启动本地开发环境
-pnpm dev
-# 或
-pnpm tauri dev
-```
+# 3. 启动开发模式
+pnpm dev:tauri
 
-### 构建打包
-
-```bash
-# 代码格式化与语法检查
-pnpm format
-pnpm lint
-
-# 构建生产分发安装包
-pnpm build
-# 或
-pnpm tauri build
+# 4. 构建生产分发安装包
+pnpm build:tauri
 ```
 
 ---
 
-## 🍏 macOS 安装常见问题处理 (Gatekeeper)
+## 🔍 核心关键词与标签 (Keywords & Tags)
 
-从 GitHub Releases 下载 `.dmg` 安装后，macOS 门禁系统可能会提示：**“已损坏，打不开。您应该将它移到废纸篓”** 或 **“无法打开，因为无法验证开发者”**。
+为方便在搜索引擎与开源社区快速检索与匹配本工具，本仓库涵盖以下核心主题：
 
-这是由于应用尚未购买商业开发者证书签名，被系统赋予了隔离标记。可通过以下命令一键解除隔离：
+`clash multi` | `mihomo multi` | `clash多端口监听` | `代理多开` | `开多个代理` | `多端口代理` | `mihomo多端口` | `指纹浏览器代理` | `多出口IP代理` | `clash multi port` | `multi-port proxy listener` | `anti-detect browser proxy` | `adspower proxy` | `tauri proxy client`
 
-```bash
-# 将应用移动到“应用程序”目录后，在终端执行：
-sudo xattr -rd com.apple.quarantine /Applications/Mihomo\ Multi.app
-```
-
-或在 **“系统设置” -> “隐私与安全性”** 中找到被阻止的应用，点击 **“仍要打开”** 即可正常使用。
+> **💡 仓库维护建议**：建议在 GitHub 仓库首页右上角 `About -> Edit repository details -> Topics` 中添加以下标签：  
+> `clash`, `mihomo`, `clash-multi`, `mihomo-multi`, `proxy-client`, `multi-port`, `proxy-pool`, `anti-detect-browser`, `fingerprint-browser`, `tauri-v2`, `rust`
 
 ---
 
-## 📄 开源协议
+## 📄 开源协议 (License)
 
-本项目采用 [MIT License](LICENSE) 开源协议。
+本项目遵循 [MIT License](LICENSE) 开源协议。

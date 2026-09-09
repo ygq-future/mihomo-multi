@@ -1,4 +1,4 @@
-# Mihomo Multi-Port 领域模型 (Context)
+# Mihomo Multi 领域模型 (Context)
 
 基于 Mihomo (Clash.Meta) 内核，专注于本地独立入站端口与代理节点 1:1 确定性绑定的桌面客户端。
 

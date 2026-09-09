@@ -1,4 +1,4 @@
-# Mihomo Multi-Port 详细系统架构与设计规范
+# Mihomo Multi 详细系统架构与设计规范
 
 ## 一、 系统架构全景与模块职责划分
 
@@ -318,7 +318,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'Mihomo Multi-Port ${{ github.ref_name }}'
+          releaseName: 'Mihomo Multi ${{ github.ref_name }}'
           releaseBody: 'See release notes.'
           releaseDraft: false
           prerelease: false

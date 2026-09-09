@@ -1,6 +1,6 @@
 # AI 编码约束与架构开发规范 (AGENTS.md / CLAUDE.md)
 
-本项目为 **Mihomo Multi-Port**，目标是实现基于 Mihomo (Clash.Meta) 内核的高性能、极简多端口代理监听绑定桌面客户端（Tauri v2 + Rust + React + TypeScript + Tailwind CSS）。
+本项目为 **Mihomo Multi**，目标是实现基于 Mihomo (Clash.Meta) 内核的高性能、极简多端口代理监听绑定桌面客户端（Tauri v2 + Rust + React + TypeScript + Tailwind CSS）。
 
 所有参与本项目代码编写的 AI Agent 与开发者必须严格遵守以下规则与约束：
 

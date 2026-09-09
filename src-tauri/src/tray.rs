@@ -280,7 +280,7 @@ fn is_tray_menu_active() -> bool {
 }
 pub fn format_tray_tooltip(app: &AppHandle) -> String {
     let Some(state) = app.try_state::<crate::state::AppState>() else {
-        return "Mihomo Multi-Port".to_string();
+        return "Mihomo Multi".to_string();
     };
 
     let mappings = state.port_router.get_port_mappings();
@@ -305,7 +305,7 @@ pub fn format_tray_tooltip(app: &AppHandle) -> String {
     };
 
     format!(
-        "Mihomo Multi-Port\n内核状态: {}\n监听端口: {} 个已启用 (共 {} 个)\n系统代理: {}",
+        "Mihomo Multi\n内核状态: {}\n监听端口: {} 个已启用 (共 {} 个)\n系统代理: {}",
         core_status, enabled_ports, total_ports, sys_proxy_str
     )
 }
