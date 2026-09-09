@@ -1308,7 +1308,8 @@ export const SettingView: React.FC = () => {
                   惰性健康检查
                 </span>
                 <p className="text-[11px] text-muted-foreground">
-                  关闭时持续主动测活；开启后仅在该端口有流量经过时才发起检测
+                  仅对已配置备用节点 (Fallback)
+                  的端口生效。关闭时内核持续主动测活；开启后仅在该端口有流量经过时发起检测
                 </p>
               </div>
               <Switch
@@ -1894,7 +1895,7 @@ export const SettingView: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold text-foreground">
-                  软件关于与更新 (About & Update)
+                  软件关于与更新
                 </h3>
                 <Badge variant="primary" size="sm" className="font-mono">
                   v{currentAppVersion}
