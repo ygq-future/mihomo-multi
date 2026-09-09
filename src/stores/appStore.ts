@@ -134,6 +134,13 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   fetchConfig: async () => {
     try {
       const config = await api.getConfig()
+      if (typeof window !== 'undefined' && config.theme) {
+        try {
+          localStorage.setItem('app_theme', config.theme)
+        } catch {
+          // ignore storage errors
+        }
+      }
       set({ config })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })
@@ -143,6 +150,13 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   saveConfig: async (config) => {
     try {
       await api.saveConfig(config)
+      if (typeof window !== 'undefined' && config.theme) {
+        try {
+          localStorage.setItem('app_theme', config.theme)
+        } catch {
+          // ignore storage errors
+        }
+      }
       set({ config })
       await get().fetchStatus()
     } catch (err) {

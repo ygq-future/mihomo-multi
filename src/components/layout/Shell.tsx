@@ -69,7 +69,9 @@ export const Shell: React.FC = () => {
 
   // Apply theme globally whenever config.theme changes
   useEffect(() => {
-    const theme = config?.theme || 'system'
+    const cachedTheme =
+      typeof window !== 'undefined' ? localStorage.getItem('app_theme') : null
+    const theme = config?.theme || cachedTheme || 'system'
     const root = document.documentElement
 
     const applyTheme = () => {

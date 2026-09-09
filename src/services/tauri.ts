@@ -709,6 +709,16 @@ export async function hideWindow(): Promise<void> {
   return invoke<void>('hide_window')
 }
 
+export async function showWindow(): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('show_window')
+}
+
+export async function appReady(): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('app_ready')
+}
+
 export async function getRulesInfo(): Promise<MrsRulesInfo> {
   if (!isTauriEnvironment()) {
     return {

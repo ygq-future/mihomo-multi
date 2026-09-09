@@ -56,6 +56,8 @@ pub fn run() {
             // Silent start check and window presentation
             let args: Vec<String> = std::env::args().collect();
             let is_silent = args.iter().any(|a| a == "--silent" || a == "-s") || app_state.config.read().silent_start;
+            app_state.is_silent_start.store(is_silent, std::sync::atomic::Ordering::SeqCst);
+
             if let Some(main_win) = app_handle.get_webview_window("main") {
                 if is_silent {
                     if app_state.config.read().lightweight_mode {
@@ -66,8 +68,17 @@ pub fn run() {
                         info!("Silent start mode: main window minimized to tray on launch");
                     }
                 } else {
-                    let _ = main_win.show();
-                    let _ = main_win.set_focus();
+                    // Window will be shown smoothly when frontend finishes initial render via `app_ready`.
+                    // We spawn a 1500ms safety fallback timer in case frontend initialization stalls.
+                    let fallback_win = main_win.clone();
+                    let fallback_state = app_state.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                        if !fallback_state.initial_window_shown.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                            let _ = fallback_win.show();
+                            info!("1500ms fallback timer triggered: main window displayed");
+                        }
+                    });
                 }
             }
 
@@ -147,6 +158,8 @@ pub fn run() {
             reset_window_size,
             exit_app,
             hide_window,
+            show_window,
+            app_ready,
             get_rules_info,
             update_rules,
         ])

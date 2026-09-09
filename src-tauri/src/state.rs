@@ -25,6 +25,8 @@ pub struct AppState {
     pub latency_emitter: Arc<AppLatencyEventEmitter>,
     pub suspended_system_proxy: Arc<RwLock<Option<u16>>>,
     pub app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
+    pub is_silent_start: Arc<std::sync::atomic::AtomicBool>,
+    pub initial_window_shown: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl AppState {
@@ -35,6 +37,8 @@ impl AppState {
         let profile_manager = Arc::new(ProfileManager::new(app_dir.clone()));
         let auto_updater = Arc::new(AutoUpdater::new());
         let occupied_ports = Arc::new(RwLock::new(HashSet::new()));
+        let is_silent_start = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let initial_window_shown = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let config_path = app_dir.join("config.json");
         let initial_config = if config_path.exists() {
@@ -138,6 +142,8 @@ impl AppState {
             latency_emitter,
             suspended_system_proxy,
             app_handle,
+            is_silent_start,
+            initial_window_shown,
         }
     }
 

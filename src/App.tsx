@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { ToastContainer, toast } from './components/common'
 import { Shell } from './components/layout/Shell'
 import { useAppStore } from './stores/appStore'
+import { appReady } from './services/tauri'
 import type {
   AutoUpdateEventPayload,
   KernelCrashedPayload,
@@ -30,6 +31,11 @@ export const App: React.FC = () => {
     fetchStatus()
     fetchConfig()
     fetchLatencies().catch(() => {})
+
+    // Notify backend that initial React layout frame is committed to smoothly show window (unless silent start)
+    requestAnimationFrame(() => {
+      appReady().catch(() => {})
+    })
     // Periodically poll status every 3 seconds
     const interval = setInterval(() => {
       fetchStatus()

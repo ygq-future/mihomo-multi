@@ -1124,6 +1124,31 @@ pub async fn hide_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn show_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        crate::tray::activate_window(&window);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn app_ready(app: AppHandle) -> Result<(), String> {
+    if let Some(state) = app.try_state::<AppState>() {
+        if state.is_silent_start.load(std::sync::atomic::Ordering::SeqCst) {
+            tracing::info!("Frontend app_ready received in silent start mode; keeping window hidden");
+            return Ok(());
+        }
+        if !state.initial_window_shown.swap(true, std::sync::atomic::Ordering::SeqCst)
+            && let Some(window) = app.get_webview_window("main")
+        {
+            let _ = window.show();
+            tracing::info!("Frontend app_ready received; main window displayed");
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_rules_info(state: State<'_, AppState>) -> Result<crate::core::geo_manager::MrsRulesInfo, String> {
     let work_dir = state.engine.work_dir();
     Ok(crate::core::geo_manager::get_mrs_rules_info(work_dir))

@@ -9,11 +9,15 @@ struct PortRuntimeInfo {
     manual_fallback: bool,
     active_latency: Option<u32>,
 }
+pub fn activate_window(window: &tauri::WebviewWindow) {
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+}
+
 pub fn ensure_main_window_open(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+        activate_window(&window);
     } else {
         let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
             .title("Mihomo Multi")
@@ -27,9 +31,7 @@ pub fn ensure_main_window_open(app: &AppHandle) {
         match builder.build() {
             Ok(window) => {
                 let _ = window.restore_state(StateFlags::all() & !StateFlags::VISIBLE);
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
+                activate_window(&window);
                 info!("Main window recreated successfully");
             }
             Err(e) => {
@@ -428,9 +430,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                                 let _ = window.hide();
                             }
                         } else {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
+                            activate_window(&window);
                         }
                     } else {
                         ensure_main_window_open(app);
