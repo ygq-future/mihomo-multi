@@ -9,6 +9,7 @@
     "dev:sidecar": "node scripts/dev-sidecar.mjs",
     "build": "tsc && vite build",
     "build:tauri": "tauri build",
+    "build:release": "node scripts/build-packages.mjs",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "eslint . && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",

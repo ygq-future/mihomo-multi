@@ -10,6 +10,7 @@ dist/
 dist-ssr/
 build/
 release-packages/
+dist-artifacts/
 *.local
 
 # Rust & Cargo & Tauri

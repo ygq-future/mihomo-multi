@@ -10,7 +10,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const rootDir = path.resolve(__dirname, '..')
 
-const ARTIFACTS_DIR = path.join(rootDir, 'dist-artifacts')
+let ARTIFACTS_DIR = path.join(rootDir, 'dist-artifacts')
 const SRC_TAURI_DIR = path.join(rootDir, 'src-tauri')
 const BINARIES_DIR = path.join(SRC_TAURI_DIR, 'binaries')
 
@@ -18,13 +18,19 @@ function parseArgs() {
   const args = process.argv.slice(2)
   let target = null
   let version = null
-
+  let outDir = null
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--target' && args[i + 1]) {
       target = args[i + 1]
       i++
     } else if (args[i] === '--version' && args[i + 1]) {
       version = args[i + 1]
+      i++
+    } else if (
+      (args[i] === '--out-dir' || args[i] === '--output-dir') &&
+      args[i + 1]
+    ) {
+      outDir = path.resolve(rootDir, args[i + 1])
       i++
     } else if (!target && !args[i].startsWith('-')) {
       target = args[i]
@@ -42,20 +48,34 @@ function parseArgs() {
     }
   }
 
-  return { target, version }
+  return { target, version, outDir }
 }
 
-function findFile(directories, predicate) {
+function findFile(directories, predicate, version = null) {
+  const matchedFiles = []
   for (const dir of directories) {
     if (!fs.existsSync(dir)) continue
     const entries = fs.readdirSync(dir, { withFileTypes: true })
     for (const entry of entries) {
       if (entry.isFile() && predicate(entry.name)) {
-        return path.join(dir, entry.name)
+        const fullPath = path.join(dir, entry.name)
+        const stat = fs.statSync(fullPath)
+        matchedFiles.push({
+          path: fullPath,
+          name: entry.name,
+          mtime: stat.mtimeMs,
+        })
       }
     }
   }
-  return null
+  if (matchedFiles.length === 0) return null
+
+  if (version) {
+    const versionMatch = matchedFiles.find((f) => f.name.includes(version))
+    if (versionMatch) return versionMatch.path
+  }
+  matchedFiles.sort((a, b) => b.mtime - a.mtime)
+  return matchedFiles[0].path
 }
 
 function computeSha256(filePath) {
@@ -190,7 +210,10 @@ async function packageMacUniversalApp(version, releaseDirs) {
 }
 
 async function main() {
-  const { target, version } = parseArgs()
+  const { target, version, outDir } = parseArgs()
+  if (outDir) {
+    ARTIFACTS_DIR = outDir
+  }
   if (!target) {
     throw new Error('Target triple is required. Use --target <target>')
   }
@@ -212,7 +235,7 @@ async function main() {
     const nsisDirs = candidateReleaseDirs.map((d) =>
       path.join(d, 'bundle', 'nsis'),
     )
-    const nsisFile = findFile(nsisDirs, (n) => n.endsWith('.exe'))
+    const nsisFile = findFile(nsisDirs, (n) => n.endsWith('.exe'), version)
     if (nsisFile) {
       const dest = path.join(
         ARTIFACTS_DIR,
@@ -226,7 +249,7 @@ async function main() {
     const msiDirs = candidateReleaseDirs.map((d) =>
       path.join(d, 'bundle', 'msi'),
     )
-    const msiFile = findFile(msiDirs, (n) => n.endsWith('.msi'))
+    const msiFile = findFile(msiDirs, (n) => n.endsWith('.msi'), version)
     if (msiFile) {
       const dest = path.join(
         ARTIFACTS_DIR,
@@ -250,7 +273,7 @@ async function main() {
     const nsisDirs = candidateReleaseDirs.map((d) =>
       path.join(d, 'bundle', 'nsis'),
     )
-    const nsisFile = findFile(nsisDirs, (n) => n.endsWith('.exe'))
+    const nsisFile = findFile(nsisDirs, (n) => n.endsWith('.exe'), version)
     if (nsisFile) {
       const dest = path.join(
         ARTIFACTS_DIR,
@@ -274,7 +297,7 @@ async function main() {
     const dmgDirs = candidateReleaseDirs.map((d) =>
       path.join(d, 'bundle', 'dmg'),
     )
-    const dmgFile = findFile(dmgDirs, (n) => n.endsWith('.dmg'))
+    const dmgFile = findFile(dmgDirs, (n) => n.endsWith('.dmg'), version)
     if (dmgFile) {
       const dest = path.join(
         ARTIFACTS_DIR,
@@ -291,7 +314,7 @@ async function main() {
     const dmgDirs = candidateReleaseDirs.map((d) =>
       path.join(d, 'bundle', 'dmg'),
     )
-    const dmgFile = findFile(dmgDirs, (n) => n.endsWith('.dmg'))
+    const dmgFile = findFile(dmgDirs, (n) => n.endsWith('.dmg'), version)
     if (dmgFile) {
       const dest = path.join(ARTIFACTS_DIR, `mihomo-multi_${version}_x64.dmg`)
       await fsp.copyFile(dmgFile, dest)
@@ -305,7 +328,7 @@ async function main() {
     const dmgDirs = candidateReleaseDirs.map((d) =>
       path.join(d, 'bundle', 'dmg'),
     )
-    const dmgFile = findFile(dmgDirs, (n) => n.endsWith('.dmg'))
+    const dmgFile = findFile(dmgDirs, (n) => n.endsWith('.dmg'), version)
     if (dmgFile) {
       const dest = path.join(
         ARTIFACTS_DIR,
@@ -325,7 +348,7 @@ async function main() {
     const debDirs = candidateReleaseDirs.map((d) =>
       path.join(d, 'bundle', 'deb'),
     )
-    const debFile = findFile(debDirs, (n) => n.endsWith('.deb'))
+    const debFile = findFile(debDirs, (n) => n.endsWith('.deb'), version)
     if (debFile) {
       const dest = path.join(ARTIFACTS_DIR, `mihomo-multi_${version}_amd64.deb`)
       await fsp.copyFile(debFile, dest)
@@ -339,6 +362,7 @@ async function main() {
     const appImageFile = findFile(
       appImageDirs,
       (n) => n.endsWith('.AppImage') || n.endsWith('.appimage'),
+      version,
     )
     if (appImageFile) {
       const dest = path.join(
@@ -369,11 +393,17 @@ async function main() {
     if (fs.existsSync(checksumFile)) {
       existingContent = fs.readFileSync(checksumFile, 'utf8')
     }
+    const existingLines = existingContent
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((line) => {
+        if (!line) return false
+        const parts = line.split(/\s+/)
+        const fileName = parts[parts.length - 1]
+        return fileName && fs.existsSync(path.join(ARTIFACTS_DIR, fileName))
+      })
     const combined = Array.from(
-      new Set([
-        ...existingContent.split('\n').filter(Boolean),
-        ...checksumLines,
-      ]),
+      new Set([...existingLines, ...checksumLines]),
     ).join('\n')
     fs.writeFileSync(checksumFile, `${combined}\n`, 'utf8')
     console.log(`[pack-release] Updated checksums file at: ${checksumFile}`)
