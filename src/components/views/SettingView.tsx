@@ -620,11 +620,7 @@ export const SettingView: React.FC = () => {
       ...config,
       allowLan: checked,
     })
-    toast.success(
-      checked
-        ? '已开启局域网连接 (0.0.0.0)'
-        : '已恢复为仅监听本机回环 (127.0.0.1)',
-    )
+    toast.success(checked ? '已开启局域网连接' : '已恢复为仅监听本机回环')
   }
 
   const handleThemeChange = async (newTheme: string) => {
@@ -1182,14 +1178,15 @@ export const SettingView: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
+          <div className="flex items-center justify-between gap-6">
+            <div className="space-y-0.5 min-w-0 flex-1">
               <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
                 <Network className="w-3.5 h-3.5 text-primary" />
-                允许局域网连接 (0.0.0.0)
+                允许局域网连接
               </span>
               <p className="text-[11px] text-muted-foreground">
-                开启后端口映射将监听所有网卡接口，允许局域网/虚拟机设备连接；关闭时仅监听本机回环地址
+                开启后端口映射将监听所有网卡接口
+                (0.0.0.0)，允许局域网或虚拟机设备连接；关闭时仅监听本机回环地址
                 (127.0.0.1)
               </p>
             </div>
@@ -1305,10 +1302,10 @@ export const SettingView: React.FC = () => {
             </div>
 
             {/* Fallback Lazy Switch */}
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
+            <div className="flex items-center justify-between gap-6">
+              <div className="space-y-0.5 min-w-0 flex-1">
                 <span className="text-xs font-medium text-foreground">
-                  惰性健康检查 (Lazy Mode)
+                  惰性健康检查
                 </span>
                 <p className="text-[11px] text-muted-foreground">
                   关闭时持续主动测活；开启后仅在该端口有流量经过时才发起检测
@@ -1331,12 +1328,11 @@ export const SettingView: React.FC = () => {
             <Globe className="w-5 h-5 text-primary" />
             <div>
               <h3 className="text-sm font-semibold text-foreground">
-                系统代理设置 (System Proxy)
+                系统代理设置
               </h3>
               <p className="text-xs text-muted-foreground">
-                接管操作系统网络代理，多监听端口单选互斥，并支持在 Windows
-                下联动写入用户环境变量 (all_proxy, http_proxy, https_proxy,
-                no_proxy)
+                接管操作系统网络代理，多监听端口单选互斥，支持联动写入环境变量
+                (all_proxy, http_proxy, https_proxy, no_proxy)
               </p>
             </div>
           </div>
@@ -1344,8 +1340,8 @@ export const SettingView: React.FC = () => {
 
         <div className="space-y-4">
           {/* Main Switch */}
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
+          <div className="flex items-center justify-between gap-6">
+            <div className="space-y-0.5 min-w-0 flex-1">
               <label className="text-xs font-medium text-foreground">
                 启用系统代理
               </label>
@@ -1395,10 +1391,10 @@ export const SettingView: React.FC = () => {
           )}
 
           {/* Sync User Environment Variables Switch */}
-          <div className="pt-3 border-t border-border/70 flex items-center justify-between">
-            <div className="space-y-0.5">
+          <div className="pt-3 border-t border-border/70 flex items-center justify-between gap-6">
+            <div className="space-y-0.5 min-w-0 flex-1">
               <label className="text-xs font-medium text-foreground">
-                联动设置用户环境变量 (Windows)
+                联动设置环境变量
               </label>
               <p className="text-[11px] text-muted-foreground">
                 开启系统代理时，联动写入 all_proxy、http_proxy、https_proxy 与
@@ -1417,7 +1413,7 @@ export const SettingView: React.FC = () => {
           <div className="pt-3 border-t border-border/70 space-y-3">
             <div>
               <label className="text-xs font-medium text-foreground">
-                排除域名与 IP (Bypass Domains / no_proxy)
+                排除域名与 IP
               </label>
               <p className="text-[11px] text-muted-foreground">
                 匹配列表中的网络请求将不经过系统代理直连访问，若开启环境变量同步将同时注入到系统的
@@ -1459,9 +1455,9 @@ export const SettingView: React.FC = () => {
                     {config.systemProxyBypassUser.map((domain) => (
                       <Badge
                         key={domain}
-                        variant="outline"
+                        variant="secondary"
                         size="sm"
-                        className="flex items-center gap-1 font-mono text-xs py-0.5 px-2 bg-accent/40"
+                        className="flex items-center gap-1.5 font-mono text-xs py-1 px-2.5 bg-secondary hover:bg-secondary/80 border border-border/80 text-foreground shadow-xs transition-colors"
                       >
                         <span>{domain}</span>
                         <button
@@ -1601,11 +1597,11 @@ export const SettingView: React.FC = () => {
           </div>
 
           {/* Acrylic Effect Toggle */}
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
+          <div className="flex items-center justify-between gap-6">
+            <div className="space-y-0.5 min-w-0 flex-1">
               <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                磨砂亚克力玻璃质感 (Acrylic Glass)
+                磨砂亚克力玻璃质感
               </span>
               <p className="text-[11px] text-muted-foreground">
                 为所有面板与侧边栏开启半透明毛玻璃透光与模糊效果
@@ -1625,7 +1621,7 @@ export const SettingView: React.FC = () => {
                 <div className="space-y-0.5">
                   <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
                     <Sliders className="w-3.5 h-3.5 text-muted-foreground" />
-                    玻璃模糊度 (Blur)
+                    玻璃模糊度
                   </span>
                   <p className="text-[11px] text-muted-foreground">
                     调节背部背景的毛玻璃模糊程度 ({acrylicBlur}px)
@@ -1653,7 +1649,7 @@ export const SettingView: React.FC = () => {
                 <div className="space-y-0.5">
                   <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
                     <Sliders className="w-3.5 h-3.5 text-muted-foreground" />
-                    面板透明度 (Opacity)
+                    面板透明度
                   </span>
                   <p className="text-[11px] text-muted-foreground">
                     调节卡片底色的透光不透明度 ({acrylicOpacity}%)
@@ -1730,7 +1726,7 @@ export const SettingView: React.FC = () => {
                 <div className="space-y-0.5">
                   <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
                     <Sliders className="w-3.5 h-3.5 text-muted-foreground" />
-                    壁纸不透明度 (Image Opacity)
+                    壁纸不透明度
                   </span>
                   <p className="text-[11px] text-muted-foreground">
                     调节底层壁纸本身的显隐明暗程度 ({bgOpacity}%)
@@ -1775,8 +1771,8 @@ export const SettingView: React.FC = () => {
         </div>
 
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
+          <div className="flex items-center justify-between gap-6">
+            <div className="space-y-0.5 min-w-0 flex-1">
               <span className="text-xs font-medium text-foreground">
                 关闭窗口时最小化到系统托盘
               </span>
@@ -1791,8 +1787,8 @@ export const SettingView: React.FC = () => {
             />
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
+          <div className="flex items-center justify-between gap-6">
+            <div className="space-y-0.5 min-w-0 flex-1">
               <span className="text-xs font-medium text-foreground">
                 开机自动启动
               </span>
@@ -1807,8 +1803,8 @@ export const SettingView: React.FC = () => {
             />
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
+          <div className="flex items-center justify-between gap-6">
+            <div className="space-y-0.5 min-w-0 flex-1">
               <span className="text-xs font-medium text-foreground">
                 静默启动模式
               </span>
@@ -1822,8 +1818,8 @@ export const SettingView: React.FC = () => {
               size="md"
             />
           </div>
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
+          <div className="flex items-center justify-between gap-6">
+            <div className="space-y-0.5 min-w-0 flex-1">
               <span className="text-xs font-medium text-foreground">
                 轻量模式
               </span>
@@ -1837,7 +1833,6 @@ export const SettingView: React.FC = () => {
               size="md"
             />
           </div>
-
           <div className="flex items-center justify-between pt-3 border-t border-border/70">
             <div className="space-y-0.5">
               <span className="text-xs font-medium text-foreground">
