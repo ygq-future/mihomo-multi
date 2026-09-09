@@ -48,6 +48,36 @@ function nodeKeyHasLatency(
   return undefined
 }
 
+function getNodeLatencyScore(
+  displayName: string,
+  rawName: string,
+  latencies: Record<string, number | null>,
+): number {
+  const lat = nodeKeyHasLatency(displayName, rawName, latencies)
+  if (lat !== undefined && lat !== null) {
+    return lat
+  }
+  if (lat === null) {
+    return 900000
+  }
+  return 999999
+}
+
+function compareNodesByLatencyAndName(
+  a: { displayName: string; name: string },
+  b: { displayName: string; name: string },
+  latencies: Record<string, number | null>,
+): number {
+  const scoreA = getNodeLatencyScore(a.displayName, a.name, latencies)
+  const scoreB = getNodeLatencyScore(b.displayName, b.name, latencies)
+
+  if (scoreA !== scoreB) {
+    return scoreA - scoreB
+  }
+
+  return a.displayName.localeCompare(b.displayName, 'zh-Hans-CN')
+}
+
 export const AddPortModal: React.FC<AddPortModalProps> = ({
   isOpen,
   onClose,
@@ -258,28 +288,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       if (isBoundA !== isBoundB) {
         return isBoundA ? 1 : -1
       }
-
-      const latA = nodeKeyHasLatency(a.displayName, a.name, latencies)
-      const latB = nodeKeyHasLatency(b.displayName, b.name, latencies)
-
-      const scoreA =
-        latA !== undefined && latA !== null
-          ? latA
-          : latA === null
-            ? 900000
-            : 999999
-      const scoreB =
-        latB !== undefined && latB !== null
-          ? latB
-          : latB === null
-            ? 900000
-            : 999999
-
-      if (scoreA !== scoreB) {
-        return scoreA - scoreB
-      }
-
-      return a.displayName.localeCompare(b.displayName, 'zh-Hans-CN')
+      return compareNodesByLatencyAndName(a, b, latencies)
     })
   }, [allAvailableNodes, boundNodeMap, latencies])
 
@@ -328,11 +337,13 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const fallbackNodeOptions = useMemo(() => {
     if (!selectedNodeRegion || !selectedNode) return []
 
-    const sameRegionNodes = allAvailableNodes.filter(
-      (n) =>
-        n.uniqueKey !== selectedNode.uniqueKey &&
-        extractRegion(n.name).code === selectedNodeRegion.code,
-    )
+    const sameRegionNodes = allAvailableNodes
+      .filter(
+        (n) =>
+          n.uniqueKey !== selectedNode.uniqueKey &&
+          extractRegion(n.name).code === selectedNodeRegion.code,
+      )
+      .sort((a, b) => compareNodesByLatencyAndName(a, b, latencies))
 
     const options: SelectOption<string>[] = [
       {
