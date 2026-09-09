@@ -15,6 +15,21 @@ pub fn activate_window(window: &tauri::WebviewWindow) {
     let _ = window.set_focus();
 }
 
+pub fn apply_window_bg_color(window: &tauri::WebviewWindow, theme: &str) {
+    let is_dark = match theme {
+        "dark" => true,
+        "light" => false,
+        _ => window.theme().map(|t| t == tauri::Theme::Dark).unwrap_or(true),
+    };
+    let bg = if is_dark {
+        tauri::window::Color(19, 23, 34, 255)
+    } else {
+        tauri::window::Color(246, 248, 250, 255)
+    };
+    let _ = window.set_background_color(Some(bg));
+}
+
+
 pub fn ensure_main_window_open(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         activate_window(&window);
@@ -30,6 +45,11 @@ pub fn ensure_main_window_open(app: &AppHandle) {
 
         match builder.build() {
             Ok(window) => {
+                let theme = app
+                    .try_state::<crate::state::AppState>()
+                    .map(|s| s.config.read().theme.clone())
+                    .unwrap_or_else(|| "system".to_string());
+                apply_window_bg_color(&window, &theme);
                 let _ = window.restore_state(StateFlags::all() & !StateFlags::VISIBLE);
                 activate_window(&window);
                 info!("Main window recreated successfully");

@@ -150,7 +150,11 @@ pub async fn save_config(app: AppHandle, config: AppConfig, state: State<'_, App
             let _ = crate::core::autostart::disable_autostart();
         }
     }
-
+    if config.theme != old_config.theme
+        && let Some(window) = app.get_webview_window("main")
+    {
+        crate::tray::apply_window_bg_color(&window, &config.theme);
+    }
     // Only re-sync runtime configuration if settings affecting Mihomo (listeners, controller, timeout, lan, etc.) changed
     let runtime_settings_changed = config.controller_port != old_config.controller_port
         || config.controller_secret != old_config.controller_secret

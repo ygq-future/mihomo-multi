@@ -32,9 +32,12 @@ export const App: React.FC = () => {
     fetchConfig()
     fetchLatencies().catch(() => {})
 
-    // Notify backend that initial React layout frame is committed to smoothly show window (unless silent start)
+    // Double requestAnimationFrame ensures that the browser has committed and painted
+    // the initial layout to the GPU compositor before the native window is revealed.
     requestAnimationFrame(() => {
-      appReady().catch(() => {})
+      requestAnimationFrame(() => {
+        appReady().catch(() => {})
+      })
     })
     // Periodically poll status every 3 seconds
     const interval = setInterval(() => {

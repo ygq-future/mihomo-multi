@@ -8,7 +8,7 @@
       (function() {
         try {
           var t = localStorage.getItem('app_theme') || 'system';
-          var isDark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var isDark = t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
           var root = document.documentElement;
           if (isDark) {
             root.classList.add('dark');

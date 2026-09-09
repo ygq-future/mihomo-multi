@@ -59,6 +59,8 @@ pub fn run() {
             app_state.is_silent_start.store(is_silent, std::sync::atomic::Ordering::SeqCst);
 
             if let Some(main_win) = app_handle.get_webview_window("main") {
+                let theme = app_state.config.read().theme.clone();
+                crate::tray::apply_window_bg_color(&main_win, &theme);
                 if is_silent {
                     if app_state.config.read().lightweight_mode {
                         let _ = main_win.destroy();
