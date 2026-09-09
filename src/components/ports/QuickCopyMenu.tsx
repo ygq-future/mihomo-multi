@@ -15,6 +15,7 @@ export interface QuickCopyMenuProps {
   protocol: InboundProtocol
   hostIp?: string
   bypassDomains?: string[]
+  disabled?: boolean
   onCopySuccess: (text: string) => void
 }
 
@@ -23,6 +24,7 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
   protocol,
   hostIp,
   bypassDomains,
+  disabled = false,
   onCopySuccess,
 }) => {
   const [isOpen, setIsOpen] = useState(false)
@@ -37,15 +39,15 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
   const closeTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const host = hostIp || '127.0.0.1'
-
   const openMenu = useCallback(() => {
+    if (disabled) return
     if (closeTimerRef.current) {
       clearTimeout(closeTimerRef.current)
       closeTimerRef.current = null
     }
     setIsClosing(false)
     setIsOpen(true)
-  }, [])
+  }, [disabled])
 
   const closeMenu = useCallback(() => {
     if (isClosing || !isOpen) return
@@ -87,12 +89,16 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
       placement: shouldPlaceTop ? 'top' : 'bottom',
     })
   }, [])
-
   useLayoutEffect(() => {
+    if (disabled && isOpen) {
+      setIsOpen(false)
+      setIsClosing(false)
+      return
+    }
     if (isOpen) {
       updatePos()
     }
-  }, [isOpen, updatePos])
+  }, [disabled, isOpen, updatePos])
 
   useEffect(() => {
     if (!isOpen && !isClosing) return
@@ -192,15 +198,23 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => {
+        disabled={disabled}
+        onClick={(e) => {
+          e.stopPropagation()
+          e.preventDefault()
+          if (disabled) return
           if (!isOpen || isClosing) {
             openMenu()
           } else {
             closeMenu()
           }
         }}
-        className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-0.5"
-        title="快捷复制代理格式"
+        className={`p-1 rounded transition-colors flex items-center gap-0.5 ${
+          disabled
+            ? 'opacity-40 text-muted-foreground cursor-not-allowed pointer-events-none'
+            : 'text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer'
+        }`}
+        title={disabled ? '端口已禁用，无法复制代理配置' : '快捷复制代理格式'}
       >
         <Copy className="w-3 h-3" />
         <ChevronDown

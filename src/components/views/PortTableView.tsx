@@ -630,20 +630,20 @@ export const PortTableView: React.FC = () => {
               return (
                 <div
                   key={m.id}
-                  className={`p-3.5 rounded-xl border bg-card shadow-sm hover:border-primary/40 transition-all flex flex-col justify-between space-y-2.5 group ${
+                  className={`p-3.5 rounded-xl border shadow-sm transition-all flex flex-col justify-between space-y-2.5 group ${
                     isStoppedWarning
-                      ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10'
+                      ? 'bg-card border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
                       : isOccupiedWarning
-                        ? 'border-rose-500/40 bg-rose-500/5 dark:bg-rose-500/10'
+                        ? 'bg-card border-rose-500/40 bg-rose-500/5 dark:bg-rose-500/10 hover:border-primary/40'
                         : !isEffectiveEnabled
-                          ? 'opacity-65 bg-secondary/10'
+                          ? 'bg-card/40 border-primary/20 hover:border-primary/40 opacity-70'
                           : isDrifted
-                            ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10'
+                            ? 'bg-card border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
                             : isFallbackWarning
-                              ? 'border-amber-500/60 bg-amber-500/5 dark:bg-amber-500/10'
+                              ? 'bg-card border-amber-500/60 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
                               : isEffectiveSystemProxy
-                                ? 'border-sky-500/70 bg-sky-500/[0.04] dark:bg-sky-500/[0.08] ring-1 ring-sky-500/30'
-                                : 'border-border'
+                                ? 'bg-card border-sky-500/70 bg-sky-500/[0.04] dark:bg-sky-500/[0.08] ring-1 ring-sky-500/30 hover:border-sky-500/90'
+                                : 'bg-card border-border hover:border-primary/40'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2 min-w-0">
@@ -977,6 +977,7 @@ export const PortTableView: React.FC = () => {
                         protocol={m.protocol}
                         hostIp={activeHostIp}
                         bypassDomains={config?.systemProxyBypassUser}
+                        disabled={!isEffectiveEnabled}
                         onCopySuccess={toast.success}
                       />
 

@@ -79,7 +79,8 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const trackRef = useRef<HTMLDivElement | null>(null)
   const popoverRef = useRef<HTMLDivElement | null>(null)
-  const hoverTimerRef = useRef<number | null>(null)
+  const enterTimerRef = useRef<number | null>(null)
+  const leaveTimerRef = useRef<number | null>(null)
   const isHoveredRef = useRef(false)
   const isDraggingRef = useRef(false)
   const latestContinuousRef = useRef(value)
@@ -99,10 +100,14 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
     latestContinuousRef.current = clampedPropValue
   }, [clampedPropValue, loading])
 
-  const clearPendingTimer = useCallback(() => {
-    if (hoverTimerRef.current !== null) {
-      window.clearTimeout(hoverTimerRef.current)
-      hoverTimerRef.current = null
+  const clearPendingTimers = useCallback(() => {
+    if (enterTimerRef.current !== null) {
+      window.clearTimeout(enterTimerRef.current)
+      enterTimerRef.current = null
+    }
+    if (leaveTimerRef.current !== null) {
+      window.clearTimeout(leaveTimerRef.current)
+      leaveTimerRef.current = null
     }
   }, [])
 
@@ -144,10 +149,24 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   const handleMouseEnter = useCallback(() => {
     if (disabled) return
     isHoveredRef.current = true
-    clearPendingTimer()
-    updatePosition()
-    setIsOpen(true)
-  }, [clearPendingTimer, disabled, updatePosition])
+    if (leaveTimerRef.current !== null) {
+      window.clearTimeout(leaveTimerRef.current)
+      leaveTimerRef.current = null
+    }
+    // If already open (e.g. hovering between trigger and popover), maintain immediately
+    if (isOpen) return
+
+    // Add a slight intentional delay (180ms) to prevent flickering on quick mouse pass-by
+    if (enterTimerRef.current === null) {
+      enterTimerRef.current = window.setTimeout(() => {
+        if (isHoveredRef.current) {
+          updatePosition()
+          setIsOpen(true)
+        }
+        enterTimerRef.current = null
+      }, 180)
+    }
+  }, [disabled, isOpen, updatePosition])
 
   const handleMouseLeave = useCallback(
     (e?: ReactMouseEvent) => {
@@ -158,22 +177,29 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
       }
 
       isHoveredRef.current = false
-      clearPendingTimer()
-      hoverTimerRef.current = window.setTimeout(() => {
+      if (enterTimerRef.current !== null) {
+        window.clearTimeout(enterTimerRef.current)
+        enterTimerRef.current = null
+      }
+      if (leaveTimerRef.current !== null) {
+        window.clearTimeout(leaveTimerRef.current)
+      }
+      leaveTimerRef.current = window.setTimeout(() => {
         if (!isHoveredRef.current && !isDraggingRef.current) {
           setIsOpen(false)
         }
-      }, 250)
+        leaveTimerRef.current = null
+      }, 200)
     },
-    [clearPendingTimer, isRelatedInside],
+    [isRelatedInside],
   )
 
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
-      clearPendingTimer()
+      clearPendingTimers()
     }
-  }, [clearPendingTimer])
+  }, [clearPendingTimers])
   const updateContinuousFromClientX = useCallback(
     (clientX: number) => {
       if (!trackRef.current) return

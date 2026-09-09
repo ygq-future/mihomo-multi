@@ -329,12 +329,18 @@ export const SettingView: React.FC = () => {
   const handlePortSelectChange = async (portStr: string) => {
     const port = Number(portStr)
     if (!port) return
+    if (!config) return
     try {
-      await setSystemProxy(true, port)
-      toast.success(`已切换系统代理端口至 ${port}`)
+      if (config.systemProxyEnabled) {
+        await setSystemProxy(true, port)
+        toast.success(`已切换系统代理端口至 ${port}`)
+      } else {
+        await saveConfig({ ...config, systemProxyPort: port })
+        toast.success(`已设置系统代理预选端口为 ${port}`)
+      }
     } catch (err) {
       toast.error(
-        `切换系统代理端口失败: ${err instanceof Error ? err.message : String(err)}`,
+        `更新系统代理端口失败: ${err instanceof Error ? err.message : String(err)}`,
       )
     }
   }
@@ -1357,39 +1363,37 @@ export const SettingView: React.FC = () => {
             />
           </div>
 
-          {/* Port Select when Enabled */}
-          {config?.systemProxyEnabled && (
-            <div className="pt-3 border-t border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="space-y-0.5">
-                <label className="text-xs font-medium text-foreground">
-                  绑定的监听端口
-                </label>
-                <p className="text-[11px] text-muted-foreground">
-                  从当前已启用的监听端口中选择作为系统代理出口 (严格单选互斥)
-                </p>
-              </div>
-              <div className="w-full sm:w-80">
-                {enabledPorts.length === 0 ? (
-                  <span className="text-xs text-rose-500 font-medium">
-                    暂无已启用的监听端口，请先在端口管理中启用
-                  </span>
-                ) : (
-                  <Select
-                    value={String(
-                      config?.systemProxyPort ?? enabledPorts[0]?.port ?? '',
-                    )}
-                    onChange={(val) => handlePortSelectChange(String(val))}
-                    options={enabledPorts.map((m) => ({
-                      value: String(m.port),
-                      label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName}${
-                        m.description ? ` · ${m.description}` : ''
-                      })`,
-                    }))}
-                  />
-                )}
-              </div>
+          {/* Port Select (Always Visible) */}
+          <div className="pt-3 border-t border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="space-y-0.5">
+              <label className="text-xs font-medium text-foreground">
+                绑定的监听端口
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                从当前已启用的监听端口中选择作为系统代理出口
+              </p>
             </div>
-          )}
+            <div className="w-full sm:w-80">
+              {enabledPorts.length === 0 ? (
+                <span className="text-xs text-rose-500 font-medium">
+                  暂无已启用的监听端口，请先在端口管理中启用
+                </span>
+              ) : (
+                <Select
+                  value={String(
+                    config?.systemProxyPort ?? enabledPorts[0]?.port ?? '',
+                  )}
+                  onChange={(val) => handlePortSelectChange(String(val))}
+                  options={enabledPorts.map((m) => ({
+                    value: String(m.port),
+                    label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName}${
+                      m.description ? ` · ${m.description}` : ''
+                    })`,
+                  }))}
+                />
+              )}
+            </div>
+          </div>
 
           {/* Sync User Environment Variables Switch */}
           <div className="pt-3 border-t border-border/70 flex items-center justify-between gap-6">
