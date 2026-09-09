@@ -125,7 +125,7 @@ const logLevelOptions = [
 const testUrlOptions = [
   {
     value: 'http://cp.cloudflare.com/generate_204',
-    label: 'Cloudflare (204) · 推荐',
+    label: 'Cloudflare (204)',
   },
   {
     value: 'http://www.google.com/generate_204',
@@ -317,9 +317,7 @@ export const SettingView: React.FC = () => {
         systemProxySyncEnv: checked,
       })
       toast.success(
-        checked
-          ? '已开启环境变量联动同步'
-          : '已关闭环境变量联动同步 (不再写入 all_proxy/http_proxy 等)',
+        checked ? '已开启环境变量联动同步' : '已关闭环境变量联动同步',
       )
     } catch (err) {
       toast.error(
@@ -805,17 +803,13 @@ export const SettingView: React.FC = () => {
       ...config,
       lightweightMode: checked,
     })
-    toast.success(
-      checked
-        ? '已开启轻量模式 (关闭窗口后彻底释放前端 WebView2 内存)'
-        : '已关闭轻量模式 (关闭窗口后保留前端进程，支持即时呼出)',
-    )
+    toast.success(checked ? '已开启轻量模式' : '已关闭轻量模式')
   }
 
   const handleResetWindowSize = async () => {
     try {
       await api.resetWindowSize()
-      toast.success('窗口大小已重置为默认推荐尺寸 (1000 × 680)')
+      toast.success('窗口尺寸已恢复默认')
     } catch (err) {
       toast.error(
         `重置窗口尺寸失败: ${err instanceof Error ? err.message : String(err)}`,
@@ -1025,7 +1019,7 @@ export const SettingView: React.FC = () => {
                   <span>发现新版本：{updateInfo.latestVersion}</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  更新将下载并直接替换旧内核，无多余残留文件，并秒级平滑热重启。
+                  下载并替换内核文件，完成后自动重载生效。
                 </p>
                 {updateInfo.targetPath && (
                   <p className="text-[10px] text-muted-foreground/70 font-mono truncate max-w-md">
@@ -1317,7 +1311,7 @@ export const SettingView: React.FC = () => {
                   惰性健康检查 (Lazy Mode)
                 </span>
                 <p className="text-[11px] text-muted-foreground">
-                  关闭时内核持续主动测活（推荐）；开启后仅在该端口有流量经过时才发起检测
+                  关闭时持续主动测活；开启后仅在该端口有流量经过时才发起检测
                 </p>
               </div>
               <Switch
@@ -1830,17 +1824,11 @@ export const SettingView: React.FC = () => {
           </div>
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-foreground">
-                  轻量后台模式 (内存极致优化)
-                </span>
-                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded">
-                  节省 ~60MB
-                </span>
-              </div>
+              <span className="text-xs font-medium text-foreground">
+                轻量模式
+              </span>
               <p className="text-[11px] text-muted-foreground">
-                关闭主窗口到托盘时彻底销毁前端 WebView
-                渲染进程，仅保留托盘与代理核心挂机；从托盘重新唤醒时按需重新加载
+                关闭窗口时销毁前端界面以降低内存占用，点击托盘时重新加载
               </p>
             </div>
             <Switch
@@ -1853,11 +1841,10 @@ export const SettingView: React.FC = () => {
           <div className="flex items-center justify-between pt-3 border-t border-border/70">
             <div className="space-y-0.5">
               <span className="text-xs font-medium text-foreground">
-                重置窗口为默认推荐尺寸
+                重置窗口尺寸
               </span>
               <p className="text-[11px] text-muted-foreground">
-                将窗口尺寸重置为 1000 × 680
-                并居中，清除旧的窗口记忆缓存，完美呈现 4 列节点与 3 列端口
+                将窗口尺寸与位置恢复为默认大小并清除记忆缓存
               </p>
             </div>
             <Button

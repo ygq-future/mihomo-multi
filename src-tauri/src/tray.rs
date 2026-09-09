@@ -30,7 +30,7 @@ pub fn ensure_main_window_open(app: &AppHandle) {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
-                info!("Main window recreated successfully in lightweight mode");
+                info!("Main window recreated successfully");
             }
             Err(e) => {
                 error!("Failed to recreate main window: {}", e);

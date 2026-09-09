@@ -60,7 +60,7 @@ pub fn run() {
                 if is_silent {
                     if app_state.config.read().lightweight_mode {
                         let _ = main_win.destroy();
-                        info!("Silent start mode with lightweight mode: main window destroyed to free WebView2");
+                        info!("Silent start mode with lightweight mode: main window destroyed");
                     } else {
                         let _ = main_win.hide();
                         info!("Silent start mode: main window minimized to tray on launch");
@@ -157,7 +157,7 @@ pub fn run() {
                     if config.close_to_tray {
                         api.prevent_close();
                         if config.lightweight_mode {
-                            info!("Window close requested with lightweight mode: destroying window to free WebView2");
+                            info!("Window close requested with lightweight mode: destroying window");
                             let _ = window.destroy();
                         } else {
                             let _ = window.hide();

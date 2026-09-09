@@ -531,7 +531,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
                 <div className="pt-1 space-y-1">
                   <div className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
                     <Sparkles className="w-3 h-3 text-amber-500" />
-                    <span>系统智能推荐匹配节点（点击快捷选择）：</span>
+                    <span>建议匹配节点：</span>
                   </div>
                   <div className="flex flex-wrap gap-1.5 pt-0.5">
                     {currentDrift.suggestions.map((suggestion) => (
