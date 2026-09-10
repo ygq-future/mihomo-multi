@@ -2,6 +2,7 @@ import {
   AlertCircle,
   ArrowUpDown,
   Compass,
+  FileCode,
   Gauge,
   Globe,
   Layers,
@@ -20,7 +21,15 @@ import {
   getLatencyBadgeProps,
   getProtocolBadgeProps,
 } from '../../utils/proxy'
-import { Badge, Button, Input, RegionFlag, Select } from '../common'
+import {
+  Badge,
+  Button,
+  Input,
+  MultiSelect,
+  type MultiSelectOption,
+  RegionFlag,
+  Select,
+} from '../common'
 import { AddPortModal } from '../ports/AddPortModal'
 
 type SortOption = 'default' | 'latency-asc' | 'latency-desc' | 'name-asc'
@@ -161,11 +170,37 @@ export const ProxyGridView: React.FC = () => {
   const [search, setSearch] = useState('')
 
   // Persistent filter states (excluding search keyword)
-  const [selectedProfileFilter, setSelectedProfileFilter] = useState<string>(
+  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return []
+    try {
+      const stored = localStorage.getItem('proxy_filter_profiles')
+      if (stored === 'all') return []
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (Array.isArray(parsed)) return parsed
+      }
+      const legacy = localStorage.getItem('proxy_filter_profile')
+      if (legacy && legacy !== 'all') {
+        return [legacy]
+      }
+    } catch {
+      // ignore storage error
+    }
+    return []
+  })
+  const [isAllProfilesSelected, setIsAllProfilesSelected] = useState<boolean>(
     () => {
-      return typeof window !== 'undefined'
-        ? localStorage.getItem('proxy_filter_profile') || 'all'
-        : 'all'
+      if (typeof window === 'undefined') return true
+      try {
+        const stored = localStorage.getItem('proxy_filter_profiles')
+        if (stored === 'all') return true
+        if (stored) return false
+        const legacy = localStorage.getItem('proxy_filter_profile')
+        if (legacy) return legacy === 'all'
+      } catch {
+        // ignore storage error
+      }
+      return true
     },
   )
   const [selectedRegionFilter, setSelectedRegionFilter] = useState<string>(
@@ -205,14 +240,49 @@ export const ProxyGridView: React.FC = () => {
       }
     }
   }, [profiles, profileNodes, fetchProfileNodes])
+  // Keep selectedProfileIds in sync when profiles load
+  useEffect(() => {
+    if (profiles.length === 0) return
+
+    if (isAllProfilesSelected) {
+      const allIds = profiles.map((p) => p.id)
+      if (
+        selectedProfileIds.length !== allIds.length ||
+        !allIds.every((id) => selectedProfileIds.includes(id))
+      ) {
+        setSelectedProfileIds(allIds)
+      }
+    } else if (selectedProfileIds.length > 0) {
+      const validIds = new Set(profiles.map((p) => p.id))
+      const filtered = selectedProfileIds.filter((id) => validIds.has(id))
+      if (filtered.length !== selectedProfileIds.length) {
+        setSelectedProfileIds(filtered)
+      }
+    }
+  }, [profiles, isAllProfilesSelected, selectedProfileIds])
 
   // Sync filter changes to localStorage
-  const handleProfileFilterChange = (val: string) => {
-    setSelectedProfileFilter(val)
+  const handleProfileFilterChange = (newIds: string[]) => {
+    if (newIds.length === profiles.length) {
+      setSelectedProfileIds(profiles.map((p) => p.id))
+      setIsAllProfilesSelected(true)
+      try {
+        localStorage.setItem('proxy_filter_profiles', 'all')
+      } catch {
+        // ignore storage error
+      }
+    } else {
+      setSelectedProfileIds(newIds)
+      setIsAllProfilesSelected(false)
+      try {
+        localStorage.setItem('proxy_filter_profiles', JSON.stringify(newIds))
+      } catch {
+        // ignore storage error
+      }
+    }
     setSelectedRegionFilter('all')
     setSelectedProtocolFilter('all')
     try {
-      localStorage.setItem('proxy_filter_profile', val)
       localStorage.setItem('proxy_filter_region', 'all')
       localStorage.setItem('proxy_filter_protocol', 'all')
     } catch {
@@ -260,10 +330,7 @@ export const ProxyGridView: React.FC = () => {
   const allNodes = useMemo<AugmentedNode[]>(() => {
     const list: AugmentedNode[] = []
     for (const profile of profiles) {
-      if (
-        selectedProfileFilter !== 'all' &&
-        profile.id !== selectedProfileFilter
-      ) {
+      if (!selectedProfileIds.includes(profile.id)) {
         continue
       }
       const nodes = profileNodes[profile.id] || []
@@ -277,7 +344,7 @@ export const ProxyGridView: React.FC = () => {
       }
     }
     return list
-  }, [profiles, profileNodes, selectedProfileFilter])
+  }, [profiles, profileNodes, selectedProfileIds])
 
   // Available regions for filter pills
   const availableRegions = useMemo(() => {
@@ -410,15 +477,19 @@ export const ProxyGridView: React.FC = () => {
   )
 
   // Profile select dropdown options
-  const profileFilterOptions = useMemo(() => {
-    return [
-      { value: 'all', label: `全部订阅 (${allNodes.length})` },
-      ...profiles.map((p) => ({
-        value: p.id,
-        label: `${p.name} (${p.nodeCount})`,
-      })),
-    ]
-  }, [profiles, allNodes.length])
+  const profileOptions = useMemo<MultiSelectOption<string>[]>(() => {
+    return profiles.map((p) => ({
+      value: p.id,
+      label: p.name,
+      badge: `${p.nodeCount}`,
+      icon:
+        p.type === 'remote' ? (
+          <Globe className="w-3.5 h-3.5 opacity-70 shrink-0" />
+        ) : (
+          <FileCode className="w-3.5 h-3.5 opacity-70 shrink-0" />
+        ),
+    }))
+  }, [profiles])
 
   return (
     <div className="h-full flex flex-col p-6 space-y-4 w-full overflow-hidden">
@@ -467,11 +538,32 @@ export const ProxyGridView: React.FC = () => {
             </div>
 
             {profiles.length > 0 && (
-              <div className="w-44 shrink-0">
-                <Select
-                  value={selectedProfileFilter}
-                  onChange={(val) => handleProfileFilterChange(String(val))}
-                  options={profileFilterOptions}
+              <div className="w-48 shrink-0">
+                <MultiSelect
+                  values={selectedProfileIds}
+                  onChange={handleProfileFilterChange}
+                  options={profileOptions}
+                  placeholder="选择订阅..."
+                  renderTriggerText={(selectedVals) => {
+                    if (selectedVals.length === 0) {
+                      return '未选择订阅'
+                    }
+                    if (
+                      selectedVals.length === profiles.length &&
+                      profiles.length > 0
+                    ) {
+                      return `全部订阅 (${allNodes.length})`
+                    }
+                    if (selectedVals.length === 1) {
+                      const prof = profiles.find(
+                        (p) => p.id === selectedVals[0],
+                      )
+                      return prof
+                        ? `${prof.name} (${prof.nodeCount})`
+                        : '已选 1 个订阅'
+                    }
+                    return `已选 ${selectedVals.length} 个订阅`
+                  }}
                 />
               </div>
             )}
@@ -602,7 +694,37 @@ export const ProxyGridView: React.FC = () => {
 
       {/* Scrollable Nodes Grid Area */}
       <div className="flex-1 overflow-y-auto pr-1 pb-4">
-        {allNodes.length === 0 ? (
+        {profiles.length > 0 && selectedProfileIds.length === 0 ? (
+          <div className="border border-dashed border-border rounded-xl p-12 flex flex-col items-center justify-center text-center space-y-4 bg-card/30">
+            <div className="w-12 h-12 rounded-full bg-secondary text-muted-foreground flex items-center justify-center">
+              <Layers className="w-6 h-6" />
+            </div>
+            <div className="space-y-1 max-w-sm">
+              <h3 className="text-sm font-semibold text-foreground">
+                未勾选任何订阅
+              </h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                请在上方订阅多选下拉框中勾选需要查看的订阅配置。
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const allIds = profiles.map((p) => p.id)
+                setSelectedProfileIds(allIds)
+                setIsAllProfilesSelected(true)
+                try {
+                  localStorage.setItem('proxy_filter_profiles', 'all')
+                } catch {
+                  // ignore storage error
+                }
+              }}
+            >
+              全选所有订阅
+            </Button>
+          </div>
+        ) : allNodes.length === 0 ? (
           <div className="border border-dashed border-border rounded-xl p-12 flex flex-col items-center justify-center text-center space-y-4 bg-card/30">
             <div className="w-12 h-12 rounded-full bg-secondary text-muted-foreground flex items-center justify-center">
               <Compass className="w-6 h-6" />

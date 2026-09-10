@@ -286,7 +286,37 @@ export async function getPortFallbackStatuses(): Promise<PortFallbackStatus[]> {
 
 export async function getProfiles(): Promise<ProfileItem[]> {
   if (!isTauriEnvironment()) {
-    return []
+    return [
+      {
+        id: 'mock-sub-1',
+        name: '香港专线订阅',
+        type: 'remote',
+        url: 'https://example.com/sub-hk',
+        filePath: 'profiles/mock-sub-1.yaml',
+        autoUpdateIntervalMins: 60,
+        lastUpdatedAt: Math.floor(Date.now() / 1000),
+        nodeCount: 4,
+      },
+      {
+        id: 'mock-sub-2',
+        name: '亚太优化订阅',
+        type: 'remote',
+        url: 'https://example.com/sub-asia',
+        filePath: 'profiles/mock-sub-2.yaml',
+        autoUpdateIntervalMins: 120,
+        lastUpdatedAt: Math.floor(Date.now() / 1000),
+        nodeCount: 4,
+      },
+      {
+        id: 'mock-sub-3',
+        name: '欧美跨国专线',
+        type: 'local',
+        filePath: 'profiles/mock-sub-3.yaml',
+        autoUpdateIntervalMins: 0,
+        lastUpdatedAt: Math.floor(Date.now() / 1000),
+        nodeCount: 3,
+      },
+    ]
   }
   return invoke<ProfileItem[]>('get_profiles')
 }
@@ -384,6 +414,79 @@ export async function deleteProfile(id: string): Promise<void> {
 
 export async function getProfileNodes(profileId: string): Promise<ProxyNode[]> {
   if (!isTauriEnvironment()) {
+    if (profileId === 'mock-sub-1') {
+      return [
+        {
+          name: '🇭🇰 香港 IPLC 01',
+          type: 'Shadowsocks',
+          server: '1.1.1.1',
+          port: 10001,
+        },
+        {
+          name: '🇭🇰 香港 IPLC 02',
+          type: 'Shadowsocks',
+          server: '1.1.1.2',
+          port: 10002,
+        },
+        {
+          name: '🇭🇰 香港 BGP 01',
+          type: 'VMess',
+          server: '1.1.1.3',
+          port: 10003,
+        },
+        {
+          name: '🇭🇰 香港 IEPL 01',
+          type: 'Trojan',
+          server: '1.1.1.4',
+          port: 10004,
+        },
+      ]
+    }
+    if (profileId === 'mock-sub-2') {
+      return [
+        {
+          name: '🇯🇵 日本 专线 01',
+          type: 'Shadowsocks',
+          server: '2.2.2.1',
+          port: 20001,
+        },
+        {
+          name: '🇯🇵 日本 专线 02',
+          type: 'Trojan',
+          server: '2.2.2.2',
+          port: 20002,
+        },
+        { name: '🇸🇬 新加坡 01', type: 'VMess', server: '2.2.2.3', port: 20003 },
+        {
+          name: '🇸🇬 新加坡 02',
+          type: 'Shadowsocks',
+          server: '2.2.2.4',
+          port: 20004,
+        },
+      ]
+    }
+    if (profileId === 'mock-sub-3') {
+      return [
+        {
+          name: '🇺🇸 美国 洛杉矶 01',
+          type: 'Shadowsocks',
+          server: '3.3.3.1',
+          port: 30001,
+        },
+        {
+          name: '🇺🇸 美国 圣何塞 01',
+          type: 'Trojan',
+          server: '3.3.3.2',
+          port: 30002,
+        },
+        {
+          name: '🇩🇪 德国 法兰克福 01',
+          type: 'VMess',
+          server: '3.3.3.3',
+          port: 30003,
+        },
+      ]
+    }
     return []
   }
   return invoke<ProxyNode[]>('get_profile_nodes', { profileId })
@@ -408,7 +511,10 @@ export async function getAppDir(): Promise<string> {
 
 export async function getAllNodes(): Promise<ProxyNode[]> {
   if (!isTauriEnvironment()) {
-    return []
+    const sub1 = await getProfileNodes('mock-sub-1')
+    const sub2 = await getProfileNodes('mock-sub-2')
+    const sub3 = await getProfileNodes('mock-sub-3')
+    return [...sub1, ...sub2, ...sub3]
   }
   return invoke<ProxyNode[]>('get_all_nodes')
 }
