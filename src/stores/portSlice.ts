@@ -144,13 +144,13 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
           ? `[${fbProfile.name}] ${s.fallbackNode}`
           : s.fallbackNode
 
-        if (s.primaryLatency !== undefined && s.primaryLatency !== null) {
+        if (s.primaryLatency !== undefined) {
           updateLatency(mainKey, s.primaryLatency)
-        } else if (s.isFallbackActive) {
+        } else if (s.isFallbackActive && !s.manualFallback) {
           updateLatency(mainKey, null)
         }
 
-        if (s.fallbackLatency !== undefined && s.fallbackLatency !== null) {
+        if (s.fallbackLatency !== undefined) {
           updateLatency(fbKey, s.fallbackLatency)
         }
       }
@@ -160,9 +160,12 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
         const portMappings = state.portMappings.map((mapping) => {
           const fallback = fallbackStatuses[mapping.id]
           if (!fallback) return mapping
-          const latency = fallback.isFallbackActive
-            ? null
-            : (fallback.primaryLatency ?? mapping.latency)
+          const latency =
+            fallback.primaryLatency !== undefined
+              ? fallback.primaryLatency
+              : fallback.isFallbackActive && !fallback.manualFallback
+                ? null
+                : mapping.latency
           if (mapping.latency === latency) return mapping
           updatedMappings = true
           return { ...mapping, latency }

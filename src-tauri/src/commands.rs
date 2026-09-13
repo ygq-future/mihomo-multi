@@ -413,6 +413,10 @@ pub async fn test_port_mapping_delay(
     match res {
         Ok(delay) => {
             let _ = state.port_router.update_port_latency(&id, Some(delay));
+            if mapping.fallback_node_name.is_some() && !mapping.manual_fallback {
+                let group_name = format!("fb-{}", mapping.port);
+                let _ = state.engine.test_group_delay(&group_name, Some(actual_url), Some(actual_timeout)).await;
+            }
             crate::tray::update_tray_menu(&app);
             Ok(delay)
         }
@@ -547,6 +551,33 @@ pub async fn test_all_port_mappings_delay(
             let _ = state.port_router.update_port_latency(mapping_id, res.latency);
         }
     }
+
+    // If any port mapping with fallback had its primary node test successfully,
+    // immediately trigger group delay test so Mihomo re-evaluates and restores fallback groups.
+    let re_eval_groups: Vec<String> = mappings
+        .iter()
+        .filter(|m| {
+            m.enabled
+                && m.fallback_node_name.is_some()
+                && !m.manual_fallback
+                && results
+                    .iter()
+                    .any(|r| r.name == m.node_name && r.latency.is_some())
+        })
+        .map(|m| format!("fb-{}", m.port))
+        .collect();
+
+    if !re_eval_groups.is_empty() {
+        let mut join_set = tokio::task::JoinSet::new();
+        for group in re_eval_groups {
+            let engine = state.engine.clone();
+            let url = actual_url.to_string();
+            join_set.spawn(async move {
+                let _ = engine.test_group_delay(&group, Some(&url), Some(actual_timeout)).await;
+            });
+        }
+        while join_set.join_next().await.is_some() {}
+    }
     crate::tray::update_tray_menu(&app);
     Ok(results)
 }
@@ -618,10 +649,16 @@ pub async fn get_port_fallback_statuses(
             .and_then(|p| p.history.last().map(|h| h.delay))
             .filter(|&d| d > 0);
 
-        let primary_latency = kernel_primary_latency
-            .or_else(|| state.latency_probe.get_latency(&primary_runtime_name).flatten())
-            .or_else(|| state.latency_probe.get_latency(&m.node_name).flatten())
-            .or(m.latency);
+        let primary_latency = if is_fallback_active && !m.manual_fallback {
+            // When automatically falling back, the primary node was deemed unreachable or timed out.
+            // Do NOT fall back to historical cached latencies; reflect the actual timeout status!
+            kernel_primary_latency
+        } else {
+            kernel_primary_latency
+                .or_else(|| state.latency_probe.get_latency(&primary_runtime_name).flatten())
+                .or_else(|| state.latency_probe.get_latency(&m.node_name).flatten())
+                .or(m.latency)
+        };
 
         let kernel_fallback_latency = engine
             .get_proxy_detail(&fb_runtime_name)
@@ -633,7 +670,10 @@ pub async fn get_port_fallback_statuses(
         let fallback_latency = kernel_fallback_latency
             .or_else(|| state.latency_probe.get_latency(&fb_runtime_name).flatten())
             .or_else(|| state.latency_probe.get_latency(&fallback_node).flatten());
-        if let Some(d) = kernel_primary_latency {
+        if is_fallback_active && !m.manual_fallback && kernel_primary_latency.is_none() {
+            latency_updates.push((primary_runtime_name, None));
+            latency_updates.push((m.node_name.clone(), None));
+        } else if let Some(d) = kernel_primary_latency {
             latency_updates.push((primary_runtime_name, Some(d)));
             latency_updates.push((m.node_name.clone(), Some(d)));
         }

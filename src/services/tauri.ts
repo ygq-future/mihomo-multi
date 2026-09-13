@@ -20,7 +20,18 @@ import type {
   AppUpdateInstallResult,
   MrsRulesInfo,
 } from '../types'
-import { APP_VERSION } from '../constants'
+import {
+  APP_VERSION,
+  DEFAULT_ACRYLIC_BLUR,
+  DEFAULT_ACRYLIC_OPACITY,
+  DEFAULT_BACKGROUND_OPACITY,
+  DEFAULT_CONTROLLER_PORT,
+  DEFAULT_FALLBACK_INTERVAL,
+  DEFAULT_FALLBACK_LAZY,
+  DEFAULT_LOG_LEVEL,
+  DEFAULT_TEST_URL,
+  DEFAULT_TIMEOUT_MS,
+} from '../constants'
 
 function isTauriEnvironment(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -32,7 +43,7 @@ export async function getAppStatus(): Promise<AppStatus> {
       core: {
         running: true,
         pid: 12345,
-        controllerPort: 9999,
+        controllerPort: DEFAULT_CONTROLLER_PORT,
         secret: 'mock-secret',
         version: 'Mihomo Meta v1.19.30 (Mock)',
         uptimeSeconds: 42,
@@ -53,7 +64,7 @@ export async function getCoreStatus(): Promise<CoreStatus> {
     return {
       running: true,
       pid: 12345,
-      controllerPort: 9999,
+      controllerPort: DEFAULT_CONTROLLER_PORT,
       secret: 'mock-secret',
       version: 'Mihomo Meta v1.19.30 (Mock)',
       uptimeSeconds: 42,
@@ -107,10 +118,10 @@ export async function getNextAvailablePort(
 export async function getConfig(): Promise<AppConfig> {
   if (!isTauriEnvironment()) {
     return {
-      controllerPort: 9999,
+      controllerPort: DEFAULT_CONTROLLER_PORT,
       controllerSecret: 'mock-secret',
       theme: 'system',
-      logLevel: 'info',
+      logLevel: DEFAULT_LOG_LEVEL,
       allowLan: false,
       selectedLanIp: null,
       closeToTray: true,
@@ -118,14 +129,14 @@ export async function getConfig(): Promise<AppConfig> {
       silentStart: false,
       lightweightMode: false,
       acrylicEffect: false,
-      acrylicBlur: 12,
-      acrylicOpacity: 65,
+      acrylicBlur: DEFAULT_ACRYLIC_BLUR,
+      acrylicOpacity: DEFAULT_ACRYLIC_OPACITY,
       backgroundImage: '',
-      backgroundOpacity: 80,
-      testUrl: 'http://cp.cloudflare.com/generate_204',
-      timeoutMs: 3000,
-      fallbackInterval: 5,
-      fallbackLazy: false,
+      backgroundOpacity: DEFAULT_BACKGROUND_OPACITY,
+      testUrl: DEFAULT_TEST_URL,
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+      fallbackInterval: DEFAULT_FALLBACK_INTERVAL,
+      fallbackLazy: DEFAULT_FALLBACK_LAZY,
       systemProxyEnabled: false,
       systemProxyPort: null,
       systemProxyBypassUser: [],

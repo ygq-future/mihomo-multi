@@ -4,6 +4,7 @@ import appLogo from '../../../src-tauri/icons/icon.png'
 import { type TabType, useAppStore } from '../../stores/appStore'
 import { Button } from '../common'
 import { TrafficWidget } from './TrafficWidget'
+import { DEFAULT_CONTROLLER_PORT } from '../../constants'
 
 const navItems: { id: TabType; label: string; icon: React.ElementType }[] = [
   { id: 'ports', label: '端口映射', icon: Network },
@@ -134,7 +135,7 @@ export const Sidebar: React.FC = () => {
               title={`Mihomo 内核: ${isRunning ? '运行中' : '已停止'}${
                 isRunning
                   ? `\nPID: ${coreStatus?.pid ?? '-'}\n控制端口: ${
-                      coreStatus?.controllerPort ?? 9999
+                      coreStatus?.controllerPort ?? DEFAULT_CONTROLLER_PORT
                     }`
                   : ''
               }`}
@@ -185,7 +186,10 @@ export const Sidebar: React.FC = () => {
             {isRunning && (
               <div className="text-[10px] text-muted-foreground space-y-0.5 font-mono truncate">
                 <div>PID: {coreStatus?.pid ?? '-'}</div>
-                <div>控制端口: {coreStatus?.controllerPort ?? 9999}</div>
+                <div>
+                  控制端口:{' '}
+                  {coreStatus?.controllerPort ?? DEFAULT_CONTROLLER_PORT}
+                </div>
               </div>
             )}
 

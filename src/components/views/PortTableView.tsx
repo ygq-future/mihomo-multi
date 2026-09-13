@@ -28,6 +28,10 @@ import {
 import { AddPortModal } from '../ports/AddPortModal'
 import { useWindowVisibility } from '../../services/useWindowVisibility'
 import { QuickCopyMenu } from '../ports/QuickCopyMenu'
+import {
+  DEFAULT_TIMEOUT_MS,
+  FALLBACK_STATUS_POLL_INTERVAL_MS,
+} from '../../constants'
 
 export const PortTableView: React.FC = () => {
   const {
@@ -96,7 +100,7 @@ export const PortTableView: React.FC = () => {
     const refresh = async () => {
       await fetchFallbackStatuses().catch(() => {})
       if (!disposed) {
-        timer = setTimeout(refresh, 5000)
+        timer = setTimeout(refresh, FALLBACK_STATUS_POLL_INTERVAL_MS)
       }
     }
 
@@ -580,13 +584,13 @@ export const PortTableView: React.FC = () => {
               const isAutoFallbackActive =
                 !isManualFallback &&
                 Boolean(fbStatus?.isFallbackActive && !fbStatus?.manualFallback)
-              const isPrimaryTimeout = latency === null || isAutoFallbackActive
+              const timeoutLimit = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS
+              const isPrimaryTimeout =
+                latency === null ||
+                (typeof latency === 'number' && latency >= timeoutLimit) ||
+                (isAutoFallbackActive && latency === undefined)
               const isFallbackWarning =
-                isRunning &&
-                m.enabled &&
-                hasFallback &&
-                !isManualFallback &&
-                isPrimaryTimeout
+                isRunning && m.enabled && hasFallback && isAutoFallbackActive
               const fbProfileName =
                 (m.fallbackProfileId && profileMap[m.fallbackProfileId]) ||
                 profileName

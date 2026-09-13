@@ -28,7 +28,23 @@ import {
 
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { APP_NAME, APP_VERSION, GITHUB_REPO_URL } from '../../constants'
+import {
+  APP_NAME,
+  APP_VERSION,
+  DEFAULT_ACRYLIC_BLUR,
+  DEFAULT_ACRYLIC_OPACITY,
+  DEFAULT_BACKGROUND_OPACITY,
+  DEFAULT_CONTROLLER_PORT,
+  DEFAULT_FALLBACK_INTERVAL,
+  DEFAULT_FALLBACK_LAZY,
+  DEFAULT_TEST_URL,
+  DEFAULT_TIMEOUT_MS,
+  GITHUB_REPO_URL,
+  MAX_FALLBACK_INTERVAL,
+  MAX_TIMEOUT_MS,
+  MIN_FALLBACK_INTERVAL,
+  MIN_TIMEOUT_MS,
+} from '../../constants'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import type {
@@ -173,7 +189,9 @@ export const SettingView: React.FC = () => {
     coreLoading,
     fetchStatus,
   } = useAppStore()
-  const [controllerPortInput, setControllerPortInput] = useState<string>('9999')
+  const [controllerPortInput, setControllerPortInput] = useState<string>(
+    String(DEFAULT_CONTROLLER_PORT),
+  )
   const [isSavingPort, setIsSavingPort] = useState<boolean>(false)
   const [portError, setPortError] = useState<string | null>(null)
   const [logLevel, setLogLevel] = useState<string>('info')
@@ -182,10 +200,12 @@ export const SettingView: React.FC = () => {
   // Appearance & Personalization
   const [theme, setTheme] = useState<string>('system')
   const [acrylicEffect, setAcrylicEffect] = useState<boolean>(false)
-  const [acrylicBlur, setAcrylicBlur] = useState<number>(12)
-  const [acrylicOpacity, setAcrylicOpacity] = useState<number>(65)
+  const [acrylicBlur, setAcrylicBlur] = useState<number>(DEFAULT_ACRYLIC_BLUR)
+  const [acrylicOpacity, setAcrylicOpacity] = useState<number>(
+    DEFAULT_ACRYLIC_OPACITY,
+  )
   const [bgImage, setBgImage] = useState<string>('')
-  const [bgOpacity, setBgOpacity] = useState<number>(80)
+  const [bgOpacity, setBgOpacity] = useState<number>(DEFAULT_BACKGROUND_OPACITY)
 
   // System & Window
   const [closeToTray, setCloseToTray] = useState<boolean>(true)
@@ -194,13 +214,16 @@ export const SettingView: React.FC = () => {
   const [lightweightMode, setLightweightMode] = useState<boolean>(false)
 
   // Probe & Fallback Strategy
-  const [testUrl, setTestUrl] = useState<string>(
-    'http://cp.cloudflare.com/generate_204',
+  const [testUrl, setTestUrl] = useState<string>(DEFAULT_TEST_URL)
+  const [timeoutMsInput, setTimeoutMsInput] = useState<string>(
+    String(DEFAULT_TIMEOUT_MS),
   )
-  const [timeoutMsInput, setTimeoutMsInput] = useState<string>('3000')
-  const [fallbackIntervalInput, setFallbackIntervalInput] =
-    useState<string>('5')
-  const [fallbackLazy, setFallbackLazy] = useState<boolean>(false)
+  const [fallbackIntervalInput, setFallbackIntervalInput] = useState<string>(
+    String(DEFAULT_FALLBACK_INTERVAL),
+  )
+  const [fallbackLazy, setFallbackLazy] = useState<boolean>(
+    DEFAULT_FALLBACK_LAZY,
+  )
   const [appDataDir, setAppDataDir] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -572,18 +595,20 @@ export const SettingView: React.FC = () => {
       setAllowLan(config.allowLan ?? false)
       setTheme(config.theme ?? 'system')
       setAcrylicEffect(config.acrylicEffect ?? false)
-      setAcrylicBlur(config.acrylicBlur ?? 12)
-      setAcrylicOpacity(config.acrylicOpacity ?? 65)
+      setAcrylicBlur(config.acrylicBlur ?? DEFAULT_ACRYLIC_BLUR)
+      setAcrylicOpacity(config.acrylicOpacity ?? DEFAULT_ACRYLIC_OPACITY)
       setBgImage(config.backgroundImage ?? '')
-      setBgOpacity(config.backgroundOpacity ?? 80)
+      setBgOpacity(config.backgroundOpacity ?? DEFAULT_BACKGROUND_OPACITY)
       setCloseToTray(config.closeToTray ?? true)
       setAutoLaunch(config.autoLaunch ?? false)
       setSilentStart(config.silentStart ?? false)
       setLightweightMode(config.lightweightMode ?? false)
-      setTestUrl(config.testUrl ?? 'http://cp.cloudflare.com/generate_204')
-      setTimeoutMsInput(String(config.timeoutMs ?? 3000))
-      setFallbackIntervalInput(String(config.fallbackInterval ?? 5))
-      setFallbackLazy(config.fallbackLazy ?? false)
+      setTestUrl(config.testUrl ?? DEFAULT_TEST_URL)
+      setTimeoutMsInput(String(config.timeoutMs ?? DEFAULT_TIMEOUT_MS))
+      setFallbackIntervalInput(
+        String(config.fallbackInterval ?? DEFAULT_FALLBACK_INTERVAL),
+      )
+      setFallbackLazy(config.fallbackLazy ?? DEFAULT_FALLBACK_LAZY)
     }
   }, [config])
 
@@ -660,9 +685,11 @@ export const SettingView: React.FC = () => {
     const trimmed = timeoutMsInput.trim()
     const isPureInteger = /^\d+$/.test(trimmed)
     const ms = isPureInteger ? Number.parseInt(trimmed, 10) : 0
-    if (!isPureInteger || !ms || ms < 500 || ms > 60000) {
-      toast.error('超时时间必须为整数且在 500 ~ 60000 ms 范围内')
-      setTimeoutMsInput(String(config?.timeoutMs ?? 3000))
+    if (!isPureInteger || !ms || ms < MIN_TIMEOUT_MS || ms > MAX_TIMEOUT_MS) {
+      toast.error(
+        `超时时间必须为整数且在 ${MIN_TIMEOUT_MS} ~ ${MAX_TIMEOUT_MS} ms 范围内`,
+      )
+      setTimeoutMsInput(String(config?.timeoutMs ?? DEFAULT_TIMEOUT_MS))
       return
     }
     if (config && config.timeoutMs !== ms) {
@@ -679,9 +706,18 @@ export const SettingView: React.FC = () => {
     const trimmed = fallbackIntervalInput.trim()
     const isPureInteger = /^\d+$/.test(trimmed)
     const sec = isPureInteger ? Number.parseInt(trimmed, 10) : 0
-    if (!isPureInteger || !sec || sec < 2 || sec > 300) {
-      toast.error('检测间隔必须为整数且在 2 ~ 300 秒范围内')
-      setFallbackIntervalInput(String(config?.fallbackInterval ?? 5))
+    if (
+      !isPureInteger ||
+      !sec ||
+      sec < MIN_FALLBACK_INTERVAL ||
+      sec > MAX_FALLBACK_INTERVAL
+    ) {
+      toast.error(
+        `检测间隔必须为整数且在 ${MIN_FALLBACK_INTERVAL} ~ ${MAX_FALLBACK_INTERVAL} 秒范围内`,
+      )
+      setFallbackIntervalInput(
+        String(config?.fallbackInterval ?? DEFAULT_FALLBACK_INTERVAL),
+      )
       return
     }
     if (config && config.fallbackInterval !== sec) {
@@ -926,7 +962,7 @@ export const SettingView: React.FC = () => {
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
             <span className="text-muted-foreground">外部控制器 (REST API)</span>
             <div className="font-mono font-medium text-foreground">
-              127.0.0.1:{coreStatus?.controllerPort ?? 9999}
+              127.0.0.1:{coreStatus?.controllerPort ?? DEFAULT_CONTROLLER_PORT}
             </div>
           </div>
 
@@ -1108,7 +1144,8 @@ export const SettingView: React.FC = () => {
                 外部控制器端口
               </label>
               <p className="text-[11px] text-muted-foreground">
-                Mihomo 本地 RESTful 控制接口端口，用于热重载与测速（默认 9999）
+                Mihomo 本地 RESTful 控制接口端口，用于热重载与测速（默认{' '}
+                {DEFAULT_CONTROLLER_PORT}）
               </p>
               {portError && (
                 <p className="text-[11px] text-destructive flex items-center gap-1 font-medium pt-0.5 animate-in fade-in duration-150">
@@ -1234,8 +1271,8 @@ export const SettingView: React.FC = () => {
                   type="number"
                   integerOnly
                   step={1}
-                  min={500}
-                  max={60000}
+                  min={MIN_TIMEOUT_MS}
+                  max={MAX_TIMEOUT_MS}
                   value={timeoutMsInput}
                   onChange={(e) => setTimeoutMsInput(e.target.value)}
                   onBlur={handleTimeoutBlur}
@@ -1270,8 +1307,8 @@ export const SettingView: React.FC = () => {
                   type="number"
                   integerOnly
                   step={1}
-                  min={2}
-                  max={300}
+                  min={MIN_FALLBACK_INTERVAL}
+                  max={MAX_FALLBACK_INTERVAL}
                   value={fallbackIntervalInput}
                   onChange={(e) => setFallbackIntervalInput(e.target.value)}
                   onBlur={handleFallbackIntervalBlur}

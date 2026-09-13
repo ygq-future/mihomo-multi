@@ -238,6 +238,48 @@ impl ClashApiClient {
             )))
         }
     }
+
+    /// Triggers healthcheck and latency test for an entire proxy group via GET /group/{name}/delay
+    pub async fn test_group_delay(
+        &self,
+        group_name: &str,
+        test_url: Option<&str>,
+        timeout_ms: Option<u32>,
+    ) -> AppResult<()> {
+        let actual_url = test_url.unwrap_or(DEFAULT_TEST_URL);
+        let actual_timeout = timeout_ms.unwrap_or(DEFAULT_TEST_TIMEOUT_MS);
+
+        let encoded_name = urlencoding::encode(group_name);
+        let encoded_url = urlencoding::encode(actual_url);
+
+        let request_url = format!(
+            "{}/group/{}/delay?url={}&timeout={}",
+            self.base_url, encoded_name, encoded_url, actual_timeout
+        );
+
+        let client_timeout = Duration::from_millis(u64::from(actual_timeout) + 1500);
+
+        let mut req = self.http_client.get(&request_url).timeout(client_timeout);
+        if !self.secret.is_empty() {
+            req = req.header(AUTHORIZATION, format!("Bearer {}", self.secret));
+        }
+
+        let resp = req
+            .send()
+            .await
+            .map_err(|err| AppError::ExternalController(format!("Request to Mihomo group delay API failed: {}", err)))?;
+
+        let status = resp.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let error_text = resp.text().await.unwrap_or_default();
+            Err(AppError::ExternalController(format!(
+                "Mihomo group delay API returned {}: {}",
+                status, error_text
+            )))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -376,6 +418,31 @@ mod tests {
 
         let client = ClashApiClient::new(port, "test-secret");
         let res = client.reload_config("C:/dummy/runtime.yaml").await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_clash_client_group_delay() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("Bind test server");
+        let port = listener.local_addr().expect("Get port").port();
+
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+
+                let response_body = r#"{"HK-01": 42, "HK-02": 50}"#;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    response_body.len(),
+                    response_body
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+
+        let client = ClashApiClient::new(port, "test-secret");
+        let res = client.test_group_delay("fb-7890", None, Some(1000)).await;
         assert!(res.is_ok());
     }
 }

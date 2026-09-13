@@ -12,6 +12,11 @@ import { ProxyGridView } from '../views/ProxyGridView'
 import { SettingView } from '../views/SettingView'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
+import {
+  DEFAULT_ACRYLIC_BLUR,
+  DEFAULT_ACRYLIC_OPACITY,
+  DEFAULT_BACKGROUND_OPACITY,
+} from '../../constants'
 function resolveImageSrc(src: string): string {
   if (!src) return ''
   if (
@@ -109,10 +114,13 @@ export const Shell: React.FC = () => {
     const root = document.documentElement
     if (config?.acrylicEffect) {
       root.setAttribute('data-acrylic', 'true')
-      root.style.setProperty('--acrylic-blur', `${config.acrylicBlur ?? 12}px`)
+      root.style.setProperty(
+        '--acrylic-blur',
+        `${config.acrylicBlur ?? DEFAULT_ACRYLIC_BLUR}px`,
+      )
       root.style.setProperty(
         '--acrylic-opacity',
-        `${(config.acrylicOpacity ?? 65) / 100}`,
+        `${(config.acrylicOpacity ?? DEFAULT_ACRYLIC_OPACITY) / 100}`,
       )
     } else {
       root.removeAttribute('data-acrylic')
@@ -138,7 +146,8 @@ export const Shell: React.FC = () => {
 
   const bgImg = config?.backgroundImage || ''
   const resolvedBg = resolveImageSrc(bgImg)
-  const bgOpacity = (config?.backgroundOpacity ?? 80) / 100
+  const bgOpacity =
+    (config?.backgroundOpacity ?? DEFAULT_BACKGROUND_OPACITY) / 100
 
   return (
     <div

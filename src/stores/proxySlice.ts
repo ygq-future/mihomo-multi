@@ -6,6 +6,7 @@ import type {
   NodeLatencyResult,
   PortMapping,
 } from '../types'
+import { DEFAULT_TIMEOUT_MS } from '../constants'
 
 export interface ProxySlice {
   latencies: Record<string, number | null>
@@ -69,7 +70,7 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
       const latency = await api.testNodeDelay(
         nodeName,
         testUrl,
-        timeoutMs || 5000,
+        timeoutMs || DEFAULT_TIMEOUT_MS,
       )
       set((state) => {
         const nextTesting = { ...state.testingNodeNames }
@@ -113,7 +114,7 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
       const results = await api.testNodesDelayBatch(
         nodeNames,
         testUrl,
-        timeoutMs || 5000,
+        timeoutMs || DEFAULT_TIMEOUT_MS,
       )
       set({ isTestingAll: false })
       return results

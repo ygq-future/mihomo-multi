@@ -39,6 +39,16 @@ pub trait KernelControllerAdapter: Send + Sync {
 
     /// Queries details for a proxy or proxy-group
     fn get_proxy_detail<'a>(&'a self, name: &'a str) -> BoxFuture<'a, AppResult<ProxyDetail>>;
+    /// Triggers healthcheck and latency test for an entire proxy group
+    fn test_group_delay<'a>(
+        &'a self,
+        _group_name: &'a str,
+        _test_url: Option<&'a str>,
+        _timeout_ms: Option<u32>,
+    ) -> BoxFuture<'a, AppResult<()>> {
+        Box::pin(async { Ok(()) })
+    }
+
 }
 
 /// Production controller adapter interacting with Mihomo REST API over HTTP.
@@ -97,6 +107,18 @@ impl KernelControllerAdapter for HttpControllerAdapter {
         Box::pin(async move {
             let client = self.client.read().clone();
             client.get_proxy_detail(name).await
+        })
+    }
+
+    fn test_group_delay<'a>(
+        &'a self,
+        group_name: &'a str,
+        test_url: Option<&'a str>,
+        timeout_ms: Option<u32>,
+    ) -> BoxFuture<'a, AppResult<()>> {
+        Box::pin(async move {
+            let client = self.client.read().clone();
+            client.test_group_delay(group_name, test_url, timeout_ms).await
         })
     }
 }
@@ -402,6 +424,15 @@ impl KernelEngine {
 
     pub async fn get_proxy_detail(&self, name: &str) -> AppResult<ProxyDetail> {
         self.adapter.get_proxy_detail(name).await
+    }
+
+    pub async fn test_group_delay(
+        &self,
+        group_name: &str,
+        test_url: Option<&str>,
+        timeout_ms: Option<u32>,
+    ) -> AppResult<()> {
+        self.adapter.test_group_delay(group_name, test_url, timeout_ms).await
     }
 
     // --- Runtime Configuration Synthesis & Hot-Reload ---
