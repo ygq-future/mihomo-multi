@@ -194,23 +194,57 @@ impl PortRouter {
         }
     }
 
-    fn load_metadata(path: &Path) -> Vec<PortMapping> {
-        if !path.exists() {
-            return Vec::new();
+    pub fn create_default_direct_mapping(existing: &[PortMapping]) -> PortMapping {
+        let mut port = crate::models::DEFAULT_DIRECT_PORT;
+        while existing.iter().any(|m| m.port == port) {
+            port += 1;
         }
-        match std::fs::read_to_string(path) {
-            Ok(content) => match serde_json::from_str(&content) {
-                Ok(mappings) => mappings,
+        PortMapping {
+            id: crate::models::FIXED_DIRECT_PORT_ID.to_string(),
+            port,
+            protocol: crate::models::InboundProtocol::Mixed,
+            profile_id: "direct".to_string(),
+            node_name: "DIRECT".to_string(),
+            enabled: false,
+            latency: None,
+            description: Some("直连监听 (直通流量不走代理)".to_string()),
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: false,
+            manual_fallback: false,
+        }
+    }
+
+    fn load_metadata(path: &Path) -> Vec<PortMapping> {
+        let mut mappings: Vec<PortMapping> = if !path.exists() {
+            Vec::new()
+        } else {
+            match std::fs::read_to_string(path) {
+                Ok(content) => match serde_json::from_str(&content) {
+                    Ok(m) => m,
+                    Err(err) => {
+                        tracing::error!("Failed to deserialize ports.json: {}", err);
+                        Vec::new()
+                    }
+                },
                 Err(err) => {
-                    tracing::error!("Failed to deserialize ports.json: {}", err);
+                    tracing::error!("Failed to read ports.json: {}", err);
                     Vec::new()
                 }
-            },
-            Err(err) => {
-                tracing::error!("Failed to read ports.json: {}", err);
-                Vec::new()
             }
+        };
+
+        if !mappings.iter().any(|m| m.id == crate::models::FIXED_DIRECT_PORT_ID) {
+            let direct = Self::create_default_direct_mapping(&mappings);
+            mappings.insert(0, direct);
+        } else if let Some(pos) = mappings.iter().position(|m| m.id == crate::models::FIXED_DIRECT_PORT_ID)
+            && pos != 0
+        {
+            let direct = mappings.remove(pos);
+            mappings.insert(0, direct);
         }
+
+        mappings
     }
 
     fn persist_metadata(&self) -> AppResult<()> {
@@ -221,7 +255,15 @@ impl PortRouter {
     }
 
     pub fn get_port_mappings(&self) -> Vec<PortMapping> {
-        self.ports.read().clone()
+        let guard = self.ports.read();
+        let mut list = guard.clone();
+        if let Some(pos) = list.iter().position(|m| m.id == crate::models::FIXED_DIRECT_PORT_ID)
+            && pos != 0
+        {
+            let direct = list.remove(pos);
+            list.insert(0, direct);
+        }
+        list
     }
 
     pub fn get_port_mapping_by_id(&self, id: &str) -> Option<PortMapping> {
@@ -277,12 +319,15 @@ impl PortRouter {
             ));
         }
 
-        if mapping.profile_id.trim().is_empty() {
-            return Err(AppError::InvalidConfig("Profile ID cannot be empty".to_string()));
-        }
+        let is_direct = mapping.id == crate::models::FIXED_DIRECT_PORT_ID || mapping.node_name == "DIRECT";
+        if !is_direct {
+            if mapping.profile_id.trim().is_empty() {
+                return Err(AppError::InvalidConfig("Profile ID cannot be empty".to_string()));
+            }
 
-        if mapping.node_name.trim().is_empty() {
-            return Err(AppError::InvalidConfig("Node name cannot be empty".to_string()));
+            if mapping.node_name.trim().is_empty() {
+                return Err(AppError::InvalidConfig("Node name cannot be empty".to_string()));
+            }
         }
 
         let is_new = mapping.id.trim().is_empty();
@@ -296,16 +341,18 @@ impl PortRouter {
         {
             let guard = self.ports.read();
 
-            // 1:1 Strict Node Binding Invariant: A proxy node can only be bound by a single port listener
-            for existing in guard.iter() {
-                if existing.id != mapping_id
-                    && existing.profile_id == mapping.profile_id
-                    && existing.node_name == mapping.node_name
-                {
-                    return Err(AppError::DuplicateNodeBinding {
-                        node_name: mapping.node_name.clone(),
-                        port: existing.port,
-                    });
+            if !is_direct {
+                // 1:1 Strict Node Binding Invariant: A proxy node can only be bound by a single port listener
+                for existing in guard.iter() {
+                    if existing.id != mapping_id
+                        && existing.profile_id == mapping.profile_id
+                        && existing.node_name == mapping.node_name
+                    {
+                        return Err(AppError::DuplicateNodeBinding {
+                            node_name: mapping.node_name.clone(),
+                            port: existing.port,
+                        });
+                    }
                 }
             }
 
@@ -372,6 +419,11 @@ impl PortRouter {
     }
 
     pub async fn delete_port_mapping(&self, id: &str) -> AppResult<()> {
+        if id == crate::models::FIXED_DIRECT_PORT_ID {
+            return Err(AppError::InvalidConfig(
+                "固定直连监听卡片为系统内置卡片，不可删除".to_string(),
+            ));
+        }
         let removed = {
             let mut guard = self.ports.write();
             let pos = guard.iter().position(|p| p.id == id);
@@ -680,13 +732,42 @@ mod tests {
         // Read ports.json directly from disk to confirm valid JSON serialization
         let content = std::fs::read_to_string(temp_dir.join("ports.json")).expect("Read ports.json");
         let disk_mappings: Vec<PortMapping> = serde_json::from_str(&content).expect("Deserialize ports.json");
-        assert_eq!(disk_mappings.len(), 2);
-        assert_eq!(disk_mappings[0].id, "map-persist-1");
-        assert_eq!(disk_mappings[1].id, "map-persist-2");
+        assert_eq!(disk_mappings.len(), 3);
+        assert_eq!(disk_mappings[0].id, crate::models::FIXED_DIRECT_PORT_ID);
+        assert_eq!(disk_mappings[1].id, "map-persist-1");
+        assert_eq!(disk_mappings[2].id, "map-persist-2");
 
         // New router instance loads identical state
         let router2 = PortRouter::with_delegate(temp_dir.clone(), delegate.clone());
-        assert_eq!(router2.get_port_mappings().len(), 2);
+        assert_eq!(router2.get_port_mappings().len(), 3);
+        assert_eq!(router2.get_port_mappings()[0].id, crate::models::FIXED_DIRECT_PORT_ID);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_fixed_direct_cannot_be_deleted() {
+        let temp_dir = std::env::temp_dir().join(format!("test_port_router_direct_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let delegate = Arc::new(MockPortSyncDelegate::default());
+        let router = PortRouter::with_delegate(temp_dir.clone(), delegate.clone());
+
+        // Direct mapping exists by default at index 0
+        let mappings = router.get_port_mappings();
+        assert_eq!(mappings[0].id, crate::models::FIXED_DIRECT_PORT_ID);
+        assert_eq!(mappings[0].port, crate::models::DEFAULT_DIRECT_PORT);
+        assert_eq!(mappings[0].node_name, "DIRECT");
+        assert!(!mappings[0].enabled);
+
+        // Attempt to delete should return error
+        let del_res = router.delete_port_mapping(crate::models::FIXED_DIRECT_PORT_ID).await;
+        assert!(del_res.is_err());
+
+        // Modifying port on fixed direct works
+        let mut direct = mappings[0].clone();
+        direct.port = 17878;
+        let saved = router.save_port_mapping(direct).await.unwrap();
+        assert_eq!(saved.port, 17878);
+        assert_eq!(router.get_port_mappings()[0].port, 17878);
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

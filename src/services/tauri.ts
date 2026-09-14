@@ -3,6 +3,7 @@ import type {
   AppConfig,
   AppStatus,
   AutoUpdateEventPayload,
+  DirectEgressInfo,
   AutoUpdaterStatus,
   CoreStatus,
   KernelUpdateCheckResult,
@@ -240,6 +241,26 @@ export async function testPortFallbackDelay(
     id,
     testUrl: testUrl || null,
     timeoutMs: timeoutMs || null,
+  })
+}
+
+export async function queryDirectEgressInfo(
+  port?: number | null,
+  timeoutMs?: number | null,
+): Promise<DirectEgressInfo> {
+  if (!isTauriEnvironment()) {
+    return {
+      ip: '127.0.0.1',
+      region: '本地网络 · 本机',
+      countryCode: 'CN',
+      isp: '局域网/本机回环',
+      latencyMs: 15,
+      source: 'mock',
+    }
+  }
+  return invoke<DirectEgressInfo>('query_direct_egress_info', {
+    port: port ?? null,
+    timeoutMs: timeoutMs ?? null,
   })
 }
 

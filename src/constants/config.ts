@@ -51,3 +51,9 @@ export const DEFAULT_LOG_LEVEL = 'info'
 export const DEFAULT_ACRYLIC_BLUR = 12
 export const DEFAULT_ACRYLIC_OPACITY = 65
 export const DEFAULT_BACKGROUND_OPACITY = 80
+
+/**
+ * 固定直连监听端口常量
+ */
+export const FIXED_DIRECT_PORT_ID = 'fixed-direct'
+export const DEFAULT_DIRECT_PORT = 7878

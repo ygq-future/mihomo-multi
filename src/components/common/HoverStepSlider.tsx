@@ -1,4 +1,5 @@
-import { Globe, Loader2, Power } from 'lucide-react'
+import { Globe, Loader2, Lock, Power } from 'lucide-react'
+import { toast } from '../../stores/toastStore'
 import {
   type MouseEvent as ReactMouseEvent,
   useCallback,
@@ -20,6 +21,9 @@ export interface HoverStepSliderProps {
   disabled?: boolean
   loading?: boolean
   className?: string
+  lockedSteps?: number[]
+  lockedTooltip?: string
+  maxAllowedStep?: number
 }
 
 const defaultSteps: StepItem[] = [
@@ -68,6 +72,9 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   disabled = false,
   loading = false,
   className = '',
+  lockedSteps,
+  lockedTooltip,
+  maxAllowedStep,
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
@@ -212,11 +219,15 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
 
       const rawOffset = clientX - (rect.left + pad + thumbHalfWidth)
       const ratio = Math.max(0, Math.min(1, rawOffset / innerWidth))
-      const floatVal = ratio * maxStep
+      const rawMax =
+        maxAllowedStep !== undefined
+          ? Math.min(maxAllowedStep, maxStep)
+          : maxStep
+      const floatVal = Math.min(rawMax, ratio * maxStep)
       setContinuousValue(floatVal)
       latestContinuousRef.current = floatVal
     },
-    [maxStep],
+    [maxStep, maxAllowedStep],
   )
 
   const handleTrackMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
@@ -241,7 +252,11 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
 
       // Snap to nearest discrete step
       const snapped = Math.round(latestContinuousRef.current)
-      const finalStep = Math.max(0, Math.min(maxStep, snapped))
+      const rawMax =
+        maxAllowedStep !== undefined
+          ? Math.min(maxAllowedStep, maxStep)
+          : maxStep
+      const finalStep = Math.max(0, Math.min(rawMax, snapped))
       setContinuousValue(finalStep)
       latestContinuousRef.current = finalStep
 
@@ -258,7 +273,13 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isDragging, maxStep, onChange, updateContinuousFromClientX])
+  }, [
+    isDragging,
+    maxStep,
+    maxAllowedStep,
+    onChange,
+    updateContinuousFromClientX,
+  ])
 
   // Update coords on window resize or scroll
   useEffect(() => {
@@ -279,6 +300,15 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   // Click on step tag
   const handleSelectStep = (stepVal: number) => {
     if (disabled || loading) return
+    const isLocked =
+      lockedSteps?.includes(stepVal) ||
+      (maxAllowedStep !== undefined && stepVal > maxAllowedStep)
+    if (isLocked) {
+      toast.warning(
+        lockedTooltip || '直连监听不支持设为系统代理，仅供应用/插件定向直通',
+      )
+      return
+    }
     setContinuousValue(stepVal)
     latestContinuousRef.current = stepVal
     if (stepVal !== committedValueRef.current) {
@@ -425,20 +455,38 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
 
               {/* Clickable Step Tags */}
               <div className="flex justify-between items-center text-[10px] text-muted-foreground px-0.5">
-                {steps.map((step) => (
-                  <button
-                    key={step.value}
-                    type="button"
-                    onClick={() => handleSelectStep(step.value)}
-                    className={`hover:text-foreground transition-all cursor-pointer py-0.5 px-1 rounded font-medium leading-none ${
-                      currentNearestStepIndex === step.value
-                        ? 'font-bold text-foreground bg-secondary/90'
-                        : ''
-                    }`}
-                  >
-                    {step.label}
-                  </button>
-                ))}
+                {steps.map((step) => {
+                  const isLocked =
+                    lockedSteps?.includes(step.value) ||
+                    (maxAllowedStep !== undefined &&
+                      step.value > maxAllowedStep)
+                  return (
+                    <button
+                      key={step.value}
+                      type="button"
+                      onClick={() => handleSelectStep(step.value)}
+                      title={
+                        isLocked
+                          ? lockedTooltip || '直连监听不支持设为系统代理'
+                          : undefined
+                      }
+                      className={`transition-all py-0.5 px-1 rounded font-medium leading-none flex items-center gap-0.5 ${
+                        isLocked
+                          ? 'opacity-40 cursor-not-allowed text-muted-foreground'
+                          : 'cursor-pointer hover:text-foreground'
+                      } ${
+                        currentNearestStepIndex === step.value
+                          ? 'font-bold text-foreground bg-secondary/90'
+                          : ''
+                      }`}
+                    >
+                      {step.label}
+                      {isLocked && (
+                        <Lock className="w-2.5 h-2.5 ml-0.5 opacity-80" />
+                      )}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </div>,

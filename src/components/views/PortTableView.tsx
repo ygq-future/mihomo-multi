@@ -10,10 +10,15 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
-import type { LanIpInfo, PortDriftReport, PortMapping } from '../../types'
+import type {
+  DirectEgressInfo,
+  LanIpInfo,
+  PortDriftReport,
+  PortMapping,
+} from '../../types'
 import { extractRegion, getLatencyBadgeProps } from '../../utils/proxy'
 import {
   Badge,
@@ -26,12 +31,34 @@ import {
   toast,
 } from '../common'
 import { AddPortModal } from '../ports/AddPortModal'
+import { EditDirectPortModal } from '../ports/EditDirectPortModal'
 import { useWindowVisibility } from '../../services/useWindowVisibility'
 import { QuickCopyMenu } from '../ports/QuickCopyMenu'
 import {
   DEFAULT_TIMEOUT_MS,
   FALLBACK_STATUS_POLL_INTERVAL_MS,
+  FIXED_DIRECT_PORT_ID,
 } from '../../constants'
+
+const DIRECT_EGRESS_CACHE_KEY = 'mihomo_direct_egress_cache'
+
+function loadCachedDirectEgress(): DirectEgressInfo | null {
+  try {
+    const raw = localStorage.getItem(DIRECT_EGRESS_CACHE_KEY)
+    if (raw) return JSON.parse(raw) as DirectEgressInfo
+  } catch {
+    // Ignore JSON parsing or localStorage access errors
+  }
+  return null
+}
+
+function saveCachedDirectEgress(info: DirectEgressInfo) {
+  try {
+    localStorage.setItem(DIRECT_EGRESS_CACHE_KEY, JSON.stringify(info))
+  } catch {
+    // Ignore localStorage storage quota errors
+  }
+}
 
 export const PortTableView: React.FC = () => {
   const {
@@ -76,6 +103,48 @@ export const PortTableView: React.FC = () => {
   const [togglingPortIds, setTogglingPortIds] = useState<
     Record<string, boolean>
   >({})
+  const [directEgressInfo, setDirectEgressInfo] =
+    useState<DirectEgressInfo | null>(loadCachedDirectEgress)
+  const [isProbingDirect, setIsProbingDirect] = useState(false)
+  const [isEditDirectModalOpen, setIsEditDirectModalOpen] = useState(false)
+  const [directMappingForEdit, setDirectMappingForEdit] =
+    useState<PortMapping | null>(null)
+
+  const handleProbeDirectEgress = useCallback(
+    async (port?: number | null, isManual = false) => {
+      setIsProbingDirect(true)
+      try {
+        const info = await api.queryDirectEgressInfo(port)
+        setDirectEgressInfo(info)
+        saveCachedDirectEgress(info)
+        if (isManual) {
+          toast.success(`出口检测完成: ${info.ip} (${info.region})`)
+        }
+        return info
+      } catch (err) {
+        if (isManual) {
+          toast.error(
+            `出口检测失败: ${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
+        return null
+      } finally {
+        setIsProbingDirect(false)
+      }
+    },
+    [],
+  )
+
+  // Auto-probe on first mount if no cache exists
+  useEffect(() => {
+    if (!directEgressInfo) {
+      const direct = portMappings.find(
+        (m) => m.id === FIXED_DIRECT_PORT_ID || m.nodeName === 'DIRECT',
+      )
+      const portToProbe = direct && direct.enabled ? direct.port : null
+      void handleProbeDirectEgress(portToProbe, false)
+    }
+  }, [directEgressInfo, portMappings, handleProbeDirectEgress])
 
   // LAN IPs state for allow_lan mode
   const [lanIps, setLanIps] = useState<LanIpInfo[]>([])
@@ -215,9 +284,15 @@ export const PortTableView: React.FC = () => {
     return map
   }, [profiles])
 
-  // Sorted port mappings (Ascending by port number)
+  // Sorted port mappings (Fixed direct card is always index 0, others ascending by port number)
   const sortedMappings = useMemo(() => {
-    return [...portMappings].sort((a, b) => a.port - b.port)
+    const direct = portMappings.find(
+      (m) => m.id === FIXED_DIRECT_PORT_ID || m.nodeName === 'DIRECT',
+    )
+    const others = portMappings
+      .filter((m) => m.id !== FIXED_DIRECT_PORT_ID && m.nodeName !== 'DIRECT')
+      .sort((a, b) => a.port - b.port)
+    return direct ? [direct, ...others] : others
   }, [portMappings])
 
   const enabledPorts = useMemo(() => {
@@ -236,6 +311,13 @@ export const PortTableView: React.FC = () => {
     setTogglingPortIds((prev) => ({ ...prev, [m.id]: true }))
     setPendingPortStates((prev) => ({ ...prev, [m.id]: newState }))
     try {
+      const isDirectCard =
+        m.id === FIXED_DIRECT_PORT_ID || m.nodeName === 'DIRECT'
+      if (isDirectCard && newState === 'systemProxy') {
+        toast.warning('直连监听不支持设为系统代理，仅供应用/插件定向直通')
+        return
+      }
+
       const isSysProxy =
         config?.systemProxyEnabled && config?.systemProxyPort === m.port
 
@@ -262,6 +344,9 @@ export const PortTableView: React.FC = () => {
         } else if (!m.enabled) {
           await togglePortMapping(m.id, true)
           toast.success(`端口 ${m.port} 已启用监听`)
+          if (isDirectCard) {
+            void handleProbeDirectEgress(m.port, false)
+          }
         }
         await fetchConfig()
         fetchStatus().catch(() => {})
@@ -546,6 +631,8 @@ export const PortTableView: React.FC = () => {
           <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
             {sortedMappings.map((m) => {
               const isTesting = testingPortIds[m.id] || false
+              const isDirectCard =
+                m.id === FIXED_DIRECT_PORT_ID || m.nodeName === 'DIRECT'
               const profileName = profileMap[m.profileId] || '未知订阅'
               const drift = driftMap[m.id]
               const isDrifted = drift && drift.status !== 'healthy'
@@ -694,7 +781,17 @@ export const PortTableView: React.FC = () => {
                       >
                         {m.protocol}
                       </Badge>
-                      {m.bypassCn !== false ? (
+                      {isDirectCard ? (
+                        <Badge
+                          variant="outline"
+                          size="sm"
+                          className="!text-[10px] !py-0.5 !px-1.5 font-medium text-sky-500/90 border-sky-500/30 bg-sky-500/5 shrink-0 flex items-center gap-1"
+                          title="此端口流量全量直通公网，不走任何代理"
+                        >
+                          <Zap className="w-2.5 h-2.5 text-sky-500" />
+                          直通
+                        </Badge>
+                      ) : m.bypassCn !== false ? (
                         <Badge
                           variant="secondary"
                           size="sm"
@@ -733,249 +830,371 @@ export const PortTableView: React.FC = () => {
                       }}
                       loading={!!togglingPortIds[m.id]}
                       disabled={isTesting || !!togglingPortIds[m.id]}
+                      lockedSteps={isDirectCard ? [2] : undefined}
+                      maxAllowedStep={isDirectCard ? 1 : undefined}
+                      lockedTooltip={
+                        isDirectCard
+                          ? '直连监听不支持设为系统代理，仅供应用/插件定向直通'
+                          : undefined
+                      }
                     />
                   </div>
 
-                  {/* Middle Row: Bound Proxy Node + Node Outbound Protocol Badge Right */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between gap-2 min-w-0">
-                      <div className="flex items-center gap-1.5 font-medium text-xs text-foreground min-w-0 flex-1">
-                        <RegionFlag
-                          code={extractRegion(m.nodeName).code}
-                          size="md"
-                        />
-                        {profileName && (
-                          <span
-                            className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
-                            title={`所属订阅: ${profileName}`}
-                          >
-                            {profileName}
-                          </span>
-                        )}
-                        <span
-                          className="truncate flex-1 font-semibold text-foreground"
-                          title={
-                            profileName
-                              ? `[${profileName}] ${m.nodeName}`
-                              : m.nodeName
-                          }
-                        >
-                          {m.nodeName}
-                        </span>
-                        {isDrifted && (
-                          <Badge
-                            variant={
-                              drift?.status === 'empty_profile'
-                                ? 'warning'
-                                : 'danger'
-                            }
-                            size="sm"
-                            dot
-                            className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
-                            title={
-                              drift?.message ||
-                              '节点在订阅中不存在，流量已直连 (DIRECT)'
-                            }
-                          >
-                            {drift?.status === 'profile_missing'
-                              ? '订阅已删 (DIRECT)'
-                              : drift?.status === 'empty_profile'
-                                ? '订阅无节点 (DIRECT)'
-                                : '节点漂移 (DIRECT)'}
-                          </Badge>
-                        )}
-                      </div>
-
-                      {/* Main Node Status Badge (正常 / 异常) */}
-                      <Badge
-                        variant={isPrimaryTimeout ? 'danger' : 'success'}
-                        size="sm"
-                        dot
-                        className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
-                        title={
-                          isPrimaryTimeout
-                            ? '主节点连接超时或网络异常'
-                            : '主节点状态正常'
-                        }
-                      >
-                        {isPrimaryTimeout ? '异常' : '正常'}
-                      </Badge>
-                    </div>
-
-                    {/* Fallback Node Row (Clickable to manually lock fallback) */}
-                    {hasFallback && (
-                      <button
-                        type="button"
-                        disabled={!m.enabled || isAutoFallbackActive}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (!m.enabled || isAutoFallbackActive) return
-                          handleToggleManualFallback(m.id, isManualFallback)
-                        }}
-                        className={`w-full flex items-center justify-between gap-1.5 text-[11px] px-2 py-1 rounded-md border select-none transition-all ${
-                          !m.enabled
-                            ? 'bg-muted/10 border-border/40 text-muted-foreground/50 cursor-not-allowed'
-                            : isManualFallback
-                              ? 'bg-primary/10 border-primary/40 text-foreground cursor-pointer hover:border-primary/70 hover:bg-primary/15 group/fb'
-                              : isAutoFallbackActive
-                                ? 'bg-amber-500/10 border-amber-500/30 text-foreground cursor-not-allowed opacity-90'
-                                : 'bg-muted/20 border-dashed border-border/80 text-muted-foreground cursor-pointer hover:border-primary/50 hover:bg-primary/5 hover:text-foreground group/fb'
-                        }`}
-                        title={
-                          !m.enabled
-                            ? '端口已停用，无法切换备用节点'
-                            : isManualFallback
-                              ? '当前已主动启用备用节点（点击取消并恢复自动兜底模式）'
-                              : isAutoFallbackActive
-                                ? '主节点连接超时，系统已自动切换至备用节点兜底（主节点故障时无需手动指定）'
-                                : '点击主动启用备用节点（锁定流量至备用节点，测速超时也不切回）'
-                        }
-                      >
-                        <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
-                          <ShieldCheck
-                            className={`w-3 h-3 shrink-0 ${
-                              isManualFallback
-                                ? 'text-primary animate-pulse'
-                                : isAutoFallbackActive
-                                  ? 'text-amber-500 animate-pulse'
-                                  : 'text-muted-foreground/60 group-hover/fb:text-primary'
-                            }`}
-                          />
-                          {fbProfileName && (
-                            <span
-                              className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
-                              title={`所属订阅: ${fbProfileName}`}
-                            >
-                              {fbProfileName}
-                            </span>
-                          )}
+                  {/* Middle Row: Bound Proxy Node or Direct Egress Info */}
+                  {isDirectCard ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <div className="flex items-center gap-1.5 font-medium text-xs text-foreground min-w-0 flex-1">
                           <RegionFlag
-                            code={extractRegion(m.fallbackNodeName || '').code}
-                            size="sm"
+                            code={directEgressInfo?.countryCode || 'CN'}
+                            size="md"
                           />
                           <span
-                            className="truncate font-medium text-[11px]"
+                            className="truncate font-mono font-semibold text-xs text-foreground"
                             title={
-                              fbProfileName
-                                ? `[${fbProfileName}] ${m.fallbackNodeName}`
-                                : m.fallbackNodeName || ''
+                              directEgressInfo?.ip ||
+                              '正在检测或尚未获取公网 IP'
                             }
                           >
-                            {m.fallbackNodeName}
+                            {directEgressInfo?.ip ||
+                              (isProbingDirect
+                                ? '正在探测 IP...'
+                                : m.enabled
+                                  ? '点击测速检测 IP'
+                                  : '未开启监听')}
+                          </span>
+                          <span
+                            className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 shrink-0 select-none"
+                            title="流量出口: 本地 DIRECT 直连"
+                          >
+                            DIRECT 直连
                           </span>
                         </div>
+                      </div>
 
-                        {isManualFallback ? (
-                          <Badge
-                            variant="primary"
-                            size="sm"
-                            dot
-                            className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-primary/20 text-primary border-primary/40 font-medium animate-pulse group-hover/fb:bg-primary/30"
-                          >
-                            <span className="group-hover/fb:hidden">
-                              已主动锁定
-                            </span>
-                            <span className="hidden group-hover/fb:inline">
-                              点击恢复自动
-                            </span>
-                          </Badge>
-                        ) : isAutoFallbackActive ? (
-                          <Badge
-                            variant="warning"
-                            size="sm"
-                            dot
-                            className="!text-[9px] !py-0 !px-1.5 shrink-0 animate-pulse"
-                            title="主节点超时，系统已自动切换至备用节点兜底"
-                          >
-                            自动兜底中
-                          </Badge>
-                        ) : (
-                          <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0 bg-secondary/80 px-1.5 py-0.5 rounded transition-colors group-hover/fb:text-primary group-hover/fb:bg-primary/10">
-                            <span className="group-hover/fb:hidden">待命</span>
-                            <span className="hidden group-hover/fb:inline">
-                              点击主动启用
-                            </span>
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground min-w-0">
+                        <span
+                          className="truncate"
+                          title={
+                            directEgressInfo
+                              ? `${directEgressInfo.region}${
+                                  directEgressInfo.isp
+                                    ? ` · ${directEgressInfo.isp}`
+                                    : ''
+                                }`
+                              : '直通流量 · 不走任何代理节点'
+                          }
+                        >
+                          {directEgressInfo
+                            ? `${directEgressInfo.region}${
+                                directEgressInfo.isp
+                                  ? ` · ${directEgressInfo.isp}`
+                                  : ''
+                              }`
+                            : '直通流量 · 不走任何代理节点'}
+                        </span>
+                        {!m.enabled && (
+                          <span className="text-[10px] text-muted-foreground/60 shrink-0">
+                            (未开启)
                           </span>
                         )}
-                      </button>
-                    )}
-                    {m.description?.trim() && (
-                      <div
-                        className="text-[10px] text-muted-foreground truncate italic pt-0.5"
-                        title={m.description}
-                      >
-                        {m.description}
                       </div>
-                    )}
-                  </div>
+
+                      {m.description?.trim() && (
+                        <div
+                          className="text-[10px] text-muted-foreground truncate italic pt-0.5"
+                          title={m.description}
+                        >
+                          {m.description}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <div className="flex items-center gap-1.5 font-medium text-xs text-foreground min-w-0 flex-1">
+                          <RegionFlag
+                            code={extractRegion(m.nodeName).code}
+                            size="md"
+                          />
+                          {profileName && (
+                            <span
+                              className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
+                              title={`所属订阅: ${profileName}`}
+                            >
+                              {profileName}
+                            </span>
+                          )}
+                          <span
+                            className="truncate flex-1 font-semibold text-foreground"
+                            title={
+                              profileName
+                                ? `[${profileName}] ${m.nodeName}`
+                                : m.nodeName
+                            }
+                          >
+                            {m.nodeName}
+                          </span>
+                          {isDrifted && (
+                            <Badge
+                              variant={
+                                drift?.status === 'empty_profile'
+                                  ? 'warning'
+                                  : 'danger'
+                              }
+                              size="sm"
+                              dot
+                              className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
+                              title={
+                                drift?.message ||
+                                '节点在订阅中不存在，流量已直连 (DIRECT)'
+                              }
+                            >
+                              {drift?.status === 'profile_missing'
+                                ? '订阅已删 (DIRECT)'
+                                : drift?.status === 'empty_profile'
+                                  ? '订阅无节点 (DIRECT)'
+                                  : '节点漂移 (DIRECT)'}
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Main Node Status Badge (正常 / 异常) */}
+                        <Badge
+                          variant={isPrimaryTimeout ? 'danger' : 'success'}
+                          size="sm"
+                          dot
+                          className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
+                          title={
+                            isPrimaryTimeout
+                              ? '主节点连接超时或网络异常'
+                              : '主节点状态正常'
+                          }
+                        >
+                          {isPrimaryTimeout ? '异常' : '正常'}
+                        </Badge>
+                      </div>
+
+                      {/* Fallback Node Row (Clickable to manually lock fallback) */}
+                      {hasFallback && (
+                        <button
+                          type="button"
+                          disabled={!m.enabled || isAutoFallbackActive}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (!m.enabled || isAutoFallbackActive) return
+                            handleToggleManualFallback(m.id, isManualFallback)
+                          }}
+                          className={`w-full flex items-center justify-between gap-1.5 text-[11px] px-2 py-1 rounded-md border select-none transition-all ${
+                            !m.enabled
+                              ? 'bg-muted/10 border-border/40 text-muted-foreground/50 cursor-not-allowed'
+                              : isManualFallback
+                                ? 'bg-primary/10 border-primary/40 text-foreground cursor-pointer hover:border-primary/70 hover:bg-primary/15 group/fb'
+                                : isAutoFallbackActive
+                                  ? 'bg-amber-500/10 border-amber-500/30 text-foreground cursor-not-allowed opacity-90'
+                                  : 'bg-muted/20 border-dashed border-border/80 text-muted-foreground cursor-pointer hover:border-primary/50 hover:bg-primary/5 hover:text-foreground group/fb'
+                          }`}
+                          title={
+                            !m.enabled
+                              ? '端口已停用，无法切换备用节点'
+                              : isManualFallback
+                                ? '当前已主动启用备用节点（点击取消并恢复自动兜底模式）'
+                                : isAutoFallbackActive
+                                  ? '主节点连接超时，系统已自动切换至备用节点兜底（主节点故障时无需手动指定）'
+                                  : '点击主动启用备用节点（锁定流量至备用节点，测速超时也不切回）'
+                          }
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
+                            <ShieldCheck
+                              className={`w-3 h-3 shrink-0 ${
+                                isManualFallback
+                                  ? 'text-primary animate-pulse'
+                                  : isAutoFallbackActive
+                                    ? 'text-amber-500 animate-pulse'
+                                    : 'text-muted-foreground/60 group-hover/fb:text-primary'
+                              }`}
+                            />
+                            {fbProfileName && (
+                              <span
+                                className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
+                                title={`所属订阅: ${fbProfileName}`}
+                              >
+                                {fbProfileName}
+                              </span>
+                            )}
+                            <RegionFlag
+                              code={
+                                extractRegion(m.fallbackNodeName || '').code
+                              }
+                              size="sm"
+                            />
+                            <span
+                              className="truncate font-medium text-[11px]"
+                              title={
+                                fbProfileName
+                                  ? `[${fbProfileName}] ${m.fallbackNodeName}`
+                                  : m.fallbackNodeName || ''
+                              }
+                            >
+                              {m.fallbackNodeName}
+                            </span>
+                          </div>
+
+                          {isManualFallback ? (
+                            <Badge
+                              variant="primary"
+                              size="sm"
+                              dot
+                              className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-primary/20 text-primary border-primary/40 font-medium animate-pulse group-hover/fb:bg-primary/30"
+                            >
+                              <span className="group-hover/fb:hidden">
+                                已主动锁定
+                              </span>
+                              <span className="hidden group-hover/fb:inline">
+                                点击恢复自动
+                              </span>
+                            </Badge>
+                          ) : isAutoFallbackActive ? (
+                            <Badge
+                              variant="warning"
+                              size="sm"
+                              dot
+                              className="!text-[9px] !py-0 !px-1.5 shrink-0 animate-pulse"
+                              title="主节点超时，系统已自动切换至备用节点兜底"
+                            >
+                              自动兜底中
+                            </Badge>
+                          ) : (
+                            <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0 bg-secondary/80 px-1.5 py-0.5 rounded transition-colors group-hover/fb:text-primary group-hover/fb:bg-primary/10">
+                              <span className="group-hover/fb:hidden">
+                                待命
+                              </span>
+                              <span className="hidden group-hover/fb:inline">
+                                点击主动启用
+                              </span>
+                            </span>
+                          )}
+                        </button>
+                      )}
+                      {m.description?.trim() && (
+                        <div
+                          className="text-[10px] text-muted-foreground truncate italic pt-0.5"
+                          title={m.description}
+                        >
+                          {m.description}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Bottom Row: Latency Badge + Actions */}
                   {/* Bottom Row: Latency Badge + Actions */}
                   <div className="pt-2 border-t border-border/50 flex flex-nowrap items-center justify-between gap-1.5 text-[11px]">
                     {/* Latency Badges Area (Clickable for Single Delay Test) */}
                     <div className="flex flex-nowrap items-center gap-1.5 min-w-0 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleSingleDelayTest(m.id, m.port)}
-                        disabled={!m.enabled || isTesting}
-                        className="focus:outline-none flex items-center shrink-0"
-                        title={
-                          hasFallback
-                            ? '点击单端口测速 (同时测速主节点与备用节点)'
-                            : '点击单端口测速'
-                        }
-                      >
-                        <Badge
-                          variant={latencyProps.variant}
-                          size="sm"
-                          dot={latencyProps.dot}
-                          className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1 shrink-0 whitespace-nowrap"
-                        >
-                          {hasFallback && (
-                            <span className="font-sans font-semibold text-[9px] opacity-75">
-                              主
-                            </span>
-                          )}
-                          {isTesting ? (
-                            <span className="flex items-center gap-1">
-                              <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                              测速中
-                            </span>
-                          ) : (
-                            latencyProps.label
-                          )}
-                        </Badge>
-                      </button>
-
-                      {hasFallback && (
+                      {isDirectCard ? (
                         <button
                           type="button"
                           onClick={() =>
-                            handleSingleFallbackDelayTest(m.id, m.port)
+                            handleProbeDirectEgress(
+                              m.enabled ? m.port : null,
+                              true,
+                            )
                           }
-                          disabled={!m.enabled || isTestingFb}
+                          disabled={isProbingDirect}
                           className="focus:outline-none flex items-center shrink-0"
-                          title={`点击单独测试备用节点 (${m.fallbackNodeName}) 延迟`}
+                          title="点击检测直连出口 IP、归属地与延迟"
                         >
                           <Badge
-                            variant={fbLatencyProps.variant}
+                            variant={
+                              directEgressInfo?.latencyMs !== undefined &&
+                              directEgressInfo?.latencyMs !== null
+                                ? 'success'
+                                : 'secondary'
+                            }
                             size="sm"
-                            dot={fbLatencyProps.dot}
+                            dot={Boolean(directEgressInfo?.latencyMs)}
                             className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1 shrink-0 whitespace-nowrap"
                           >
-                            <span className="font-sans font-semibold text-[9px] opacity-75">
-                              备
-                            </span>
-                            {isTestingFb ? (
+                            {isProbingDirect ? (
                               <span className="flex items-center gap-1">
                                 <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                测速中
+                                检测中
                               </span>
+                            ) : directEgressInfo?.latencyMs !== undefined &&
+                              directEgressInfo?.latencyMs !== null ? (
+                              `${directEgressInfo.latencyMs} ms`
                             ) : (
-                              fbLatencyProps.label
+                              '检测出口'
                             )}
                           </Badge>
                         </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleSingleDelayTest(m.id, m.port)}
+                            disabled={!m.enabled || isTesting}
+                            className="focus:outline-none flex items-center shrink-0"
+                            title={
+                              hasFallback
+                                ? '点击单端口测速 (同时测速主节点与备用节点)'
+                                : '点击单端口测速'
+                            }
+                          >
+                            <Badge
+                              variant={latencyProps.variant}
+                              size="sm"
+                              dot={latencyProps.dot}
+                              className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1 shrink-0 whitespace-nowrap"
+                            >
+                              {hasFallback && (
+                                <span className="font-sans font-semibold text-[9px] opacity-75">
+                                  主
+                                </span>
+                              )}
+                              {isTesting ? (
+                                <span className="flex items-center gap-1">
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                  测速中
+                                </span>
+                              ) : (
+                                latencyProps.label
+                              )}
+                            </Badge>
+                          </button>
+
+                          {hasFallback && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSingleFallbackDelayTest(m.id, m.port)
+                              }
+                              disabled={!m.enabled || isTestingFb}
+                              className="focus:outline-none flex items-center shrink-0"
+                              title={`点击单独测试备用节点 (${m.fallbackNodeName}) 延迟`}
+                            >
+                              <Badge
+                                variant={fbLatencyProps.variant}
+                                size="sm"
+                                dot={fbLatencyProps.dot}
+                                className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1 shrink-0 whitespace-nowrap"
+                              >
+                                <span className="font-sans font-semibold text-[9px] opacity-75">
+                                  备
+                                </span>
+                                {isTestingFb ? (
+                                  <span className="flex items-center gap-1">
+                                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                    测速中
+                                  </span>
+                                ) : (
+                                  fbLatencyProps.label
+                                )}
+                              </Badge>
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                     {/* Actions Group */}
@@ -988,41 +1207,56 @@ export const PortTableView: React.FC = () => {
                         disabled={!isEffectiveEnabled}
                         onCopySuccess={toast.success}
                       />
-
-                      {isDrifted && (
+                      {isDirectCard ? (
                         <button
                           type="button"
                           onClick={() => {
-                            setEditingMapping(m)
-                            setIsAddModalOpen(true)
+                            setDirectMappingForEdit(m)
+                            setIsEditDirectModalOpen(true)
                           }}
-                          className="p-1 rounded text-amber-500 hover:bg-amber-500/10 transition-colors"
-                          title="修复漂移/失效的节点绑定"
+                          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                          title="修改直连监听端口"
                         >
-                          <Wrench className="w-3 h-3" />
+                          <Edit2 className="w-3 h-3" />
                         </button>
+                      ) : (
+                        <>
+                          {isDrifted && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingMapping(m)
+                                setIsAddModalOpen(true)
+                              }}
+                              className="p-1 rounded text-amber-500 hover:bg-amber-500/10 transition-colors"
+                              title="修复漂移/失效的节点绑定"
+                            >
+                              <Wrench className="w-3 h-3" />
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingMapping(m)
+                              setIsAddModalOpen(true)
+                            }}
+                            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                            title="编辑端口映射"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setDeletingMapping(m)}
+                            className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                            title="删除端口映射"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </>
                       )}
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingMapping(m)
-                          setIsAddModalOpen(true)
-                        }}
-                        className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                        title="编辑端口映射"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setDeletingMapping(m)}
-                        className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                        title="删除端口映射"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -1041,6 +1275,18 @@ export const PortTableView: React.FC = () => {
         }}
         initialMapping={editingMapping}
       />
+
+      {/* Edit Direct Port Modal */}
+      {directMappingForEdit && (
+        <EditDirectPortModal
+          isOpen={isEditDirectModalOpen}
+          onClose={() => {
+            setIsEditDirectModalOpen(false)
+            setDirectMappingForEdit(null)
+          }}
+          directMapping={directMappingForEdit}
+        />
+      )}
 
       {/* Delete Confirmation Modal */}
       {deletingMapping && (

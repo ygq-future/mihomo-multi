@@ -2,6 +2,7 @@ use crate::core::auto_updater::AutoUpdater;
 use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::is_port_available;
 use crate::models::{
+    DirectEgressInfo,
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, CoreStatus, DriftStatus, LanIpInfo,
     NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, SystemProxyStatus,
     UwpLoopbackStats,
@@ -1212,4 +1213,14 @@ pub async fn update_rules(state: State<'_, AppState>) -> Result<crate::core::geo
         let _ = state.engine.reload_config(&runtime_path.to_string_lossy()).await;
     }
     Ok(res)
+}
+
+#[tauri::command]
+pub async fn query_direct_egress_info(
+    port: Option<u16>,
+    timeout_ms: Option<u64>,
+) -> Result<DirectEgressInfo, String> {
+    crate::core::egress_probe::query_direct_egress_info(port, timeout_ms)
+        .await
+        .map_err(|e| e.to_string())
 }

@@ -28,6 +28,15 @@ export interface PortMapping {
   manualFallback?: boolean
 }
 
+export interface DirectEgressInfo {
+  ip: string
+  region: string
+  countryCode?: string | null
+  isp?: string | null
+  latencyMs?: number | null
+  source: string
+}
+
 export interface PortFallbackStatus {
   mappingId: string
   port: number

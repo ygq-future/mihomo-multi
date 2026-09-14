@@ -224,6 +224,11 @@ impl MinimalRuntimeConfig {
                 port: m.port,
                 listen: listen_addr.to_string(),
             });
+            if m.id == crate::models::FIXED_DIRECT_PORT_ID || m.node_name == "DIRECT" {
+                rules.push(format!("IN-PORT,{},DIRECT", m.port));
+                continue;
+            }
+
 
             let resolve_node_target = |node_name: &str, profile_id: &str| -> Option<String> {
                 let candidate_namespaced = profile_names
@@ -445,6 +450,44 @@ password: pass
         assert_eq!(config.listeners[0].listener_type, "mixed");
         assert_eq!(config.listeners[1].port, 7892);
         assert_eq!(config.listeners[1].listener_type, "socks5");
+    }
+    #[test]
+    fn test_runtime_config_generation_with_fixed_direct() {
+        let direct_mapping = PortMapping {
+            id: crate::models::FIXED_DIRECT_PORT_ID.to_string(),
+            port: 7878,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "direct".to_string(),
+            node_name: "DIRECT".to_string(),
+            enabled: true,
+            latency: None,
+            description: Some("Direct Port".to_string()),
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: false,
+            manual_fallback: false,
+        };
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+        };
+        let config = MinimalRuntimeConfig::with_mappings(
+            &params,
+            &[direct_mapping],
+            Vec::new(),
+            &HashMap::new(),
+        );
+        let yaml = config.to_yaml().expect("YAML serialize failed");
+        assert!(yaml.contains("IN-PORT,7878,DIRECT"));
+        assert!(yaml.contains("MATCH,DIRECT"));
+        assert_eq!(config.listeners.len(), 1);
+        assert_eq!(config.listeners[0].port, 7878);
     }
     #[test]
     fn test_runtime_config_generation_with_fallback_group() {

@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+pub const FIXED_DIRECT_PORT_ID: &str = "fixed-direct";
+pub const DEFAULT_DIRECT_PORT: u16 = 7878;
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -76,6 +79,17 @@ pub struct PortFallbackStatus {
     pub primary_latency: Option<u32>,
     pub fallback_latency: Option<u32>,
     pub last_updated: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectEgressInfo {
+    pub ip: String,
+    pub region: String,
+    pub country_code: Option<String>,
+    pub isp: Option<String>,
+    pub latency_ms: Option<u32>,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

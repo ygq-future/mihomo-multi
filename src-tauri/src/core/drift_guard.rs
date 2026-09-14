@@ -57,6 +57,21 @@ impl DriftGuard {
         profile_map: &std::collections::HashMap<String, String>,
         node_cache: &std::collections::HashMap<String, Result<Vec<String>, String>>,
     ) -> PortDriftReport {
+        if mapping.id == crate::models::FIXED_DIRECT_PORT_ID || mapping.node_name == "DIRECT" {
+            return PortDriftReport {
+                mapping_id: mapping.id.clone(),
+                port: mapping.port,
+                profile_id: mapping.profile_id.clone(),
+                profile_name: "系统直连".to_string(),
+                node_name: "DIRECT".to_string(),
+                enabled: mapping.enabled,
+                status: DriftStatus::Healthy,
+                message: "内置直连监听，流量直通不走代理，状态正常".to_string(),
+                fallback_action: "DIRECT".to_string(),
+                suggestions: Vec::new(),
+            };
+        }
+
         let profile_name = profile_map
             .get(&mapping.profile_id)
             .cloned()
