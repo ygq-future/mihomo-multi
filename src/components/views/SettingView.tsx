@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 
 import type React from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   APP_NAME,
   APP_VERSION,
@@ -66,26 +66,21 @@ import {
   toast,
 } from '../common'
 import { LiveUptimeDisplay } from './LiveUptimeDisplay'
+import { sortBypassItems } from '../../utils/bypassSort'
 
 function isValidBypassRule(value: string): boolean {
   const val = value.trim()
   if (!val) return false
 
-  // 1. localhost or <local>
-  if (/^(?:localhost|<local>)$/i.test(val)) {
+  // 严禁纯通配符 * 或 *.*
+  if (val === '*' || val === '*.*') return false
+
+  // 特例：localhost 允许
+  if (/^localhost$/i.test(val)) {
     return true
   }
 
-  // 2. IPv4 wildcard (e.g. 127.*, 10.*, 192.168.*, 172.16.*)
-  if (/^(?:\d{1,3}\.){1,3}\*$/.test(val)) {
-    const parts = val.replace(/\.\*$/, '').split('.')
-    return parts.every((p) => {
-      const num = Number(p)
-      return num >= 0 && num <= 255
-    })
-  }
-
-  // 3. IPv4 standard address (e.g. 192.168.1.1, 10.0.0.1)
+  // 1. IPv4 单 IP (例如 119.29.106.76)
   if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(val)) {
     const parts = val.split('.')
     return parts.every((p) => {
@@ -94,7 +89,7 @@ function isValidBypassRule(value: string): boolean {
     })
   }
 
-  // 4. IPv4 CIDR (e.g. 10.0.0.0/8, 192.168.0.0/16, 172.16.0.0/12)
+  // 2. IPv4 CIDR 网段 (例如 10.0.0.0/8, 192.168.0.0/16)
   if (/^(?:\d{1,3}\.){3}\d{1,3}\/(?:[0-9]|[1-2][0-9]|3[0-2])$/.test(val)) {
     const [ip] = val.split('/')
     const parts = ip.split('.')
@@ -104,24 +99,27 @@ function isValidBypassRule(value: string): boolean {
     })
   }
 
-  // 5. IPv6 or IPv6 wildcard (e.g. ::1, fe80::*, 2001:db8::1)
+  // 3. IPv6 或 IPv6 CIDR 网段 (例如 ::1, 2001:db8::1, fe80::/10)
   if (
-    /^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}(\/\d{1,3}|\*)?$/.test(val) &&
-    val.includes(':')
-  ) {
-    return true
-  }
-
-  // 6. Wildcard domain prefix: *.lan, *.local, *.google.com, .lan, etc.
-  if (
-    /^(?:\*\.|\.)[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?)*$/.test(
+    val.includes(':') &&
+    /^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}(\/(?:[0-9]|[1-9][0-9]|1[0-1][0-9]|12[0-8]))?$/.test(
       val,
     )
   ) {
     return true
   }
 
-  // 7. Standard multi-label domain (must contain at least one dot): example.com, router.lan, sub.domain.org
+  // 4. 通配符域名：必须以 *. 开头，通配符后面必须至少包含二级域名（即至少包含一个点，如 *.sheepyu.top，严禁单字 *.top）
+  if (val.startsWith('*.')) {
+    const rest = val.slice(2)
+    return (
+      /^[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?)+$/.test(
+        rest,
+      ) && !rest.endsWith('.')
+    )
+  }
+
+  // 5. 精确域名：必须包含至少一个点（例如 sheepyu.top、api.sheepyu.top，严禁单字 top、com）
   if (
     /^[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?)+$/.test(
       val,
@@ -129,6 +127,7 @@ function isValidBypassRule(value: string): boolean {
   ) {
     return true
   }
+
   return false
 }
 
@@ -290,6 +289,14 @@ export const SettingView: React.FC = () => {
     .filter((m) => m.enabled)
     .sort((a, b) => a.port - b.port)
 
+  const sortedCustomBypass = useMemo(
+    () => sortBypassItems(config?.systemProxyBypassUser || []),
+    [config?.systemProxyBypassUser],
+  )
+  const sortedDefaultBypass = useMemo(
+    () => sortBypassItems(defaultBypassList),
+    [defaultBypassList],
+  )
   const handleToggleSystemProxy = async (checked: boolean) => {
     if (checked) {
       const targetPort =
@@ -372,9 +379,14 @@ export const SettingView: React.FC = () => {
     if (!trimmed) return
     if (!config) return
 
+    if (trimmed.toLowerCase() === '<local>') {
+      toast.warning('「<local>」为操作系统内置排除标记，无需重复添加')
+      return
+    }
+
     if (!isValidBypassRule(trimmed)) {
       toast.error(
-        '请输入合法的域名 (如 *.example.com)、IP (如 192.168.1.1) 或网段 (如 10.0.0.0/8)',
+        '排除项格式无效：支持具体域名 (如 sheepyu.top)、通配符域名 (如 *.sheepyu.top)、IP (如 119.29.106.76) 或网段 (如 10.0.0.0/8)，不允许填单字或全域通配符 *',
       )
       return
     }
@@ -391,7 +403,7 @@ export const SettingView: React.FC = () => {
       return
     }
 
-    const updated = [...currentList, trimmed]
+    const updated = sortBypassItems([...currentList, trimmed])
     try {
       await saveConfig({ ...config, systemProxyBypassUser: updated })
       setNewBypassInput('')
@@ -1453,7 +1465,7 @@ export const SettingView: React.FC = () => {
                     handleAddBypass()
                   }
                 }}
-                placeholder="输入排除域名或 IP (如 *.example.com, 10.0.0.0/8)..."
+                placeholder="输入排除域名或 IP (如 sheepyu.top, *.sheepyu.top, 119.29.106.76)..."
               />
               <Button
                 variant="secondary"
@@ -1473,7 +1485,7 @@ export const SettingView: React.FC = () => {
                     自定义排除项 ({config.systemProxyBypassUser.length})：
                   </span>
                   <div className="flex flex-wrap gap-1.5">
-                    {config.systemProxyBypassUser.map((domain) => (
+                    {sortedCustomBypass.map((domain) => (
                       <Badge
                         key={domain}
                         variant="secondary"
@@ -1501,7 +1513,7 @@ export const SettingView: React.FC = () => {
                 系统内置排除项 (局域网与本地回环)：
               </span>
               <div className="flex flex-wrap gap-1">
-                {defaultBypassList.map((item) => (
+                {sortedDefaultBypass.map((item) => (
                   <Badge
                     key={item}
                     variant="secondary"

@@ -129,6 +129,7 @@ function mountPolling(store) {
       setTimeout: setTimer,
       clearInterval: (id) => timers.delete(id),
       clearTimeout: (id) => timers.delete(id),
+      FALLBACK_STATUS_POLL_INTERVAL_MS: 5000,
     })
     context.window = context
     const deps = vm.runInContext(effect.arguments[1].getText(source), context)

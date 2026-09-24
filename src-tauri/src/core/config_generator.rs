@@ -2,6 +2,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::PortMapping;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::net::IpAddr;
 use std::path::Path;
 use tracing::warn;
 
@@ -75,6 +76,108 @@ pub fn default_rule_providers() -> BTreeMap<String, RuntimeRuleProvider> {
     );
     providers
 }
+
+/// Parses user-defined system proxy bypass items into Mihomo DIRECT routing rules.
+/// Enforces exact-matching semantics without implicit wildcard expansion:
+/// - IPv4: `IP-CIDR,<ip>/32,DIRECT,no-resolve`
+/// - IPv6: `IP-CIDR6,<ip>/128,DIRECT,no-resolve`
+/// - CIDR: `IP-CIDR,<net>,DIRECT,no-resolve` or `IP-CIDR6,...`
+/// - Wildcard domain (`*.example.com`): `DOMAIN-WILDCARD,*.example.com,DIRECT`
+/// - Exact domain (`example.com` or `localhost`): `DOMAIN,example.com,DIRECT`
+/// - Disallows bare `*`, `<local>`, or single words without dots (e.g. `com`)
+pub fn parse_user_bypass_to_rules(user_bypass: &[String]) -> Vec<String> {
+    let mut rules = Vec::new();
+    let mut seen = HashSet::new();
+
+    for raw in user_bypass {
+        let item = raw.trim();
+        if item.is_empty() || item.eq_ignore_ascii_case("<local>") {
+            continue;
+        }
+
+        // 1. IP check
+        if let Ok(ip) = item.parse::<IpAddr>() {
+            let rule = match ip {
+                IpAddr::V4(v4) => format!("IP-CIDR,{}/32,DIRECT,no-resolve", v4),
+                IpAddr::V6(v6) => format!("IP-CIDR6,{}/128,DIRECT,no-resolve", v6),
+            };
+            if seen.insert(rule.clone()) {
+                rules.push(rule);
+            }
+            continue;
+        }
+
+        // 2. CIDR check
+        if let Some((ip_str, prefix_str)) = item.split_once('/')
+            && let (Ok(ip), Ok(prefix)) = (ip_str.parse::<IpAddr>(), prefix_str.parse::<u8>())
+        {
+            let rule = match ip {
+                IpAddr::V4(v4) if prefix <= 32 => {
+                    Some(format!("IP-CIDR,{}/{},DIRECT,no-resolve", v4, prefix))
+                }
+                IpAddr::V6(v6) if prefix <= 128 => {
+                    Some(format!("IP-CIDR6,{}/{},DIRECT,no-resolve", v6, prefix))
+                }
+                _ => None,
+            };
+            if let Some(r) = rule {
+                if seen.insert(r.clone()) {
+                    rules.push(r);
+                }
+                continue;
+            }
+        }
+
+        // 3. Wildcard domain (*.example.com or *example.com)
+        if let Some(rest) = item.strip_prefix("*.")
+            && rest.contains('.')
+            && !rest.starts_with('.')
+            && !rest.ends_with('.')
+            && !rest.contains(' ')
+        {
+            let rule = format!("DOMAIN-WILDCARD,{},DIRECT", item);
+            if seen.insert(rule.clone()) {
+                rules.push(rule);
+            }
+            continue;
+        } else if let Some(rest) = item.strip_prefix('*')
+            && !rest.is_empty()
+            && rest.contains('.')
+            && !rest.starts_with('.')
+            && !rest.ends_with('.')
+            && !rest.contains(' ')
+        {
+            let rule = format!("DOMAIN-WILDCARD,{},DIRECT", item);
+            if seen.insert(rule.clone()) {
+                rules.push(rule);
+            }
+            continue;
+        }
+
+        // 4. Exact domain (localhost or standard domain with dot)
+        if item.eq_ignore_ascii_case("localhost") {
+            let rule = "DOMAIN,localhost,DIRECT".to_string();
+            if seen.insert(rule.clone()) {
+                rules.push(rule);
+            }
+            continue;
+        }
+
+        if item.contains('.')
+            && !item.starts_with('.')
+            && !item.ends_with('.')
+            && !item.contains(' ')
+            && !item.contains('*')
+        {
+            let rule = format!("DOMAIN,{},DIRECT", item);
+            if seen.insert(rule.clone()) {
+                rules.push(rule);
+            }
+        }
+    }
+
+    rules
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimeDnsConfig {
     pub enable: bool,
@@ -136,6 +239,7 @@ pub struct RuntimeGeneratorParams<'a> {
     pub timeout_ms: u32,
     pub fallback_interval: u32,
     pub fallback_lazy: bool,
+    pub user_bypass: &'a [String],
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,6 +321,8 @@ impl MinimalRuntimeConfig {
             })
             .collect();
 
+        let custom_bypass_rules = parse_user_bypass_to_rules(params.user_bypass);
+
         for m in mappings.iter().filter(|m| m.enabled) {
             listeners.push(RuntimeListener {
                 name: format!("in-{}", m.port),
@@ -283,18 +389,24 @@ impl MinimalRuntimeConfig {
                 }
             };
 
+            let mut sub_rule_list = Vec::new();
+            for rule in &custom_bypass_rules {
+                sub_rule_list.push(rule.clone());
+            }
+
             if m.bypass_cn {
+                sub_rule_list.extend(vec![
+                    "RULE-SET,private_ip,DIRECT,no-resolve".to_string(),
+                    "RULE-SET,private_domain,DIRECT".to_string(),
+                    "RULE-SET,cn_domain,DIRECT".to_string(),
+                    "RULE-SET,cn_ip,DIRECT,no-resolve".to_string(),
+                ]);
+            }
+
+            if !sub_rule_list.is_empty() {
+                sub_rule_list.push(format!("MATCH,{}", target_action));
                 let sub_rule_name = format!("sub-rule-{}", m.port);
-                sub_rules.insert(
-                    sub_rule_name.clone(),
-                    vec![
-                        "RULE-SET,private_ip,DIRECT,no-resolve".to_string(),
-                        "RULE-SET,private_domain,DIRECT".to_string(),
-                        "RULE-SET,cn_domain,DIRECT".to_string(),
-                        "RULE-SET,cn_ip,DIRECT,no-resolve".to_string(),
-                        format!("MATCH,{}", target_action),
-                    ],
-                );
+                sub_rules.insert(sub_rule_name.clone(), sub_rule_list);
                 rules.push(format!("SUB-RULE,(IN-PORT,{}),{}", m.port, sub_rule_name));
             } else {
                 rules.push(format!("IN-PORT,{},{}", m.port, target_action));
@@ -417,6 +529,7 @@ password: pass
             timeout_ms: 3000,
             fallback_interval: 5,
             fallback_lazy: false,
+            user_bypass: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(
@@ -476,6 +589,7 @@ password: pass
             timeout_ms: 3000,
             fallback_interval: 5,
             fallback_lazy: false,
+            user_bypass: &[],
         };
         let config = MinimalRuntimeConfig::with_mappings(
             &params,
@@ -537,6 +651,7 @@ password: pass
             timeout_ms: 3000,
             fallback_interval: 5,
             fallback_lazy: false,
+            user_bypass: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], proxies, &profile_map);
@@ -603,6 +718,7 @@ password: pass
             timeout_ms: 3000,
             fallback_interval: 5,
             fallback_lazy: false,
+            user_bypass: &[],
         };
 
         let config =
@@ -671,6 +787,7 @@ password: pass
             timeout_ms: 3000,
             fallback_interval: 5,
             fallback_lazy: false,
+            user_bypass: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1, p2], &profile_map);
@@ -736,6 +853,7 @@ password: pass
             timeout_ms: 3000,
             fallback_interval: 5,
             fallback_lazy: false,
+            user_bypass: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], proxies, &profile_map);
@@ -744,5 +862,91 @@ password: pass
         assert!(yaml.contains("name: fb-7897"));
         // But the inbound routing goes directly to the fallback node, never switching back
         assert!(yaml.contains("IN-PORT,7897,[AirportA] HK-Node-02"));
+    }
+
+    #[test]
+    fn test_parse_user_bypass_to_rules() {
+        let input = vec![
+            "*.sheepyu.top".to_string(),
+            "sheepyu.top".to_string(),
+            "119.29.106.76".to_string(),
+            "10.0.0.0/8".to_string(),
+            "2001:db8::1".to_string(),
+            "localhost".to_string(),
+            "<local>".to_string(), // should be ignored
+            "*".to_string(),       // illegal bare wildcard ignored
+            "top".to_string(),     // single word without dot ignored
+            "*.top".to_string(),   // single tld wildcard ignored
+            "   ".to_string(),     // empty ignored
+        ];
+
+        let rules = parse_user_bypass_to_rules(&input);
+        assert_eq!(
+            rules,
+            vec![
+                "DOMAIN-WILDCARD,*.sheepyu.top,DIRECT".to_string(),
+                "DOMAIN,sheepyu.top,DIRECT".to_string(),
+                "IP-CIDR,119.29.106.76/32,DIRECT,no-resolve".to_string(),
+                "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve".to_string(),
+                "IP-CIDR6,2001:db8::1/128,DIRECT,no-resolve".to_string(),
+                "DOMAIN,localhost,DIRECT".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_runtime_config_generation_with_user_bypass() {
+        let mapping_global = PortMapping {
+            id: "test-global".to_string(),
+            port: 7891,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: "HK-Node-01".to_string(),
+            enabled: true,
+            latency: None,
+            description: Some("Global Mapping".to_string()),
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: false,
+            manual_fallback: false,
+        };
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let raw_proxy_yaml = r#"
+name: "[AirportA] HK-Node-01"
+type: ss
+server: 1.1.1.1
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let p1: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml).unwrap();
+        let user_bypass = vec![
+            "*.sheepyu.top".to_string(),
+            "119.29.106.76".to_string(),
+        ];
+
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+            user_bypass: &user_bypass,
+        };
+
+        let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping_global], vec![p1], &profile_map);
+        let yaml = config.to_yaml().expect("YAML serialize failed");
+
+        // Even though bypass_cn is false, user bypass creates sub-rule-7891
+        assert!(yaml.contains("sub-rule-7891:"));
+        assert!(yaml.contains("- DOMAIN-WILDCARD,*.sheepyu.top,DIRECT"));
+        assert!(yaml.contains("- IP-CIDR,119.29.106.76/32,DIRECT,no-resolve"));
+        assert!(yaml.contains("- MATCH,[AirportA] HK-Node-01"));
+        assert!(yaml.contains("SUB-RULE,(IN-PORT,7891),sub-rule-7891"));
     }
 }

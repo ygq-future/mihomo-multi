@@ -3,8 +3,8 @@ use tracing::info;
 
 pub const DEFAULT_BYPASS_ITEMS: &[&str] = &[
     "localhost",
-    "127.*",
     "10.*",
+    "127.*",
     "172.16.*",
     "172.17.*",
     "172.18.*",
@@ -37,7 +37,110 @@ pub fn build_combined_bypass_list(user_bypass: &[String]) -> Vec<String> {
             list.push(trimmed.to_string());
         }
     }
+    sort_bypass_items(&mut list);
     list
+}
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum BypassCategory {
+    Localhost,
+    Domain(Vec<String>, u8),
+    Ipv4(u8, u8, u8, u8, u8),
+    Ipv6(Vec<u8>),
+    LocalMarker,
+    Other(String),
+}
+
+fn parse_ipv4_spec(s: &str) -> Option<(u8, u8, u8, u8, u8)> {
+    if let Some(prefix_part) = s.strip_suffix(".*") {
+        let parts: Vec<&str> = prefix_part.split('.').collect();
+        if !parts.is_empty() && parts.len() <= 3 {
+            let mut octets = [0u8; 4];
+            let mut valid = true;
+            for (i, p) in parts.iter().enumerate() {
+                if let Ok(num) = p.parse::<u8>() {
+                    octets[i] = num;
+                } else {
+                    valid = false;
+                    break;
+                }
+            }
+            if valid {
+                let prefix_len = (parts.len() * 8) as u8;
+                return Some((octets[0], octets[1], octets[2], octets[3], prefix_len));
+            }
+        }
+    }
+
+    let (ip_str, prefix_len) = if let Some((ip, pfx)) = s.split_once('/') {
+        let pfx_num = pfx.parse::<u8>().ok()?;
+        if pfx_num > 32 {
+            return None;
+        }
+        (ip, pfx_num)
+    } else {
+        (s, 32u8)
+    };
+
+    if let Ok(ipv4) = ip_str.parse::<std::net::Ipv4Addr>() {
+        let [a, b, c, d] = ipv4.octets();
+        return Some((a, b, c, d, prefix_len));
+    }
+
+    None
+}
+
+fn parse_ipv6_spec(s: &str) -> Option<Vec<u8>> {
+    let ip_str = s.split('/').next().unwrap_or(s);
+    if let Ok(v6) = ip_str.parse::<std::net::Ipv6Addr>() {
+        return Some(v6.octets().to_vec());
+    }
+    None
+}
+
+fn get_bypass_sort_key(raw: &str) -> BypassCategory {
+    let s = raw.trim();
+    if s.eq_ignore_ascii_case("localhost") {
+        return BypassCategory::Localhost;
+    }
+    if s.eq_ignore_ascii_case("<local>") {
+        return BypassCategory::LocalMarker;
+    }
+
+    if let Some((o0, o1, o2, o3, prefix)) = parse_ipv4_spec(s) {
+        return BypassCategory::Ipv4(o0, o1, o2, o3, prefix);
+    }
+
+    if let Some(v6_bytes) = parse_ipv6_spec(s) {
+        return BypassCategory::Ipv6(v6_bytes);
+    }
+
+    let is_wildcard = if s.starts_with("*.") || s.starts_with('*') { 1 } else { 0 };
+    let clean_domain = s.trim_start_matches('*').trim_start_matches('.').to_lowercase();
+    if !clean_domain.is_empty() {
+        let mut labels: Vec<String> = clean_domain
+            .split('.')
+            .filter(|p| !p.is_empty())
+            .map(|p| p.to_string())
+            .collect();
+        labels.reverse();
+        return BypassCategory::Domain(labels, is_wildcard);
+    }
+
+    BypassCategory::Other(s.to_lowercase())
+}
+
+/// Sorts bypass list items stably:
+/// 1. `localhost`
+/// 2. Domains (clustered by parent domain via reverse hierarchy, exact before wildcard before subdomains)
+/// 3. IPv4 addresses/CIDRs/wildcards (sorted by numeric octets)
+/// 4. IPv6 addresses/CIDRs
+/// 5. `<local>`
+pub fn sort_bypass_items(items: &mut [String]) {
+    items.sort_by(|a, b| {
+        let key_a = get_bypass_sort_key(a);
+        let key_b = get_bypass_sort_key(b);
+        key_a.cmp(&key_b).then_with(|| a.cmp(b))
+    });
 }
 
 /// Applies system proxy to the OS and environment variables
@@ -639,5 +742,40 @@ mod tests {
 
         let deserialized: crate::models::UwpLoopbackStats = serde_json::from_str(&json).expect("should deserialize");
         assert_eq!(stats, deserialized);
+    }
+    #[test]
+    fn test_sort_bypass_items() {
+        let mut list = vec![
+            "<local>".to_string(),
+            "192.168.*".to_string(),
+            "*.sheepyu.top".to_string(),
+            "172.17.*".to_string(),
+            "119.29.106.76".to_string(),
+            "api.sheepyu.top".to_string(),
+            "172.16.*".to_string(),
+            "10.*".to_string(),
+            "sheepyu.top".to_string(),
+            "localhost".to_string(),
+            "baidu.com".to_string(),
+        ];
+
+        sort_bypass_items(&mut list);
+
+        assert_eq!(
+            list,
+            vec![
+                "localhost".to_string(),
+                "baidu.com".to_string(),
+                "sheepyu.top".to_string(),
+                "*.sheepyu.top".to_string(),
+                "api.sheepyu.top".to_string(),
+                "10.*".to_string(),
+                "119.29.106.76".to_string(),
+                "172.16.*".to_string(),
+                "172.17.*".to_string(),
+                "192.168.*".to_string(),
+                "<local>".to_string(),
+            ]
+        );
     }
 }

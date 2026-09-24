@@ -88,7 +88,22 @@ pub async fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String>
 }
 
 #[tauri::command]
-pub async fn save_config(app: AppHandle, config: AppConfig, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_, AppState>) -> Result<(), String> {
+    let mut cleaned_bypass = Vec::new();
+    let mut seen_bypass = std::collections::HashSet::new();
+    for raw in &config.system_proxy_bypass_user {
+        let item = raw.trim();
+        if item.is_empty() || item == "*" || item.eq_ignore_ascii_case("<local>") {
+            continue;
+        }
+        let lower = item.to_lowercase();
+        if seen_bypass.insert(lower) {
+            cleaned_bypass.push(item.to_string());
+        }
+    }
+    crate::core::sysproxy::sort_bypass_items(&mut cleaned_bypass);
+    config.system_proxy_bypass_user = cleaned_bypass;
+
     let old_config = state.config.read().clone();
     if config.controller_port != old_config.controller_port {
         let core_status = state.engine.get_status();
@@ -164,7 +179,8 @@ pub async fn save_config(app: AppHandle, config: AppConfig, state: State<'_, App
         || config.test_url != old_config.test_url
         || config.timeout_ms != old_config.timeout_ms
         || config.fallback_interval != old_config.fallback_interval
-        || config.fallback_lazy != old_config.fallback_lazy;
+        || config.fallback_lazy != old_config.fallback_lazy
+        || config.system_proxy_bypass_user != old_config.system_proxy_bypass_user;
 
     if runtime_settings_changed {
         let _ = state.sync_runtime_config().await;

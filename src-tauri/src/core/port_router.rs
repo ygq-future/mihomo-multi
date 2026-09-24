@@ -135,6 +135,7 @@ impl PortSyncDelegate for AppPortSyncDelegate {
                 timeout_ms: cfg.timeout_ms,
                 fallback_interval: cfg.fallback_interval,
                 fallback_lazy: cfg.fallback_lazy,
+                user_bypass: &cfg.system_proxy_bypass_user,
             };
 
             let path = self
