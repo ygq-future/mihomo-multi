@@ -56,6 +56,7 @@ export async function getAppStatus(): Promise<AppStatus> {
       totalProfiles: 0,
       totalNodes: 0,
       version: APP_VERSION,
+      isInstalled: true,
     }
   }
   return invoke<AppStatus>('get_app_status')

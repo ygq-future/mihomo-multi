@@ -232,6 +232,7 @@ export interface AppStatus {
   totalProfiles: number
   totalNodes: number
   version: string
+  isInstalled: boolean
 }
 
 export interface KernelUpdateCheckResult {

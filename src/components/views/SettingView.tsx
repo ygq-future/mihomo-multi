@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Clock,
   Cpu,
   Download,
   ExternalLink,
@@ -160,6 +161,75 @@ const testUrlOptions = [
   },
 ]
 
+const APP_UPDATE_CACHE_KEY = 'app_update_last_check_cache'
+
+interface AppUpdateCacheData {
+  latestVersion: string
+  hasUpdate: boolean
+  checkedAt: number
+  info: AppUpdateCheckResult
+}
+
+function loadCachedAppUpdate(): AppUpdateCacheData | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(APP_UPDATE_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as AppUpdateCacheData
+    if (
+      parsed &&
+      typeof parsed.latestVersion === 'string' &&
+      typeof parsed.hasUpdate === 'boolean' &&
+      typeof parsed.checkedAt === 'number' &&
+      parsed.info
+    ) {
+      return parsed
+    }
+  } catch {
+    // ignore storage parsing error
+  }
+  return null
+}
+
+function saveCachedAppUpdate(info: AppUpdateCheckResult, checkedAt: number) {
+  if (typeof window === 'undefined') return
+  try {
+    const data: AppUpdateCacheData = {
+      latestVersion: info.latestVersion,
+      hasUpdate: info.hasUpdate,
+      checkedAt,
+      info,
+    }
+    localStorage.setItem(APP_UPDATE_CACHE_KEY, JSON.stringify(data))
+  } catch {
+    // ignore storage write error
+  }
+}
+
+function formatLastCheckTime(ts: number | null): string {
+  if (!ts) return '未检查'
+  return new Date(ts).toLocaleString()
+}
+
+function isVersionNewer(current: string, remote: string): boolean {
+  const cParts = current
+    .replace(/^v/i, '')
+    .split('.')
+    .map((p) => Number.parseInt(p, 10) || 0)
+  const rParts = remote
+    .replace(/^v/i, '')
+    .split('.')
+    .map((p) => Number.parseInt(p, 10) || 0)
+  const maxLen = Math.max(cParts.length, rParts.length)
+  for (let i = 0; i < maxLen; i++) {
+    const c = cParts[i] ?? 0
+    const r = rParts[i] ?? 0
+    if (r > c) return true
+    if (r < c) return false
+  }
+  return false
+}
+
 const themeOptions = [
   { value: 'dark', label: '暗黑模式', icon: <Moon className="w-3.5 h-3.5" /> },
   {
@@ -247,16 +317,42 @@ export const SettingView: React.FC = () => {
   const [downloadingAppUpdate, setDownloadingAppUpdate] =
     useState<boolean>(false)
   const [appUpdateInfo, setAppUpdateInfo] =
-    useState<AppUpdateCheckResult | null>(null)
+    useState<AppUpdateCheckResult | null>(() => {
+      const cached = loadCachedAppUpdate()
+      return cached?.info ?? null
+    })
+  const [lastCheckTime, setLastCheckTime] = useState<number | null>(() => {
+    const cached = loadCachedAppUpdate()
+    return cached?.checkedAt ?? null
+  })
   const [appUpdateProgress, setAppUpdateProgress] =
     useState<AppUpdateProgressPayload | null>(null)
-  const [selectedAssetUrl, setSelectedAssetUrl] = useState<string>('')
+  const [selectedAssetUrl, setSelectedAssetUrl] = useState<string>(() => {
+    const cached = loadCachedAppUpdate()
+    if (cached?.info?.asset) {
+      return cached.info.asset.downloadUrl
+    }
+    if (cached?.info?.availableAssets?.[0]) {
+      return cached.info.availableAssets[0].downloadUrl
+    }
+    return ''
+  })
   const currentAppVersion = (
     appStatus?.version ||
     appUpdateInfo?.currentVersion ||
     APP_VERSION
   ).replace(/^v/i, '')
 
+  const isInstalled =
+    appStatus?.isInstalled ?? appUpdateInfo?.isInstalled ?? false
+
+  const effectiveHasUpdate = useMemo(() => {
+    if (!appUpdateInfo) return false
+    return (
+      appUpdateInfo.hasUpdate &&
+      isVersionNewer(currentAppVersion, appUpdateInfo.latestVersion)
+    )
+  }, [appUpdateInfo, currentAppVersion])
   // MRS Rule Providers State
   const [rulesInfo, setRulesInfo] = useState<MrsRulesInfo | null>(null)
   const [updatingRules, setUpdatingRules] = useState<boolean>(false)
@@ -523,7 +619,10 @@ export const SettingView: React.FC = () => {
     setCheckingAppUpdate(true)
     try {
       const res = await api.checkAppUpdate()
+      const now = Date.now()
       setAppUpdateInfo(res)
+      setLastCheckTime(now)
+      saveCachedAppUpdate(res, now)
       if (res.asset) {
         setSelectedAssetUrl(res.asset.downloadUrl)
       } else if (res.availableAssets.length > 0) {
@@ -1993,18 +2092,14 @@ export const SettingView: React.FC = () => {
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
             <span className="text-muted-foreground">部署形态</span>
             <div className="font-medium text-foreground">
-              {appUpdateInfo ? (
-                appUpdateInfo.isInstalled ? (
-                  <Badge variant="secondary" size="sm">
-                    安装版 (Installer)
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" size="sm">
-                    便携版 (Portable)
-                  </Badge>
-                )
+              {isInstalled ? (
+                <Badge variant="secondary" size="sm">
+                  安装版 (Installer)
+                </Badge>
               ) : (
-                '便携 / 安装版'
+                <Badge variant="outline" size="sm">
+                  便携版 (Portable)
+                </Badge>
               )}
             </div>
           </div>
@@ -2018,7 +2113,7 @@ export const SettingView: React.FC = () => {
             <span className="text-muted-foreground">更新状态</span>
             <div className="font-medium text-foreground">
               {appUpdateInfo ? (
-                appUpdateInfo.hasUpdate ? (
+                effectiveHasUpdate ? (
                   <Badge variant="warning" size="sm">
                     有新版本可用
                   </Badge>
@@ -2034,8 +2129,25 @@ export const SettingView: React.FC = () => {
           </div>
         </div>
 
+        {/* Last Check Timestamp & Status Meta */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-muted-foreground px-0.5">
+          <div className="flex items-center gap-1.5 font-mono">
+            <Clock className="w-3.5 h-3.5 text-muted-foreground/70 shrink-0" />
+            <span>
+              上次检查更新时间：
+              {lastCheckTime ? (
+                <span className="text-foreground font-medium">
+                  {formatLastCheckTime(lastCheckTime)}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">从未检查</span>
+              )}
+            </span>
+          </div>
+        </div>
+
         {/* Update Available Banner & Downloader */}
-        {appUpdateInfo && appUpdateInfo.hasUpdate && (
+        {appUpdateInfo && effectiveHasUpdate && (
           <div className="p-4 rounded-xl bg-primary/10 border border-primary/20 space-y-4 text-xs animate-in fade-in">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="space-y-0.5">

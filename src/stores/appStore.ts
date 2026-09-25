@@ -83,12 +83,12 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
         const appChanged =
           !currentApp ||
           currentApp.version !== appStatus.version ||
+          currentApp.isInstalled !== appStatus.isInstalled ||
           currentApp.totalPorts !== appStatus.totalPorts ||
           currentApp.activePorts !== appStatus.activePorts ||
           currentApp.totalProfiles !== appStatus.totalProfiles ||
           currentApp.totalNodes !== appStatus.totalNodes ||
           coreChanged
-
         if (!coreChanged && !appChanged) {
           return
         }

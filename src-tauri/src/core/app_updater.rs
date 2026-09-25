@@ -95,15 +95,23 @@ pub fn is_newer_version(current: &str, remote: &str) -> bool {
     }
 }
 
-/// Detects if current binary is installed via installer or running portable
-pub fn detect_is_installed() -> bool {
-    let Ok(current_exe) = std::env::current_exe() else {
-        return false;
-    };
+/// Internal helper to detect if a given executable path represents an installed version.
+/// Single source of truth:
+/// - If `.portable` or `PORTABLE` exists next to the executable, it is strictly portable mode (not installed).
+/// - Otherwise, if uninstaller exists or path is within standard system directories (Program Files, AppData Programs), it is installed mode.
+/// - In any other non-portable execution (such as dev target/debug or regular app execution without .portable),
+///   data directory falls back to standard AppData, thus it operates in installed mode.
+pub fn detect_is_installed_from_paths(current_exe: &std::path::Path) -> bool {
     let Some(parent) = current_exe.parent() else {
-        return false;
+        return true;
     };
 
+    // 1. Highest priority: if .portable or PORTABLE marker exists, it is strictly portable mode
+    if parent.join(".portable").exists() || parent.join("PORTABLE").exists() {
+        return false;
+    }
+
+    // 2. Explicit installer uninstaller artifacts
     if parent.join("unins000.exe").exists()
         || parent.join("uninstall.exe").exists()
         || parent.join("Uninstall Mihomo Multi.exe").exists()
@@ -111,12 +119,22 @@ pub fn detect_is_installed() -> bool {
         return true;
     }
 
+    // 3. Known system installation directories
     let path_str = current_exe.to_string_lossy().to_lowercase();
     if path_str.contains("program files") || path_str.contains(r"appdata\local\programs") {
         return true;
     }
 
-    false
+    // 4. Default: when no .portable marker exists, the app stores data in AppData, which is installed mode
+    true
+}
+
+/// Detects if current binary is installed via installer or running portable
+pub fn detect_is_installed() -> bool {
+    let Ok(current_exe) = std::env::current_exe() else {
+        return true;
+    };
+    detect_is_installed_from_paths(&current_exe)
 }
 
 /// Gets the root directory of the software
@@ -605,5 +623,38 @@ mod tests {
                 Some(&AppPackageType::Installer)
             );
         }
+    }
+
+    #[test]
+    fn test_detect_is_installed_from_paths() {
+        let temp_dir = std::env::temp_dir().join(format!("mihomo_updater_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let exe_path = temp_dir.join("mihomo-multi.exe");
+        let _ = std::fs::write(&exe_path, b"dummy");
+
+        // 1. Clean dir without .portable -> should default to installed mode (AppData mode)
+        assert!(detect_is_installed_from_paths(&exe_path));
+
+        // 2. Dir with .portable marker -> must be portable mode
+        let portable_marker = temp_dir.join(".portable");
+        let _ = std::fs::write(&portable_marker, b"");
+        assert!(!detect_is_installed_from_paths(&exe_path));
+        let _ = std::fs::remove_file(&portable_marker);
+
+        // 3. Dir with PORTABLE marker -> must be portable mode
+        let uppercase_portable = temp_dir.join("PORTABLE");
+        let _ = std::fs::write(&uppercase_portable, b"");
+        assert!(!detect_is_installed_from_paths(&exe_path));
+        let _ = std::fs::remove_file(&uppercase_portable);
+
+        // 4. Dir with uninstaller artifact -> installed mode
+        let uninstaller = temp_dir.join("unins000.exe");
+        let _ = std::fs::write(&uninstaller, b"");
+        assert!(detect_is_installed_from_paths(&exe_path));
+        let _ = std::fs::remove_file(&uninstaller);
+
+        // Clean up
+        let _ = std::fs::remove_file(&exe_path);
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

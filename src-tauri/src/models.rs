@@ -349,4 +349,5 @@ pub struct AppStatus {
     pub total_profiles: usize,
     pub total_nodes: usize,
     pub version: String,
+    pub is_installed: bool,
 }

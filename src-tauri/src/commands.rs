@@ -28,6 +28,7 @@ pub async fn get_app_status(state: State<'_, AppState>) -> Result<AppStatus, Str
         total_profiles,
         total_nodes,
         version: crate::constants::APP_VERSION.to_string(),
+        is_installed: crate::core::app_updater::detect_is_installed(),
     })
 }
 
