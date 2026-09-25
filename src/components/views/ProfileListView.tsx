@@ -46,6 +46,7 @@ export const ProfileListView: React.FC = () => {
     null,
   )
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [isRefreshingAll, setIsRefreshingAll] = useState(false)
 
   useEffect(() => {
     fetchProfiles()
@@ -85,6 +86,40 @@ export const ProfileListView: React.FC = () => {
       toast.error(
         `刷新失败：${err instanceof Error ? err.message : String(err)}`,
       )
+    }
+  }
+  const isAnyUpdating = Object.values(updatingProfileIds).some(Boolean)
+  const isRefreshDisabled =
+    profiles.length === 0 || isRefreshingAll || isAnyUpdating
+
+  const handleRefreshAll = async () => {
+    if (isRefreshDisabled) return
+
+    setIsRefreshingAll(true)
+    try {
+      const results = await Promise.allSettled(
+        profiles.map(async (profile) => {
+          const updated = await updateProfile(profile.id)
+          return { profile, updated }
+        }),
+      )
+
+      const successCount = results.filter(
+        (r) => r.status === 'fulfilled',
+      ).length
+      const failedCount = results.filter((r) => r.status === 'rejected').length
+
+      if (failedCount === 0) {
+        toast.success(`已成功刷新全部 ${successCount} 个订阅配置`)
+      } else if (successCount === 0) {
+        toast.error(`全部 ${failedCount} 个订阅刷新失败，请检查网络或配置`)
+      } else {
+        toast.warning(
+          `订阅刷新完成：${successCount} 个成功，${failedCount} 个失败`,
+        )
+      }
+    } finally {
+      setIsRefreshingAll(false)
     }
   }
 
@@ -168,6 +203,23 @@ export const ProfileListView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={isRefreshDisabled}
+            onClick={handleRefreshAll}
+            title={profiles.length === 0 ? '暂无订阅配置' : '刷新全部订阅'}
+            icon={
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${
+                  isRefreshingAll ? 'animate-spin text-primary' : ''
+                }`}
+              />
+            }
+          >
+            {isRefreshingAll ? '正在刷新...' : '刷新全部'}
+          </Button>
+
           <Button
             variant="secondary"
             size="sm"
