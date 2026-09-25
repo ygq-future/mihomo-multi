@@ -238,7 +238,9 @@ impl PortRouter {
         if !mappings.iter().any(|m| m.id == crate::models::FIXED_DIRECT_PORT_ID) {
             let direct = Self::create_default_direct_mapping(&mappings);
             mappings.insert(0, direct);
-        } else if let Some(pos) = mappings.iter().position(|m| m.id == crate::models::FIXED_DIRECT_PORT_ID)
+        } else if let Some(pos) = mappings
+            .iter()
+            .position(|m| m.id == crate::models::FIXED_DIRECT_PORT_ID)
             && pos != 0
         {
             let direct = mappings.remove(pos);

@@ -1434,8 +1434,7 @@ export const SettingView: React.FC = () => {
               </label>
               <p className="text-[11px] text-muted-foreground">
                 开启系统代理时，联动写入 all_proxy、http_proxy、https_proxy 与
-                no_proxy
-                用户环境变量，方便终端命令行工具自动走代理。关闭则仅设置系统代理，不修改环境变量
+                no_proxy 用户环境变量。关闭则仅设置系统代理
               </p>
             </div>
             <Switch
@@ -1551,8 +1550,8 @@ export const SettingView: React.FC = () => {
                     </Badge>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    解除 Windows 沙箱对本地 127.0.0.1
-                    代理端口的隔离，使微软商店、UWP 应用可正常连入系统代理
+                    解除 Windows 沙箱对本地代理端口的隔离，使微软商店、UWP
+                    应用可正常连入系统代理
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -1944,7 +1943,7 @@ export const SettingView: React.FC = () => {
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground">
-                {APP_NAME} 极简多端口代理桌面客户端，支持一键检测并从 GitHub
+                {APP_NAME} 桌面客户端，支持一键检测并从 GitHub
                 下载适配安装包或便携包
               </p>
             </div>

@@ -112,12 +112,8 @@ pub fn parse_user_bypass_to_rules(user_bypass: &[String]) -> Vec<String> {
             && let (Ok(ip), Ok(prefix)) = (ip_str.parse::<IpAddr>(), prefix_str.parse::<u8>())
         {
             let rule = match ip {
-                IpAddr::V4(v4) if prefix <= 32 => {
-                    Some(format!("IP-CIDR,{}/{},DIRECT,no-resolve", v4, prefix))
-                }
-                IpAddr::V6(v6) if prefix <= 128 => {
-                    Some(format!("IP-CIDR6,{}/{},DIRECT,no-resolve", v6, prefix))
-                }
+                IpAddr::V4(v4) if prefix <= 32 => Some(format!("IP-CIDR,{}/{},DIRECT,no-resolve", v4, prefix)),
+                IpAddr::V6(v6) if prefix <= 128 => Some(format!("IP-CIDR6,{}/{},DIRECT,no-resolve", v6, prefix)),
                 _ => None,
             };
             if let Some(r) = rule {
@@ -334,7 +330,6 @@ impl MinimalRuntimeConfig {
                 rules.push(format!("IN-PORT,{},DIRECT", m.port));
                 continue;
             }
-
 
             let resolve_node_target = |node_name: &str, profile_id: &str| -> Option<String> {
                 let candidate_namespaced = profile_names
@@ -591,12 +586,7 @@ password: pass
             fallback_lazy: false,
             user_bypass: &[],
         };
-        let config = MinimalRuntimeConfig::with_mappings(
-            &params,
-            &[direct_mapping],
-            Vec::new(),
-            &HashMap::new(),
-        );
+        let config = MinimalRuntimeConfig::with_mappings(&params, &[direct_mapping], Vec::new(), &HashMap::new());
         let yaml = config.to_yaml().expect("YAML serialize failed");
         assert!(yaml.contains("IN-PORT,7878,DIRECT"));
         assert!(yaml.contains("MATCH,DIRECT"));
@@ -922,10 +912,7 @@ cipher: aes-128-gcm
 password: pass
 "#;
         let p1: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml).unwrap();
-        let user_bypass = vec![
-            "*.sheepyu.top".to_string(),
-            "119.29.106.76".to_string(),
-        ];
+        let user_bypass = vec!["*.sheepyu.top".to_string(), "119.29.106.76".to_string()];
 
         let params = RuntimeGeneratorParams {
             controller_port: 9999,

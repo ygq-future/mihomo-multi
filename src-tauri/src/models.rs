@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 pub const FIXED_DIRECT_PORT_ID: &str = "fixed-direct";
 pub const DEFAULT_DIRECT_PORT: u16 = 7878;
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ProfileType {

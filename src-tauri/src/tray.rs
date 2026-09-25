@@ -46,8 +46,14 @@ pub fn ensure_main_window_open(app: &AppHandle) {
     } else {
         let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
             .title("Mihomo Multi")
-            .inner_size(1000.0, 680.0)
-            .min_inner_size(850.0, 600.0)
+            .inner_size(
+                crate::constants::DEFAULT_WINDOW_WIDTH,
+                crate::constants::DEFAULT_WINDOW_HEIGHT,
+            )
+            .min_inner_size(
+                crate::constants::DEFAULT_WINDOW_WIDTH,
+                crate::constants::DEFAULT_WINDOW_HEIGHT,
+            )
             .resizable(true)
             .fullscreen(false)
             .visible(false);

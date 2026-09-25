@@ -114,7 +114,11 @@ fn get_bypass_sort_key(raw: &str) -> BypassCategory {
         return BypassCategory::Ipv6(v6_bytes);
     }
 
-    let is_wildcard = if s.starts_with("*.") || s.starts_with('*') { 1 } else { 0 };
+    let is_wildcard = if s.starts_with("*.") || s.starts_with('*') {
+        1
+    } else {
+        0
+    };
     let clean_domain = s.trim_start_matches('*').trim_start_matches('.').to_lowercase();
     if !clean_domain.is_empty() {
         let mut labels: Vec<String> = clean_domain
@@ -598,9 +602,7 @@ mod windows {
 
                     let sid_w = to_wide(sid);
                     let mut sub_hkey: HKEY = null_mut();
-                    let open_ret = unsafe {
-                        RegOpenKeyExW(key.0, sid_w.as_ptr(), 0, KEY_READ, &mut sub_hkey)
-                    };
+                    let open_ret = unsafe { RegOpenKeyExW(key.0, sid_w.as_ptr(), 0, KEY_READ, &mut sub_hkey) };
                     if open_ret == ERROR_SUCCESS {
                         let sub_guard = RegKeyGuard(sub_hkey);
                         if let Some(dn) = get_reg_sz(sub_guard.0, "DisplayName") {
@@ -917,7 +919,6 @@ mod tests {
         let deserialized: crate::models::UwpAppInfo = serde_json::from_str(&json).expect("should deserialize");
         assert_eq!(info, deserialized);
     }
-
 
     #[test]
     fn test_uwp_loopback_stats_serialization() {

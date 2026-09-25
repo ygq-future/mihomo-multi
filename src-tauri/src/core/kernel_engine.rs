@@ -48,7 +48,6 @@ pub trait KernelControllerAdapter: Send + Sync {
     ) -> BoxFuture<'a, AppResult<()>> {
         Box::pin(async { Ok(()) })
     }
-
 }
 
 /// Production controller adapter interacting with Mihomo REST API over HTTP.

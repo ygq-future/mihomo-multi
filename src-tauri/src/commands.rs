@@ -2,10 +2,9 @@ use crate::core::auto_updater::AutoUpdater;
 use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::is_port_available;
 use crate::models::{
-    DirectEgressInfo,
-    AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, CoreStatus, DriftStatus, LanIpInfo,
-    NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, SystemProxyStatus,
-    UwpAppInfo, UwpLoopbackStats,
+    AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, CoreStatus, DirectEgressInfo, DriftStatus,
+    LanIpInfo, NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode,
+    SystemProxyStatus, UwpAppInfo, UwpLoopbackStats,
 };
 use crate::state::AppState;
 use std::process::Command;
@@ -437,7 +436,10 @@ pub async fn test_port_mapping_delay(
             let _ = state.port_router.update_port_latency(&id, Some(delay));
             if mapping.fallback_node_name.is_some() && !mapping.manual_fallback {
                 let group_name = format!("fb-{}", mapping.port);
-                let _ = state.engine.test_group_delay(&group_name, Some(actual_url), Some(actual_timeout)).await;
+                let _ = state
+                    .engine
+                    .test_group_delay(&group_name, Some(actual_url), Some(actual_timeout))
+                    .await;
             }
             crate::tray::update_tray_menu(&app);
             Ok(delay)
@@ -582,9 +584,7 @@ pub async fn test_all_port_mappings_delay(
             m.enabled
                 && m.fallback_node_name.is_some()
                 && !m.manual_fallback
-                && results
-                    .iter()
-                    .any(|r| r.name == m.node_name && r.latency.is_some())
+                && results.iter().any(|r| r.name == m.node_name && r.latency.is_some())
         })
         .map(|m| format!("fb-{}", m.port))
         .collect();
@@ -1151,7 +1151,10 @@ pub async fn install_app_update(
 #[tauri::command]
 pub async fn reset_window_size(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_size(tauri::LogicalSize::new(1000.0, 680.0));
+        let _ = window.set_size(tauri::LogicalSize::new(
+            crate::constants::DEFAULT_WINDOW_WIDTH,
+            crate::constants::DEFAULT_WINDOW_HEIGHT,
+        ));
         let _ = window.center();
     }
     if let Ok(config_dir) = app.path().app_config_dir() {
@@ -1237,10 +1240,7 @@ pub async fn update_rules(state: State<'_, AppState>) -> Result<crate::core::geo
 }
 
 #[tauri::command]
-pub async fn query_direct_egress_info(
-    port: Option<u16>,
-    timeout_ms: Option<u64>,
-) -> Result<DirectEgressInfo, String> {
+pub async fn query_direct_egress_info(port: Option<u16>, timeout_ms: Option<u64>) -> Result<DirectEgressInfo, String> {
     crate::core::egress_probe::query_direct_egress_info(port, timeout_ms)
         .await
         .map_err(|e| e.to_string())

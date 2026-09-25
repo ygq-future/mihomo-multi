@@ -264,10 +264,9 @@ impl ClashApiClient {
             req = req.header(AUTHORIZATION, format!("Bearer {}", self.secret));
         }
 
-        let resp = req
-            .send()
-            .await
-            .map_err(|err| AppError::ExternalController(format!("Request to Mihomo group delay API failed: {}", err)))?;
+        let resp = req.send().await.map_err(|err| {
+            AppError::ExternalController(format!("Request to Mihomo group delay API failed: {}", err))
+        })?;
 
         let status = resp.status();
         if status.is_success() {

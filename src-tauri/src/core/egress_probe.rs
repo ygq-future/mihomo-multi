@@ -144,10 +144,7 @@ pub fn parse_probe_response(
     Ok((ip, region, country_code, isp))
 }
 
-pub async fn query_direct_egress_info(
-    port: Option<u16>,
-    timeout_ms: Option<u64>,
-) -> AppResult<DirectEgressInfo> {
+pub async fn query_direct_egress_info(port: Option<u16>, timeout_ms: Option<u64>) -> AppResult<DirectEgressInfo> {
     let per_api_timeout = Duration::from_millis(timeout_ms.unwrap_or(PROBE_TIMEOUT_SECS * 1000));
     let mut last_err = String::new();
 
