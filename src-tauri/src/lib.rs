@@ -163,6 +163,7 @@ pub fn run() {
             get_uwp_loopback_status,
             exempt_all_uwp_loopback,
             clear_all_uwp_loopback,
+            get_uwp_app_list,
             reset_window_size,
             exit_app,
             hide_window,

@@ -16,6 +16,7 @@ import type {
   ProfileItem,
   ProxyNode,
   SystemProxyStatus,
+  UwpAppInfo,
   UwpLoopbackStats,
   AppUpdateCheckResult,
   AppUpdateInstallResult,
@@ -830,6 +831,37 @@ export async function clearAllUwpLoopback(): Promise<UwpLoopbackStats> {
     }
   }
   return invoke<UwpLoopbackStats>('clear_all_uwp_loopback')
+}
+
+export async function getUwpAppList(): Promise<UwpAppInfo[]> {
+  if (!isTauriEnvironment()) {
+    const isWindows =
+      typeof navigator !== 'undefined' &&
+      (/win/i.test(navigator.userAgent) ||
+        /windows/i.test(navigator.platform || ''))
+    if (!isWindows) return []
+    return [
+      {
+        name: 'Microsoft Store',
+        moniker: 'microsoft.windowsstore_8wekyb3d8bbwe',
+        sid: 'S-1-15-2-1609473798-1231923017-684268153-4268514328-882773646-2760585773-1760938157',
+        exempted: true,
+      },
+      {
+        name: 'Windows 终端',
+        moniker: 'microsoft.windowsterminal_8wekyb3d8bbwe',
+        sid: 'S-1-15-2-1254322593-4214477733-4163864258-4245696707-2071662337-195254785-237729376',
+        exempted: true,
+      },
+      {
+        name: 'Windows 相机',
+        moniker: 'microsoft.windowscamera_8wekyb3d8bbwe',
+        sid: 'S-1-15-2-447965956-1595884426-2614601585-2128949372-556907266-1570989533-1058743812',
+        exempted: false,
+      },
+    ]
+  }
+  return invoke<UwpAppInfo[]>('get_uwp_app_list')
 }
 
 export async function resetWindowSize(): Promise<void> {

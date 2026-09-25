@@ -185,6 +185,13 @@ export interface UwpLoopbackStats {
   totalCount: number
 }
 
+export interface UwpAppInfo {
+  name: string
+  moniker: string
+  sid: string
+  exempted: boolean
+}
+
 export interface AppUpdateAsset {
   name: string
   downloadUrl: string

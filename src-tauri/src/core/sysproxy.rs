@@ -244,6 +244,19 @@ pub fn clear_all_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
     }
 }
 
+/// Queries all UWP AppContainers and their exemption status
+pub fn get_uwp_app_list() -> AppResult<Vec<crate::models::UwpAppInfo>> {
+    #[cfg(windows)]
+    {
+        Ok(windows::get_uwp_apps_windows())
+    }
+
+    #[cfg(not(windows))]
+    {
+        Ok(Vec::new())
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Windows Implementation
 // ----------------------------------------------------------------------------
@@ -257,8 +270,8 @@ mod windows {
         INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED, InternetSetOptionW,
     };
     use windows_sys::Win32::System::Registry::{
-        HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE, REG_DWORD, REG_SZ, RegCloseKey, RegDeleteValueW,
-        RegEnumKeyExW, RegOpenKeyExW, RegSetValueExW,
+        HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE, REG_DWORD, REG_EXPAND_SZ, REG_SZ, RegCloseKey,
+        RegDeleteValueW, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         HWND_BROADCAST, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE,
@@ -339,6 +352,43 @@ mod windows {
                 "Failed to set SZ registry value '{}', error code: {}",
                 name, ret
             )))
+        }
+    }
+
+    fn get_reg_sz(hkey: HKEY, name: &str) -> Option<String> {
+        let name_w = to_wide(name);
+        let mut data_len = 0u32;
+        let mut val_type = 0u32;
+        unsafe {
+            let ret = RegQueryValueExW(
+                hkey,
+                name_w.as_ptr(),
+                null_mut(),
+                &mut val_type,
+                null_mut(),
+                &mut data_len,
+            );
+            if ret != ERROR_SUCCESS || (val_type != REG_SZ && val_type != REG_EXPAND_SZ) || data_len == 0 {
+                return None;
+            }
+
+            let u16_len = (data_len / 2) as usize;
+            let mut buf = vec![0u16; u16_len];
+            let ret = RegQueryValueExW(
+                hkey,
+                name_w.as_ptr(),
+                null_mut(),
+                &mut val_type,
+                buf.as_mut_ptr() as *mut u8,
+                &mut data_len,
+            );
+            if ret != ERROR_SUCCESS {
+                return None;
+            }
+            while buf.last() == Some(&0) {
+                buf.pop();
+            }
+            String::from_utf16(&buf).ok()
         }
     }
 
@@ -473,7 +523,7 @@ mod windows {
         sids
     }
 
-    pub fn get_exempted_count() -> usize {
+    pub fn get_exempted_sids() -> std::collections::HashSet<String> {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -483,10 +533,117 @@ mod windows {
             .output()
         {
             Ok(out) => out.stdout,
-            Err(_) => return 0,
+            Err(_) => return std::collections::HashSet::new(),
         };
 
-        output.windows(4).filter(|window| *window == b"SID:").count()
+        let text = String::from_utf8_lossy(&output);
+        let mut set = std::collections::HashSet::new();
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if let Some(pos) = trimmed.find("S-1-15-") {
+                let sid_part = &trimmed[pos..];
+                let sid = sid_part
+                    .split(|c: char| c.is_whitespace() || c == ',' || c == ';')
+                    .next()
+                    .unwrap_or("")
+                    .trim();
+                if sid.starts_with("S-1-15-") {
+                    set.insert(sid.to_string());
+                }
+            }
+        }
+        set
+    }
+
+    pub fn get_exempted_count() -> usize {
+        get_exempted_sids().len()
+    }
+
+    pub fn get_uwp_apps_windows() -> Vec<crate::models::UwpAppInfo> {
+        const MAPPINGS_SUBKEY: &str =
+            "Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\AppContainer\\Mappings";
+        let Ok(key) = open_reg_key(HKEY_CURRENT_USER, MAPPINGS_SUBKEY, KEY_READ) else {
+            return Vec::new();
+        };
+
+        let exempted_sids = get_exempted_sids();
+        let mut apps = Vec::new();
+        let mut index = 0u32;
+        let mut name_buf = [0u16; 256];
+
+        loop {
+            let mut name_len = name_buf.len() as u32;
+            let ret = unsafe {
+                RegEnumKeyExW(
+                    key.0,
+                    index,
+                    name_buf.as_mut_ptr(),
+                    &mut name_len,
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                )
+            };
+
+            if ret != ERROR_SUCCESS {
+                break;
+            }
+
+            if let Ok(sub_name) = String::from_utf16(&name_buf[..name_len as usize]) {
+                let sid = sub_name.trim();
+                if sid.starts_with("S-1-15-") {
+                    let mut display_name = String::new();
+                    let mut moniker = String::new();
+
+                    let sid_w = to_wide(sid);
+                    let mut sub_hkey: HKEY = null_mut();
+                    let open_ret = unsafe {
+                        RegOpenKeyExW(key.0, sid_w.as_ptr(), 0, KEY_READ, &mut sub_hkey)
+                    };
+                    if open_ret == ERROR_SUCCESS {
+                        let sub_guard = RegKeyGuard(sub_hkey);
+                        if let Some(dn) = get_reg_sz(sub_guard.0, "DisplayName") {
+                            display_name = dn.trim().to_string();
+                        }
+                        if let Some(m) = get_reg_sz(sub_guard.0, "Moniker") {
+                            moniker = m.trim().to_string();
+                        }
+                    }
+
+                    let name = if display_name.is_empty()
+                        || display_name.starts_with("ms-resource:")
+                        || display_name.starts_with("@{")
+                    {
+                        if !moniker.is_empty() {
+                            moniker.clone()
+                        } else {
+                            sid.to_string()
+                        }
+                    } else {
+                        display_name
+                    };
+
+                    let is_exempted = exempted_sids.contains(sid);
+
+                    apps.push(crate::models::UwpAppInfo {
+                        name,
+                        moniker,
+                        sid: sid.to_string(),
+                        exempted: is_exempted,
+                    });
+                }
+            }
+            index += 1;
+        }
+
+        apps.sort_by(|a, b| {
+            b.exempted
+                .cmp(&a.exempted)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+
+        apps
     }
 
     pub fn exempt_all_uwp_windows() -> AppResult<()> {
@@ -727,6 +884,40 @@ mod tests {
             assert_eq!(stats.total_count, 0);
         }
     }
+    #[test]
+    fn test_uwp_app_list_query() {
+        let apps = get_uwp_app_list().expect("should query uwp app list without error");
+        #[cfg(windows)]
+        {
+            // On Windows test environment, should return apps if available
+            for app in &apps {
+                assert!(app.sid.starts_with("S-1-15-"));
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            assert!(apps.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_uwp_app_info_serialization() {
+        let info = crate::models::UwpAppInfo {
+            name: "Windows Terminal".to_string(),
+            moniker: "microsoft.windowsterminal_8wekyb3d8bbwe".to_string(),
+            sid: "S-1-15-2-12345".to_string(),
+            exempted: true,
+        };
+        let json = serde_json::to_string(&info).expect("should serialize");
+        assert!(json.contains("\"name\":\"Windows Terminal\""));
+        assert!(json.contains("\"moniker\":\"microsoft.windowsterminal_8wekyb3d8bbwe\""));
+        assert!(json.contains("\"sid\":\"S-1-15-2-12345\""));
+        assert!(json.contains("\"exempted\":true"));
+
+        let deserialized: crate::models::UwpAppInfo = serde_json::from_str(&json).expect("should deserialize");
+        assert_eq!(info, deserialized);
+    }
+
 
     #[test]
     fn test_uwp_loopback_stats_serialization() {

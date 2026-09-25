@@ -175,6 +175,15 @@ pub struct UwpLoopbackStats {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct UwpAppInfo {
+    pub name: String,
+    pub moniker: String,
+    pub sid: String,
+    pub exempted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct AutoUpdateEventPayload {
     pub profile_id: String,
     pub profile_name: String,

@@ -5,7 +5,7 @@ use crate::models::{
     DirectEgressInfo,
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, CoreStatus, DriftStatus, LanIpInfo,
     NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, SystemProxyStatus,
-    UwpLoopbackStats,
+    UwpAppInfo, UwpLoopbackStats,
 };
 use crate::state::AppState;
 use std::process::Command;
@@ -263,6 +263,11 @@ pub async fn exempt_all_uwp_loopback() -> Result<UwpLoopbackStats, String> {
 #[tauri::command]
 pub async fn clear_all_uwp_loopback() -> Result<UwpLoopbackStats, String> {
     crate::core::sysproxy::clear_all_uwp_loopback().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_uwp_app_list() -> Result<Vec<UwpAppInfo>, String> {
+    crate::core::sysproxy::get_uwp_app_list().map_err(|e| e.to_string())
 }
 
 // ----------------------------------------------------------------------------

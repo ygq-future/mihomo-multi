@@ -3,6 +3,7 @@ import {
   Cpu,
   Download,
   ExternalLink,
+  Eye,
   FolderOpen,
   Globe,
   Image as ImageIcon,
@@ -67,6 +68,7 @@ import {
 } from '../common'
 import { LiveUptimeDisplay } from './LiveUptimeDisplay'
 import { sortBypassItems } from '../../utils/bypassSort'
+import { UwpAppListModal } from '../setting/UwpAppListModal'
 
 function isValidBypassRule(value: string): boolean {
   const val = value.trim()
@@ -239,6 +241,7 @@ export const SettingView: React.FC = () => {
   const [defaultBypassList, setDefaultBypassList] = useState<string[]>([])
   const [uwpStats, setUwpStats] = useState<UwpLoopbackStats | null>(null)
   const [uwpLoading, setUwpLoading] = useState<boolean>(false)
+  const [showUwpModal, setShowUwpModal] = useState<boolean>(false)
   // Software Update State
   const [checkingAppUpdate, setCheckingAppUpdate] = useState<boolean>(false)
   const [downloadingAppUpdate, setDownloadingAppUpdate] =
@@ -1554,8 +1557,35 @@ export const SettingView: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClearAllUwp}
+                    disabled={uwpLoading || uwpStats.exemptedCount === 0}
+                    icon={<Trash2 className="w-3.5 h-3.5" />}
+                  >
+                    一键清除
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleExemptAllUwp}
+                    disabled={uwpLoading}
+                    icon={<ShieldCheck className="w-3.5 h-3.5" />}
+                  >
+                    一键豁免
+                  </Button>
+                  <Button
                     variant="secondary"
                     size="sm"
+                    className="px-2"
+                    onClick={() => setShowUwpModal(true)}
+                    icon={<Eye className="w-3.5 h-3.5" />}
+                    title="查看 UWP 应用列表"
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="px-2"
                     onClick={fetchUwpStats}
                     disabled={uwpLoading}
                     icon={
@@ -1566,27 +1596,7 @@ export const SettingView: React.FC = () => {
                       />
                     }
                     title="刷新豁免状态"
-                  >
-                    刷新
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleClearAllUwp}
-                    disabled={uwpLoading || uwpStats.exemptedCount === 0}
-                    icon={<Trash2 className="w-3.5 h-3.5" />}
-                  >
-                    清除豁免
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={handleExemptAllUwp}
-                    disabled={uwpLoading}
-                    icon={<ShieldCheck className="w-3.5 h-3.5" />}
-                  >
-                    一键豁免全部 UWP
-                  </Button>
+                  />
                 </div>
               </div>
             </div>
@@ -2179,6 +2189,10 @@ export const SettingView: React.FC = () => {
           </div>
         )}
       </div>
+      <UwpAppListModal
+        isOpen={showUwpModal}
+        onClose={() => setShowUwpModal(false)}
+      />
     </div>
   )
 }
