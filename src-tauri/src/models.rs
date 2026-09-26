@@ -351,3 +351,71 @@ pub struct AppStatus {
     pub version: String,
     pub is_installed: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionMetadata {
+    pub network: String,
+    #[serde(rename = "type")]
+    pub connection_type: String,
+    #[serde(rename = "sourceIP")]
+    pub source_ip: String,
+    #[serde(rename = "destinationIP")]
+    pub destination_ip: String,
+    #[serde(rename = "sourcePort")]
+    pub source_port: String,
+    #[serde(rename = "destinationPort")]
+    pub destination_port: String,
+    #[serde(rename = "inboundIP", default)]
+    pub inbound_ip: Option<String>,
+    #[serde(rename = "inboundPort", default)]
+    pub inbound_port: Option<String>,
+    #[serde(rename = "inboundName", default)]
+    pub inbound_name: Option<String>,
+    #[serde(rename = "inboundUser", default)]
+    pub inbound_user: Option<String>,
+    pub host: String,
+    #[serde(rename = "dnsMode", default)]
+    pub dns_mode: Option<String>,
+    #[serde(default)]
+    pub process: Option<String>,
+    #[serde(rename = "processPath", default)]
+    pub process_path: Option<String>,
+    #[serde(rename = "specialProxy", default)]
+    pub special_proxy: Option<String>,
+    #[serde(rename = "specialRules", default)]
+    pub special_rules: Option<String>,
+    #[serde(rename = "remoteDestination", default)]
+    pub remote_destination: Option<String>,
+    #[serde(rename = "sniffHost", default)]
+    pub sniff_host: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionItem {
+    pub id: String,
+    pub metadata: ConnectionMetadata,
+    pub upload: u64,
+    pub download: u64,
+    pub start: String,
+    #[serde(default)]
+    pub chains: Vec<String>,
+    #[serde(default)]
+    pub rule: String,
+    #[serde(rename = "rulePayload", default)]
+    pub rule_payload: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionSnapshot {
+    #[serde(rename = "downloadTotal", default)]
+    pub download_total: u64,
+    #[serde(rename = "uploadTotal", default)]
+    pub upload_total: u64,
+    #[serde(default)]
+    pub memory: Option<u64>,
+    #[serde(default)]
+    pub connections: Vec<ConnectionItem>,
+}

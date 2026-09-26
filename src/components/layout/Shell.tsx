@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import { Button, Modal } from '../common'
+import { ConnectionListView } from '../views/ConnectionListView'
 import { PortTableView } from '../views/PortTableView'
 import { ProfileListView } from '../views/ProfileListView'
 import { ProxyGridView } from '../views/ProxyGridView'
@@ -137,13 +138,14 @@ export const Shell: React.FC = () => {
         return <ProxyGridView />
       case 'profiles':
         return <ProfileListView />
+      case 'connections':
+        return <ConnectionListView />
       case 'settings':
         return <SettingView />
       default:
         return <PortTableView />
     }
   }
-
   const bgImg = config?.backgroundImage || ''
   const resolvedBg = resolveImageSrc(bgImg)
   const bgOpacity =

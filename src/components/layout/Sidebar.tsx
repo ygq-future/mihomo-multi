@@ -1,4 +1,11 @@
-import { Compass, Layers, Network, RefreshCw, Settings } from 'lucide-react'
+import {
+  Activity,
+  Compass,
+  Layers,
+  Network,
+  RefreshCw,
+  Settings,
+} from 'lucide-react'
 import type React from 'react'
 import appLogo from '../../../src-tauri/icons/icon.png'
 import { type TabType, useAppStore } from '../../stores/appStore'
@@ -10,6 +17,7 @@ const navItems: { id: TabType; label: string; icon: React.ElementType }[] = [
   { id: 'ports', label: '端口映射', icon: Network },
   { id: 'proxies', label: '代理节点', icon: Compass },
   { id: 'profiles', label: '配置订阅', icon: Layers },
+  { id: 'connections', label: '实时连接', icon: Activity },
   { id: 'settings', label: '设置', icon: Settings },
 ]
 

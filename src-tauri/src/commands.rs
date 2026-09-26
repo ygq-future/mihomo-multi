@@ -2,8 +2,8 @@ use crate::core::auto_updater::AutoUpdater;
 use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::is_port_available;
 use crate::models::{
-    AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, CoreStatus, DirectEgressInfo, DriftStatus,
-    LanIpInfo, NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode,
+    AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
+    DriftStatus, LanIpInfo, NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode,
     SystemProxyStatus, UwpAppInfo, UwpLoopbackStats,
 };
 use crate::state::AppState;
@@ -1245,4 +1245,31 @@ pub async fn query_direct_egress_info(port: Option<u16>, timeout_ms: Option<u64>
     crate::core::egress_probe::query_direct_egress_info(port, timeout_ms)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_connections(state: State<'_, AppState>) -> Result<ConnectionSnapshot, String> {
+    let status = state.engine.get_status();
+    if !status.running {
+        return Err("Mihomo 内核未运行".to_string());
+    }
+    state.engine.adapter().get_connections().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn close_connection(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let status = state.engine.get_status();
+    if !status.running {
+        return Err("Mihomo 内核未运行".to_string());
+    }
+    state.engine.adapter().close_connection(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn close_all_connections(state: State<'_, AppState>) -> Result<(), String> {
+    let status = state.engine.get_status();
+    if !status.running {
+        return Err("Mihomo 内核未运行".to_string());
+    }
+    state.engine.adapter().close_all_connections().await.map_err(|e| e.to_string())
 }

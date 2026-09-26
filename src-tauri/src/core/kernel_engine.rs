@@ -2,7 +2,7 @@ use crate::core::clash_client::{ClashApiClient, ProxyDetail};
 use crate::core::config_generator::{MinimalRuntimeConfig, RuntimeGeneratorParams};
 use crate::core::supervisor::CoreSupervisor;
 use crate::error::{AppError, AppResult};
-use crate::models::{AppConfig, CoreStatus, NodeLatencyResult, PortMapping};
+use crate::models::{AppConfig, ConnectionSnapshot, CoreStatus, NodeLatencyResult, PortMapping};
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -48,6 +48,12 @@ pub trait KernelControllerAdapter: Send + Sync {
     ) -> BoxFuture<'a, AppResult<()>> {
         Box::pin(async { Ok(()) })
     }
+    /// Fetches snapshot of all current active connections
+    fn get_connections<'a>(&'a self) -> BoxFuture<'a, AppResult<ConnectionSnapshot>>;
+    /// Closes a specific active connection by ID
+    fn close_connection<'a>(&'a self, id: &'a str) -> BoxFuture<'a, AppResult<()>>;
+    /// Closes all active connections
+    fn close_all_connections<'a>(&'a self) -> BoxFuture<'a, AppResult<()>>;
 }
 
 /// Production controller adapter interacting with Mihomo REST API over HTTP.
@@ -118,6 +124,28 @@ impl KernelControllerAdapter for HttpControllerAdapter {
         Box::pin(async move {
             let client = self.client.read().clone();
             client.test_group_delay(group_name, test_url, timeout_ms).await
+        })
+    }
+
+    fn get_connections<'a>(&'a self) -> BoxFuture<'a, AppResult<ConnectionSnapshot>> {
+        Box::pin(async move {
+            let client = self.client.read().clone();
+            client.get_connections().await
+        })
+    }
+
+    fn close_connection<'a>(&'a self, id: &'a str) -> BoxFuture<'a, AppResult<()>> {
+        let id = id.to_string();
+        Box::pin(async move {
+            let client = self.client.read().clone();
+            client.close_connection(&id).await
+        })
+    }
+
+    fn close_all_connections<'a>(&'a self) -> BoxFuture<'a, AppResult<()>> {
+        Box::pin(async move {
+            let client = self.client.read().clone();
+            client.close_all_connections().await
         })
     }
 }
@@ -304,6 +332,24 @@ impl KernelControllerAdapter for FakeControllerAdapter {
                     history: Vec::new(),
                 })
             }
+        })
+    }
+
+    fn get_connections<'a>(&'a self) -> BoxFuture<'a, AppResult<ConnectionSnapshot>> {
+        Box::pin(async move {
+            Ok(ConnectionSnapshot::default())
+        })
+    }
+
+    fn close_connection<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, AppResult<()>> {
+        Box::pin(async move {
+            Ok(())
+        })
+    }
+
+    fn close_all_connections<'a>(&'a self) -> BoxFuture<'a, AppResult<()>> {
+        Box::pin(async move {
+            Ok(())
         })
     }
 }

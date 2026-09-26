@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use crate::models::NodeLatencyResult;
+use crate::models::{ConnectionSnapshot, NodeLatencyResult};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use std::sync::Arc;
 use std::time::Duration;
@@ -279,6 +279,70 @@ impl ClashApiClient {
             )))
         }
     }
+
+    /// Fetch current active connections snapshot via GET /connections
+    pub async fn get_connections(&self) -> AppResult<ConnectionSnapshot> {
+        let request_url = format!("{}/connections", self.base_url);
+        let mut req = self.http_client.get(&request_url);
+        if !self.secret.is_empty() {
+            req = req.header(AUTHORIZATION, format!("Bearer {}", self.secret));
+        }
+
+        let resp = req.send().await.map_err(|err| {
+            AppError::ExternalController(format!("Request to Mihomo connections API failed: {}", err))
+        })?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let snapshot = resp.json::<ConnectionSnapshot>().await.map_err(|err| {
+                AppError::ExternalController(format!("Failed to parse Mihomo connections response: {}", err))
+            })?;
+            Ok(snapshot)
+        } else {
+            let error_text = resp.text().await.unwrap_or_default();
+            Err(AppError::ExternalController(format!(
+                "Mihomo connections API returned {}: {}",
+                status, error_text
+            )))
+        }
+    }
+
+    async fn delete_endpoint(&self, endpoint: &str, action_desc: &str) -> AppResult<()> {
+        let request_url = format!("{}/{}", self.base_url, endpoint);
+        let mut req = self.http_client.delete(&request_url);
+        if !self.secret.is_empty() {
+            req = req.header(AUTHORIZATION, format!("Bearer {}", self.secret));
+        }
+
+        let resp = req.send().await.map_err(|err| {
+            AppError::ExternalController(format!("Request to {} failed: {}", action_desc, err))
+        })?;
+
+        let status = resp.status();
+        if status.is_success() || status.as_u16() == 204 {
+            Ok(())
+        } else {
+            let error_text = resp.text().await.unwrap_or_default();
+            Err(AppError::ExternalController(format!(
+                "Mihomo {} API returned {}: {}",
+                action_desc, status, error_text
+            )))
+        }
+    }
+
+    /// Close a single active connection via DELETE /connections/{id}
+    pub async fn close_connection(&self, id: &str) -> AppResult<()> {
+        self.delete_endpoint(
+            &format!("connections/{}", urlencoding::encode(id)),
+            "close connection",
+        )
+        .await
+    }
+
+    /// Close all active connections via DELETE /connections
+    pub async fn close_all_connections(&self) -> AppResult<()> {
+        self.delete_endpoint("connections", "close all connections").await
+    }
 }
 
 #[cfg(test)]
@@ -443,5 +507,83 @@ mod tests {
         let client = ClashApiClient::new(port, "test-secret");
         let res = client.test_group_delay("fb-7890", None, Some(1000)).await;
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_clash_client_get_connections() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("Bind test server");
+        let port = listener.local_addr().expect("Get port").port();
+
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+
+                let response_body = r#"{
+                    "downloadTotal": 10240,
+                    "uploadTotal": 2048,
+                    "connections": [
+                        {
+                            "id": "conn-uuid-1",
+                            "metadata": {
+                                "network": "tcp",
+                                "type": "HTTP",
+                                "sourceIP": "127.0.0.1",
+                                "destinationIP": "1.1.1.1",
+                                "sourcePort": "54321",
+                                "destinationPort": "443",
+                                "inboundPort": "7890",
+                                "host": "cloudflare.com"
+                            },
+                            "upload": 100,
+                            "download": 200,
+                            "start": "2026-09-25T10:00:00Z",
+                            "chains": ["HK-Node-01"],
+                            "rule": "IN-PORT,7890,HK-Node-01"
+                        }
+                    ]
+                }"#;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    response_body.len(),
+                    response_body
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+
+        let client = ClashApiClient::new(port, "test-secret");
+        let snapshot = client.get_connections().await.expect("Get connections should succeed");
+        assert_eq!(snapshot.download_total, 10240);
+        assert_eq!(snapshot.upload_total, 2048);
+        assert_eq!(snapshot.connections.len(), 1);
+        assert_eq!(snapshot.connections[0].id, "conn-uuid-1");
+        assert_eq!(snapshot.connections[0].metadata.host, "cloudflare.com");
+        assert_eq!(snapshot.connections[0].metadata.inbound_port.as_deref(), Some("7890"));
+    }
+
+    #[tokio::test]
+    async fn test_clash_client_close_connections() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("Bind test server");
+        let port = listener.local_addr().expect("Get port").port();
+
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 1024];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                let req_str = String::from_utf8_lossy(&buf[..n]);
+                if req_str.starts_with("DELETE") {
+                    let response = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
+                    let _ = socket.write_all(response.as_bytes()).await;
+                }
+            }
+        });
+
+        let client = ClashApiClient::new(port, "test-secret");
+        let res_single = client.close_connection("conn-uuid-1").await;
+        assert!(res_single.is_ok());
+
+        let res_all = client.close_all_connections().await;
+        assert!(res_all.is_ok());
     }
 }

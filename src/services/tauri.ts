@@ -5,6 +5,7 @@ import type {
   AutoUpdateEventPayload,
   DirectEgressInfo,
   AutoUpdaterStatus,
+  ConnectionSnapshot,
   CoreStatus,
   KernelUpdateCheckResult,
   KernelUpgradeResult,
@@ -912,4 +913,49 @@ export async function updateRules(): Promise<MrsRulesInfo> {
     }
   }
   return invoke<MrsRulesInfo>('update_rules')
+}
+
+export async function getConnections(): Promise<ConnectionSnapshot> {
+  if (!isTauriEnvironment()) {
+    return {
+      downloadTotal: 1048576,
+      uploadTotal: 524288,
+      connections: [
+        {
+          id: 'mock-conn-1',
+          metadata: {
+            network: 'tcp',
+            type: 'HTTP',
+            sourceIP: '127.0.0.1',
+            destinationIP: '104.16.132.229',
+            sourcePort: '51234',
+            destinationPort: '443',
+            inboundPort: '7890',
+            inboundName: 'mixed-7890',
+            host: 'api.github.com',
+            dnsMode: 'normal',
+            process: 'chrome.exe',
+            processPath:
+              'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+          },
+          upload: 1024,
+          download: 40960,
+          start: new Date(Date.now() - 45000).toISOString(),
+          chains: ['HK-Node-01', 'DIRECT'],
+          rule: 'IN-PORT,7890,HK-Node-01',
+        },
+      ],
+    }
+  }
+  return invoke<ConnectionSnapshot>('get_connections')
+}
+
+export async function closeConnection(id: string): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('close_connection', { id })
+}
+
+export async function closeAllConnections(): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('close_all_connections')
 }

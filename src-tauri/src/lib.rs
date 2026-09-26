@@ -171,6 +171,9 @@ pub fn run() {
             app_ready,
             get_rules_info,
             update_rules,
+            get_connections,
+            close_connection,
+            close_all_connections,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {

@@ -48,3 +48,25 @@ export function formatCompactTraffic(bytesPerSec: number): string {
   const gb = bytesPerSec / (1024 * 1024 * 1024)
   return `${gb.toFixed(gb < 10 ? 1 : 0)}G`
 }
+
+/**
+ * 格式化字节数
+ * @param bytes 字节数
+ * @returns 友好展示格式，例如 "12.4 KB", "1.52 MB"
+ */
+export function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0 || Number.isNaN(bytes)) {
+    return '0 B'
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let val = bytes
+  let unitIndex = 0
+  while (val >= 1024 && unitIndex < units.length - 1) {
+    val /= 1024
+    unitIndex++
+  }
+  if (unitIndex === 0) {
+    return `${Math.round(val)} B`
+  }
+  return `${val.toFixed(val < 10 ? 2 : 1)} ${units[unitIndex]}`
+}

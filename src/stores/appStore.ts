@@ -6,7 +6,12 @@ import { type ProfileSlice, createProfileSlice } from './profileSlice'
 import { type ProxySlice, createProxySlice } from './proxySlice'
 let inFlightStatusPromise: Promise<void> | null = null
 
-export type TabType = 'ports' | 'proxies' | 'profiles' | 'settings'
+export type TabType =
+  | 'ports'
+  | 'proxies'
+  | 'profiles'
+  | 'connections'
+  | 'settings'
 
 export interface BaseAppState {
   activeTab: TabType

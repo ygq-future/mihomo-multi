@@ -258,3 +258,42 @@ export interface MrsRulesInfo {
   last_updated_at?: number | null
   total_size: number
 }
+
+export interface ConnectionMetadata {
+  network: string
+  type: string
+  sourceIP: string
+  destinationIP: string
+  sourcePort: string
+  destinationPort: string
+  inboundIP?: string | null
+  inboundPort?: string | null
+  inboundName?: string | null
+  inboundUser?: string | null
+  host: string
+  dnsMode?: string | null
+  process?: string | null
+  processPath?: string | null
+  specialProxy?: string | null
+  specialRules?: string | null
+  remoteDestination?: string | null
+  sniffHost?: string | null
+}
+
+export interface ConnectionItem {
+  id: string
+  metadata: ConnectionMetadata
+  upload: number
+  download: number
+  start: string
+  chains: string[]
+  rule: string
+  rulePayload?: string | null
+}
+
+export interface ConnectionSnapshot {
+  downloadTotal: number
+  uploadTotal: number
+  memory?: number | null
+  connections: ConnectionItem[]
+}
