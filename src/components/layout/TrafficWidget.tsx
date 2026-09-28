@@ -46,35 +46,32 @@ export const TrafficWidget: React.FC<TrafficWidgetProps> = ({
   }
 
   return (
-    <div className="p-2.5 mx-2.5 mb-2 rounded-xl border border-border bg-background/50 space-y-1.5 select-none">
+    <div className="p-2.5 mx-2.5 mb-2 rounded-xl border border-border bg-background/50 space-y-2 select-none">
       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
         <span className="font-medium">实时网速</span>
         <span className="text-[10px] text-muted-foreground/70 font-mono">
           汇总
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-1.5">
-        <div className="p-1.5 rounded-lg bg-card/60 border border-border/40 flex items-center gap-1.5 min-w-0">
-          <Upload className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="text-[9px] text-muted-foreground leading-none">
-              上传
-            </div>
-            <div className="font-mono text-[10px] text-foreground font-medium truncate mt-0.5">
-              {formatTraffic(traffic.up)}
-            </div>
+      <div className="flex flex-col gap-1.5 pt-0.5">
+        <div className="flex items-center justify-between py-0.5">
+          <div className="flex items-center gap-1.5">
+            <Upload className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+            <span className="text-[10px] text-muted-foreground">上传</span>
           </div>
+          <span className="font-mono text-[10px] text-foreground font-medium">
+            {formatTraffic(traffic.up)}
+          </span>
         </div>
-        <div className="p-1.5 rounded-lg bg-card/60 border border-border/40 flex items-center gap-1.5 min-w-0">
-          <Download className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="text-[9px] text-muted-foreground leading-none">
-              下载
-            </div>
-            <div className="font-mono text-[10px] text-foreground font-medium truncate mt-0.5">
-              {formatTraffic(traffic.down)}
-            </div>
+        <div className="h-px bg-border/40" />
+        <div className="flex items-center justify-between py-0.5">
+          <div className="flex items-center gap-1.5">
+            <Download className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+            <span className="text-[10px] text-muted-foreground">下载</span>
           </div>
+          <span className="font-mono text-[10px] text-foreground font-medium">
+            {formatTraffic(traffic.down)}
+          </span>
         </div>
       </div>
     </div>
