@@ -273,7 +273,7 @@ export const ProfileListView: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3">
             {profiles.map((profile) => {
               const isUpdating = updatingProfileIds[profile.id] ?? false
               const isRemote = profile.type === 'remote'

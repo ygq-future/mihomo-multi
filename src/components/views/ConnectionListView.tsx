@@ -379,9 +379,9 @@ export const ConnectionListView: React.FC = () => {
       </div>
 
       {/* 2. Fixed Top Row: Search & Filter Controls with Integrated Actions */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 bg-card p-2.5 rounded-xl border border-border shrink-0">
-        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[260px]">
-          <div className="w-full sm:w-60">
+      <div className="flex items-center justify-between gap-2.5 bg-card p-2.5 rounded-xl border border-border shrink-0">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="flex-1 min-w-[140px] max-w-xs">
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -393,7 +393,7 @@ export const ConnectionListView: React.FC = () => {
           </div>
 
           {/* Inbound Port Selector */}
-          <div className="w-32">
+          <div className="w-28 shrink-0">
             <Select
               value={selectedPort}
               onChange={(val) => setSelectedPort(val)}
@@ -408,7 +408,7 @@ export const ConnectionListView: React.FC = () => {
           </div>
 
           {/* Protocol Selector */}
-          <div className="w-24">
+          <div className="w-24 shrink-0">
             <Select
               value={selectedProtocol}
               onChange={(val) => setSelectedProtocol(val)}
@@ -421,7 +421,7 @@ export const ConnectionListView: React.FC = () => {
           </div>
 
           {/* Sort Selector */}
-          <div className="w-32">
+          <div className="w-32 shrink-0">
             <Select
               value={sortField}
               onChange={(val) => setSortField(val as SortField)}
@@ -435,8 +435,8 @@ export const ConnectionListView: React.FC = () => {
         </div>
 
         {/* Action Controls & Item Count */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground mr-1 hidden sm:inline">
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-muted-foreground mr-1 hidden sm:inline whitespace-nowrap">
             {displayConnections.length} /{' '}
             {snapshot ? snapshot.connections.length : 0} 条
           </span>
