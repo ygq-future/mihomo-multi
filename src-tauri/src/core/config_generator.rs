@@ -228,6 +228,7 @@ impl Default for RuntimeDnsConfig {
 pub struct RuntimeTunConfig {
     pub enable: bool,
     pub stack: String,
+    pub device: String,
     #[serde(rename = "auto-route")]
     pub auto_route: bool,
     #[serde(rename = "auto-detect-interface")]
@@ -448,6 +449,7 @@ impl MinimalRuntimeConfig {
             tun = Some(RuntimeTunConfig {
                 enable: true,
                 stack: "gvisor".to_string(),
+                device: "Mihomo-Multi".to_string(),
                 auto_route: true,
                 auto_detect_interface: true,
                 dns_hijack: vec!["any:53".to_string()],
@@ -1048,6 +1050,7 @@ password: pass
         assert!(yaml.contains("stack: gvisor"));
         assert!(yaml.contains("auto-route: true"));
         assert!(yaml.contains("auto-detect-interface: true"));
+        assert!(yaml.contains("device: Mihomo-Multi"));
         assert!(yaml.contains("dns-hijack:"));
         assert!(yaml.contains("- any:53"));
         assert!(yaml.contains("IN-TYPE,TUN,[AirportA] N1"));
@@ -1103,6 +1106,7 @@ password: pass
 
         assert!(yaml.contains("tun:"));
         assert!(yaml.contains("SUB-RULE,(IN-TYPE,TUN),sub-rule-7899"));
+        assert!(yaml.contains("device: Mihomo-Multi"));
         assert_eq!(config.rules.last(), Some(&"MATCH,DIRECT".to_string()));
     }
 
