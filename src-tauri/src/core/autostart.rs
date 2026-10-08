@@ -213,12 +213,16 @@ fn is_startup_approved_disabled(reg_query_stdout: &str) -> bool {
     false
 }
 
-#[cfg(test)]
+#[cfg(not(windows))]
+pub fn is_autostart_enabled() -> bool {
+    false
+}
+
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
     #[test]
-    #[cfg(windows)]
     fn test_startup_approved_disabled_parsing() {
         let output_disabled_01 = r"
 HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run
@@ -241,9 +245,4 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupAppr
         let output_empty = "";
         assert!(!is_startup_approved_disabled(output_empty));
     }
-}
-
-#[cfg(not(windows))]
-pub fn is_autostart_enabled() -> bool {
-    false
 }
