@@ -94,6 +94,12 @@ pub fn run() {
             let engine = app_state.engine.clone();
             let handle = app_handle.clone();
             let config = app_state.config.read().clone();
+            // Keep autostart registry entry in sync with current executable if auto_launch is enabled
+            if config.auto_launch
+                && let Ok(exe_path) = std::env::current_exe()
+            {
+                let _ = crate::core::autostart::enable_autostart(&exe_path, config.silent_start);
+            }
             tauri::async_runtime::spawn(async move {
                 let _ = state_clone.sync_runtime_config().await;
                 if let Err(err) = engine.start(Some(&handle), &config) {
