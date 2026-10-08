@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import * as api from '../services/tauri'
-import type { AppConfig, AppStatus, CoreStatus } from '../types'
+import type { AppConfig, AppStatus, CoreStatus, TunStatus } from '../types'
 import { type PortSlice, createPortSlice } from './portSlice'
 import { type ProfileSlice, createProfileSlice } from './profileSlice'
 import { type ProxySlice, createProxySlice } from './proxySlice'
@@ -31,6 +31,10 @@ export interface BaseAppState {
   fetchConfig: () => Promise<void>
   saveConfig: (config: AppConfig) => Promise<void>
   setSystemProxy: (enabled: boolean, port?: number | null) => Promise<void>
+  tunStatus: TunStatus | null
+  fetchTunStatus: () => Promise<void>
+  setTun: (enabled: boolean, port?: number | null) => Promise<TunStatus>
+  restartAsAdmin: () => Promise<void>
 }
 
 export type RootStore = BaseAppState & ProfileSlice & ProxySlice & PortSlice
@@ -48,6 +52,7 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   coreStatus: null,
   config: null,
   coreLoading: false,
+  tunStatus: null,
   error: null,
 
   setActiveTab: (activeTab) => set({ activeTab }),
@@ -220,9 +225,49 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
             ...currentConfig,
             systemProxyEnabled: status.enabled,
             systemProxyPort: status.port ?? null,
+            tunEnabled: enabled ? false : currentConfig.tunEnabled,
+            tunPort: enabled ? null : currentConfig.tunPort,
           },
         })
       }
+      if (enabled) {
+        const tunStatus = await api.getTunStatus()
+        set({ tunStatus })
+      }
+      await get().fetchConfig()
+      await get().fetchStatus()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: msg })
+      throw err
+    }
+  },
+
+  fetchTunStatus: async () => {
+    try {
+      set({ tunStatus: await api.getTunStatus() })
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) })
+    }
+  },
+
+  setTun: async (enabled: boolean, port?: number | null) => {
+    try {
+      const status = await api.setTun(enabled, port)
+      set({ tunStatus: status })
+      await get().fetchConfig()
+      await get().fetchStatus()
+      return status
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: msg })
+      throw err
+    }
+  },
+
+  restartAsAdmin: async () => {
+    try {
+      await api.restartAsAdmin()
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       set({ error: msg })

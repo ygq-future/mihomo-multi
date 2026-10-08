@@ -41,6 +41,7 @@ import {
   DEFAULT_FALLBACK_LAZY,
   DEFAULT_TEST_URL,
   DEFAULT_TIMEOUT_MS,
+  FIXED_DIRECT_PORT_ID,
   GITHUB_REPO_URL,
   MAX_FALLBACK_INTERVAL,
   MAX_TIMEOUT_MS,
@@ -259,7 +260,12 @@ export const SettingView: React.FC = () => {
     openAppDataDir,
     coreLoading,
     fetchStatus,
+    setTun,
+    tunStatus,
+    fetchTunStatus,
+    restartAsAdmin,
   } = useAppStore()
+  const [tunLoading, setTunLoading] = useState<boolean>(false)
   const [controllerPortInput, setControllerPortInput] = useState<string>(
     String(DEFAULT_CONTROLLER_PORT),
   )
@@ -384,9 +390,20 @@ export const SettingView: React.FC = () => {
       .catch(() => {})
   }, [])
 
+  useEffect(() => {
+    void fetchTunStatus()
+  }, [fetchTunStatus])
+
   const enabledPorts = portMappings
     .filter((m) => m.enabled)
     .sort((a, b) => a.port - b.port)
+
+  const defaultProxyPort = useMemo(() => {
+    const proxyMapping = enabledPorts.find(
+      (m) => m.id !== FIXED_DIRECT_PORT_ID && m.nodeName !== 'DIRECT',
+    )
+    return proxyMapping?.port ?? enabledPorts[0]?.port
+  }, [enabledPorts])
 
   const sortedCustomBypass = useMemo(
     () => sortBypassItems(config?.systemProxyBypassUser || []),
@@ -402,7 +419,7 @@ export const SettingView: React.FC = () => {
         config?.systemProxyPort &&
         enabledPorts.some((m) => m.port === config.systemProxyPort)
           ? config.systemProxyPort
-          : enabledPorts[0]?.port
+          : defaultProxyPort
 
       if (!targetPort) {
         toast.error('当前无可用且已启用的监听端口，请先在端口管理中启用端口')
@@ -470,6 +487,68 @@ export const SettingView: React.FC = () => {
       toast.error(
         `更新系统代理端口失败: ${err instanceof Error ? err.message : String(err)}`,
       )
+    }
+  }
+
+  const handleToggleTun = async (checked: boolean) => {
+    if (checked) {
+      const targetPort =
+        config?.tunPort && enabledPorts.some((m) => m.port === config.tunPort)
+          ? config.tunPort
+          : defaultProxyPort
+      if (!targetPort) {
+        toast.error('当前无可用且已启用的监听端口，请先在端口管理中启用端口')
+        return
+      }
+      setTunLoading(true)
+      try {
+        const status = await setTun(true, targetPort)
+        if (status.pendingElevation) {
+          toast.info('TUN 模式需要管理员权限，应用正在以管理员身份重启…')
+        } else {
+          toast.success(`TUN 模式已启用，全局出口跟随端口 ${targetPort}`)
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err))
+      } finally {
+        setTunLoading(false)
+      }
+    } else {
+      setTunLoading(true)
+      try {
+        const currentPort = config?.tunPort ?? defaultProxyPort
+        await setTun(false, currentPort)
+        toast.success('已关闭 TUN 模式')
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err))
+      } finally {
+        setTunLoading(false)
+      }
+    }
+  }
+
+  const handleTunPortSelect = async (portStr: string) => {
+    const port = Number(portStr)
+    if (!port || !config) return
+    setTunLoading(true)
+    try {
+      if (config.tunEnabled) {
+        await setTun(true, port)
+      } else {
+        await saveConfig({ ...config, tunPort: port })
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTunLoading(false)
+    }
+  }
+
+  const handleRestartAsAdmin = async () => {
+    try {
+      await restartAsAdmin()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -1511,7 +1590,7 @@ export const SettingView: React.FC = () => {
               ) : (
                 <Select
                   value={String(
-                    config?.systemProxyPort ?? enabledPorts[0]?.port ?? '',
+                    config?.systemProxyPort ?? defaultProxyPort ?? '',
                   )}
                   onChange={(val) => handlePortSelectChange(String(val))}
                   options={enabledPorts.map((m) => ({
@@ -1697,6 +1776,93 @@ export const SettingView: React.FC = () => {
                   />
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* TUN 模式卡片 */}
+      <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
+        <div className="pb-3 border-b border-border">
+          <div className="flex items-center gap-2.5">
+            <Network className="w-5 h-5 text-primary" />
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
+                TUN 模式
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                通过虚拟网卡接管系统全局流量，出口跟随所选监听端口的节点与国内直连策略
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-6">
+            <div className="space-y-0.5 min-w-0 flex-1">
+              <label className="text-xs font-medium text-foreground">
+                启用 TUN 模式
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                需要管理员权限；与系统代理互斥，开启时会自动关闭并清理系统代理
+              </p>
+            </div>
+            <Switch
+              checked={config?.tunEnabled ?? false}
+              onChange={handleToggleTun}
+              disabled={tunLoading}
+              size="md"
+            />
+          </div>
+
+          <div className="pt-3 border-t border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="space-y-0.5">
+              <label className="text-xs font-medium text-foreground">
+                绑定的监听端口
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                从当前已启用的监听端口中选择 TUN
+                全局出口（复用该端口的节点、备用节点与国内直连策略）
+              </p>
+            </div>
+            <div className="w-full sm:w-80">
+              {enabledPorts.length === 0 ? (
+                <span className="text-xs text-rose-500 font-medium">
+                  暂无已启用的监听端口，请先在端口管理中启用
+                </span>
+              ) : (
+                <Select
+                  value={String(config?.tunPort ?? defaultProxyPort ?? '')}
+                  onChange={(val) => handleTunPortSelect(String(val))}
+                  options={enabledPorts.map((m) => ({
+                    value: String(m.port),
+                    label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName}${
+                      m.description ? ` · ${m.description}` : ''
+                    })`,
+                  }))}
+                />
+              )}
+            </div>
+          </div>
+
+          {tunStatus?.pendingElevation && (
+            <div className="pt-3 border-t border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="space-y-0.5">
+                <label className="text-xs font-medium text-amber-500">
+                  TUN 未生效：需要管理员权限
+                </label>
+                <p className="text-[11px] text-muted-foreground">
+                  当前以普通用户运行，未创建虚拟网卡。点击右侧按钮以管理员身份重启后自动生效
+                </p>
+              </div>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleRestartAsAdmin}
+                icon={<ShieldCheck className="w-3.5 h-3.5" />}
+              >
+                以管理员身份重启
+              </Button>
             </div>
           )}
         </div>

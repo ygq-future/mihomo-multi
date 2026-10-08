@@ -136,6 +136,8 @@ impl PortSyncDelegate for AppPortSyncDelegate {
                 fallback_interval: cfg.fallback_interval,
                 fallback_lazy: cfg.fallback_lazy,
                 user_bypass: &cfg.system_proxy_bypass_user,
+                tun_enabled: cfg.tun_enabled && crate::core::elevation::is_elevated(),
+                tun_port: cfg.tun_port,
             };
 
             let path = self

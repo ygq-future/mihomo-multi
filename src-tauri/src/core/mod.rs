@@ -4,6 +4,7 @@ pub mod autostart;
 pub mod clash_client;
 pub mod config_generator;
 pub mod drift_guard;
+pub mod elevation;
 pub mod egress_probe;
 pub mod geo_manager;
 pub mod kernel_engine;

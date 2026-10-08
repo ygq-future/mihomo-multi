@@ -749,6 +749,8 @@ password: pass
             fallback_interval: 300,
             fallback_lazy: true,
             user_bypass: &[],
+            tun_enabled: false,
+            tun_port: None,
         };
 
         let path = engine
@@ -805,6 +807,8 @@ password: pass
             fallback_interval: 300,
             fallback_lazy: true,
             user_bypass: &[],
+            tun_enabled: false,
+            tun_port: None,
         };
 
         // Applying config should succeed (write to disk) even if controller hot-reload returns error

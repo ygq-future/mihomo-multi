@@ -55,7 +55,13 @@ pub fn run() {
             }
             // Silent start check and window presentation
             let args: Vec<String> = std::env::args().collect();
-            let is_silent = args.iter().any(|a| a == "--silent" || a == "-s") || app_state.config.read().silent_start;
+            let restart_from_pid: Option<u32> = args
+                .iter()
+                .find_map(|a| a.strip_prefix("--restart-from-pid="))
+                .and_then(|v| v.parse().ok());
+            let is_silent = (args.iter().any(|a| a == "--silent" || a == "-s")
+                || app_state.config.read().silent_start)
+                && restart_from_pid.is_none();
             app_state
                 .is_silent_start
                 .store(is_silent, std::sync::atomic::Ordering::SeqCst);
@@ -94,13 +100,14 @@ pub fn run() {
             let engine = app_state.engine.clone();
             let handle = app_handle.clone();
             let config = app_state.config.read().clone();
-            // Keep autostart registry entry in sync with current executable if auto_launch is enabled
-            if config.auto_launch
-                && let Ok(exe_path) = std::env::current_exe()
-            {
-                let _ = crate::core::autostart::enable_autostart(&exe_path, config.silent_start);
+            // Keep autostart entry in sync with current configuration
+            if let Ok(exe_path) = std::env::current_exe() {
+                let _ = crate::core::autostart::sync_autostart_state(&config, &exe_path);
             }
             tauri::async_runtime::spawn(async move {
+                if let Some(pid) = restart_from_pid {
+                    crate::core::elevation::wait_for_process_exit(pid, 10_000);
+                }
                 let _ = state_clone.sync_runtime_config().await;
                 if let Err(err) = engine.start(Some(&handle), &config) {
                     error!("Failed to auto-start Mihomo core: {}", err);
@@ -166,6 +173,9 @@ pub fn run() {
             set_system_proxy,
             get_system_proxy_status,
             get_default_bypass_list,
+            get_tun_status,
+            set_tun,
+            restart_as_admin,
             get_uwp_loopback_status,
             exempt_all_uwp_loopback,
             clear_all_uwp_loopback,

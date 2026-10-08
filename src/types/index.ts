@@ -171,12 +171,22 @@ export interface AppConfig {
   systemProxyPort?: number | null
   systemProxyBypassUser: string[]
   systemProxySyncEnv: boolean
+  tunEnabled: boolean
+  tunPort?: number | null
 }
 
 export interface SystemProxyStatus {
   enabled: boolean
   port?: number | null
   bypassDomains: string[]
+}
+
+export interface TunStatus {
+  enabled: boolean
+  active: boolean
+  port?: number | null
+  elevated: boolean
+  pendingElevation: boolean
 }
 
 export interface UwpLoopbackStats {

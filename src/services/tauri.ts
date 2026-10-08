@@ -17,6 +17,7 @@ import type {
   ProfileItem,
   ProxyNode,
   SystemProxyStatus,
+  TunStatus,
   UwpAppInfo,
   UwpLoopbackStats,
   AppUpdateCheckResult,
@@ -145,6 +146,8 @@ export async function getConfig(): Promise<AppConfig> {
       systemProxyPort: null,
       systemProxyBypassUser: [],
       systemProxySyncEnv: true,
+      tunEnabled: false,
+      tunPort: null,
     }
   }
   return invoke<AppConfig>('get_config')
@@ -767,6 +770,40 @@ export async function getSystemProxyStatus(): Promise<SystemProxyStatus> {
     }
   }
   return invoke<SystemProxyStatus>('get_system_proxy_status')
+}
+
+export async function setTun(
+  enabled: boolean,
+  port?: number | null,
+): Promise<TunStatus> {
+  if (!isTauriEnvironment()) {
+    return {
+      enabled,
+      active: enabled,
+      port: enabled ? (port ?? 7890) : null,
+      elevated: true,
+      pendingElevation: false,
+    }
+  }
+  return invoke<TunStatus>('set_tun', { enabled, port: port ?? null })
+}
+
+export async function getTunStatus(): Promise<TunStatus> {
+  if (!isTauriEnvironment()) {
+    return {
+      enabled: false,
+      active: false,
+      port: null,
+      elevated: false,
+      pendingElevation: false,
+    }
+  }
+  return invoke<TunStatus>('get_tun_status')
+}
+
+export async function restartAsAdmin(): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('restart_as_admin')
 }
 
 export async function getDefaultBypassList(): Promise<string[]> {

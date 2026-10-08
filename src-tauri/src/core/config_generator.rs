@@ -224,6 +224,18 @@ impl Default for RuntimeDnsConfig {
         }
     }
 }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuntimeTunConfig {
+    pub enable: bool,
+    pub stack: String,
+    #[serde(rename = "auto-route")]
+    pub auto_route: bool,
+    #[serde(rename = "auto-detect-interface")]
+    pub auto_detect_interface: bool,
+    #[serde(rename = "dns-hijack")]
+    pub dns_hijack: Vec<String>,
+}
+
 
 #[derive(Debug, Clone)]
 pub struct RuntimeGeneratorParams<'a> {
@@ -236,6 +248,8 @@ pub struct RuntimeGeneratorParams<'a> {
     pub fallback_interval: u32,
     pub fallback_lazy: bool,
     pub user_bypass: &'a [String],
+    pub tun_enabled: bool,
+    pub tun_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -257,6 +271,8 @@ pub struct MinimalRuntimeConfig {
     #[serde(default)]
     pub dns: RuntimeDnsConfig,
     pub ipv6: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tun: Option<RuntimeTunConfig>,
     #[serde(rename = "rule-providers", skip_serializing_if = "BTreeMap::is_empty", default)]
     pub rule_providers: BTreeMap<String, RuntimeRuleProvider>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -282,6 +298,7 @@ impl MinimalRuntimeConfig {
             bind_address: "127.0.0.1".to_string(),
             ipv6: false,
             tcp_concurrent: true,
+            tun: None,
             unified_delay: true,
             dns: RuntimeDnsConfig::default(),
             rule_providers: default_rule_providers(),
@@ -303,6 +320,8 @@ impl MinimalRuntimeConfig {
         let mut proxy_groups = Vec::new();
         let mut sub_rules = BTreeMap::new();
         let mut rules = Vec::new();
+        let mut tun_target: Option<String> = None;
+        let mut tun_sub_rule: Option<String> = None;
         let listen_addr = if params.allow_lan { "0.0.0.0" } else { "127.0.0.1" };
         let bind_addr = if params.allow_lan { "*" } else { "127.0.0.1" };
 
@@ -327,6 +346,9 @@ impl MinimalRuntimeConfig {
                 listen: listen_addr.to_string(),
             });
             if m.id == crate::models::FIXED_DIRECT_PORT_ID || m.node_name == "DIRECT" {
+                if Some(m.port) == params.tun_port {
+                    tun_target = Some("DIRECT".to_string());
+                }
                 rules.push(format!("IN-PORT,{},DIRECT", m.port));
                 continue;
             }
@@ -397,6 +419,13 @@ impl MinimalRuntimeConfig {
                     "RULE-SET,cn_ip,DIRECT,no-resolve".to_string(),
                 ]);
             }
+            if Some(m.port) == params.tun_port {
+                tun_target = Some(target_action.clone());
+                if !sub_rule_list.is_empty() {
+                    tun_sub_rule = Some(format!("sub-rule-{}", m.port));
+                }
+            }
+
 
             if !sub_rule_list.is_empty() {
                 sub_rule_list.push(format!("MATCH,{}", target_action));
@@ -407,6 +436,24 @@ impl MinimalRuntimeConfig {
                 rules.push(format!("IN-PORT,{},{}", m.port, target_action));
             }
         }
+        let mut tun = None;
+        if params.tun_enabled
+            && let Some(target) = tun_target.clone()
+        {
+            if let Some(name) = tun_sub_rule.clone() {
+                rules.push(format!("SUB-RULE,(IN-TYPE,TUN),{}", name));
+            } else {
+                rules.push(format!("IN-TYPE,TUN,{}", target));
+            }
+            tun = Some(RuntimeTunConfig {
+                enable: true,
+                stack: "gvisor".to_string(),
+                auto_route: true,
+                auto_detect_interface: true,
+                dns_hijack: vec!["any:53".to_string()],
+            });
+        }
+
         // Invariant: Always end with MATCH,DIRECT fallback
         rules.push("MATCH,DIRECT".to_string());
 
@@ -418,6 +465,7 @@ impl MinimalRuntimeConfig {
             allow_lan: params.allow_lan,
             bind_address: bind_addr.to_string(),
             ipv6: false,
+            tun,
             tcp_concurrent: true,
             unified_delay: true,
             dns: RuntimeDnsConfig::default(),
@@ -525,6 +573,8 @@ password: pass
             fallback_interval: 5,
             fallback_lazy: false,
             user_bypass: &[],
+            tun_enabled: false,
+            tun_port: None,
         };
 
         let config = MinimalRuntimeConfig::with_mappings(
@@ -585,6 +635,8 @@ password: pass
             fallback_interval: 5,
             fallback_lazy: false,
             user_bypass: &[],
+            tun_enabled: false,
+            tun_port: None,
         };
         let config = MinimalRuntimeConfig::with_mappings(&params, &[direct_mapping], Vec::new(), &HashMap::new());
         let yaml = config.to_yaml().expect("YAML serialize failed");
@@ -642,6 +694,8 @@ password: pass
             fallback_interval: 5,
             fallback_lazy: false,
             user_bypass: &[],
+            tun_enabled: false,
+            tun_port: None,
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], proxies, &profile_map);
@@ -709,6 +763,8 @@ password: pass
             fallback_interval: 5,
             fallback_lazy: false,
             user_bypass: &[],
+            tun_enabled: false,
+            tun_port: None,
         };
 
         let config =
@@ -778,6 +834,8 @@ password: pass
             fallback_interval: 5,
             fallback_lazy: false,
             user_bypass: &[],
+            tun_enabled: false,
+            tun_port: None,
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1, p2], &profile_map);
@@ -844,6 +902,8 @@ password: pass
             fallback_interval: 5,
             fallback_lazy: false,
             user_bypass: &[],
+            tun_enabled: false,
+            tun_port: None,
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], proxies, &profile_map);
@@ -924,8 +984,9 @@ password: pass
             fallback_interval: 5,
             fallback_lazy: false,
             user_bypass: &user_bypass,
+            tun_enabled: false,
+            tun_port: None,
         };
-
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping_global], vec![p1], &profile_map);
         let yaml = config.to_yaml().expect("YAML serialize failed");
 
@@ -935,5 +996,163 @@ password: pass
         assert!(yaml.contains("- IP-CIDR,119.29.106.76/32,DIRECT,no-resolve"));
         assert!(yaml.contains("- MATCH,[AirportA] HK-Node-01"));
         assert!(yaml.contains("SUB-RULE,(IN-PORT,7891),sub-rule-7891"));
+    }
+
+    #[test]
+    fn test_tun_block_and_rule_without_bypass() {
+        let mapping = PortMapping {
+            id: "test-tun".to_string(),
+            port: 7899,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: "N1".to_string(),
+            enabled: true,
+            latency: None,
+            description: Some("TUN Test".to_string()),
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: false,
+            manual_fallback: false,
+        };
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let raw_proxy_yaml = r#"
+name: "[AirportA] N1"
+type: ss
+server: 1.1.1.1
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let p1: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml).unwrap();
+
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+            user_bypass: &[],
+            tun_enabled: true,
+            tun_port: Some(7899),
+        };
+
+        let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1], &profile_map);
+        let yaml = config.to_yaml().expect("YAML serialize failed");
+
+        assert!(yaml.contains("tun:"));
+        assert!(yaml.contains("stack: gvisor"));
+        assert!(yaml.contains("auto-route: true"));
+        assert!(yaml.contains("auto-detect-interface: true"));
+        assert!(yaml.contains("dns-hijack:"));
+        assert!(yaml.contains("- any:53"));
+        assert!(yaml.contains("IN-TYPE,TUN,[AirportA] N1"));
+        assert!(yaml.ends_with("- MATCH,DIRECT\n") || yaml.contains("- MATCH,DIRECT"));
+        assert_eq!(config.rules.last(), Some(&"MATCH,DIRECT".to_string()));
+    }
+
+    #[test]
+    fn test_tun_block_and_sub_rule_with_bypass() {
+        let mapping = PortMapping {
+            id: "test-tun-bypass".to_string(),
+            port: 7899,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: "N1".to_string(),
+            enabled: true,
+            latency: None,
+            description: Some("TUN Bypass Test".to_string()),
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: true,
+            manual_fallback: false,
+        };
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let raw_proxy_yaml = r#"
+name: "[AirportA] N1"
+type: ss
+server: 1.1.1.1
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let p1: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml).unwrap();
+
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+            user_bypass: &[],
+            tun_enabled: true,
+            tun_port: Some(7899),
+        };
+
+        let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1], &profile_map);
+        let yaml = config.to_yaml().expect("YAML serialize failed");
+
+        assert!(yaml.contains("tun:"));
+        assert!(yaml.contains("SUB-RULE,(IN-TYPE,TUN),sub-rule-7899"));
+        assert_eq!(config.rules.last(), Some(&"MATCH,DIRECT".to_string()));
+    }
+
+    #[test]
+    fn test_tun_skipped_when_port_not_in_mappings() {
+        let mapping = PortMapping {
+            id: "test-tun-skip".to_string(),
+            port: 7899,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: "N1".to_string(),
+            enabled: true,
+            latency: None,
+            description: Some("TUN Skip Test".to_string()),
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: false,
+            manual_fallback: false,
+        };
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let raw_proxy_yaml = r#"
+name: "[AirportA] N1"
+type: ss
+server: 1.1.1.1
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let p1: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_yaml).unwrap();
+
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+            user_bypass: &[],
+            tun_enabled: true,
+            tun_port: Some(1234), // Not in mappings!
+        };
+
+        let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1], &profile_map);
+        let yaml = config.to_yaml().expect("YAML serialize failed");
+
+        assert!(!yaml.contains("tun:"));
+        assert!(!yaml.contains("IN-TYPE,TUN"));
     }
 }

@@ -4,7 +4,7 @@ use crate::core::port_probe::is_port_available;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
     DriftStatus, LanIpInfo, NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode,
-    SystemProxyStatus, UwpAppInfo, UwpLoopbackStats,
+    SystemProxyStatus, TunStatus, UwpAppInfo, UwpLoopbackStats,
 };
 use crate::state::AppState;
 use std::process::Command;
@@ -104,6 +104,11 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
     crate::core::sysproxy::sort_bypass_items(&mut cleaned_bypass);
     config.system_proxy_bypass_user = cleaned_bypass;
 
+    if config.tun_enabled && config.system_proxy_enabled {
+        config.system_proxy_enabled = false;
+        config.system_proxy_port = None;
+    }
+
     let old_config = state.config.read().clone();
     if config.controller_port != old_config.controller_port {
         let core_status = state.engine.get_status();
@@ -157,14 +162,13 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
         state.clear_suspended_system_proxy();
     }
 
-    if (config.auto_launch != old_config.auto_launch || config.silent_start != old_config.silent_start)
+    if (config.auto_launch != old_config.auto_launch
+        || config.silent_start != old_config.silent_start
+        || config.tun_enabled != old_config.tun_enabled)
         && let Ok(exe_path) = std::env::current_exe()
     {
-        if config.auto_launch {
-            let _ = crate::core::autostart::enable_autostart(&exe_path, config.silent_start);
-        } else {
-            let _ = crate::core::autostart::disable_autostart();
-        }
+        crate::core::autostart::sync_autostart_state(&config, &exe_path)
+            .map_err(|e| format!("同步开机自启状态失败: {}", e))?;
     }
     if config.theme != old_config.theme
         && let Some(window) = app.get_webview_window("main")
@@ -180,8 +184,9 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
         || config.timeout_ms != old_config.timeout_ms
         || config.fallback_interval != old_config.fallback_interval
         || config.fallback_lazy != old_config.fallback_lazy
-        || config.system_proxy_bypass_user != old_config.system_proxy_bypass_user;
-
+        || config.system_proxy_bypass_user != old_config.system_proxy_bypass_user
+        || config.tun_enabled != old_config.tun_enabled
+        || config.tun_port != old_config.tun_port;
     if runtime_settings_changed {
         let _ = state.sync_runtime_config().await;
     }
@@ -198,8 +203,13 @@ pub async fn set_system_proxy(
     state: State<'_, AppState>,
 ) -> Result<SystemProxyStatus, String> {
     let mut config = state.config.read().clone();
+    let old_tun_enabled = config.tun_enabled;
     state.clear_suspended_system_proxy();
     if enabled {
+        if config.tun_enabled {
+            config.tun_enabled = false;
+            config.tun_port = None;
+        }
         let p = port.ok_or_else(|| "启用系统代理必须指定端口".to_string())?;
         let mappings = state.port_router.get_port_mappings();
         let is_valid = mappings.iter().any(|m| m.port == p && m.enabled);
@@ -225,6 +235,10 @@ pub async fn set_system_proxy(
         let _ = crate::core::profile_manager::atomic_write_file(&config_path, json.as_bytes());
     }
 
+    if enabled && old_tun_enabled {
+        let _ = state.sync_runtime_config().await;
+    }
+
     let bypass_domains = crate::core::sysproxy::build_combined_bypass_list(&config.system_proxy_bypass_user);
     crate::tray::update_tray_menu(&app);
     Ok(SystemProxyStatus {
@@ -248,6 +262,113 @@ pub async fn get_system_proxy_status(state: State<'_, AppState>) -> Result<Syste
 #[tauri::command]
 pub async fn get_default_bypass_list() -> Result<Vec<String>, String> {
     Ok(crate::core::sysproxy::get_default_bypass_list())
+}
+
+fn build_tun_status(state: &State<'_, AppState>) -> TunStatus {
+    let config = state.config.read().clone();
+    let elevated = crate::core::elevation::is_elevated();
+    let port_active = config
+        .tun_port
+        .is_some_and(|p| state.port_router.get_port_mappings().iter().any(|m| m.port == p && m.enabled));
+    TunStatus {
+        enabled: config.tun_enabled,
+        active: elevated && config.tun_enabled && port_active && state.engine.get_status().running,
+        port: config.tun_port,
+        elevated,
+        pending_elevation: config.tun_enabled && !elevated,
+    }
+}
+
+#[tauri::command]
+pub async fn get_tun_status(state: State<'_, AppState>) -> Result<TunStatus, String> {
+    Ok(build_tun_status(&state))
+}
+
+#[tauri::command]
+pub async fn set_tun(
+    app: AppHandle,
+    enabled: bool,
+    port: Option<u16>,
+    state: State<'_, AppState>,
+) -> Result<TunStatus, String> {
+    let mut config = state.config.read().clone();
+    let elevated = crate::core::elevation::is_elevated();
+
+    if enabled {
+        let p = port.ok_or_else(|| "启用 TUN 模式必须指定绑定端口".to_string())?;
+        let mappings = state.port_router.get_port_mappings();
+        if !mappings.iter().any(|m| m.port == p && m.enabled) {
+            return Err(format!("端口 {} 未在监听列表中或未启用，无法作为 TUN 出口", p));
+        }
+        if config.system_proxy_enabled {
+            let _ = crate::core::sysproxy::clear_system_proxy();
+        }
+        state.clear_suspended_system_proxy();
+        config.system_proxy_enabled = false;
+        config.system_proxy_port = None;
+        config.tun_enabled = true;
+        config.tun_port = Some(p);
+    } else {
+        config.tun_enabled = false;
+        if let Some(p) = port {
+            config.tun_port = Some(p);
+        }
+    }
+    state.persist_config(&config);
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        let _ = crate::core::autostart::sync_autostart_state(&config, &exe_path);
+    }
+
+    if enabled && !elevated {
+        let _ = state.engine.stop();
+        if let Err(e) =
+            crate::core::elevation::relaunch_as_admin(&[format!("--restart-from-pid={}", std::process::id())])
+        {
+            // UAC 被拒绝或启动失败：回滚开关并恢复内核，避免留下"已开启但内核已停止"的破损状态
+            let mut rollback = state.config.read().clone();
+            rollback.tun_enabled = false;
+            rollback.tun_port = None;
+            state.persist_config(&rollback);
+            let _ = state.engine.start(Some(&app), &rollback);
+            return Err(e.to_string());
+        }
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            handle.exit(0);
+        });
+        return Ok(build_tun_status(&state));
+    }
+
+    let _ = state.sync_runtime_config().await;
+    if enabled && !state.engine.get_status().running {
+        state.engine.start(Some(&app), &config).map_err(|e| e.to_string())?;
+    }
+    crate::tray::update_tray_menu(&app);
+    Ok(build_tun_status(&state))
+}
+
+#[tauri::command]
+pub async fn restart_as_admin(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    if crate::core::elevation::is_elevated() {
+        return Ok(());
+    }
+    let _ = state.engine.stop();
+    if let Err(e) =
+        crate::core::elevation::relaunch_as_admin(&[format!("--restart-from-pid={}", std::process::id())])
+    {
+        // UAC 被拒绝：恢复内核，避免留下无内核运行的破损状态
+        let config = state.config.read().clone();
+        let _ = state.engine.start(Some(&app), &config);
+        return Err(e.to_string());
+    }
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        handle.exit(0);
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -325,6 +446,11 @@ pub async fn delete_port_mapping(id: String, state: State<'_, AppState>) -> Resu
             let _ = crate::core::profile_manager::atomic_write_file(&config_path, json.as_bytes());
         }
     }
+    if config.tun_enabled && target_port == config.tun_port {
+        config.tun_enabled = false;
+        config.tun_port = None;
+        state.persist_config(&config);
+    }
     Ok(())
 }
 
@@ -348,6 +474,11 @@ pub async fn toggle_port_mapping(id: String, enabled: bool, state: State<'_, App
             if let Ok(json) = serde_json::to_string_pretty(&config) {
                 let _ = crate::core::profile_manager::atomic_write_file(&config_path, json.as_bytes());
             }
+        }
+        if config.tun_enabled && target_port == config.tun_port {
+            config.tun_enabled = false;
+            config.tun_port = None;
+            state.persist_config(&config);
         }
     }
     Ok(updated)

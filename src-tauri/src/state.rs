@@ -156,6 +156,14 @@ impl AppState {
         *self.suspended_system_proxy.write() = None;
     }
 
+    pub fn persist_config(&self, config: &crate::models::AppConfig) {
+        *self.config.write() = config.clone();
+        let config_path = self.app_dir.join("config.json");
+        if let Ok(json) = serde_json::to_string_pretty(config) {
+            let _ = crate::core::profile_manager::atomic_write_file(&config_path, json.as_bytes());
+        }
+    }
+
     /// Ensures system proxy is active either by restoring a crash-suspended proxy or applying configured proxy.
     pub fn ensure_system_proxy_active(&self) -> bool {
         if self.try_restore_suspended_system_proxy() {
@@ -252,6 +260,8 @@ impl AppState {
             fallback_interval: cfg.fallback_interval,
             fallback_lazy: cfg.fallback_lazy,
             user_bypass: &cfg.system_proxy_bypass_user,
+            tun_enabled: cfg.tun_enabled && crate::core::elevation::is_elevated(),
+            tun_port: cfg.tun_port,
         };
 
         let runtime_config = self

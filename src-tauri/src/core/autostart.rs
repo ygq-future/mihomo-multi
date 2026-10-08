@@ -8,6 +8,82 @@ const APP_REG_KEY: &str = "MihomoMulti";
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 #[cfg(windows)]
 const STARTUP_APPROVED_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+#[cfg(windows)]
+const AUTOSTART_TASK_NAME: &str = "MihomoMulti";
+
+#[cfg(windows)]
+fn windows_schtasks_command() -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    let mut cmd = std::process::Command::new("schtasks");
+    cmd.creation_flags(0x08000000);
+    cmd
+}
+
+#[cfg(windows)]
+pub fn is_elevated_autostart_enabled() -> bool {
+    matches!(windows_schtasks_command().args(["Query", "/TN", AUTOSTART_TASK_NAME]).output(),
+        Ok(out) if out.status.success())
+}
+
+#[cfg(not(windows))]
+pub fn is_elevated_autostart_enabled() -> bool {
+    false
+}
+
+#[cfg(windows)]
+pub fn delete_elevated_autostart() -> Result<(), String> {
+    let out = windows_schtasks_command()
+        .args(["Delete", "/F", "/TN", AUTOSTART_TASK_NAME])
+        .output();
+    match out {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(not(windows))]
+pub fn delete_elevated_autostart() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn enable_elevated_autostart(app_path: &Path, silent: bool) -> Result<(), String> {
+    let path_str = app_path.to_string_lossy();
+    let cmd_value = if silent {
+        format!("\"{}\" --silent", path_str)
+    } else {
+        format!("\"{}\"", path_str)
+    };
+    let out = windows_schtasks_command()
+        .args([
+            "Create", "/F", "/TN", AUTOSTART_TASK_NAME, "/TR", &cmd_value, "/SC", "ONLOGON", "/RL", "HIGHEST",
+        ])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => Ok(()),
+        Ok(o) => Err(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(not(windows))]
+pub fn enable_elevated_autostart(_app_path: &Path, _silent: bool) -> Result<(), String> {
+    Err("当前平台不支持管理员计划任务".to_string())
+}
+
+pub fn sync_autostart_state(config: &crate::models::AppConfig, app_path: &Path) -> Result<(), String> {
+    if !config.auto_launch {
+        disable_autostart()?;
+        return delete_elevated_autostart();
+    }
+    if config.tun_enabled {
+        disable_autostart()?;
+        enable_elevated_autostart(app_path, config.silent_start)
+    } else {
+        delete_elevated_autostart()?;
+        enable_autostart(app_path, config.silent_start)
+    }
+}
 
 #[cfg(windows)]
 fn windows_reg_command() -> std::process::Command {
