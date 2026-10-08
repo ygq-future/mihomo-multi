@@ -271,6 +271,50 @@ fn compute_menu_fingerprint(
 }
 
 static LAST_TRAY_FINGERPRINT: parking_lot::Mutex<Option<String>> = parking_lot::Mutex::new(None);
+static LAST_TRAY_CLICK_TIME: parking_lot::Mutex<Option<std::time::Instant>> = parking_lot::Mutex::new(None);
+
+fn handle_tray_left_click(app: &AppHandle) {
+    let now = std::time::Instant::now();
+    let is_rapid_click = {
+        let mut last = LAST_TRAY_CLICK_TIME.lock();
+        let is_rapid = match *last {
+            Some(t) => now.duration_since(t) < std::time::Duration::from_millis(400),
+            None => false,
+        };
+        *last = Some(now);
+        is_rapid
+    };
+
+    if let Some(window) = app.get_webview_window("main") {
+        if is_rapid_click {
+            // Rapid click / debounce: user intends to open/focus, avoid flash-hide
+            activate_window(&window);
+            return;
+        }
+
+        let is_visible = window.is_visible().unwrap_or(false);
+        let is_minimized = window.is_minimized().unwrap_or(false);
+        let is_focused = window.is_focused().unwrap_or(false);
+
+        // Only toggle-hide if the window is currently visible, not minimized, and actively focused in foreground.
+        // If it is hidden, minimized, or obscured behind other applications, always bring to front and focus.
+        if is_visible && !is_minimized && is_focused {
+            let is_lightweight = app
+                .try_state::<crate::state::AppState>()
+                .map(|s| s.config.read().lightweight_mode)
+                .unwrap_or(false);
+            if is_lightweight {
+                let _ = window.destroy();
+            } else {
+                hide_main_webview_window(&window);
+            }
+        } else {
+            activate_window(&window);
+        }
+    } else {
+        ensure_main_window_open(app);
+    }
+}
 #[cfg(windows)]
 fn is_tray_menu_active() -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowA;
@@ -449,28 +493,13 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 button_state: MouseButtonState::Up,
                 ..
             } => {
-                let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    if let Ok(is_visible) = window.is_visible() {
-                        if is_visible {
-                            let is_lightweight = app
-                                .try_state::<crate::state::AppState>()
-                                .map(|s| s.config.read().lightweight_mode)
-                                .unwrap_or(false);
-                            if is_lightweight {
-                                let _ = window.destroy();
-                            } else {
-                                hide_main_webview_window(&window);
-                            }
-                        } else {
-                            activate_window(&window);
-                        }
-                    } else {
-                        ensure_main_window_open(app);
-                    }
-                } else {
-                    ensure_main_window_open(app);
-                }
+                handle_tray_left_click(tray.app_handle());
+            }
+            TrayIconEvent::DoubleClick {
+                button: MouseButton::Left,
+                ..
+            } => {
+                ensure_main_window_open(tray.app_handle());
             }
             _ => {}
         });
