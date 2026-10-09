@@ -219,12 +219,14 @@ pub fn run() {
                 let _ = state_clone.sync_runtime_config().await;
                 if let Err(err) = engine.start(Some(&handle), &config) {
                     error!("Failed to auto-start Mihomo core: {}", err);
+                    let _ = handle.emit("core-status-changed", ());
                 } else {
                     info!("Mihomo core auto-started successfully");
                     if !state_clone.ensure_system_proxy_active() && !is_dev_instance {
                         let _ = crate::core::sysproxy::clear_system_proxy();
                     }
                     tray::update_tray_menu(&handle);
+                    let _ = handle.emit("core-status-changed", ());
                 }
             });
 

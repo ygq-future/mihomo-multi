@@ -664,7 +664,8 @@ export const PortTableView: React.FC = () => {
 
               // State warning priorities:
               // 1. Highest: Kernel Stopped Warning (Amber)
-              const isStoppedWarning = !isRunning && m.enabled
+              const isStoppedWarning =
+                coreStatus !== null && !isRunning && m.enabled
               // 2. Secondary: Port Occupied Conflict Warning (Rose)
               const isOccupiedWarning =
                 isRunning && m.enabled && occupiedPorts.includes(m.port)

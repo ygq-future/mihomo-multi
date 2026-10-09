@@ -29,17 +29,34 @@ export const App: React.FC = () => {
   )
   const setDriftReports = useAppStore((state) => state.setDriftReports)
   useEffect(() => {
-    fetchStatus()
     fetchConfig()
     fetchLatencies().catch(() => {})
 
-    // Double requestAnimationFrame ensures that the browser has committed and painted
-    // the initial layout to the GPU compositor before the native window is revealed.
-    requestAnimationFrame(() => {
+    let isRevealed = false
+    const revealWindow = () => {
+      if (isRevealed) return
+      isRevealed = true
       requestAnimationFrame(() => {
-        appReady().catch(() => {})
+        requestAnimationFrame(() => {
+          appReady().catch(() => {})
+        })
       })
-    })
+    }
+
+    // Safety timeout to avoid stalling window presentation
+    const revealTimeout = setTimeout(revealWindow, 500)
+
+    // Initial load: fetch status and port mappings
+    Promise.all([fetchStatus(), fetchPortMappings()])
+      .then(() => {
+        const state = useAppStore.getState()
+        if (state.coreStatus?.running || state.coreStatus?.lastError) {
+          revealWindow()
+        }
+      })
+      .catch(() => {
+        revealWindow()
+      })
     // Periodically poll status every 3 seconds
     const interval = setInterval(() => {
       fetchStatus()
@@ -151,8 +168,20 @@ export const App: React.FC = () => {
         )
       })
       .catch(() => {})
+    scope
+      .listen('core-status-changed', () => {
+        fetchStatus()
+          .then(() => {
+            revealWindow()
+          })
+          .catch(() => {
+            revealWindow()
+          })
+      })
+      .catch(() => {})
 
     return () => {
+      clearTimeout(revealTimeout)
       clearInterval(interval)
       scope.dispose()
     }
