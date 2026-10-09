@@ -1,9 +1,10 @@
-import { Globe, Loader2, Lock, Power } from 'lucide-react'
+import { Globe, Loader2, Lock, Power, Shield } from 'lucide-react'
 import { toast } from '../../stores/toastStore'
 import {
   type MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
 } from 'react'
@@ -13,6 +14,9 @@ export interface StepItem {
   value: number
   label: string
 }
+
+export type HoverStepSliderMode = 'port' | 'egress'
+export type HoverStepSliderAlign = 'auto' | 'left' | 'right' | 'center'
 
 export interface HoverStepSliderProps {
   value: number // 0, 1, 2
@@ -24,58 +28,83 @@ export interface HoverStepSliderProps {
   lockedSteps?: number[]
   lockedTooltip?: string
   maxAllowedStep?: number
+  headerTitle?: string
+  mode?: HoverStepSliderMode
+  popoverAlign?: HoverStepSliderAlign
 }
-
 const defaultSteps: StepItem[] = [
   { value: 0, label: '禁用' },
   { value: 1, label: '监听' },
   { value: 2, label: '系统代理' },
 ]
 
-// Theme RGB Colors for Smooth Linear Interpolation
-// Level 0: Slate 400 (Off) - clean soft silver-gray
-const COLOR_OFF = [148, 163, 184] as const
-// Level 1: Emerald 400 (Listening) - radiant vivid emerald green
-const COLOR_LISTEN = [16, 204, 138] as const
-// Level 2: Sky 400 (System Proxy) - brilliant vivid cyan-sky blue
-const COLOR_SYS = [14, 182, 255] as const
+let activeDraggingSliderId: string | null = null
 
-function interpolateColor(val: number): string {
+// Theme RGB Colors for Smooth Linear Interpolation
+// Port Mode: 0: Slate (Off) -> 1: Emerald (Listening) -> 2: Sky (System Proxy)
+const PORT_COLOR_OFF = [148, 163, 184] as const
+const PORT_COLOR_LISTEN = [16, 204, 138] as const
+const PORT_COLOR_SYS = [14, 182, 255] as const
+
+// Egress Mode: 0: Slate (Off) -> 1: Sky (System Proxy) -> 2: Emerald (TUN)
+const EGRESS_COLOR_OFF = [148, 163, 184] as const
+const EGRESS_COLOR_SYS = [14, 182, 255] as const
+const EGRESS_COLOR_TUN = [16, 204, 138] as const
+
+function interpolateColor(
+  val: number,
+  mode: HoverStepSliderMode = 'port',
+): string {
+  const c0 = mode === 'egress' ? EGRESS_COLOR_OFF : PORT_COLOR_OFF
+  const c1 = mode === 'egress' ? EGRESS_COLOR_SYS : PORT_COLOR_LISTEN
+  const c2 = mode === 'egress' ? EGRESS_COLOR_TUN : PORT_COLOR_SYS
+
   let r: number
   let g: number
   let b: number
 
   if (val <= 1) {
     const t = Math.max(0, Math.min(1, val))
-    r = Math.round(COLOR_OFF[0] + (COLOR_LISTEN[0] - COLOR_OFF[0]) * t)
-    g = Math.round(COLOR_OFF[1] + (COLOR_LISTEN[1] - COLOR_OFF[1]) * t)
-    b = Math.round(COLOR_OFF[2] + (COLOR_LISTEN[2] - COLOR_OFF[2]) * t)
+    r = Math.round(c0[0] + (c1[0] - c0[0]) * t)
+    g = Math.round(c0[1] + (c1[1] - c0[1]) * t)
+    b = Math.round(c0[2] + (c1[2] - c0[2]) * t)
   } else {
     const t = Math.max(0, Math.min(1, val - 1))
-    r = Math.round(COLOR_LISTEN[0] + (COLOR_SYS[0] - COLOR_LISTEN[0]) * t)
-    g = Math.round(COLOR_LISTEN[1] + (COLOR_SYS[1] - COLOR_LISTEN[1]) * t)
-    b = Math.round(COLOR_LISTEN[2] + (COLOR_SYS[2] - COLOR_LISTEN[2]) * t)
+    r = Math.round(c1[0] + (c2[0] - c1[0]) * t)
+    g = Math.round(c1[1] + (c2[1] - c1[1]) * t)
+    b = Math.round(c2[2] + (c2[2] - c1[2]) * t)
   }
   return `rgb(${r}, ${g}, ${b})`
 }
-
 interface Coords {
   top: number
   left: number
   placement: 'top' | 'bottom'
 }
-
 export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   value,
   onChange,
-  steps = defaultSteps,
+  steps: customSteps,
   disabled = false,
   loading = false,
   className = '',
   lockedSteps,
   lockedTooltip,
   maxAllowedStep,
+  headerTitle,
+  mode = 'port',
+  popoverAlign,
 }) => {
+  const instanceId = useId()
+  const steps =
+    customSteps ||
+    (mode === 'egress'
+      ? [
+          { value: 0, label: '关闭' },
+          { value: 1, label: '系统代理' },
+          { value: 2, label: 'TUN' },
+        ]
+      : defaultSteps)
   const [isOpen, setIsOpen] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [coords, setCoords] = useState<Coords | null>(null)
@@ -124,8 +153,25 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
     const popoverWidth = 164
     const popoverHeight = 78
     const gap = 10
-    // Align right edge of popover with trigger's right edge
-    let left = rect.right - popoverWidth
+
+    const effectiveAlign =
+      popoverAlign ?? (mode === 'egress' ? 'left' : 'right')
+
+    let left: number
+    if (effectiveAlign === 'left') {
+      left = rect.left
+    } else if (effectiveAlign === 'center') {
+      left = rect.left + rect.width / 2 - popoverWidth / 2
+    } else if (effectiveAlign === 'right') {
+      left = rect.right - popoverWidth
+    } else {
+      if (rect.left + popoverWidth <= window.innerWidth - 8) {
+        left = rect.left
+      } else {
+        left = rect.right - popoverWidth
+      }
+    }
+
     if (left < 8) left = 8
     if (left + popoverWidth > window.innerWidth - 8) {
       left = window.innerWidth - popoverWidth - 8
@@ -141,8 +187,7 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
     }
 
     setCoords({ top, left, placement })
-  }, [])
-
+  }, [mode, popoverAlign])
   const isRelatedInside = useCallback(
     (relatedTarget: EventTarget | null): boolean => {
       if (!relatedTarget || !(relatedTarget instanceof Node)) return false
@@ -155,12 +200,12 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
 
   const handleMouseEnter = useCallback(() => {
     if (disabled) return
+    if (activeDraggingSliderId && activeDraggingSliderId !== instanceId) return
     isHoveredRef.current = true
     if (leaveTimerRef.current !== null) {
       window.clearTimeout(leaveTimerRef.current)
       leaveTimerRef.current = null
     }
-    // If already open (e.g. hovering between trigger and popover), maintain immediately
     if (isOpen) return
 
     // Add a slight intentional delay (180ms) to prevent flickering on quick mouse pass-by
@@ -173,8 +218,7 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
         enterTimerRef.current = null
       }, 180)
     }
-  }, [disabled, isOpen, updatePosition])
-
+  }, [disabled, instanceId, isOpen, updatePosition])
   const handleMouseLeave = useCallback(
     (e?: ReactMouseEvent) => {
       if (isDraggingRef.current) return
@@ -204,9 +248,12 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
+      if (activeDraggingSliderId === instanceId) {
+        activeDraggingSliderId = null
+      }
       clearPendingTimers()
     }
-  }, [clearPendingTimers])
+  }, [clearPendingTimers, instanceId])
   const updateContinuousFromClientX = useCallback(
     (clientX: number) => {
       if (!trackRef.current) return
@@ -233,11 +280,11 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   const handleTrackMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (disabled || loading) return
     e.preventDefault()
+    activeDraggingSliderId = instanceId
     setIsDragging(true)
     isDraggingRef.current = true
     updateContinuousFromClientX(e.clientX)
   }
-
   // Global mousemove & mouseup during dragging
   useEffect(() => {
     if (!isDragging) return
@@ -246,7 +293,10 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
       updateContinuousFromClientX(e.clientX)
     }
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: globalThis.MouseEvent) => {
+      if (activeDraggingSliderId === instanceId) {
+        activeDraggingSliderId = null
+      }
       setIsDragging(false)
       isDraggingRef.current = false
 
@@ -264,6 +314,31 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
         committedValueRef.current = finalStep
         onChange(finalStep)
       }
+
+      // Check whether mouse cursor is still inside this slider's trigger or popover
+      const targetEl = document.elementFromPoint(e.clientX, e.clientY)
+      const isInside =
+        (targetEl &&
+          (triggerRef.current?.contains(targetEl) ||
+            popoverRef.current?.contains(targetEl))) ??
+        false
+
+      if (!isInside) {
+        isHoveredRef.current = false
+        if (enterTimerRef.current !== null) {
+          window.clearTimeout(enterTimerRef.current)
+          enterTimerRef.current = null
+        }
+        if (leaveTimerRef.current !== null) {
+          window.clearTimeout(leaveTimerRef.current)
+        }
+        leaveTimerRef.current = window.setTimeout(() => {
+          if (!isHoveredRef.current && !isDraggingRef.current) {
+            setIsOpen(false)
+          }
+          leaveTimerRef.current = null
+        }, 150)
+      }
     }
 
     window.addEventListener('mousemove', handleMouseMove)
@@ -274,6 +349,7 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
       window.removeEventListener('mouseup', handleMouseUp)
     }
   }, [
+    instanceId,
     isDragging,
     maxStep,
     maxAllowedStep,
@@ -318,7 +394,7 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   }
 
   // Active color interpolation for current float value
-  const activeColorRgb = interpolateColor(continuousValue)
+  const activeColorRgb = interpolateColor(continuousValue, mode)
   const currentNearestStepIndex = Math.round(continuousValue)
   const currentStep = steps[currentNearestStepIndex] ?? steps[0]
 
@@ -326,9 +402,13 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   const triggerBg =
     clampedPropValue === 0
       ? 'bg-secondary border-border/80'
-      : clampedPropValue === 1
-        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
-        : 'bg-sky-500/25 border-sky-500/50 text-sky-600 dark:text-sky-400'
+      : mode === 'egress'
+        ? clampedPropValue === 1
+          ? 'bg-sky-500/25 border-sky-500/50 text-sky-600 dark:text-sky-400'
+          : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+        : clampedPropValue === 1
+          ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+          : 'bg-sky-500/25 border-sky-500/50 text-sky-600 dark:text-sky-400'
 
   const thumbPosition =
     clampedPropValue === 0
@@ -340,10 +420,13 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   const thumbColor =
     clampedPropValue === 0
       ? 'bg-muted-foreground/60'
-      : clampedPropValue === 1
-        ? 'bg-emerald-500 shadow-sm'
-        : 'bg-sky-500 shadow-sm shadow-sky-500/50'
-
+      : mode === 'egress'
+        ? clampedPropValue === 1
+          ? 'bg-sky-500 shadow-sm shadow-sky-500/50'
+          : 'bg-emerald-500 shadow-sm shadow-emerald-500/50'
+        : clampedPropValue === 1
+          ? 'bg-emerald-500 shadow-sm'
+          : 'bg-sky-500 shadow-sm shadow-sky-500/50'
   return (
     <div
       className={`relative inline-flex items-center select-none ${className}`}
@@ -374,7 +457,15 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
           <span
             className={`absolute top-0.5 bottom-0.5 w-3.5 h-3.5 rounded-full transition-all duration-200 flex items-center justify-center ${thumbPosition} ${thumbColor}`}
           >
-            {clampedPropValue === 2 ? (
+            {mode === 'egress' ? (
+              clampedPropValue === 1 ? (
+                <Globe className="w-2 h-2 text-white" />
+              ) : clampedPropValue === 2 ? (
+                <Shield className="w-2 h-2 text-white" />
+              ) : (
+                <Power className="w-2 h-2 text-background/80" />
+              )
+            ) : clampedPropValue === 2 ? (
               <Globe className="w-2 h-2 text-white" />
             ) : clampedPropValue === 0 ? (
               <Power className="w-2 h-2 text-background/80" />
@@ -406,7 +497,7 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
               {/* Header: Micro status badge */}
               <div className="flex items-center justify-between px-0.5">
                 <span className="text-muted-foreground font-medium text-[10px]">
-                  监听状态
+                  {headerTitle || (mode === 'egress' ? '接管模式' : '监听状态')}
                 </span>
                 <span
                   className="font-bold text-[10px] px-1 py-0.2 rounded leading-tight transition-colors duration-75"

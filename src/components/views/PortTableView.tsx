@@ -5,6 +5,8 @@ import {
   Loader2,
   Network,
   Plus,
+  Power,
+  Shield,
   ShieldCheck,
   Split,
   Trash2,
@@ -28,7 +30,6 @@ import {
   Modal,
   RegionFlag,
   Select,
-  Switch,
   toast,
 } from '../common'
 import { AddPortModal } from '../ports/AddPortModal'
@@ -69,6 +70,9 @@ export const PortTableView: React.FC = () => {
     fetchConfig,
     saveConfig,
     setSystemProxy,
+    tunStatus,
+    setTun,
+    restartAsAdmin,
     portMappings,
     occupiedPorts,
     driftReports,
@@ -113,7 +117,7 @@ export const PortTableView: React.FC = () => {
     useState<PortMapping | null>(null)
   const [rulesMapping, setRulesMapping] = useState<PortMapping | null>(null)
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false)
-
+  const [isEgressLoading, setIsEgressLoading] = useState(false)
   const handleProbeDirectEgress = useCallback(
     async (port?: number | null, isManual = false) => {
       setIsProbingDirect(true)
@@ -439,19 +443,63 @@ export const PortTableView: React.FC = () => {
     await testAllPortsDelay()
     toast.success('全部已启用端口测速完成')
   }
-  const handleTopToggleSystemProxy = async (checked: boolean) => {
-    if (checked) {
-      const targetPort =
-        config?.systemProxyPort &&
-        enabledPorts.some((m) => m.port === config.systemProxyPort)
-          ? config.systemProxyPort
-          : enabledPorts[0]?.port
+  const isTun = config?.tunEnabled ?? false
+  const isSysProxy = config?.systemProxyEnabled ?? false
+  const egressSliderValue = isTun ? 2 : isSysProxy ? 1 : 0
 
+  const activeEgressPort =
+    (isTun
+      ? config?.tunPort
+      : isSysProxy
+        ? config?.systemProxyPort
+        : undefined) ??
+    (config?.tunPort && enabledPorts.some((m) => m.port === config.tunPort)
+      ? config.tunPort
+      : config?.systemProxyPort &&
+          enabledPorts.some((m) => m.port === config.systemProxyPort)
+        ? config.systemProxyPort
+        : enabledPorts[0]?.port)
+
+  const handleEgressStateChange = async (level: number) => {
+    const targetPort =
+      activeEgressPort ??
+      (config?.tunPort && enabledPorts.some((m) => m.port === config.tunPort)
+        ? config.tunPort
+        : config?.systemProxyPort &&
+            enabledPorts.some((m) => m.port === config.systemProxyPort)
+          ? config.systemProxyPort
+          : enabledPorts[0]?.port)
+
+    if (level === 0) {
+      setIsEgressLoading(true)
+      try {
+        if (config?.tunEnabled) {
+          const currentPort = config.tunPort ?? activeEgressPort
+          await setTun(false, currentPort)
+          toast.success('已关闭 TUN 模式')
+        }
+        if (config?.systemProxyEnabled) {
+          const currentPort = config.systemProxyPort ?? activeEgressPort
+          await setSystemProxy(false, currentPort)
+          if (config?.systemProxySyncEnv ?? true) {
+            toast.success('已关闭系统代理并清除环境变量')
+          } else {
+            toast.success('已关闭系统代理')
+          }
+        }
+      } catch (err) {
+        toast.error(
+          `关闭接管模式失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      } finally {
+        setIsEgressLoading(false)
+      }
+    } else if (level === 1) {
       if (!targetPort) {
         toast.error('当前无可用且已启用的监听端口，请先启用端口')
         return
       }
-
+      setIsEgressLoading(true)
       try {
         await setSystemProxy(true, targetPort)
         if (config?.systemProxySyncEnv ?? true) {
@@ -463,44 +511,65 @@ export const PortTableView: React.FC = () => {
         toast.error(
           `开启系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
         )
+      } finally {
+        setIsEgressLoading(false)
       }
-    } else {
+    } else if (level === 2) {
+      if (!targetPort) {
+        toast.error('当前无可用且已启用的监听端口，请先启用端口')
+        return
+      }
+      setIsEgressLoading(true)
       try {
-        // Retain the current target port in config memory when turning off
-        const currentPort =
-          config?.systemProxyPort ?? enabledPorts[0]?.port ?? null
-        await setSystemProxy(false, currentPort)
-        if (config?.systemProxySyncEnv ?? true) {
-          toast.success('已关闭系统代理并清除环境变量')
+        const status = await setTun(true, targetPort)
+        if (status.pendingElevation) {
+          toast.info('TUN 模式需要管理员权限，应用正在以管理员身份重启…')
         } else {
-          toast.success('已关闭系统代理')
+          toast.success(`TUN 模式已启用，全局出口跟随端口 ${targetPort}`)
         }
       } catch (err) {
         toast.error(
-          `关闭系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
+          `开启 TUN 模式失败: ${err instanceof Error ? err.message : String(err)}`,
         )
+      } finally {
+        setIsEgressLoading(false)
       }
     }
   }
 
-  const handleTopSelectSystemProxyPort = async (portStr: string) => {
+  const handleSelectEgressPort = async (portStr: string) => {
     const port = Number(portStr)
     if (!port) return
+    setIsEgressLoading(true)
     try {
-      if (config?.systemProxyEnabled) {
+      if (config?.tunEnabled) {
+        await setTun(true, port)
+        toast.success(`已将 TUN 出口切换至端口 ${port}`)
+      } else if (config?.systemProxyEnabled) {
         await setSystemProxy(true, port)
         toast.success(`已切换系统代理端口至 ${port}`)
       } else if (config) {
         await saveConfig({
           ...config,
           systemProxyPort: port,
+          tunPort: port,
         })
-        toast.success(`已设置预设系统代理端口为 ${port}`)
+        toast.success(`已设置预选出口端口为 ${port}`)
       }
     } catch (err) {
       toast.error(
-        `更新系统代理端口失败: ${err instanceof Error ? err.message : String(err)}`,
+        `更新出口端口失败: ${err instanceof Error ? err.message : String(err)}`,
       )
+    } finally {
+      setIsEgressLoading(false)
+    }
+  }
+
+  const handleRestartAsAdmin = async () => {
+    try {
+      await restartAsAdmin()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -508,57 +577,76 @@ export const PortTableView: React.FC = () => {
     <div className="h-full flex flex-col p-6 space-y-4 w-full overflow-hidden">
       {/* Top Sticky Single-Row Action Bar Card */}
       <div className="bg-card border border-border rounded-xl p-3 shadow-sm shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        {/* Left: System Proxy Control Group & LAN IP Selector */}
-        <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
-          <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/80 shrink-0">
-            <div className="flex items-center gap-1.5 text-xs font-semibold shrink-0">
-              <Globe
-                className={`w-3.5 h-3.5 ${
-                  config?.systemProxyEnabled
-                    ? 'text-sky-500 animate-pulse'
-                    : 'text-muted-foreground'
-                }`}
-              />
-              <span
-                className={
-                  config?.systemProxyEnabled
+        {/* Left: Egress Mode (System Proxy / TUN) Control Group & LAN IP Selector */}
+        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 text-xs font-semibold shrink-0">
+            {egressSliderValue === 2 ? (
+              <Shield className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+            ) : egressSliderValue === 1 ? (
+              <Globe className="w-3.5 h-3.5 text-sky-500 animate-pulse" />
+            ) : (
+              <Power className="w-3.5 h-3.5 text-muted-foreground" />
+            )}
+            <span
+              className={
+                egressSliderValue === 2
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : egressSliderValue === 1
                     ? 'text-sky-600 dark:text-sky-400'
                     : 'text-foreground'
-                }
-              >
-                系统代理
-              </span>
-            </div>
-            <Switch
-              checked={config?.systemProxyEnabled ?? false}
-              onChange={handleTopToggleSystemProxy}
-              size="sm"
-            />
-            <div className="w-52 ml-1">
-              {enabledPorts.length === 0 ? (
-                <span className="text-[11px] text-muted-foreground font-medium">
-                  无已启用端口
-                </span>
-              ) : (
-                <Select
-                  value={
-                    config?.systemProxyPort &&
-                    enabledPorts.some((m) => m.port === config.systemProxyPort)
-                      ? String(config.systemProxyPort)
-                      : String(enabledPorts[0]?.port ?? '')
-                  }
-                  onChange={(val) =>
-                    handleTopSelectSystemProxyPort(String(val))
-                  }
-                  options={enabledPorts.map((m) => ({
-                    value: String(m.port),
-                    label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName})`,
-                  }))}
-                />
-              )}
-            </div>
+              }
+            >
+              {egressSliderValue === 2
+                ? 'TUN 模式'
+                : egressSliderValue === 1
+                  ? '系统代理'
+                  : '接管关闭'}
+            </span>
           </div>
 
+          <HoverStepSlider
+            value={egressSliderValue}
+            onChange={handleEgressStateChange}
+            mode="egress"
+            loading={isEgressLoading}
+            disabled={!isRunning || enabledPorts.length === 0}
+            headerTitle="接管模式"
+          />
+
+          <div className="w-56 shrink-0">
+            {enabledPorts.length === 0 ? (
+              <span className="text-[11px] text-muted-foreground font-medium">
+                无已启用端口
+              </span>
+            ) : (
+              <Select
+                value={
+                  activeEgressPort &&
+                  enabledPorts.some((m) => m.port === activeEgressPort)
+                    ? String(activeEgressPort)
+                    : String(enabledPorts[0]?.port ?? '')
+                }
+                onChange={(val) => handleSelectEgressPort(String(val))}
+                options={enabledPorts.map((m) => ({
+                  value: String(m.port),
+                  label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName})`,
+                }))}
+              />
+            )}
+          </div>
+
+          {isTun && tunStatus?.pendingElevation && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRestartAsAdmin}
+              icon={<ShieldCheck className="w-3 h-3 text-amber-500" />}
+              className="text-[11px] h-7 px-2 text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20"
+              title="TUN 模式需要管理员权限才能创建虚拟网卡，点击以管理员身份重启应用"
+            >
+              需要提权
+            </Button>
+          )}
           {config?.allowLan && (
             <div className="w-44 shrink-0">
               <Select
@@ -707,6 +795,8 @@ export const PortTableView: React.FC = () => {
               const isCurrentSystemProxy =
                 config?.systemProxyEnabled && config?.systemProxyPort === m.port
               const pendingState = pendingPortStates[m.id]
+              const isEffectiveTun =
+                config?.tunEnabled && config?.tunPort === m.port
               const isEffectiveSystemProxy =
                 pendingState !== undefined
                   ? pendingState === 'systemProxy'
@@ -741,9 +831,11 @@ export const PortTableView: React.FC = () => {
                             ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
                             : isFallbackWarning
                               ? 'border-amber-500/60 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
-                              : isEffectiveSystemProxy
-                                ? 'border-sky-500/70 bg-sky-500/[0.04] dark:bg-sky-500/[0.08] ring-1 ring-sky-500/30 hover:border-sky-500/90'
-                                : 'bg-card border-border hover:border-primary/40'
+                              : isEffectiveTun
+                                ? 'border-emerald-500/70 bg-emerald-500/[0.04] dark:bg-emerald-500/[0.08] ring-1 ring-emerald-500/30 hover:border-emerald-500/90'
+                                : isEffectiveSystemProxy
+                                  ? 'border-sky-500/70 bg-sky-500/[0.04] dark:bg-sky-500/[0.08] ring-1 ring-sky-500/30 hover:border-sky-500/90'
+                                  : 'bg-card border-border hover:border-primary/40'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2 min-w-0">
@@ -813,6 +905,17 @@ export const PortTableView: React.FC = () => {
                           title="所有网络流量全局走绑定的代理节点"
                         >
                           全局代理
+                        </Badge>
+                      )}
+                      {isEffectiveTun && (
+                        <Badge
+                          variant="outline"
+                          size="sm"
+                          className="!text-[10px] !py-0.5 !px-1.5 font-medium text-emerald-500 border-emerald-500/30 bg-emerald-500/5 shrink-0 flex items-center gap-1"
+                          title="当前端口作为全局 TUN 模式出口"
+                        >
+                          <Shield className="w-2.5 h-2.5 text-emerald-500" />
+                          TUN 出口
                         </Badge>
                       )}
                       {m.rules && m.rules.length > 0 && (
