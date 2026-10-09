@@ -9,6 +9,18 @@ struct PortRuntimeInfo {
     manual_fallback: bool,
     active_latency: Option<u32>,
 }
+
+pub fn is_dev_instance(app: &AppHandle) -> bool {
+    cfg!(debug_assertions) || app.config().identifier.ends_with(".dev")
+}
+
+pub fn get_tray_id(app: &AppHandle) -> &'static str {
+    if is_dev_instance(app) {
+        "main-tray-dev"
+    } else {
+        "main-tray"
+    }
+}
 pub fn activate_window(window: &tauri::WebviewWindow) {
     let _ = window.show();
     let _ = window.unminimize();
@@ -45,7 +57,11 @@ pub fn ensure_main_window_open(app: &AppHandle) {
         activate_window(&window);
     } else {
         let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-            .title("Mihomo Multi")
+            .title(if is_dev_instance(app) {
+                "Mihomo Multi [Dev]"
+            } else {
+                "Mihomo Multi"
+            })
             .inner_size(
                 crate::constants::DEFAULT_WINDOW_WIDTH,
                 crate::constants::DEFAULT_WINDOW_HEIGHT,
@@ -81,7 +97,18 @@ fn build_tray_menu_internal(
     runtime_infos: &std::collections::HashMap<String, PortRuntimeInfo>,
 ) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::new(app)?;
-    let show_item = MenuItem::with_id(app, "show_window", "显示主窗口", true, None::<&str>)?;
+    let is_dev = is_dev_instance(app);
+    if is_dev {
+        let dev_header = MenuItem::with_id(app, "dev_indicator", "【开发调试实例 DEV】", false, None::<&str>)?;
+        menu.append(&dev_header)?;
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+    }
+    let show_title = if is_dev {
+        "显示开发窗口"
+    } else {
+        "显示主窗口"
+    };
+    let show_item = MenuItem::with_id(app, "show_window", show_title, true, None::<&str>)?;
     menu.append(&show_item)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
@@ -363,9 +390,10 @@ pub fn format_tray_tooltip(app: &AppHandle) -> String {
         "已停止"
     };
 
+    let is_dev = is_dev_instance(app);
+    let app_title = if is_dev { "Mihomo Multi [Dev]" } else { "Mihomo Multi" };
     format!(
-        "Mihomo Multi\n内核状态: {}\n监听端口: {} 个已启用 (共 {} 个)\n系统代理: {}\nTUN: {}",
-        core_status, enabled_ports, total_ports, sys_proxy_str, tun_str
+        "{app_title}\n内核状态: {core_status}\n监听端口: {enabled_ports} 个已启用 (共 {total_ports} 个)\n系统代理: {sys_proxy_str}\nTUN: {tun_str}"
     )
 }
 
@@ -379,7 +407,8 @@ pub fn update_tray_menu_with_fallback_statuses(
 ) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        let Some(tray) = app_handle.tray_by_id("main-tray") else {
+        let tray_id = get_tray_id(&app_handle);
+        let Some(tray) = app_handle.tray_by_id(tray_id) else {
             return;
         };
         let Some(state) = app_handle.try_state::<crate::state::AppState>() else {
@@ -432,7 +461,8 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_tray_menu_internal(app, &initial_runtime_infos)?;
     let initial_tooltip = format_tray_tooltip(app);
 
-    let tray_builder = TrayIconBuilder::with_id("main-tray")
+    let tray_id = get_tray_id(app);
+    let tray_builder = TrayIconBuilder::with_id(tray_id)
         .tooltip(initial_tooltip)
         .menu(&menu)
         .show_menu_on_left_click(false)

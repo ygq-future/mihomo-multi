@@ -56,7 +56,16 @@ pub fn enable_elevated_autostart(app_path: &Path, silent: bool) -> Result<(), St
     };
     let out = windows_schtasks_command()
         .args([
-            "Create", "/F", "/TN", AUTOSTART_TASK_NAME, "/TR", &cmd_value, "/SC", "ONLOGON", "/RL", "HIGHEST",
+            "Create",
+            "/F",
+            "/TN",
+            AUTOSTART_TASK_NAME,
+            "/TR",
+            &cmd_value,
+            "/SC",
+            "ONLOGON",
+            "/RL",
+            "HIGHEST",
         ])
         .output();
     match out {

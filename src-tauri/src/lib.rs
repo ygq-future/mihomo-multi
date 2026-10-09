@@ -14,6 +14,100 @@ use tauri::{Emitter, Manager};
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ft = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if ft.is_dir() {
+            copy_dir_all(&src_path, &dst_path)?;
+        } else {
+            let _ = std::fs::copy(&src_path, &dst_path);
+        }
+    }
+    Ok(())
+}
+
+fn prepare_dev_environment(app_dir: &std::path::Path) {
+    if let Err(e) = std::fs::create_dir_all(app_dir) {
+        tracing::warn!("Failed to create dev app directory: {}", e);
+        return;
+    }
+
+    let config_path = app_dir.join("config.json");
+    if config_path.exists() {
+        return;
+    }
+
+    let Some(parent) = app_dir.parent() else {
+        return;
+    };
+    let prod_dir = parent.join("com.mihomo.multi");
+    if !prod_dir.exists() || !prod_dir.is_dir() {
+        return;
+    }
+
+    info!(
+        "Dev environment detected with uninitialized config. Migrating seed data from production: {}",
+        prod_dir.display()
+    );
+
+    // 1. Copy profiles directory
+    let prod_profiles = prod_dir.join("profiles");
+    let dev_profiles = app_dir.join("profiles");
+    if prod_profiles.is_dir() {
+        let _ = copy_dir_all(&prod_profiles, &dev_profiles);
+    }
+
+    // 2. Copy rules directory if present
+    let prod_rules = prod_dir.join("rules");
+    let dev_rules = app_dir.join("rules");
+    if prod_rules.is_dir() {
+        let _ = copy_dir_all(&prod_rules, &dev_rules);
+    }
+
+    // 3. Migrate and adjust config.json
+    let prod_config_path = prod_dir.join("config.json");
+    if let Ok(content) = std::fs::read_to_string(&prod_config_path)
+        && let Ok(mut config) = serde_json::from_str::<crate::models::AppConfig>(&content)
+    {
+        if config.controller_port == 9999 {
+            config.controller_port = 9998;
+        }
+        config.system_proxy_enabled = false;
+        config.system_proxy_port = None;
+        config.auto_launch = false;
+        config.silent_start = false;
+        if let Ok(json) = serde_json::to_string_pretty(&config) {
+            let _ = std::fs::write(&config_path, json);
+        }
+    }
+
+    // 4. Migrate and offset port mappings to avoid collisions with production ports
+    let prod_ports_path = prod_dir.join("ports.json");
+    let dev_ports_path = app_dir.join("ports.json");
+    if let Ok(content) = std::fs::read_to_string(&prod_ports_path)
+        && let Ok(mut mappings) = serde_json::from_str::<Vec<crate::models::PortMapping>>(&content)
+    {
+        for m in &mut mappings {
+            if m.port < 10000 {
+                m.port += 10000;
+                if let Some(desc) = &mut m.description {
+                    if !desc.contains("[Dev]") {
+                        *desc = format!("{desc} [Dev]");
+                    }
+                } else {
+                    m.description = Some("[Dev]".to_string());
+                }
+            }
+        }
+        if let Ok(json) = serde_json::to_string_pretty(&mappings) {
+            let _ = std::fs::write(&dev_ports_path, json);
+        }
+    }
+}
 pub fn run() {
     tracing_subscriber::registry()
         .with(
@@ -37,10 +131,22 @@ pub fn run() {
         )
         .setup(|app| {
             let app_handle = app.handle();
-            let app_dir = app_handle
+            let is_dev_instance = cfg!(debug_assertions) || app_handle.config().identifier.ends_with(".dev");
+            let mut app_dir = app_handle
                 .path()
                 .app_local_data_dir()
                 .unwrap_or_else(|_| std::path::PathBuf::from("data"));
+
+            if is_dev_instance
+                && !app_dir.to_string_lossy().contains(".dev")
+                && let Some(parent) = app_dir.parent()
+            {
+                app_dir = parent.join("com.mihomo.multi.dev");
+            }
+
+            if is_dev_instance {
+                prepare_dev_environment(&app_dir);
+            }
 
             std::fs::create_dir_all(&app_dir).ok();
 
@@ -59,8 +165,7 @@ pub fn run() {
                 .iter()
                 .find_map(|a| a.strip_prefix("--restart-from-pid="))
                 .and_then(|v| v.parse().ok());
-            let is_silent = (args.iter().any(|a| a == "--silent" || a == "-s")
-                || app_state.config.read().silent_start)
+            let is_silent = (args.iter().any(|a| a == "--silent" || a == "-s") || app_state.config.read().silent_start)
                 && restart_from_pid.is_none();
             app_state
                 .is_silent_start
@@ -68,6 +173,9 @@ pub fn run() {
 
             if let Some(main_win) = app_handle.get_webview_window("main") {
                 let theme = app_state.config.read().theme.clone();
+                if is_dev_instance {
+                    let _ = main_win.set_title("Mihomo Multi [Dev]");
+                }
                 crate::tray::apply_window_bg_color(&main_win, &theme);
                 if is_silent {
                     if app_state.config.read().lightweight_mode {
@@ -101,7 +209,7 @@ pub fn run() {
             let handle = app_handle.clone();
             let config = app_state.config.read().clone();
             // Keep autostart entry in sync with current configuration
-            if let Ok(exe_path) = std::env::current_exe() {
+            if !is_dev_instance && let Ok(exe_path) = std::env::current_exe() {
                 let _ = crate::core::autostart::sync_autostart_state(&config, &exe_path);
             }
             tauri::async_runtime::spawn(async move {
@@ -113,7 +221,7 @@ pub fn run() {
                     error!("Failed to auto-start Mihomo core: {}", err);
                 } else {
                     info!("Mihomo core auto-started successfully");
-                    if !state_clone.ensure_system_proxy_active() {
+                    if !state_clone.ensure_system_proxy_active() && !is_dev_instance {
                         let _ = crate::core::sysproxy::clear_system_proxy();
                     }
                     tray::update_tray_menu(&handle);
@@ -226,8 +334,11 @@ pub fn run() {
         }
         tauri::RunEvent::Exit => {
             if let Some(state) = app_handle.try_state::<AppState>() {
-                info!("Application exiting, ensuring sidecar process and background services are terminated");
-                let _ = crate::core::sysproxy::clear_system_proxy();
+                let is_dev = cfg!(debug_assertions) || app_handle.config().identifier.ends_with(".dev");
+                let should_clear_proxy = !is_dev || state.config.read().system_proxy_enabled;
+                if should_clear_proxy {
+                    let _ = crate::core::sysproxy::clear_system_proxy();
+                }
                 state.auto_updater.stop();
                 let _ = state.engine.stop();
             }

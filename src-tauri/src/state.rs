@@ -293,9 +293,14 @@ mod tests {
         let state = AppState::new(temp_dir.clone());
 
         // Add an enabled port mapping
+        // Pick an unused local port to avoid collision with running core processes
+        let test_port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
         let mapping = PortMapping {
             id: "port-1".to_string(),
-            port: 17890,
+            port: test_port,
             protocol: InboundProtocol::Mixed,
             profile_id: "test-prof".to_string(),
             node_name: "test-node".to_string(),
@@ -314,14 +319,14 @@ mod tests {
         {
             let mut cfg = state.config.write();
             cfg.system_proxy_enabled = true;
-            cfg.system_proxy_port = Some(17890);
+            cfg.system_proxy_port = Some(test_port);
         }
 
         // Trigger a simulated crash
         state.engine.supervisor().trigger_simulated_crash("Simulated crash");
 
         // System proxy should now be marked suspended and disabled
-        assert_eq!(*state.suspended_system_proxy.read(), Some(17890));
+        assert_eq!(*state.suspended_system_proxy.read(), Some(test_port));
         assert!(!state.config.read().system_proxy_enabled);
 
         // Call try_restore_suspended_system_proxy
@@ -329,7 +334,7 @@ mod tests {
         assert!(restored);
         assert_eq!(*state.suspended_system_proxy.read(), None);
         assert!(state.config.read().system_proxy_enabled);
-        assert_eq!(state.config.read().system_proxy_port, Some(17890));
+        assert_eq!(state.config.read().system_proxy_port, Some(test_port));
 
         // Calling again should return false (already restored)
         assert!(!state.try_restore_suspended_system_proxy());

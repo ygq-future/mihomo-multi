@@ -3,8 +3,8 @@ use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::is_port_available;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
-    DriftStatus, LanIpInfo, NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode,
-    SystemProxyStatus, TunStatus, UwpAppInfo, UwpLoopbackStats,
+    DriftStatus, LanIpInfo, NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem,
+    ProxyNode, SystemProxyStatus, TunStatus, UwpAppInfo, UwpLoopbackStats,
 };
 use crate::state::AppState;
 use std::process::Command;
@@ -267,9 +267,13 @@ pub async fn get_default_bypass_list() -> Result<Vec<String>, String> {
 fn build_tun_status(state: &State<'_, AppState>) -> TunStatus {
     let config = state.config.read().clone();
     let elevated = crate::core::elevation::is_elevated();
-    let port_active = config
-        .tun_port
-        .is_some_and(|p| state.port_router.get_port_mappings().iter().any(|m| m.port == p && m.enabled));
+    let port_active = config.tun_port.is_some_and(|p| {
+        state
+            .port_router
+            .get_port_mappings()
+            .iter()
+            .any(|m| m.port == p && m.enabled)
+    });
     TunStatus {
         enabled: config.tun_enabled,
         active: elevated && config.tun_enabled && port_active && state.engine.get_status().running,
@@ -355,9 +359,7 @@ pub async fn restart_as_admin(app: AppHandle, state: State<'_, AppState>) -> Res
         return Ok(());
     }
     let _ = state.engine.stop();
-    if let Err(e) =
-        crate::core::elevation::relaunch_as_admin(&[format!("--restart-from-pid={}", std::process::id())])
-    {
+    if let Err(e) = crate::core::elevation::relaunch_as_admin(&[format!("--restart-from-pid={}", std::process::id())]) {
         // UAC 被拒绝：恢复内核，避免留下无内核运行的破损状态
         let config = state.config.read().clone();
         let _ = state.engine.start(Some(&app), &config);
@@ -1384,7 +1386,12 @@ pub async fn get_connections(state: State<'_, AppState>) -> Result<ConnectionSna
     if !status.running {
         return Err("Mihomo 内核未运行".to_string());
     }
-    state.engine.adapter().get_connections().await.map_err(|e| e.to_string())
+    state
+        .engine
+        .adapter()
+        .get_connections()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1393,7 +1400,12 @@ pub async fn close_connection(id: String, state: State<'_, AppState>) -> Result<
     if !status.running {
         return Err("Mihomo 内核未运行".to_string());
     }
-    state.engine.adapter().close_connection(&id).await.map_err(|e| e.to_string())
+    state
+        .engine
+        .adapter()
+        .close_connection(&id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1402,5 +1414,10 @@ pub async fn close_all_connections(state: State<'_, AppState>) -> Result<(), Str
     if !status.running {
         return Err("Mihomo 内核未运行".to_string());
     }
-    state.engine.adapter().close_all_connections().await.map_err(|e| e.to_string())
+    state
+        .engine
+        .adapter()
+        .close_all_connections()
+        .await
+        .map_err(|e| e.to_string())
 }

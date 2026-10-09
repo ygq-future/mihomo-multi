@@ -73,9 +73,16 @@ export const Sidebar: React.FC = () => {
                 />
               </button>
               <div className="min-w-0 truncate">
-                <h1 className="font-semibold text-xs leading-none text-foreground truncate">
-                  Mihomo Multi
-                </h1>
+                <div className="flex items-center gap-1.5">
+                  <h1 className="font-semibold text-xs leading-none text-foreground truncate">
+                    Mihomo Multi
+                  </h1>
+                  {import.meta.env.DEV && (
+                    <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30 leading-none select-none shrink-0">
+                      DEV
+                    </span>
+                  )}
+                </div>
                 <span className="text-[10px] text-muted-foreground truncate block mt-1">
                   多端口代理
                 </span>

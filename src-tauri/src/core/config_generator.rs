@@ -237,7 +237,6 @@ pub struct RuntimeTunConfig {
     pub dns_hijack: Vec<String>,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct RuntimeGeneratorParams<'a> {
     pub controller_port: u16,
@@ -1356,12 +1355,8 @@ password: pass
             tun_port: Some(7890),
         };
 
-        let config = MinimalRuntimeConfig::with_mappings(
-            &params,
-            &[mapping_7890, mapping_7891],
-            vec![p1, p2],
-            &profile_map,
-        );
+        let config =
+            MinimalRuntimeConfig::with_mappings(&params, &[mapping_7890, mapping_7891], vec![p1, p2], &profile_map);
         let yaml = config.to_yaml().expect("YAML serialize failed");
 
         // Sub-rule for 7890 must have the custom rules

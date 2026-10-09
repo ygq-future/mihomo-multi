@@ -336,21 +336,15 @@ impl KernelControllerAdapter for FakeControllerAdapter {
     }
 
     fn get_connections<'a>(&'a self) -> BoxFuture<'a, AppResult<ConnectionSnapshot>> {
-        Box::pin(async move {
-            Ok(ConnectionSnapshot::default())
-        })
+        Box::pin(async move { Ok(ConnectionSnapshot::default()) })
     }
 
     fn close_connection<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, AppResult<()>> {
-        Box::pin(async move {
-            Ok(())
-        })
+        Box::pin(async move { Ok(()) })
     }
 
     fn close_all_connections<'a>(&'a self) -> BoxFuture<'a, AppResult<()>> {
-        Box::pin(async move {
-            Ok(())
-        })
+        Box::pin(async move { Ok(()) })
     }
 }
 

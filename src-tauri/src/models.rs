@@ -302,6 +302,7 @@ pub struct LanIpInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
+    #[serde(default = "default_controller_port")]
     pub controller_port: u16,
     pub controller_secret: String,
     pub theme: String,
@@ -378,10 +379,14 @@ fn default_fallback_interval() -> u32 {
     5
 }
 
+fn default_controller_port() -> u16 {
+    if cfg!(debug_assertions) { 9998 } else { 9999 }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            controller_port: 9999,
+            controller_port: default_controller_port(),
             controller_secret: uuid::Uuid::new_v4().to_string(),
             theme: "system".to_string(),
             log_level: "info".to_string(),

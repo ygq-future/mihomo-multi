@@ -314,9 +314,10 @@ impl ClashApiClient {
             req = req.header(AUTHORIZATION, format!("Bearer {}", self.secret));
         }
 
-        let resp = req.send().await.map_err(|err| {
-            AppError::ExternalController(format!("Request to {} failed: {}", action_desc, err))
-        })?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|err| AppError::ExternalController(format!("Request to {} failed: {}", action_desc, err)))?;
 
         let status = resp.status();
         if status.is_success() || status.as_u16() == 204 {
@@ -332,11 +333,8 @@ impl ClashApiClient {
 
     /// Close a single active connection via DELETE /connections/{id}
     pub async fn close_connection(&self, id: &str) -> AppResult<()> {
-        self.delete_endpoint(
-            &format!("connections/{}", urlencoding::encode(id)),
-            "close connection",
-        )
-        .await
+        self.delete_endpoint(&format!("connections/{}", urlencoding::encode(id)), "close connection")
+            .await
     }
 
     /// Close all active connections via DELETE /connections
