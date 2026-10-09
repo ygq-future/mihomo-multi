@@ -43,6 +43,57 @@ impl std::fmt::Display for InboundProtocol {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum PortRuleMatchType {
+    #[default]
+    DomainSuffix,
+    Domain,
+    DomainRegex,
+    DomainKeyword,
+    IpCidr,
+}
+
+impl std::fmt::Display for PortRuleMatchType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DomainSuffix => write!(f, "DOMAIN-SUFFIX"),
+            Self::Domain => write!(f, "DOMAIN"),
+            Self::DomainRegex => write!(f, "DOMAIN-REGEX"),
+            Self::DomainKeyword => write!(f, "DOMAIN-KEYWORD"),
+            Self::IpCidr => write!(f, "IP-CIDR"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PortRuleTargetType {
+    #[default]
+    Node,
+    Port,
+    Direct,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PortRule {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub match_type: PortRuleMatchType,
+    pub payloads: Vec<String>,
+    pub target_type: PortRuleTargetType,
+    pub target_value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_profile_id: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PortMapping {
@@ -63,6 +114,27 @@ pub struct PortMapping {
     pub bypass_cn: bool,
     #[serde(default)]
     pub manual_fallback: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<PortRule>,
+}
+impl Default for PortMapping {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            port: 0,
+            protocol: InboundProtocol::Mixed,
+            profile_id: String::new(),
+            node_name: String::new(),
+            enabled: false,
+            latency: None,
+            description: None,
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: true,
+            manual_fallback: false,
+            rules: Vec::new(),
+        }
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

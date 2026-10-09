@@ -306,6 +306,7 @@ mod tests {
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            rules: vec![],
         };
         let _ = state.port_router.save_port_mapping(mapping).await;
 

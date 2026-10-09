@@ -13,6 +13,27 @@ export interface ProfileItem {
 
 export type InboundProtocol = 'mixed' | 'http' | 'socks5'
 
+export type PortRuleMatchType =
+  | 'domain-suffix'
+  | 'domain'
+  | 'domain-regex'
+  | 'domain-keyword'
+  | 'ip-cidr'
+
+export type PortRuleTargetType = 'node' | 'port' | 'direct'
+
+export interface PortRule {
+  id: string
+  name?: string
+  icon?: string
+  matchType: PortRuleMatchType
+  payloads: string[]
+  targetType: PortRuleTargetType
+  targetValue: string
+  targetProfileId?: string
+  enabled: boolean
+}
+
 export interface PortMapping {
   id: string
   port: number
@@ -26,8 +47,8 @@ export interface PortMapping {
   fallbackNodeName?: string | null
   bypassCn: boolean
   manualFallback?: boolean
+  rules?: PortRule[]
 }
-
 export interface DirectEgressInfo {
   ip: string
   region: string

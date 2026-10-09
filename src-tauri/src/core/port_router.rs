@@ -215,6 +215,7 @@ impl PortRouter {
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            rules: vec![],
         }
     }
 
@@ -617,6 +618,7 @@ mod tests {
             enabled,
             latency: None,
             description: Some(format!("Test Port {}", port)),
+            rules: vec![],
         }
     }
 

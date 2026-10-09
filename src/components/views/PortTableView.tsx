@@ -6,6 +6,7 @@ import {
   Network,
   Plus,
   ShieldCheck,
+  Split,
   Trash2,
   Wrench,
   Zap,
@@ -32,6 +33,7 @@ import {
 } from '../common'
 import { AddPortModal } from '../ports/AddPortModal'
 import { EditDirectPortModal } from '../ports/EditDirectPortModal'
+import { PortRulesModal } from '../ports/PortRulesModal'
 import { useWindowVisibility } from '../../services/useWindowVisibility'
 import { QuickCopyMenu } from '../ports/QuickCopyMenu'
 import {
@@ -109,6 +111,8 @@ export const PortTableView: React.FC = () => {
   const [isEditDirectModalOpen, setIsEditDirectModalOpen] = useState(false)
   const [directMappingForEdit, setDirectMappingForEdit] =
     useState<PortMapping | null>(null)
+  const [rulesMapping, setRulesMapping] = useState<PortMapping | null>(null)
+  const [isRulesModalOpen, setIsRulesModalOpen] = useState(false)
 
   const handleProbeDirectEgress = useCallback(
     async (port?: number | null, isManual = false) => {
@@ -810,6 +814,20 @@ export const PortTableView: React.FC = () => {
                           全局代理
                         </Badge>
                       )}
+                      {m.rules && m.rules.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRulesMapping(m)
+                            setIsRulesModalOpen(true)
+                          }}
+                          className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium text-primary bg-primary/10 border border-primary/20 shrink-0 hover:bg-primary/20 transition-colors"
+                          title={`已配置 ${m.rules.length} 条特定网站规则，点击管理`}
+                        >
+                          <Split className="w-2.5 h-2.5" />
+                          {m.rules.length} 网站分流
+                        </button>
+                      )}
                       {isStoppedWarning ? (
                         <span className="text-[10px] text-amber-500 font-medium shrink-0">
                           (监听已停止)
@@ -1234,6 +1252,29 @@ export const PortTableView: React.FC = () => {
                               <Wrench className="w-3 h-3" />
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRulesMapping(m)
+                              setIsRulesModalOpen(true)
+                            }}
+                            className={`p-1 rounded transition-colors relative ${
+                              m.rules && m.rules.length > 0
+                                ? 'text-primary hover:bg-primary/10'
+                                : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                            }`}
+                            title={
+                              m.rules && m.rules.length > 0
+                                ? `管理网站分流规则 (已配置 ${m.rules.length} 条)`
+                                : '配置特定网站分流规则'
+                            }
+                          >
+                            <Split className="w-3 h-3" />
+                            {m.rules &&
+                              m.rules.filter((r) => r.enabled).length > 0 && (
+                                <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-primary" />
+                              )}
+                          </button>
 
                           <button
                             type="button"
@@ -1287,6 +1328,15 @@ export const PortTableView: React.FC = () => {
           directMapping={directMappingForEdit}
         />
       )}
+      {/* Port Rules Modal */}
+      <PortRulesModal
+        isOpen={isRulesModalOpen}
+        onClose={() => {
+          setIsRulesModalOpen(false)
+          setRulesMapping(null)
+        }}
+        mapping={rulesMapping}
+      />
 
       {/* Delete Confirmation Modal */}
       {deletingMapping && (

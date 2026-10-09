@@ -339,36 +339,29 @@ impl MinimalRuntimeConfig {
 
         let custom_bypass_rules = parse_user_bypass_to_rules(params.user_bypass);
 
+        let resolve_node_target = |node_name: &str, profile_id: &str| -> Option<String> {
+            let candidate_namespaced = profile_names
+                .get(profile_id)
+                .map(|pname| format!("[{}] {}", pname, node_name));
+
+            if let Some(ns_name) = &candidate_namespaced
+                && available_proxy_names.contains(ns_name)
+            {
+                Some(ns_name.clone())
+            } else if available_proxy_names.contains(node_name) {
+                Some(node_name.to_string())
+            } else {
+                None
+            }
+        };
+
+        // Pass 1: Compute target_action and build fallback groups for each enabled port
+        let mut port_target_actions: HashMap<u16, String> = HashMap::new();
         for m in mappings.iter().filter(|m| m.enabled) {
-            listeners.push(RuntimeListener {
-                name: format!("in-{}", m.port),
-                listener_type: m.protocol.to_string(),
-                port: m.port,
-                listen: listen_addr.to_string(),
-            });
             if m.id == crate::models::FIXED_DIRECT_PORT_ID || m.node_name == "DIRECT" {
-                if Some(m.port) == params.tun_port {
-                    tun_target = Some("DIRECT".to_string());
-                }
-                rules.push(format!("IN-PORT,{},DIRECT", m.port));
+                port_target_actions.insert(m.port, "DIRECT".to_string());
                 continue;
             }
-
-            let resolve_node_target = |node_name: &str, profile_id: &str| -> Option<String> {
-                let candidate_namespaced = profile_names
-                    .get(profile_id)
-                    .map(|pname| format!("[{}] {}", pname, node_name));
-
-                if let Some(ns_name) = &candidate_namespaced
-                    && available_proxy_names.contains(ns_name)
-                {
-                    Some(ns_name.clone())
-                } else if available_proxy_names.contains(node_name) {
-                    Some(node_name.to_string())
-                } else {
-                    None
-                }
-            };
 
             let target_node = resolve_node_target(&m.node_name, &m.profile_id);
             let fb_profile_id = m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id);
@@ -406,10 +399,84 @@ impl MinimalRuntimeConfig {
                     "DIRECT".to_string()
                 }
             };
+            port_target_actions.insert(m.port, target_action);
+        }
+
+        // Pass 2: Build listeners, sub-rules, and rules
+        for m in mappings.iter().filter(|m| m.enabled) {
+            listeners.push(RuntimeListener {
+                name: format!("in-{}", m.port),
+                listener_type: m.protocol.to_string(),
+                port: m.port,
+                listen: listen_addr.to_string(),
+            });
+
+            let target_action = port_target_actions
+                .get(&m.port)
+                .cloned()
+                .unwrap_or_else(|| "DIRECT".to_string());
+
+            if m.id == crate::models::FIXED_DIRECT_PORT_ID || m.node_name == "DIRECT" {
+                if Some(m.port) == params.tun_port {
+                    tun_target = Some("DIRECT".to_string());
+                }
+                rules.push(format!("IN-PORT,{},DIRECT", m.port));
+                continue;
+            }
 
             let mut sub_rule_list = Vec::new();
             for rule in &custom_bypass_rules {
                 sub_rule_list.push(rule.clone());
+            }
+
+            // Custom port routing rules (specific sites -> designated egress)
+            for port_rule in m.rules.iter().filter(|r| r.enabled) {
+                let rule_target = match port_rule.target_type {
+                    crate::models::PortRuleTargetType::Direct => "DIRECT".to_string(),
+                    crate::models::PortRuleTargetType::Port => {
+                        if let Ok(target_port) = port_rule.target_value.parse::<u16>() {
+                            if let Some(action) = port_target_actions.get(&target_port) {
+                                action.clone()
+                            } else {
+                                warn!(
+                                    "Port mapping {} rule target port {} not found or disabled, falling back to port default '{}'",
+                                    m.port, target_port, target_action
+                                );
+                                target_action.clone()
+                            }
+                        } else {
+                            target_action.clone()
+                        }
+                    }
+                    crate::models::PortRuleTargetType::Node => {
+                        let profile_id = port_rule.target_profile_id.as_deref().unwrap_or("");
+                        if let Some(resolved) = resolve_node_target(&port_rule.target_value, profile_id) {
+                            resolved
+                        } else {
+                            warn!(
+                                "Port mapping {} rule target node '{}' (profile '{}') not found, falling back to port default '{}'",
+                                m.port, port_rule.target_value, profile_id, target_action
+                            );
+                            target_action.clone()
+                        }
+                    }
+                };
+
+                for payload in &port_rule.payloads {
+                    let trimmed = payload.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    let rule_str = match port_rule.match_type {
+                        crate::models::PortRuleMatchType::IpCidr => {
+                            format!("IP-CIDR,{},{},no-resolve", trimmed, rule_target)
+                        }
+                        _ => {
+                            format!("{},{},{}", port_rule.match_type, trimmed, rule_target)
+                        }
+                    };
+                    sub_rule_list.push(rule_str);
+                }
             }
 
             if m.bypass_cn {
@@ -426,7 +493,6 @@ impl MinimalRuntimeConfig {
                     tun_sub_rule = Some(format!("sub-rule-{}", m.port));
                 }
             }
-
 
             if !sub_rule_list.is_empty() {
                 sub_rule_list.push(format!("MATCH,{}", target_action));
@@ -522,6 +588,7 @@ mod tests {
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            rules: vec![],
         };
         let mapping2 = PortMapping {
             id: "test-2".to_string(),
@@ -536,6 +603,7 @@ mod tests {
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            rules: vec![],
         };
         let mapping_disabled = PortMapping {
             id: "test-3".to_string(),
@@ -550,6 +618,7 @@ mod tests {
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            rules: vec![],
         };
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "AirportA".to_string());
@@ -626,6 +695,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            rules: vec![],
         };
         let params = RuntimeGeneratorParams {
             controller_port: 9999,
@@ -662,6 +732,7 @@ password: pass
             fallback_node_name: Some("HK-Node-02".to_string()),
             bypass_cn: false,
             manual_fallback: false,
+            rules: vec![],
         };
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "AirportA".to_string());
@@ -726,6 +797,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            rules: vec![],
         };
         let mapping_global = PortMapping {
             id: "test-global".to_string(),
@@ -740,6 +812,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            rules: vec![],
         };
 
         let mut profile_map = HashMap::new();
@@ -802,6 +875,7 @@ password: pass
             fallback_node_name: Some("HK-Backup".to_string()),
             bypass_cn: false,
             manual_fallback: false,
+            rules: vec![],
         };
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "MainAirport".to_string());
@@ -870,6 +944,7 @@ password: pass
             fallback_node_name: Some("HK-Node-02".to_string()),
             bypass_cn: false,
             manual_fallback: true,
+            rules: vec![],
         };
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "AirportA".to_string());
@@ -961,6 +1036,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            rules: vec![],
         };
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "AirportA".to_string());
@@ -1015,6 +1091,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            rules: vec![],
         };
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "AirportA".to_string());
@@ -1073,6 +1150,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            rules: vec![],
         };
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "AirportA".to_string());
@@ -1125,6 +1203,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            rules: vec![],
         };
         let mut profile_map = HashMap::new();
         profile_map.insert("prof-1".to_string(), "AirportA".to_string());
@@ -1158,5 +1237,141 @@ password: pass
 
         assert!(!yaml.contains("tun:"));
         assert!(!yaml.contains("IN-TYPE,TUN"));
+    }
+
+    #[test]
+    fn test_port_specific_routing_rules_and_tun_inheritance() {
+        use crate::models::{PortRule, PortRuleMatchType, PortRuleTargetType};
+
+        let mapping_7890 = PortMapping {
+            id: "m-7890".to_string(),
+            port: 7890,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: "N1".to_string(),
+            enabled: true,
+            latency: None,
+            description: None,
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: true,
+            manual_fallback: false,
+            rules: vec![
+                PortRule {
+                    id: "r1".to_string(),
+                    name: Some("OpenAI".to_string()),
+                    icon: Some("bot".to_string()),
+                    match_type: PortRuleMatchType::DomainSuffix,
+                    payloads: vec!["openai.com".to_string(), "chatgpt.com".to_string()],
+                    target_type: PortRuleTargetType::Port,
+                    target_value: "7891".to_string(),
+                    target_profile_id: None,
+                    enabled: true,
+                },
+                PortRule {
+                    id: "r2".to_string(),
+                    name: Some("Claude".to_string()),
+                    icon: None,
+                    match_type: PortRuleMatchType::DomainSuffix,
+                    payloads: vec!["claude.ai".to_string()],
+                    target_type: PortRuleTargetType::Node,
+                    target_value: "N2".to_string(),
+                    target_profile_id: Some("prof-1".to_string()),
+                    enabled: true,
+                },
+                PortRule {
+                    id: "r3".to_string(),
+                    name: Some("Direct LAN".to_string()),
+                    icon: None,
+                    match_type: PortRuleMatchType::Domain,
+                    payloads: vec!["internal.example".to_string()],
+                    target_type: PortRuleTargetType::Direct,
+                    target_value: "DIRECT".to_string(),
+                    target_profile_id: None,
+                    enabled: true,
+                },
+                PortRule {
+                    id: "r4-disabled".to_string(),
+                    name: Some("Disabled Rule".to_string()),
+                    icon: None,
+                    match_type: PortRuleMatchType::DomainSuffix,
+                    payloads: vec!["disabled.com".to_string()],
+                    target_type: PortRuleTargetType::Direct,
+                    target_value: "DIRECT".to_string(),
+                    target_profile_id: None,
+                    enabled: false,
+                },
+            ],
+        };
+
+        let mapping_7891 = PortMapping {
+            id: "m-7891".to_string(),
+            port: 7891,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: "N2".to_string(),
+            enabled: true,
+            latency: None,
+            description: None,
+            fallback_profile_id: Some("prof-1".to_string()),
+            fallback_node_name: Some("N1".to_string()),
+            bypass_cn: false,
+            manual_fallback: false,
+            rules: vec![],
+        };
+
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let raw_proxy_1 = r#"
+name: "[AirportA] N1"
+type: ss
+server: 1.1.1.1
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let raw_proxy_2 = r#"
+name: "[AirportA] N2"
+type: ss
+server: 2.2.2.2
+port: 8388
+cipher: aes-128-gcm
+password: pass
+"#;
+        let p1: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_1).unwrap();
+        let p2: serde_yaml_ng::Value = serde_yaml_ng::from_str(raw_proxy_2).unwrap();
+
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+            user_bypass: &[],
+            tun_enabled: true,
+            tun_port: Some(7890),
+        };
+
+        let config = MinimalRuntimeConfig::with_mappings(
+            &params,
+            &[mapping_7890, mapping_7891],
+            vec![p1, p2],
+            &profile_map,
+        );
+        let yaml = config.to_yaml().expect("YAML serialize failed");
+
+        // Sub-rule for 7890 must have the custom rules
+        assert!(yaml.contains("DOMAIN-SUFFIX,openai.com,fb-7891"));
+        assert!(yaml.contains("DOMAIN-SUFFIX,chatgpt.com,fb-7891"));
+        assert!(yaml.contains("DOMAIN-SUFFIX,claude.ai,[AirportA] N2"));
+        assert!(yaml.contains("DOMAIN,internal.example,DIRECT"));
+        // Disabled rule must not exist
+        assert!(!yaml.contains("disabled.com"));
+        // TUN must reuse sub-rule-7890
+        assert!(yaml.contains("SUB-RULE,(IN-TYPE,TUN),sub-rule-7890"));
     }
 }

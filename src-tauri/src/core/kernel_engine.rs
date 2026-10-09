@@ -725,6 +725,7 @@ mod tests {
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            rules: vec![],
         };
 
         let raw_proxy_yaml = r#"
