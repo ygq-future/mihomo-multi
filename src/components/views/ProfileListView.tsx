@@ -204,7 +204,7 @@ export const ProfileListView: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <Button
-            variant="secondary"
+            variant="outline"
             size="sm"
             disabled={isRefreshDisabled}
             onClick={handleRefreshAll}
@@ -221,7 +221,7 @@ export const ProfileListView: React.FC = () => {
           </Button>
 
           <Button
-            variant="secondary"
+            variant="outline"
             size="sm"
             onClick={() => setIsLocalModalOpen(true)}
             icon={<FileCode className="w-3.5 h-3.5" />}
@@ -367,9 +367,9 @@ export const ProfileListView: React.FC = () => {
                   {/* Card Actions */}
                   <div className="pt-2 border-t border-border/50 flex items-center justify-between gap-1.5">
                     <Button
-                      variant="secondary"
+                      variant="ghost"
                       size="sm"
-                      className="!text-[10px] !px-2 !py-0.5 h-6 gap-1"
+                      className="!text-[10px] !px-2 !py-0.5 h-6 gap-1 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10"
                       onClick={() => setNodesModalProfile(profile)}
                       icon={<ListFilter className="w-3 h-3" />}
                     >
@@ -381,7 +381,7 @@ export const ProfileListView: React.FC = () => {
                         type="button"
                         onClick={() => handleOpenFolder(profile)}
                         title="在文件资源管理器中定位此配置文件"
-                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
                       >
                         <FolderOpen className="w-3 h-3" />
                       </button>
@@ -390,18 +390,18 @@ export const ProfileListView: React.FC = () => {
                         type="button"
                         onClick={() => setEditingProfile(profile)}
                         title="编辑订阅配置"
-                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
                       >
                         <Pencil className="w-3 h-3" />
                       </button>
 
                       <Button
-                        variant="secondary"
+                        variant="ghost"
                         size="sm"
                         disabled={isUpdating}
                         onClick={() => handleRefresh(profile)}
                         title="刷新/重新拉取订阅"
-                        className="!text-[10px] !px-1.5 !py-0.5 h-6 gap-1"
+                        className="!text-[10px] !px-1.5 !py-0.5 h-6 gap-1 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10"
                         icon={
                           <RefreshCw
                             className={`w-3 h-3 ${
@@ -412,7 +412,6 @@ export const ProfileListView: React.FC = () => {
                       >
                         {isUpdating ? '更新中' : '刷新'}
                       </Button>
-
                       <button
                         type="button"
                         onClick={() => setDeletingProfile(profile)}
@@ -480,14 +479,12 @@ export const ProfileListView: React.FC = () => {
             </>
           }
         >
-          <div className="p-5">
-            <div className="p-3 rounded-lg bg-background border border-border text-xs">
-              <span className="font-semibold text-foreground">
-                {deletingProfile.name}
-              </span>
-              <div className="text-muted-foreground text-[11px] font-mono truncate mt-0.5">
-                包含 {deletingProfile.nodeCount} 个节点
-              </div>
+          <div className="p-3 rounded-lg bg-background border border-border text-xs">
+            <span className="font-semibold text-foreground">
+              {deletingProfile.name}
+            </span>
+            <div className="text-muted-foreground text-[11px] font-mono truncate mt-0.5">
+              包含 {deletingProfile.nodeCount} 个节点
             </div>
           </div>
         </Modal>

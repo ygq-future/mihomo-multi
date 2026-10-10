@@ -664,7 +664,7 @@ export const PortTableView: React.FC = () => {
           {activePorts > 0 && (
             <Button
               variant="outline"
-              size="md"
+              size="sm"
               onClick={handleBatchDelayTest}
               loading={isTestingAllPorts}
               icon={<Zap className="w-3.5 h-3.5 text-amber-500" />}
@@ -675,7 +675,7 @@ export const PortTableView: React.FC = () => {
 
           <Button
             variant="primary"
-            size="md"
+            size="sm"
             onClick={() => {
               setEditingMapping(null)
               setIsAddModalOpen(true)
@@ -1472,15 +1472,11 @@ export const PortTableView: React.FC = () => {
             </>
           }
         >
-          <div className="p-5">
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              删除后，Mihomo 将立即释放端口{' '}
-              <b className="text-foreground font-mono">
-                {deletingMapping.port}
-              </b>
-              ，绑定的代理节点将不再接收该端口的流量。
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            删除后，Mihomo 将立即释放端口{' '}
+            <b className="text-foreground font-mono">{deletingMapping.port}</b>
+            ，绑定的代理节点将不再接收该端口的流量。
+          </p>
         </Modal>
       )}
     </div>

@@ -116,7 +116,8 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
       subtitle={`已检测到 ${stats.total} 个 UWP 应用容器，其中 ${stats.exempted} 个已开启豁免，${stats.unexempted} 个未开启`}
       icon={<AppWindow className="w-4 h-4 text-primary" />}
       maxWidth="2xl"
-      bodyClassName="flex flex-col p-0 overflow-hidden"
+      noPadding
+      bodyClassName="flex flex-col overflow-hidden"
       footer={
         <div className="w-full flex items-center justify-between text-xs text-muted-foreground">
           <span>
@@ -129,7 +130,7 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
       }
     >
       {/* Fixed Filter & Search Bar */}
-      <div className="px-5 pt-4 pb-3 border-b border-border/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0">
+      <div className="px-4 pt-3.5 pb-3 border-b border-border/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0">
         <div className="relative flex-1 min-w-0">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <Input
@@ -196,7 +197,7 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
       </div>
 
       {/* Scrollable Apps List Area */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-2.5">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3.5 space-y-2.5">
         {/* Apps List / Content State */}
         {loading && apps.length === 0 ? (
           <div className="py-20 flex flex-col items-center justify-center text-center space-y-2 text-muted-foreground">

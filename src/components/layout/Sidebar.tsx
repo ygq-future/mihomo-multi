@@ -96,7 +96,7 @@ export const Sidebar: React.FC = () => {
           {/* Sliding Pill Indicator */}
           {activeIndex >= 0 && (
             <div
-              className="absolute left-2 right-2 rounded-lg bg-primary shadow-sm transition-transform duration-200 ease-out pointer-events-none"
+              className="absolute left-2 right-2 rounded-lg bg-black/5 border border-black/10 dark:bg-white/12 dark:border-white/15 shadow-xs transition-transform duration-200 ease-out pointer-events-none"
               style={{
                 height: '36px',
                 transform: `translateY(${activeIndex * 40}px)`,
@@ -118,7 +118,7 @@ export const Sidebar: React.FC = () => {
                   sidebarCollapsed ? 'justify-center px-0' : 'gap-2.5 px-3'
                 } rounded-lg text-xs font-medium transition-colors duration-150 ${
                   active
-                    ? 'text-primary-foreground font-semibold'
+                    ? 'text-foreground font-semibold'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >

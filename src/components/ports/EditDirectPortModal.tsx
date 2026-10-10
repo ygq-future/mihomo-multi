@@ -154,7 +154,7 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
       <form
         id="edit-direct-port-form"
         onSubmit={handleSave}
-        className="p-5 space-y-4"
+        className="space-y-4"
       >
         <div className="p-3 text-xs bg-primary/5 border border-primary/20 text-foreground rounded-lg flex items-start gap-2">
           <Zap className="w-4 h-4 text-primary shrink-0 mt-0.5" />

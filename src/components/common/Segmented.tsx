@@ -51,7 +51,7 @@ export function Segmented<T extends string = string>({
               buttonSizeStyles[size]
             } ${
               isSelected
-                ? 'bg-primary text-primary-foreground shadow-sm font-semibold'
+                ? 'bg-card text-foreground shadow-xs border border-border/80 font-semibold dark:bg-white/12 dark:border-white/10 dark:text-white'
                 : 'text-muted-foreground hover:text-foreground hover:bg-secondary/80'
             }`}
           >

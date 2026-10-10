@@ -611,7 +611,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           </div>
         }
       >
-        <div className="p-5 space-y-4">
+        <div className="space-y-4">
           {rules.length === 0 ? (
             <div className="border border-dashed border-border/80 rounded-2xl p-10 text-center space-y-4 bg-muted/20">
               <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary mx-auto flex items-center justify-center ring-8 ring-primary/5">
@@ -762,7 +762,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         </div>
       }
     >
-      <div className="p-5 space-y-4">
+      <div className="space-y-4">
         {/* 顶部模式切换：下划线极简微 Tab */}
         <div className="flex items-center gap-6 border-b border-border/60">
           <button

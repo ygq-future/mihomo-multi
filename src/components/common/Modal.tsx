@@ -13,6 +13,7 @@ export interface ModalProps {
   footer?: React.ReactNode
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
   bodyClassName?: string
+  noPadding?: boolean
 }
 
 const maxWidthMap = {
@@ -33,6 +34,7 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   maxWidth = 'md',
   bodyClassName,
+  noPadding = false,
 }) => {
   const [shouldRender, setShouldRender] = useState(isOpen)
   const [isClosing, setIsClosing] = useState(false)
@@ -100,7 +102,7 @@ export const Modal: React.FC<ModalProps> = ({
         }`}
       >
         {/* Modal Header */}
-        <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0 bg-card/80">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0 bg-card">
           <div className="flex items-center gap-3 min-w-0">
             {icon && (
               <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -130,14 +132,14 @@ export const Modal: React.FC<ModalProps> = ({
 
         {/* Modal Content */}
         <div
-          className={`flex-1 min-h-0 overflow-y-auto ${bodyClassName || ''}`}
+          className={`flex-1 min-h-0 overflow-y-auto ${noPadding ? '' : 'px-4 py-3.5'} ${bodyClassName || ''}`}
         >
           {children}
         </div>
 
         {/* Modal Footer */}
         {footer && (
-          <div className="px-5 py-3.5 border-t border-border flex items-center justify-end gap-2.5 shrink-0 bg-card/95 backdrop-blur-sm">
+          <div className="px-4 py-2.5 border-t border-border flex items-center justify-end gap-2.5 shrink-0 bg-card">
             {footer}
           </div>
         )}

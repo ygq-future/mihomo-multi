@@ -49,7 +49,7 @@ export const Switch: React.FC<SwitchProps> = ({
             isSm ? 'w-7 h-4' : 'w-9 h-5'
           } ${
             checked
-              ? 'bg-primary'
+              ? 'bg-emerald-500'
               : 'bg-muted-foreground/30 peer-hover:bg-muted-foreground/40'
           }`}
         />

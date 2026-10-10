@@ -23,15 +23,16 @@ export const Button: React.FC<ButtonProps> = ({
     'inline-flex items-center justify-center font-medium rounded-lg whitespace-nowrap shrink-0 min-w-fit transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 select-none disabled:opacity-50 disabled:pointer-events-none'
 
   const variantStyles = {
-    primary: 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm',
+    primary:
+      'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm font-semibold',
     secondary:
-      'bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground',
+      'bg-secondary text-secondary-foreground hover:bg-secondary/80 dark:hover:bg-white/10 dark:hover:text-white',
     danger:
       'bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-sm',
     ghost:
-      'bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
+      'bg-transparent text-muted-foreground hover:bg-black/5 hover:text-foreground dark:hover:bg-white/5 dark:hover:text-white',
     outline:
-      'border border-border bg-background text-foreground hover:bg-accent',
+      'border border-border bg-background text-foreground hover:bg-zinc-100 hover:border-zinc-300 dark:bg-background dark:border-white/10 dark:hover:bg-white/8 dark:hover:border-white/20 dark:hover:text-white shadow-xs',
   }
 
   const sizeStyles = {

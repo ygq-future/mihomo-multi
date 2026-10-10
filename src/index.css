@@ -13,8 +13,8 @@
     --popover: 0 0% 100%;
     --popover-foreground: 224 71.4% 4.1%;
 
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
 
     --secondary: 220 14.3% 95.9%;
     --secondary-foreground: 220.9 39.3% 11%;
@@ -30,39 +30,39 @@
 
     --border: 220 13% 91%;
     --input: 220 13% 91%;
-    --ring: 221.2 83.2% 53.3%;
+    --ring: 240 5.9% 10%;
 
     --radius: 0.5rem;
   }
 
   .dark {
-    --background: 224 25% 10%;
-    --foreground: 210 40% 98%;
+    --background: 240 5% 6.5%;
+    --foreground: 0 0% 98%;
 
-    --card: 224 25% 13%;
-    --card-foreground: 210 40% 98%;
+    --card: 240 5% 10%;
+    --card-foreground: 0 0% 98%;
 
-    --popover: 224 25% 13%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 240 5% 10%;
+    --popover-foreground: 0 0% 98%;
 
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 240 4% 14%;
+    --secondary-foreground: 0 0% 98%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 240 4% 14%;
+    --muted-foreground: 240 5% 65%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 240 4% 14%;
+    --accent-foreground: 0 0% 98%;
 
     --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 98%;
 
-    --border: 217.2 32.6% 20%;
-    --input: 217.2 32.6% 20%;
-    --ring: 224.3 76.3% 48%;
+    --border: 240 4% 18%;
+    --input: 240 4% 18%;
+    --ring: 0 0% 98%;
   }
 }
 
@@ -122,6 +122,14 @@ input[type="number"] {
   background-color: hsl(var(--card) / var(--acrylic-opacity, 0.65)) !important;
   backdrop-filter: blur(var(--acrylic-blur, 12px)) !important;
   -webkit-backdrop-filter: blur(var(--acrylic-blur, 12px)) !important;
+}
+
+/* Modals floating on backdrop should be solid surfaces to avoid black backdrop bleed-through */
+[data-acrylic="true"] [role="dialog"] .bg-card,
+[data-acrylic="true"] [role="dialog"] [class*="bg-card"] {
+  background-color: hsl(var(--card)) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 [data-acrylic="true"] .bg-background\/50,

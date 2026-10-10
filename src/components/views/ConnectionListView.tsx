@@ -752,7 +752,7 @@ export const ConnectionListView: React.FC = () => {
             </div>
           }
         >
-          <div className="p-5 space-y-4 text-xs">
+          <div className="space-y-4 text-xs">
             {/* Essential Info Grid */}
             <div className="grid grid-cols-2 gap-3 p-3.5 rounded-lg bg-secondary/30 border border-border">
               <div>
@@ -956,7 +956,7 @@ export const ConnectionListView: React.FC = () => {
             </div>
           }
         >
-          <div className="p-5 space-y-2">
+          <div className="space-y-2">
             <p className="text-xs text-muted-foreground leading-relaxed">
               确定要断开当前所有的活跃连接吗？所有正在传输的 TCP/UDP
               长连接将被立即终止。

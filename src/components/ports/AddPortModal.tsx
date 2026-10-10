@@ -506,11 +506,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         </>
       }
     >
-      <form
-        id="add-port-form"
-        onSubmit={handleSubmit}
-        className="p-5 space-y-4"
-      >
+      <form id="add-port-form" onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="p-3 text-xs bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-center justify-between">
             <div className="flex items-center gap-2">

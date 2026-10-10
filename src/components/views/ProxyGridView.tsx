@@ -586,7 +586,7 @@ export const ProxyGridView: React.FC = () => {
 
             <Button
               variant="primary"
-              size="md"
+              size="sm"
               loading={isTestingAll}
               disabled={allNodes.length === 0}
               onClick={handleBatchSpeedTest}
@@ -708,7 +708,7 @@ export const ProxyGridView: React.FC = () => {
               </p>
             </div>
             <Button
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={() => {
                 const allIds = profiles.map((p) => p.id)
@@ -753,7 +753,7 @@ export const ProxyGridView: React.FC = () => {
               未找到与当前筛选条件匹配的代理节点
             </div>
             <Button
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={() => {
                 setSearch('')

@@ -74,11 +74,7 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
         </>
       }
     >
-      <form
-        id="add-remote-form"
-        onSubmit={handleSubmit}
-        className="p-5 space-y-4"
-      >
+      <form id="add-remote-form" onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />

@@ -187,7 +187,6 @@ export const Shell: React.FC = () => {
           subtitle="确定要完全退出应用吗？"
           maxWidth="sm"
           icon={<LogOut className="w-4 h-4 text-primary" />}
-          bodyClassName="p-5"
           footer={
             <>
               <Button

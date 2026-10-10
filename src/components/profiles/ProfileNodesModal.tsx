@@ -64,6 +64,7 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
       subtitle={`共解析到 ${nodes.length} 个可用代理节点`}
       icon={<Compass className="w-4 h-4" />}
       maxWidth="2xl"
+      noPadding
       footer={
         <div className="w-full flex items-center justify-between text-xs text-muted-foreground">
           <span>
@@ -77,7 +78,7 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
     >
       <div className="flex flex-col h-full">
         {/* Search Bar */}
-        <div className="px-5 py-3 border-b border-border bg-card/50 shrink-0">
+        <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0">
           <Input
             placeholder="搜索节点名称、协议或服务器地址..."
             value={search}
@@ -86,7 +87,7 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5 max-h-[60vh]">
+        <div className="flex-1 overflow-y-auto px-4 py-3.5 max-h-[60vh]">
           {loading ? (
             <div className="py-16 flex flex-col items-center justify-center text-center space-y-2 text-muted-foreground">
               <Loader2 className="w-6 h-6 animate-spin text-primary" />

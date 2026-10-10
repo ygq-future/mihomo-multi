@@ -65,6 +65,7 @@ import {
   Input,
   Segmented,
   Select,
+  Slider,
   Switch,
   toast,
 } from '../common'
@@ -1124,7 +1125,7 @@ export const SettingView: React.FC = () => {
             )}
 
             <Button
-              variant="secondary"
+              variant="outline"
               size="sm"
               disabled={coreLoading}
               onClick={() => restartCore()}
@@ -1217,7 +1218,7 @@ export const SettingView: React.FC = () => {
 
             <div className="flex items-center gap-2 shrink-0">
               <Button
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 disabled={checkingUpdate || upgradingKernel}
                 onClick={handleCheckKernelUpdate}
@@ -1321,7 +1322,7 @@ export const SettingView: React.FC = () => {
             <div className="shrink-0">
               <Button
                 size="sm"
-                variant="secondary"
+                variant="outline"
                 onClick={handleUpdateRules}
                 disabled={updatingRules}
                 icon={
@@ -1661,7 +1662,7 @@ export const SettingView: React.FC = () => {
                 placeholder="输入排除域名或 IP (如 sheepyu.top, *.sheepyu.top, 119.29.106.76)..."
               />
               <Button
-                variant="secondary"
+                variant="outline"
                 size="md"
                 onClick={handleAddBypass}
                 icon={<Plus className="w-3.5 h-3.5" />}
@@ -1765,7 +1766,7 @@ export const SettingView: React.FC = () => {
                     一键豁免
                   </Button>
                   <Button
-                    variant="secondary"
+                    variant="outline"
                     size="sm"
                     className="px-2"
                     onClick={() => setShowUwpModal(true)}
@@ -1773,7 +1774,7 @@ export const SettingView: React.FC = () => {
                     title="查看 UWP 应用列表"
                   />
                   <Button
-                    variant="secondary"
+                    variant="outline"
                     size="sm"
                     className="px-2"
                     onClick={handleRefreshUwp}
@@ -1917,16 +1918,13 @@ export const SettingView: React.FC = () => {
                   </p>
                 </div>
                 <div className="w-48 flex items-center gap-3">
-                  <input
-                    type="range"
+                  <Slider
                     min={0}
                     max={30}
                     step={1}
                     value={acrylicBlur}
-                    onChange={(e) =>
-                      handleAcrylicBlurChange(Number(e.target.value))
-                    }
-                    className="w-full accent-primary cursor-pointer"
+                    onChange={handleAcrylicBlurChange}
+                    className="flex-1"
                   />
                   <span className="text-xs font-mono w-10 text-right font-medium">
                     {acrylicBlur}px
@@ -1945,16 +1943,13 @@ export const SettingView: React.FC = () => {
                   </p>
                 </div>
                 <div className="w-48 flex items-center gap-3">
-                  <input
-                    type="range"
+                  <Slider
                     min={20}
                     max={100}
                     step={5}
                     value={acrylicOpacity}
-                    onChange={(e) =>
-                      handleAcrylicOpacityChange(Number(e.target.value))
-                    }
-                    className="w-full accent-primary cursor-pointer"
+                    onChange={handleAcrylicOpacityChange}
+                    className="flex-1"
                   />
                   <span className="text-xs font-mono w-10 text-right font-medium">
                     {acrylicOpacity}%
@@ -2022,16 +2017,13 @@ export const SettingView: React.FC = () => {
                   </p>
                 </div>
                 <div className="w-48 flex items-center gap-3">
-                  <input
-                    type="range"
+                  <Slider
                     min={10}
                     max={100}
                     step={5}
                     value={bgOpacity}
-                    onChange={(e) =>
-                      handleBgOpacityChange(Number(e.target.value))
-                    }
-                    className="w-full accent-primary cursor-pointer"
+                    onChange={handleBgOpacityChange}
+                    className="flex-1"
                   />
                   <span className="text-xs font-mono w-10 text-right font-medium">
                     {bgOpacity}%
@@ -2212,7 +2204,7 @@ export const SettingView: React.FC = () => {
               </Button>
             </a>
             <Button
-              variant="secondary"
+              variant="outline"
               size="sm"
               disabled={checkingAppUpdate || downloadingAppUpdate}
               onClick={handleCheckAppUpdate}
