@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use tracing::{info, warn};
+use tracing::info;
 
 pub const DEFAULT_BYPASS_ITEMS: &[&str] = &[
     "localhost",
@@ -292,6 +292,7 @@ pub fn get_uwp_app_list() -> AppResult<Vec<crate::models::UwpAppInfo>> {
 #[cfg(windows)]
 mod windows {
     use super::*;
+    use tracing::warn;
     use std::process::Command;
     use std::ptr::null_mut;
     use windows_sys::Win32::Foundation::ERROR_SUCCESS;
@@ -973,15 +974,9 @@ mod tests {
     #[test]
     fn test_uwp_loopback_stats_invariant() {
         let stats = get_uwp_loopback_stats().expect("should query uwp stats");
-        #[cfg(windows)]
-        {
-            assert!(stats.exempted_count <= stats.total_count);
-        }
+        assert!(stats.exempted_count <= stats.total_count);
         let refreshed = refresh_and_cleanup_uwp_loopback().expect("should refresh uwp stats");
-        #[cfg(windows)]
-        {
-            assert!(refreshed.exempted_count <= refreshed.total_count);
-        }
+        assert!(refreshed.exempted_count <= refreshed.total_count);
     }
     #[test]
     fn test_uwp_app_list_query() {
