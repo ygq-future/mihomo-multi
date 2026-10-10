@@ -148,6 +148,7 @@ export async function getConfig(): Promise<AppConfig> {
       systemProxySyncEnv: true,
       tunEnabled: false,
       tunPort: null,
+      updateProxyPort: null,
     }
   }
   return invoke<AppConfig>('get_config')
@@ -686,7 +687,9 @@ export async function upgradeKernel(): Promise<KernelUpgradeResult> {
   return invoke<KernelUpgradeResult>('upgrade_kernel')
 }
 
-export async function checkAppUpdate(): Promise<AppUpdateCheckResult> {
+export async function checkAppUpdate(
+  overrideProxyPort?: number | null,
+): Promise<AppUpdateCheckResult> {
   if (!isTauriEnvironment()) {
     return {
       currentVersion: APP_VERSION,
@@ -722,13 +725,16 @@ export async function checkAppUpdate(): Promise<AppUpdateCheckResult> {
       isInstalled: true,
     }
   }
-  return invoke<AppUpdateCheckResult>('check_app_update')
+  return invoke<AppUpdateCheckResult>('check_app_update', {
+    overrideProxyPort,
+  })
 }
 
 export async function installAppUpdate(
   downloadUrl: string,
   fileName: string,
   packageType: string,
+  overrideProxyPort?: number | null,
 ): Promise<AppUpdateInstallResult> {
   if (!isTauriEnvironment()) {
     return {
@@ -741,6 +747,7 @@ export async function installAppUpdate(
     downloadUrl,
     fileName,
     packageType,
+    overrideProxyPort,
   })
 }
 

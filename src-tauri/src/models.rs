@@ -351,6 +351,8 @@ pub struct AppConfig {
     pub tun_enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tun_port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_proxy_port: Option<u16>,
 }
 
 fn default_true() -> bool {
@@ -413,6 +415,7 @@ impl Default for AppConfig {
             system_proxy_sync_env: true,
             tun_enabled: false,
             tun_port: None,
+            update_proxy_port: None,
         }
     }
 }

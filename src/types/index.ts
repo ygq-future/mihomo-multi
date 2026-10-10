@@ -194,6 +194,7 @@ export interface AppConfig {
   systemProxySyncEnv: boolean
   tunEnabled: boolean
   tunPort?: number | null
+  updateProxyPort?: number | null
 }
 
 export interface SystemProxyStatus {

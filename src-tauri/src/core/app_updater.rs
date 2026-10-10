@@ -273,33 +273,71 @@ pub fn match_platform_assets(
     (recommended, matched)
 }
 
-/// Checks latest release from GitHub API
-pub async fn check_app_update() -> AppResult<AppUpdateCheckResult> {
-    let client = reqwest::Client::builder()
+/// Builds an HTTP client with optional proxy support for app updates
+pub fn build_updater_client(
+    proxy_port: Option<u16>,
+    timeout: Duration,
+    connect_timeout: Duration,
+) -> AppResult<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
         .user_agent(APP_USER_AGENT)
-        .timeout(Duration::from_secs(20))
-        .connect_timeout(Duration::from_secs(10))
+        .timeout(timeout)
+        .connect_timeout(connect_timeout);
+
+    if let Some(port) = proxy_port {
+        let proxy_url = format!("http://127.0.0.1:{}", port);
+        let proxy = reqwest::Proxy::all(&proxy_url)
+            .map_err(|e| AppError::Internal(format!("Invalid proxy configuration for port {}: {}", port, e)))?;
+        builder = builder.proxy(proxy);
+    }
+
+    builder
         .build()
-        .map_err(|e| AppError::Internal(format!("Failed to build HTTP client: {}", e)))?;
+        .map_err(|e| AppError::Internal(format!("Failed to build HTTP client: {}", e)))
+}
+
+/// Checks latest release from GitHub API with optional proxy port
+pub async fn check_app_update(proxy_port: Option<u16>) -> AppResult<AppUpdateCheckResult> {
+    let client = build_updater_client(
+        proxy_port,
+        Duration::from_secs(20),
+        Duration::from_secs(10),
+    )?;
 
     let api_url = format!(
         "https://api.github.com/repos/{}/{}/releases/latest",
         GITHUB_OWNER, GITHUB_REPO
     );
 
-    info!(url = %api_url, "Checking for latest app release from GitHub");
+    info!(url = %api_url, proxy_port = ?proxy_port, "Checking for latest app release from GitHub");
 
     let res = client
         .get(&api_url)
         .send()
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to query GitHub releases: {}", e)))?;
+        .map_err(|e| {
+            if let Some(port) = proxy_port {
+                AppError::Internal(format!(
+                    "Failed to query GitHub releases via proxy 127.0.0.1:{}: {}",
+                    port, e
+                ))
+            } else {
+                AppError::Internal(format!("Failed to query GitHub releases: {}", e))
+            }
+        })?;
 
     if !res.status().is_success() {
+        let status = res.status();
+        let body = res.text().await.unwrap_or_default();
+        if status.as_u16() == 403 && body.to_lowercase().contains("rate limit") {
+            return Err(AppError::Internal(
+                "GitHub API 访问频次超限 (403 Rate Limit Exceeded)。请在上方「更新网络出口」切换其他代理端口后重试。".to_string()
+            ));
+        }
         return Err(AppError::Internal(format!(
             "GitHub API responded with status {}: {}",
-            res.status(),
-            res.text().await.unwrap_or_default()
+            status,
+            body
         )));
     }
 
@@ -333,6 +371,7 @@ pub async fn download_and_install_update(
     file_name: &str,
     package_type_str: &str,
     state: &AppState,
+    proxy_port: Option<u16>,
 ) -> AppResult<AppUpdateInstallResult> {
     let package_type = if package_type_str.eq_ignore_ascii_case("installer") {
         AppPackageType::Installer
@@ -340,12 +379,13 @@ pub async fn download_and_install_update(
         AppPackageType::Portable
     };
 
-    let client = reqwest::Client::builder()
-        .user_agent(APP_USER_AGENT)
-        .timeout(Duration::from_secs(600))
-        .connect_timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|e| AppError::Internal(format!("Failed to build HTTP client: {}", e)))?;
+    let client = build_updater_client(
+        proxy_port,
+        Duration::from_secs(600),
+        Duration::from_secs(15),
+    )?;
+
+    info!(url = %download_url, proxy_port = ?proxy_port, "Starting app update download");
 
     let mut res = client
         .get(download_url)
@@ -656,5 +696,14 @@ mod tests {
         // Clean up
         let _ = std::fs::remove_file(&exe_path);
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_build_updater_client() {
+        let client_direct = build_updater_client(None, Duration::from_secs(5), Duration::from_secs(2));
+        assert!(client_direct.is_ok());
+
+        let client_proxy = build_updater_client(Some(7890), Duration::from_secs(5), Duration::from_secs(2));
+        assert!(client_proxy.is_ok());
     }
 }

@@ -159,12 +159,19 @@ pub fn is_newer_version(current: &str, latest: &str) -> bool {
     lat_nums > cur_nums
 }
 
-fn build_http_client() -> AppResult<reqwest::Client> {
-    reqwest::Client::builder()
+fn build_http_client(proxy_port: Option<u16>) -> AppResult<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
         .user_agent(USER_AGENT)
-        .timeout(REQUEST_TIMEOUT)
-        .build()
-        .map_err(AppError::Network)
+        .timeout(REQUEST_TIMEOUT);
+
+    if let Some(port) = proxy_port {
+        let proxy_url = format!("http://127.0.0.1:{}", port);
+        let proxy = reqwest::Proxy::all(&proxy_url)
+            .map_err(|e| AppError::Internal(format!("Invalid proxy configuration for port {}: {}", port, e)))?;
+        builder = builder.proxy(proxy);
+    }
+
+    builder.build().map_err(AppError::Network)
 }
 
 #[derive(Deserialize)]
@@ -174,9 +181,13 @@ struct GitHubReleaseResponse {
     html_url: Option<String>,
 }
 
-pub async fn check_kernel_update(app: &tauri::AppHandle, state: &AppState) -> AppResult<KernelUpdateCheckResult> {
+pub async fn check_kernel_update(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    proxy_port: Option<u16>,
+) -> AppResult<KernelUpdateCheckResult> {
     let (is_portable, target_path) = get_kernel_destination(app)?;
-    let client = build_http_client()?;
+    let client = build_http_client(proxy_port)?;
 
     let current_version_raw = state
         .engine
@@ -274,13 +285,17 @@ pub fn cleanup_downloading_files(dir: &Path) {
     }
 }
 
-pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState) -> AppResult<KernelUpgradeResult> {
+pub async fn download_and_apply_kernel(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    proxy_port: Option<u16>,
+) -> AppResult<KernelUpgradeResult> {
     let (is_portable, target_path) = get_kernel_destination(app)?;
     let target_spec = get_current_target_spec().ok_or_else(|| {
         AppError::Internal("Current platform architecture is unsupported for auto-upgrade".to_string())
     })?;
 
-    let client = build_http_client()?;
+    let client = build_http_client(proxy_port)?;
 
     // 1. Get latest version tag
     let version_res = client
@@ -443,5 +458,11 @@ mod tests {
     fn test_target_spec_resolved() {
         let spec = get_current_target_spec();
         assert!(spec.is_some());
+    }
+
+    #[test]
+    fn test_build_http_client() {
+        assert!(build_http_client(None).is_ok());
+        assert!(build_http_client(Some(7890)).is_ok());
     }
 }

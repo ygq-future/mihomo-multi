@@ -1250,7 +1250,8 @@ pub async fn check_kernel_update(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<crate::core::kernel_updater::KernelUpdateCheckResult, String> {
-    crate::core::kernel_updater::check_kernel_update(&app, &state)
+    let proxy_port = state.config.read().update_proxy_port;
+    crate::core::kernel_updater::check_kernel_update(&app, &state, proxy_port)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1260,7 +1261,8 @@ pub async fn upgrade_kernel(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<crate::core::kernel_updater::KernelUpgradeResult, String> {
-    let result = crate::core::kernel_updater::download_and_apply_kernel(&app, &state)
+    let proxy_port = state.config.read().update_proxy_port;
+    let result = crate::core::kernel_updater::download_and_apply_kernel(&app, &state, proxy_port)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -1269,8 +1271,12 @@ pub async fn upgrade_kernel(
 }
 
 #[tauri::command]
-pub async fn check_app_update() -> Result<crate::core::app_updater::AppUpdateCheckResult, String> {
-    crate::core::app_updater::check_app_update()
+pub async fn check_app_update(
+    state: State<'_, AppState>,
+    override_proxy_port: Option<u16>,
+) -> Result<crate::core::app_updater::AppUpdateCheckResult, String> {
+    let proxy_port = override_proxy_port.or_else(|| state.config.read().update_proxy_port);
+    crate::core::app_updater::check_app_update(proxy_port)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1282,10 +1288,19 @@ pub async fn install_app_update(
     file_name: String,
     package_type: String,
     state: State<'_, AppState>,
+    override_proxy_port: Option<u16>,
 ) -> Result<crate::core::app_updater::AppUpdateInstallResult, String> {
-    crate::core::app_updater::download_and_install_update(&app, &download_url, &file_name, &package_type, &state)
-        .await
-        .map_err(|e| e.to_string())
+    let proxy_port = override_proxy_port.or_else(|| state.config.read().update_proxy_port);
+    crate::core::app_updater::download_and_install_update(
+        &app,
+        &download_url,
+        &file_name,
+        &package_type,
+        &state,
+        proxy_port,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

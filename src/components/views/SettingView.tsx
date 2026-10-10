@@ -406,6 +406,36 @@ export const SettingView: React.FC = () => {
     return proxyMapping?.port ?? enabledPorts[0]?.port
   }, [enabledPorts])
 
+  const updateProxyOptions = useMemo(() => {
+    const options = [
+      {
+        value: 'direct',
+        label: '直连 (默认，不走代理)',
+      },
+    ]
+
+    for (const m of enabledPorts) {
+      options.push({
+        value: String(m.port),
+        label: `端口 ${m.port} (${m.protocol.toUpperCase()} · ${m.nodeName}${
+          m.description ? ` · ${m.description}` : ''
+        })`,
+      })
+    }
+
+    if (
+      config?.updateProxyPort &&
+      !enabledPorts.some((m) => m.port === config.updateProxyPort)
+    ) {
+      options.push({
+        value: String(config.updateProxyPort),
+        label: `端口 ${config.updateProxyPort} (已停用/未找到)`,
+      })
+    }
+
+    return options
+  }, [enabledPorts, config?.updateProxyPort])
+
   const sortedCustomBypass = useMemo(
     () => sortBypassItems(config?.systemProxyBypassUser || []),
     [config?.systemProxyBypassUser],
@@ -495,6 +525,20 @@ export const SettingView: React.FC = () => {
       toast.error(
         `更新出站端口失败: ${err instanceof Error ? err.message : String(err)}`,
       )
+    }
+  }
+
+  const handleUpdateProxyPortChange = (val: string | number) => {
+    const port = val === 'direct' || val === '' ? null : Number(val)
+    debouncedSaveConfig((c) => {
+      if (c) {
+        c.updateProxyPort = port
+      }
+    })
+    if (port) {
+      toast.success(`更新出口已指定为端口 ${port}`)
+    } else {
+      toast.success('更新出口已设置为直连 (不走代理)')
     }
   }
 
@@ -710,7 +754,7 @@ export const SettingView: React.FC = () => {
   const handleCheckAppUpdate = async () => {
     setCheckingAppUpdate(true)
     try {
-      const res = await api.checkAppUpdate()
+      const res = await api.checkAppUpdate(config?.updateProxyPort)
       const now = Date.now()
       setAppUpdateInfo(res)
       setLastCheckTime(now)
@@ -752,6 +796,7 @@ export const SettingView: React.FC = () => {
         asset.downloadUrl,
         asset.name,
         asset.packageType,
+        config?.updateProxyPort,
       )
       if (asset.packageType === 'installer') {
         toast.success(res.message || '安装程序已启动，正在关闭旧程序...')
@@ -2266,6 +2311,32 @@ export const SettingView: React.FC = () => {
                 '待检查'
               )}
             </div>
+          </div>
+        </div>
+
+        {/* Update Proxy Egress Selector */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-lg bg-background/50 border border-border gap-3 text-xs">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-1.5 font-medium text-foreground">
+              <Network className="w-3.5 h-3.5 text-primary" />
+              <span>更新网络出口 (代理出口)</span>
+            </div>
+            <p className="text-muted-foreground text-[11px]">
+              指定用于检查软件更新与下载安装包的网络出口。若遇到 GitHub 403
+              限流或直连超时，可切换至其他代理端口。
+            </p>
+          </div>
+          <div className="w-full sm:w-80 shrink-0">
+            <Select
+              id="update-proxy-select"
+              value={
+                config?.updateProxyPort
+                  ? String(config.updateProxyPort)
+                  : 'direct'
+              }
+              onChange={handleUpdateProxyPortChange}
+              options={updateProxyOptions}
+            />
           </div>
         </div>
 
