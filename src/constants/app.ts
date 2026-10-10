@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.3.0'
+export const APP_VERSION = '1.4.0'
 export const APP_NAME = 'Mihomo Multi'
 export const GITHUB_REPO_OWNER = 'ygq-future'
 export const GITHUB_REPO_NAME = 'mihomo-multi'
