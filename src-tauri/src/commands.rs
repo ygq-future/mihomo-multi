@@ -106,7 +106,6 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
 
     if config.tun_enabled && config.system_proxy_enabled {
         config.system_proxy_enabled = false;
-        config.system_proxy_port = None;
     }
 
     let old_config = state.config.read().clone();
@@ -208,7 +207,6 @@ pub async fn set_system_proxy(
     if enabled {
         if config.tun_enabled {
             config.tun_enabled = false;
-            config.tun_port = None;
         }
         let p = port.ok_or_else(|| "启用系统代理必须指定端口".to_string())?;
         let mappings = state.port_router.get_port_mappings();
@@ -222,11 +220,13 @@ pub async fn set_system_proxy(
 
         config.system_proxy_enabled = true;
         config.system_proxy_port = Some(p);
+        config.tun_port = Some(p);
     } else {
         crate::core::sysproxy::clear_system_proxy().map_err(|e| e.to_string())?;
         config.system_proxy_enabled = false;
         if let Some(p) = port {
             config.system_proxy_port = Some(p);
+            config.tun_port = Some(p);
         }
     }
     *state.config.write() = config.clone();
@@ -309,13 +309,14 @@ pub async fn set_tun(
         }
         state.clear_suspended_system_proxy();
         config.system_proxy_enabled = false;
-        config.system_proxy_port = None;
         config.tun_enabled = true;
         config.tun_port = Some(p);
+        config.system_proxy_port = Some(p);
     } else {
         config.tun_enabled = false;
         if let Some(p) = port {
             config.tun_port = Some(p);
+            config.system_proxy_port = Some(p);
         }
     }
     state.persist_config(&config);

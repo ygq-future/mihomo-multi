@@ -581,7 +581,7 @@ export const PortTableView: React.FC = () => {
         <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
           <div className="flex items-center gap-1.5 text-xs font-semibold shrink-0">
             {egressSliderValue === 2 ? (
-              <Shield className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+              <Shield className="w-3.5 h-3.5 text-purple-500 animate-pulse" />
             ) : egressSliderValue === 1 ? (
               <Globe className="w-3.5 h-3.5 text-sky-500 animate-pulse" />
             ) : (
@@ -590,7 +590,7 @@ export const PortTableView: React.FC = () => {
             <span
               className={
                 egressSliderValue === 2
-                  ? 'text-emerald-600 dark:text-emerald-400'
+                  ? 'text-purple-600 dark:text-purple-400'
                   : egressSliderValue === 1
                     ? 'text-sky-600 dark:text-sky-400'
                     : 'text-foreground'
@@ -832,7 +832,7 @@ export const PortTableView: React.FC = () => {
                             : isFallbackWarning
                               ? 'border-amber-500/60 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
                               : isEffectiveTun
-                                ? 'border-emerald-500/70 bg-emerald-500/[0.04] dark:bg-emerald-500/[0.08] ring-1 ring-emerald-500/30 hover:border-emerald-500/90'
+                                ? 'border-purple-500/70 bg-purple-500/[0.04] dark:bg-purple-500/[0.08] ring-1 ring-purple-500/30 hover:border-purple-500/90'
                                 : isEffectiveSystemProxy
                                   ? 'border-sky-500/70 bg-sky-500/[0.04] dark:bg-sky-500/[0.08] ring-1 ring-sky-500/30 hover:border-sky-500/90'
                                   : 'bg-card border-border hover:border-primary/40'
@@ -911,10 +911,10 @@ export const PortTableView: React.FC = () => {
                         <Badge
                           variant="outline"
                           size="sm"
-                          className="!text-[10px] !py-0.5 !px-1.5 font-medium text-emerald-500 border-emerald-500/30 bg-emerald-500/5 shrink-0 flex items-center gap-1"
+                          className="!text-[10px] !py-0.5 !px-1.5 font-medium text-purple-500 border-purple-500/30 bg-purple-500/5 shrink-0 flex items-center gap-1"
                           title="当前端口作为全局 TUN 模式出口"
                         >
-                          <Shield className="w-2.5 h-2.5 text-emerald-500" />
+                          <Shield className="w-2.5 h-2.5 text-purple-500" />
                           TUN 出口
                         </Badge>
                       )}

@@ -46,11 +46,10 @@ const PORT_COLOR_OFF = [148, 163, 184] as const
 const PORT_COLOR_LISTEN = [16, 204, 138] as const
 const PORT_COLOR_SYS = [14, 182, 255] as const
 
-// Egress Mode: 0: Slate (Off) -> 1: Sky (System Proxy) -> 2: Emerald (TUN)
+// Egress Mode: 0: Slate (Off) -> 1: Sky (System Proxy) -> 2: Purple (TUN)
 const EGRESS_COLOR_OFF = [148, 163, 184] as const
 const EGRESS_COLOR_SYS = [14, 182, 255] as const
-const EGRESS_COLOR_TUN = [16, 204, 138] as const
-
+const EGRESS_COLOR_TUN = [168, 85, 247] as const
 function interpolateColor(
   val: number,
   mode: HoverStepSliderMode = 'port',
@@ -405,7 +404,7 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
       : mode === 'egress'
         ? clampedPropValue === 1
           ? 'bg-sky-500/25 border-sky-500/50 text-sky-600 dark:text-sky-400'
-          : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+          : 'bg-purple-500/25 border-purple-500/50 text-purple-600 dark:text-purple-400'
         : clampedPropValue === 1
           ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
           : 'bg-sky-500/25 border-sky-500/50 text-sky-600 dark:text-sky-400'
@@ -423,7 +422,7 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
       : mode === 'egress'
         ? clampedPropValue === 1
           ? 'bg-sky-500 shadow-sm shadow-sky-500/50'
-          : 'bg-emerald-500 shadow-sm shadow-emerald-500/50'
+          : 'bg-purple-500 shadow-sm shadow-purple-500/50'
         : clampedPropValue === 1
           ? 'bg-emerald-500 shadow-sm'
           : 'bg-sky-500 shadow-sm shadow-sky-500/50'

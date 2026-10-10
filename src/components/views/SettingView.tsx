@@ -479,23 +479,34 @@ export const SettingView: React.FC = () => {
       if (config.systemProxyEnabled) {
         await setSystemProxy(true, port)
         toast.success(`已切换系统代理端口至 ${port}`)
+      } else if (config.tunEnabled) {
+        await setTun(true, port)
+        toast.success(`已切换 TUN 出口端口至 ${port}`)
       } else {
-        await saveConfig({ ...config, systemProxyPort: port })
-        toast.success(`已设置系统代理预选端口为 ${port}`)
+        await saveConfig({
+          ...config,
+          systemProxyPort: port,
+          tunPort: port,
+        })
+        toast.success(`已设置出站预选端口为 ${port}`)
       }
     } catch (err) {
       toast.error(
-        `更新系统代理端口失败: ${err instanceof Error ? err.message : String(err)}`,
+        `更新出站端口失败: ${err instanceof Error ? err.message : String(err)}`,
       )
     }
   }
 
   const handleToggleTun = async (checked: boolean) => {
-    if (checked) {
-      const targetPort =
-        config?.tunPort && enabledPorts.some((m) => m.port === config.tunPort)
+    const targetPort =
+      config?.systemProxyPort &&
+      enabledPorts.some((m) => m.port === config.systemProxyPort)
+        ? config.systemProxyPort
+        : config?.tunPort && enabledPorts.some((m) => m.port === config.tunPort)
           ? config.tunPort
           : defaultProxyPort
+
+    if (checked) {
       if (!targetPort) {
         toast.error('当前无可用且已启用的监听端口，请先在端口管理中启用端口')
         return
@@ -516,7 +527,7 @@ export const SettingView: React.FC = () => {
     } else {
       setTunLoading(true)
       try {
-        const currentPort = config?.tunPort ?? defaultProxyPort
+        const currentPort = targetPort ?? defaultProxyPort
         await setTun(false, currentPort)
         toast.success('已关闭 TUN 模式')
       } catch (err) {
@@ -526,24 +537,6 @@ export const SettingView: React.FC = () => {
       }
     }
   }
-
-  const handleTunPortSelect = async (portStr: string) => {
-    const port = Number(portStr)
-    if (!port || !config) return
-    setTunLoading(true)
-    try {
-      if (config.tunEnabled) {
-        await setTun(true, port)
-      } else {
-        await saveConfig({ ...config, tunPort: port })
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err))
-    } finally {
-      setTunLoading(false)
-    }
-  }
-
   const handleRestartAsAdmin = async () => {
     try {
       await restartAsAdmin()
@@ -1576,10 +1569,11 @@ export const SettingView: React.FC = () => {
           <div className="pt-3 border-t border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="space-y-0.5">
               <label className="text-xs font-medium text-foreground">
-                绑定的监听端口
+                出站绑定的监听端口
               </label>
               <p className="text-[11px] text-muted-foreground">
-                从当前已启用的监听端口中选择作为系统代理出口
+                从已启用的监听端口中选择作为全局出站出口（系统代理与 TUN
+                模式共享此端口）
               </p>
             </div>
             <div className="w-full sm:w-80">
@@ -1804,7 +1798,7 @@ export const SettingView: React.FC = () => {
                 启用 TUN 模式
               </label>
               <p className="text-[11px] text-muted-foreground">
-                需要管理员权限；与系统代理互斥，开启时会自动关闭并清理系统代理
+                需要管理员权限；与系统代理互斥，开启时自动清理系统代理并复用当前出站端口
               </p>
             </div>
             <Switch
@@ -1814,37 +1808,6 @@ export const SettingView: React.FC = () => {
               size="md"
             />
           </div>
-
-          <div className="pt-3 border-t border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="space-y-0.5">
-              <label className="text-xs font-medium text-foreground">
-                绑定的监听端口
-              </label>
-              <p className="text-[11px] text-muted-foreground">
-                从当前已启用的监听端口中选择 TUN
-                全局出口（复用该端口的节点、备用节点与国内直连策略）
-              </p>
-            </div>
-            <div className="w-full sm:w-80">
-              {enabledPorts.length === 0 ? (
-                <span className="text-xs text-rose-500 font-medium">
-                  暂无已启用的监听端口，请先在端口管理中启用
-                </span>
-              ) : (
-                <Select
-                  value={String(config?.tunPort ?? defaultProxyPort ?? '')}
-                  onChange={(val) => handleTunPortSelect(String(val))}
-                  options={enabledPorts.map((m) => ({
-                    value: String(m.port),
-                    label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName}${
-                      m.description ? ` · ${m.description}` : ''
-                    })`,
-                  }))}
-                />
-              )}
-            </div>
-          </div>
-
           {tunStatus?.pendingElevation && (
             <div className="pt-3 border-t border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="space-y-0.5">
