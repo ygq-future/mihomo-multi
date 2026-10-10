@@ -28,31 +28,50 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
 }) => {
   const [apps, setApps] = useState<UwpAppInfo[]>([])
   const [loading, setLoading] = useState<boolean>(false)
+  const [refreshing, setRefreshing] = useState<boolean>(false)
   const [search, setSearch] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all')
 
-  const fetchApps = useCallback(async () => {
-    setLoading(true)
+  const loadApps = useCallback(async (isInitial = false) => {
+    if (isInitial) {
+      setLoading(true)
+    } else {
+      setRefreshing(true)
+    }
+    const startTime = Date.now()
     try {
       const list = await getUwpAppList()
       setApps(list)
+      if (!isInitial) {
+        const elapsed = Date.now() - startTime
+        if (elapsed < 350) {
+          const { promise, resolve } = Promise.withResolvers<void>()
+          setTimeout(resolve, 350 - elapsed)
+          await promise
+        }
+        toast.success('已刷新 UWP 应用列表')
+      }
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : String(err),
         '获取 UWP 应用列表失败',
       )
     } finally {
-      setLoading(false)
+      if (isInitial) {
+        setLoading(false)
+      } else {
+        setRefreshing(false)
+      }
     }
   }, [])
 
   useEffect(() => {
     if (isOpen) {
-      fetchApps()
+      loadApps(true)
       setSearch('')
       setStatusFilter('all')
     }
-  }, [isOpen, fetchApps])
+  }, [isOpen, loadApps])
 
   const stats = useMemo(() => {
     const total = apps.length
@@ -163,12 +182,12 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
           <Button
             variant="outline"
             size="sm"
-            onClick={fetchApps}
-            disabled={loading}
+            onClick={() => loadApps(false)}
+            disabled={loading || refreshing}
             className="h-8 px-2"
             icon={
               <RefreshCw
-                className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`}
+                className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`}
               />
             }
             title="重新获取列表"
@@ -179,7 +198,7 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
       {/* Scrollable Apps List Area */}
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-2.5">
         {/* Apps List / Content State */}
-        {loading ? (
+        {loading && apps.length === 0 ? (
           <div className="py-20 flex flex-col items-center justify-center text-center space-y-2 text-muted-foreground">
             <Loader2 className="w-6 h-6 animate-spin text-primary" />
             <span className="text-xs">正在读取系统 UWP 应用及豁免状态...</span>

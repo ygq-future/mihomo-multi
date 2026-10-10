@@ -214,6 +214,7 @@ export interface UwpLoopbackStats {
   supported: boolean
   exemptedCount: number
   totalCount: number
+  cleanedCount?: number
 }
 
 export interface UwpAppInfo {

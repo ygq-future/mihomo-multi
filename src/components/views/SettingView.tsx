@@ -600,12 +600,31 @@ export const SettingView: React.FC = () => {
     }
   }
 
-  const fetchUwpStats = async () => {
+  const handleRefreshUwp = async () => {
+    setUwpLoading(true)
+    const startTime = Date.now()
     try {
-      const stats = await api.getUwpLoopbackStatus()
+      const stats = await api.refreshUwpLoopbackStatus()
       setUwpStats(stats)
-    } catch {
-      // ignore
+      const elapsed = Date.now() - startTime
+      if (elapsed < 350) {
+        const { promise, resolve } = Promise.withResolvers<void>()
+        setTimeout(resolve, 350 - elapsed)
+        await promise
+      }
+      if (stats.cleanedCount && stats.cleanedCount > 0) {
+        toast.success(
+          `已刷新状态，并自动清理了 ${stats.cleanedCount} 个已卸载应用的残留豁免`,
+        )
+      } else {
+        toast.success('已刷新 UWP 应用及豁免状态')
+      }
+    } catch (err) {
+      toast.error(
+        `刷新 UWP 豁免状态失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    } finally {
+      setUwpLoading(false)
     }
   }
 
@@ -1757,7 +1776,7 @@ export const SettingView: React.FC = () => {
                     variant="secondary"
                     size="sm"
                     className="px-2"
-                    onClick={fetchUwpStats}
+                    onClick={handleRefreshUwp}
                     disabled={uwpLoading}
                     icon={
                       <RefreshCw

@@ -287,6 +287,7 @@ pub fn run() {
             set_tun,
             restart_as_admin,
             get_uwp_loopback_status,
+            refresh_uwp_loopback_status,
             exempt_all_uwp_loopback,
             clear_all_uwp_loopback,
             get_uwp_app_list,

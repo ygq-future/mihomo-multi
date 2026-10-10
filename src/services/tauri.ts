@@ -850,6 +850,22 @@ export async function getUwpLoopbackStatus(): Promise<UwpLoopbackStats> {
   return invoke<UwpLoopbackStats>('get_uwp_loopback_status')
 }
 
+export async function refreshUwpLoopbackStatus(): Promise<UwpLoopbackStats> {
+  if (!isTauriEnvironment()) {
+    const isWindows =
+      typeof navigator !== 'undefined' &&
+      (/windows/i.test(navigator.userAgent) ||
+        /windows/i.test(navigator.platform || ''))
+    return {
+      supported: isWindows,
+      exemptedCount: isWindows ? 120 : 0,
+      totalCount: isWindows ? 129 : 0,
+      cleanedCount: 0,
+    }
+  }
+  return invoke<UwpLoopbackStats>('refresh_uwp_loopback_status')
+}
+
 export async function exemptAllUwpLoopback(): Promise<UwpLoopbackStats> {
   if (!isTauriEnvironment()) {
     return {

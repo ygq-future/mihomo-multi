@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use tracing::info;
+use tracing::{info, warn};
 
 pub const DEFAULT_BYPASS_ITEMS: &[&str] = &[
     "localhost",
@@ -201,12 +201,15 @@ pub fn clear_system_proxy() -> AppResult<()> {
 pub fn get_uwp_loopback_stats() -> AppResult<crate::models::UwpLoopbackStats> {
     #[cfg(windows)]
     {
-        let total_count = windows::get_user_appcontainer_sids().len();
-        let exempted_count = windows::get_exempted_count();
+        let user_sids = windows::get_user_appcontainer_sids();
+        let total_count = user_sids.len();
+        let exempted_sids = windows::get_exempted_sids();
+        let exempted_count = user_sids.iter().filter(|sid| exempted_sids.contains(*sid)).count();
         Ok(crate::models::UwpLoopbackStats {
             supported: true,
             exempted_count,
             total_count,
+            cleaned_count: 0,
         })
     }
 
@@ -216,6 +219,28 @@ pub fn get_uwp_loopback_stats() -> AppResult<crate::models::UwpLoopbackStats> {
             supported: false,
             exempted_count: 0,
             total_count: 0,
+            cleaned_count: 0,
+        })
+    }
+}
+
+/// Refreshes UWP Loopback exemption status and cleans up orphaned exemptions
+pub fn refresh_and_cleanup_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
+    #[cfg(windows)]
+    {
+        let cleaned_count = windows::cleanup_orphaned_uwp_exemptions()?;
+        let mut stats = get_uwp_loopback_stats()?;
+        stats.cleaned_count = cleaned_count;
+        Ok(stats)
+    }
+
+    #[cfg(not(windows))]
+    {
+        Ok(crate::models::UwpLoopbackStats {
+            supported: false,
+            exempted_count: 0,
+            total_count: 0,
+            cleaned_count: 0,
         })
     }
 }
@@ -559,9 +584,6 @@ mod windows {
         set
     }
 
-    pub fn get_exempted_count() -> usize {
-        get_exempted_sids().len()
-    }
 
     pub fn get_uwp_apps_windows() -> Vec<crate::models::UwpAppInfo> {
         const MAPPINGS_SUBKEY: &str =
@@ -722,6 +744,67 @@ mod windows {
 
         info!("已清除所有 UWP 应用容器回环豁免");
         Ok(())
+    }
+
+    pub fn cleanup_orphaned_uwp_exemptions() -> AppResult<usize> {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let user_sids_vec = get_user_appcontainer_sids();
+        let user_sids: std::collections::HashSet<String> = user_sids_vec.into_iter().collect();
+        let exempted_sids = get_exempted_sids();
+
+        let orphaned_sids: Vec<String> = exempted_sids
+            .into_iter()
+            .filter(|sid| !user_sids.contains(sid))
+            .collect();
+
+        if orphaned_sids.is_empty() {
+            return Ok(0);
+        }
+
+        info!(count = orphaned_sids.len(), "检测到已卸载 UWP 应用残留的环回豁免记录，准备清理");
+
+        let temp_path = std::env::temp_dir().join(format!("mihomo_clean_uwp_{}.cmd", uuid::Uuid::new_v4()));
+        let mut script = String::from("@echo off\r\n");
+        for sid in &orphaned_sids {
+            script.push_str(&format!("CheckNetIsolation.exe LoopbackExempt -d -p={}\r\n", sid));
+        }
+
+        std::fs::write(&temp_path, &script).map_err(AppError::Io)?;
+
+        struct TempFileGuard(std::path::PathBuf);
+        impl Drop for TempFileGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _guard = TempFileGuard(temp_path.clone());
+
+        let temp_path_str = temp_path.to_string_lossy().replace('\'', "''");
+        let ps_cmd = format!(
+            "try {{ Start-Process cmd.exe -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '/c', '{}' }} catch {{ exit 1223 }}",
+            temp_path_str
+        );
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| AppError::Internal(format!("启动提权清理进程失败: {}", e)))?;
+
+        if output.status.code() == Some(1223) {
+            warn!("用户取消了管理员权限授权 (UAC)，跳过孤立 UWP 豁免清理");
+            return Ok(0);
+        }
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(AppError::Internal(format!("执行 UWP 孤立豁免清理失败: {}", stderr.trim())));
+        }
+
+        info!(cleaned = orphaned_sids.len(), "已成功清理残留的孤立 UWP 环回豁免记录");
+        Ok(orphaned_sids.len())
     }
 }
 
@@ -886,6 +969,20 @@ mod tests {
             assert_eq!(stats.total_count, 0);
         }
     }
+
+    #[test]
+    fn test_uwp_loopback_stats_invariant() {
+        let stats = get_uwp_loopback_stats().expect("should query uwp stats");
+        #[cfg(windows)]
+        {
+            assert!(stats.exempted_count <= stats.total_count);
+        }
+        let refreshed = refresh_and_cleanup_uwp_loopback().expect("should refresh uwp stats");
+        #[cfg(windows)]
+        {
+            assert!(refreshed.exempted_count <= refreshed.total_count);
+        }
+    }
     #[test]
     fn test_uwp_app_list_query() {
         let apps = get_uwp_app_list().expect("should query uwp app list without error");
@@ -926,14 +1023,22 @@ mod tests {
             supported: true,
             exempted_count: 42,
             total_count: 100,
+            cleaned_count: 5,
         };
         let json = serde_json::to_string(&stats).expect("should serialize");
         assert!(json.contains("\"supported\":true"));
         assert!(json.contains("\"exemptedCount\":42"));
         assert!(json.contains("\"totalCount\":100"));
+        assert!(json.contains("\"cleanedCount\":5"));
 
         let deserialized: crate::models::UwpLoopbackStats = serde_json::from_str(&json).expect("should deserialize");
         assert_eq!(stats, deserialized);
+
+        // Forward compatibility: cleanedCount omitted defaults to 0
+        let legacy_json = r#"{"supported":true,"exemptedCount":10,"totalCount":20}"#;
+        let deserialized_legacy: crate::models::UwpLoopbackStats =
+            serde_json::from_str(legacy_json).expect("should deserialize legacy json");
+        assert_eq!(deserialized_legacy.cleaned_count, 0);
     }
     #[test]
     fn test_sort_bypass_items() {

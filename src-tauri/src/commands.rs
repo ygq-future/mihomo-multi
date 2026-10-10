@@ -380,6 +380,11 @@ pub async fn get_uwp_loopback_status() -> Result<UwpLoopbackStats, String> {
 }
 
 #[tauri::command]
+pub async fn refresh_uwp_loopback_status() -> Result<UwpLoopbackStats, String> {
+    crate::core::sysproxy::refresh_and_cleanup_uwp_loopback().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn exempt_all_uwp_loopback() -> Result<UwpLoopbackStats, String> {
     crate::core::sysproxy::exempt_all_uwp_loopback().map_err(|e| e.to_string())
 }

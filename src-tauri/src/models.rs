@@ -242,6 +242,8 @@ pub struct UwpLoopbackStats {
     pub supported: bool,
     pub exempted_count: usize,
     pub total_count: usize,
+    #[serde(default)]
+    pub cleaned_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
