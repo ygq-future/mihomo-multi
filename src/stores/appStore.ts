@@ -21,7 +21,9 @@ export interface BaseAppState {
   config: AppConfig | null
   coreLoading: boolean
   error: string | null
-
+  targetSettingSection: string | null
+  scrollToSettingSection: (sectionId: string) => void
+  clearTargetSettingSection: () => void
   setActiveTab: (tab: TabType) => void
   toggleSidebar: () => void
   fetchStatus: () => Promise<void>
@@ -54,7 +56,10 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   coreLoading: false,
   tunStatus: null,
   error: null,
-
+  targetSettingSection: null,
+  scrollToSettingSection: (sectionId) =>
+    set({ activeTab: 'settings', targetSettingSection: sectionId }),
+  clearTargetSettingSection: () => set({ targetSettingSection: null }),
   setActiveTab: (activeTab) => set({ activeTab }),
 
   toggleSidebar: () => {

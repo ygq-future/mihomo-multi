@@ -1,17 +1,25 @@
 import {
   Activity,
   Compass,
+  Cpu,
+  FolderOpen,
+  Globe,
   Layers,
   Network,
+  Palette,
+  Power,
   RefreshCw,
   Settings,
+  Sparkles,
 } from 'lucide-react'
 import type React from 'react'
+import { useEffect, useRef, useState } from 'react'
 import appLogo from '../../../src-tauri/icons/icon.png'
 import { type TabType, useAppStore } from '../../stores/appStore'
 import { Button } from '../common'
 import { TrafficWidget } from './TrafficWidget'
 import { DEFAULT_CONTROLLER_PORT } from '../../constants'
+import { scrollToSettingCard } from '../../utils/scroll'
 
 const navItems: { id: TabType; label: string; icon: React.ElementType }[] = [
   { id: 'ports', label: '端口映射', icon: Network },
@@ -21,9 +29,57 @@ const navItems: { id: TabType; label: string; icon: React.ElementType }[] = [
   { id: 'settings', label: '设置', icon: Settings },
 ]
 
+const settingSections = [
+  {
+    id: 'setting-section-core',
+    label: '内核与网络',
+    icon: Cpu,
+    color: 'hover:text-blue-500 hover:bg-blue-500/10',
+  },
+  {
+    id: 'setting-section-proxy',
+    label: '系统代理',
+    icon: Globe,
+    color: 'hover:text-emerald-500 hover:bg-emerald-500/10',
+  },
+  {
+    id: 'setting-section-tun',
+    label: 'TUN 模式',
+    icon: Network,
+    color: 'hover:text-cyan-500 hover:bg-cyan-500/10',
+  },
+  {
+    id: 'setting-section-appearance',
+    label: '外观个性化',
+    icon: Palette,
+    color: 'hover:text-purple-500 hover:bg-purple-500/10',
+  },
+  {
+    id: 'setting-section-system',
+    label: '窗口与系统',
+    icon: Power,
+    color: 'hover:text-amber-500 hover:bg-amber-500/10',
+  },
+  {
+    id: 'setting-section-storage',
+    label: '存储目录',
+    icon: FolderOpen,
+    color: 'hover:text-indigo-500 hover:bg-indigo-500/10',
+  },
+  {
+    id: 'setting-section-about',
+    label: '关于与更新',
+    icon: Sparkles,
+    color: 'hover:text-rose-500 hover:bg-rose-500/10',
+  },
+]
+
 export const Sidebar: React.FC = () => {
   const activeTab = useAppStore((state) => state.activeTab)
   const setActiveTab = useAppStore((state) => state.setActiveTab)
+  const scrollToSettingSection = useAppStore(
+    (state) => state.scrollToSettingSection,
+  )
   const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed)
   const toggleSidebar = useAppStore((state) => state.toggleSidebar)
   const coreStatus = useAppStore((state) => state.coreStatus)
@@ -32,6 +88,35 @@ export const Sidebar: React.FC = () => {
 
   const isRunning = coreStatus?.running ?? false
   const activeIndex = navItems.findIndex((item) => item.id === activeTab)
+  const [isSettingsHovered, setIsSettingsHovered] = useState(false)
+  const hoverTimeoutRef = useRef<number | undefined>(undefined)
+
+  const handleMouseEnterSettings = () => {
+    clearTimeout(hoverTimeoutRef.current)
+    setIsSettingsHovered(true)
+  }
+
+  const handleMouseLeaveSettings = () => {
+    clearTimeout(hoverTimeoutRef.current)
+    hoverTimeoutRef.current = window.setTimeout(() => {
+      setIsSettingsHovered(false)
+    }, 180)
+  }
+
+  useEffect(() => {
+    return () => {
+      clearTimeout(hoverTimeoutRef.current)
+    }
+  }, [])
+
+  const handleSectionClick = (e: React.MouseEvent, sectionId: string) => {
+    e.stopPropagation()
+    if (activeTab === 'settings') {
+      scrollToSettingCard(sectionId, true)
+    } else {
+      scrollToSettingSection(sectionId)
+    }
+  }
   return (
     <aside
       className={`${
@@ -108,7 +193,9 @@ export const Sidebar: React.FC = () => {
           {navItems.map((item) => {
             const Icon = item.icon
             const active = activeTab === item.id
-            return (
+            const isSettingsItem = item.id === 'settings'
+
+            const buttonContent = (
               <button
                 key={item.id}
                 type="button"
@@ -127,6 +214,60 @@ export const Sidebar: React.FC = () => {
                   <span className="truncate">{item.label}</span>
                 )}
               </button>
+            )
+
+            if (!isSettingsItem) {
+              return buttonContent
+            }
+
+            return (
+              <div
+                key={item.id}
+                className="relative"
+                onMouseEnter={handleMouseEnterSettings}
+                onMouseLeave={handleMouseLeaveSettings}
+              >
+                {buttonContent}
+
+                {/* 悬浮丝滑弹出一束设置区域快捷图标 */}
+                <div
+                  className={`overflow-hidden transition-all duration-300 ease-out origin-top ${
+                    isSettingsHovered
+                      ? 'max-h-96 opacity-100 scale-100 mt-1 pointer-events-auto'
+                      : 'max-h-0 opacity-0 scale-95 pointer-events-none mt-0'
+                  }`}
+                >
+                  <div
+                    className={`rounded-xl border border-border/70 bg-secondary/35 backdrop-blur-sm shadow-xs ${
+                      sidebarCollapsed
+                        ? 'p-1 flex flex-col gap-0.5 items-center'
+                        : 'p-1.5 grid grid-cols-4 gap-1'
+                    }`}
+                  >
+                    {settingSections.map((section, idx) => {
+                      const SecIcon = section.icon
+                      return (
+                        <button
+                          key={section.id}
+                          type="button"
+                          onClick={(e) => handleSectionClick(e, section.id)}
+                          title={section.label}
+                          style={{
+                            transitionDelay: isSettingsHovered
+                              ? `${idx * 20}ms`
+                              : '0ms',
+                          }}
+                          className={`flex items-center justify-center rounded-md text-muted-foreground transition-all duration-150 active:scale-90 hover:shadow-xs ${section.color} ${
+                            sidebarCollapsed ? 'w-7 h-7' : 'w-full h-8 p-1.5'
+                          }`}
+                        >
+                          <SecIcon className="w-3.5 h-3.5 shrink-0" />
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
             )
           })}
         </nav>

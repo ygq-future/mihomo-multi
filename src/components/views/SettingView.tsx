@@ -72,6 +72,7 @@ import {
 import { LiveUptimeDisplay } from './LiveUptimeDisplay'
 import { sortBypassItems } from '../../utils/bypassSort'
 import { UwpAppListModal } from '../setting/UwpAppListModal'
+import { scrollToSettingCard } from '../../utils/scroll'
 
 function isValidBypassRule(value: string): boolean {
   const val = value.trim()
@@ -265,6 +266,8 @@ export const SettingView: React.FC = () => {
     tunStatus,
     fetchTunStatus,
     restartAsAdmin,
+    targetSettingSection,
+    clearTargetSettingSection,
   } = useAppStore()
   const [tunLoading, setTunLoading] = useState<boolean>(false)
   const [controllerPortInput, setControllerPortInput] = useState<string>(
@@ -305,6 +308,15 @@ export const SettingView: React.FC = () => {
   const [appDataDir, setAppDataDir] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  // 区块锚点定位（如从侧边栏快捷图标跳转）
+  useEffect(() => {
+    if (targetSettingSection) {
+      requestAnimationFrame(() => {
+        scrollToSettingCard(targetSettingSection, true)
+        clearTargetSettingSection()
+      })
+    }
+  }, [targetSettingSection, clearTargetSettingSection])
 
   // Kernel Update State
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false)
@@ -1128,9 +1140,15 @@ export const SettingView: React.FC = () => {
   }
 
   return (
-    <div className="p-6 space-y-6 w-full">
+    <div
+      id="setting-scroll-container"
+      className="h-full overflow-y-auto p-6 space-y-6 w-full"
+    >
       {/* 1. Unified Mihomo Core & Controller Card */}
-      <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
+      <div
+        id="setting-section-core"
+        className="scroll-mt-6 bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm"
+      >
         <div className="flex items-center justify-between pb-3 border-b border-border">
           <div className="flex items-center gap-2.5">
             <Cpu className="w-5 h-5 text-primary" />
@@ -1596,7 +1614,10 @@ export const SettingView: React.FC = () => {
       </div>
 
       {/* System Proxy Card */}
-      <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
+      <div
+        id="setting-section-proxy"
+        className="scroll-mt-6 bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm"
+      >
         <div className="pb-3 border-b border-border">
           <div className="flex items-center gap-2.5">
             <Globe className="w-5 h-5 text-primary" />
@@ -1841,7 +1862,10 @@ export const SettingView: React.FC = () => {
       </div>
 
       {/* TUN 模式卡片 */}
-      <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
+      <div
+        id="setting-section-tun"
+        className="scroll-mt-6 bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm"
+      >
         <div className="pb-3 border-b border-border">
           <div className="flex items-center gap-2.5">
             <Network className="w-5 h-5 text-primary" />
@@ -1897,7 +1921,10 @@ export const SettingView: React.FC = () => {
       </div>
 
       {/* 2. Appearance & Personalization Card */}
-      <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
+      <div
+        id="setting-section-appearance"
+        className="scroll-mt-6 bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm"
+      >
         <div className="pb-3 border-b border-border">
           <div className="flex items-center gap-2.5">
             <Palette className="w-5 h-5 text-primary" />
@@ -2081,7 +2108,10 @@ export const SettingView: React.FC = () => {
       </div>
 
       {/* 3. Window & Auto-Launch Card */}
-      <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
+      <div
+        id="setting-section-system"
+        className="scroll-mt-6 bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm"
+      >
         <div className="pb-3 border-b border-border">
           <div className="flex items-center gap-2.5">
             <Power className="w-5 h-5 text-primary" />
@@ -2181,15 +2211,21 @@ export const SettingView: React.FC = () => {
       </div>
 
       {/* 4. Storage & Directories Card */}
-      <div className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm">
+      <div
+        id="setting-section-storage"
+        className="scroll-mt-6 bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm"
+      >
         <div className="flex items-center justify-between pb-3 border-b border-border">
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">
-              应用数据与订阅存储路径
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              所有订阅 YAML 文件、运行配置与内核日志均保存在本地独立目录中
-            </p>
+          <div className="flex items-center gap-2.5">
+            <FolderOpen className="w-5 h-5 text-primary" />
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
+                应用数据与订阅存储路径
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                所有订阅 YAML 文件、运行配置与内核日志均保存在本地独立目录中
+              </p>
+            </div>
           </div>
 
           <Button
@@ -2213,7 +2249,10 @@ export const SettingView: React.FC = () => {
       </div>
 
       {/* 5. Software About & Update Card */}
-      <div className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm">
+      <div
+        id="setting-section-about"
+        className="scroll-mt-6 bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm"
+      >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-border gap-3">
           <div className="flex items-center gap-2.5">
             <Sparkles className="w-5 h-5 text-primary" />
