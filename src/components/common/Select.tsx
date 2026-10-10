@@ -504,7 +504,10 @@ export function Select<T extends string | number = string | number>({
           />
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
+          {(!isOpen || !searchQuery) && selectedOption?.rightNode && (
+            <div className="mr-0.5">{selectedOption.rightNode}</div>
+          )}
           {clearable && value && !disabled && (
             <button
               type="button"

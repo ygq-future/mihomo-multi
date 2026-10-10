@@ -65,6 +65,7 @@ import {
   Switch,
   toast,
 } from '../common'
+import { getLatencyColor } from '../../utils/proxy'
 
 interface PortRulesModalProps {
   isOpen: boolean
@@ -214,6 +215,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     config,
     fetchProfileNodes,
     savePortMapping,
+    latencies,
   } = useAppStore()
 
   // 视图切换：'list' 列表视图 | 'add' 添加规则视图
@@ -309,18 +311,66 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     return list
   }, [profiles, profileNodes])
 
-  // 节点下拉选项
+  // 节点下拉选项（按真实延迟升序排序：低延迟置顶）
   const nodeOptions = useMemo<SelectOption<string>[]>(() => {
-    return allAvailableNodes.map((n) => ({
-      value: `${n.profileId}:::${n.name}`,
-      label: n.name,
-      description: n.profileName ? `来自订阅: ${n.profileName}` : undefined,
-      group: n.profileName || '默认订阅',
-      searchTarget: `${n.profileName} ${n.name}`,
-    }))
-  }, [allAvailableNodes])
+    const getNodeLatency = (node: {
+      name: string
+      profileName?: string
+      runtimeName?: string
+      latency?: number | null
+    }) => {
+      const runtimeKey =
+        node.runtimeName ||
+        (node.profileName ? `[${node.profileName}] ${node.name}` : node.name)
+      if (runtimeKey in latencies && latencies[runtimeKey] !== undefined) {
+        return latencies[runtimeKey]
+      }
+      if (node.name in latencies && latencies[node.name] !== undefined) {
+        return latencies[node.name]
+      }
+      return node.latency ?? null
+    }
 
-  // 其他可用端口（排除自身和固定直连端口）
+    const sortedNodes = [...allAvailableNodes].sort((a, b) => {
+      const latA = getNodeLatency(a)
+      const latB = getNodeLatency(b)
+
+      const hasA = latA !== undefined && latA !== null && latA > 0
+      const hasB = latB !== undefined && latB !== null && latB > 0
+
+      if (hasA && hasB) {
+        return (latA as number) - (latB as number)
+      }
+      if (hasA && !hasB) return -1
+      if (!hasA && hasB) return 1
+
+      return a.name.localeCompare(b.name, undefined, { numeric: true })
+    })
+
+    return sortedNodes.map((n) => {
+      const lat = getNodeLatency(n)
+      const hasLat = lat !== undefined && lat !== null && lat > 0
+
+      return {
+        value: `${n.profileId}:::${n.name}`,
+        label: n.name,
+        description: n.profileName ? `来自订阅: ${n.profileName}` : undefined,
+        group: n.profileName || '默认订阅',
+        searchTarget: `${n.profileName} ${n.name}`,
+        rightNode: hasLat ? (
+          <span
+            className={`font-mono text-[11px] font-medium ${getLatencyColor(
+              lat,
+            )}`}
+          >
+            {lat} ms
+          </span>
+        ) : null,
+      }
+    })
+  }, [allAvailableNodes, latencies])
+
+  // 其他可用端口（排除自身和固定直连端口，按关联出口延迟升序排序）
   const otherPorts = useMemo(() => {
     if (!mapping) return []
     return portMappings.filter(
@@ -332,7 +382,46 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     )
   }, [portMappings, mapping])
   const portOptions = useMemo<SelectOption<string>[]>(() => {
-    return otherPorts.map((p) => {
+    const getPortLatency = (p: PortMapping) => {
+      const isFbActive = p.manualFallback && Boolean(p.fallbackNodeName)
+      const activeNodeName = isFbActive ? p.fallbackNodeName! : p.nodeName
+      const activeProfileId = isFbActive
+        ? p.fallbackProfileId || p.profileId
+        : p.profileId
+      const prof = profiles.find((pr) => pr.id === activeProfileId)
+      const runtimeKey = prof
+        ? `[${prof.name}] ${activeNodeName}`
+        : activeNodeName
+
+      if (runtimeKey in latencies && latencies[runtimeKey] !== undefined) {
+        return latencies[runtimeKey]
+      }
+      if (
+        activeNodeName in latencies &&
+        latencies[activeNodeName] !== undefined
+      ) {
+        return latencies[activeNodeName]
+      }
+      return p.latency ?? null
+    }
+
+    const sortedPorts = [...otherPorts].sort((a, b) => {
+      const latA = getPortLatency(a)
+      const latB = getPortLatency(b)
+
+      const hasA = latA !== undefined && latA !== null && latA > 0
+      const hasB = latB !== undefined && latB !== null && latB > 0
+
+      if (hasA && hasB) {
+        return (latA as number) - (latB as number)
+      }
+      if (hasA && !hasB) return -1
+      if (!hasA && hasB) return 1
+
+      return a.port - b.port
+    })
+
+    return sortedPorts.map((p) => {
       const isFbActive = p.manualFallback && Boolean(p.fallbackNodeName)
       const activeNodeName = isFbActive ? p.fallbackNodeName! : p.nodeName
       const activeProfileId = isFbActive
@@ -343,18 +432,28 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         ? `[${prof.name}] ${activeNodeName}`
         : activeNodeName
       const hasFallback = Boolean(p.fallbackNodeName && !p.manualFallback)
+      const lat = getPortLatency(p)
+      const hasLat = lat !== undefined && lat !== null && lat > 0
 
       return {
         value: p.port.toString(),
         label: `端口 ${p.port} (出口: ${formattedNode})`,
-        description: `当前出口: ${formattedNode}${
+        description: `入站: ${p.protocol.toUpperCase()}${
           hasFallback ? ' · 含主备自动容灾' : ''
         }`,
         searchTarget: `${p.port} ${formattedNode}`,
+        rightNode: hasLat ? (
+          <span
+            className={`font-mono text-[11px] font-medium ${getLatencyColor(
+              lat,
+            )}`}
+          >
+            {lat} ms
+          </span>
+        ) : null,
       }
     })
-  }, [otherPorts, profiles])
-
+  }, [otherPorts, profiles, latencies])
   // 获取目标端口当前活跃生效的出口节点名称
   const targetPortActiveNode = useMemo(() => {
     if (targetType !== 'port') return null
