@@ -1,9 +1,9 @@
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import type React from 'react'
-import { useAppStore } from '../../stores/appStore'
+import { type TabType, useAppStore } from '../../stores/appStore'
 import { Button } from '../common'
 
-const tabTitles: Record<string, { title: string; subtitle: string }> = {
+const tabTitles: Record<TabType, { title: string; subtitle: string }> = {
   ports: {
     title: '端口监听管理器',
     subtitle: '配置本地多入站端口与代理节点 1:1 确定性映射',
@@ -15,6 +15,10 @@ const tabTitles: Record<string, { title: string; subtitle: string }> = {
   profiles: {
     title: '订阅配置管理',
     subtitle: '导入与自动同步远程订阅或本地 Clash YAML 配置',
+  },
+  connections: {
+    title: '实时连接监控',
+    subtitle: '查看当前活动网络连接、实时速率统计与连接中断控制',
   },
   settings: {
     title: '系统设置',
