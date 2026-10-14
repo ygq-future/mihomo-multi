@@ -4,7 +4,7 @@ use crate::core::port_probe::is_port_available;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
     DriftStatus, LanIpInfo, NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem,
-    ProxyNode, SystemProxyStatus, TunStatus, UwpAppInfo, UwpLoopbackStats,
+    ProxyNode, SniffedAccessLogEntry, SystemProxyStatus, TunStatus, UwpAppInfo, UwpLoopbackStats,
 };
 use crate::state::AppState;
 use std::process::Command;
@@ -1310,4 +1310,27 @@ pub async fn close_all_connections(state: State<'_, AppState>) -> Result<(), Str
         .close_all_connections()
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_sniffed_access_logs(
+    since_epoch_ms: u64,
+    state: State<'_, AppState>,
+) -> Result<Vec<SniffedAccessLogEntry>, String> {
+    let log_dir = state.engine.work_dir().join("logs");
+    let mut entries = crate::core::supervisor::read_recent_access_logs(&log_dir, since_epoch_ms);
+
+    // In dev environment (.dev), also read from sibling production instance logs if present
+    // so browser traffic routed through production ports (789x) is seamlessly captured during dev testing.
+    if state.app_dir.to_string_lossy().ends_with(".dev")
+        && let Some(parent) = state.app_dir.parent()
+    {
+        let prod_log_dir = parent.join("com.mihomo.multi").join("core").join("logs");
+        if prod_log_dir.is_dir() {
+            let prod_entries = crate::core::supervisor::read_recent_access_logs(&prod_log_dir, since_epoch_ms);
+            entries.extend(prod_entries);
+        }
+    }
+
+    Ok(entries)
 }

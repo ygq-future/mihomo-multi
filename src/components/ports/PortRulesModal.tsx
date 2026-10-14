@@ -40,7 +40,7 @@ import {
   Zap,
 } from 'lucide-react'
 import type React from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   PRESET_SERVICES,
   type PresetService,
@@ -66,6 +66,7 @@ import {
   toast,
 } from '../common'
 import { getLatencyColor } from '../../utils/proxy'
+import { TrafficSnifferPanel } from './TrafficSnifferPanel'
 
 interface PortRulesModalProps {
   isOpen: boolean
@@ -219,6 +220,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     savePortMapping,
     saveConfig,
     latencies,
+    coreStatus,
   } = useAppStore()
 
   const isGlobal = mode === 'global'
@@ -296,6 +298,33 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     }
   }, [isOpen, isGlobal, mapping, config?.globalRules])
 
+  // 将嗅探面板选中的域名追加到自定义规则匹配列表中
+  const handleAppendSniffedDomains = useCallback(
+    (domainsToAppend: string[], suggestedRuleName?: string) => {
+      const existingLines = customDomains
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean)
+      const seen = new Set(existingLines.map((s) => s.toLowerCase()))
+      const added: string[] = []
+      for (const domain of domainsToAppend) {
+        const lower = domain.toLowerCase()
+        if (!seen.has(lower)) {
+          seen.add(lower)
+          added.push(domain)
+        }
+      }
+      if (added.length > 0) {
+        const nextText = [...existingLines, ...added].join('\n')
+        setCustomDomains(nextText)
+        if (!customName.trim() && suggestedRuleName) {
+          setCustomName(suggestedRuleName)
+        }
+        toast.success(`已追加 ${added.length} 个关联域名到匹配项列表`)
+      }
+    },
+    [customDomains, customName],
+  )
   // 确保所有 profile 节点已拉取
   useEffect(() => {
     if (isOpen) {
@@ -1052,13 +1081,16 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
               </div>
             </div>
 
-            <div>
-              <label
-                htmlFor="custom-domains-textarea"
-                className="text-xs font-medium text-foreground block mb-1.5"
-              >
-                匹配项列表 (一行一个域名、正则或 IP 网段)
-              </label>
+            <div className="space-y-2">
+              <TrafficSnifferPanel
+                isOpen={isOpen && view === 'add' && activeTab === 'custom'}
+                isGlobal={isGlobal}
+                mapping={mapping}
+                coreRunning={coreStatus?.running ?? true}
+                matchType={customMatchType}
+                customDomains={customDomains}
+                onAppendDomains={handleAppendSniffedDomains}
+              />
               <textarea
                 id="custom-domains-textarea"
                 rows={3}

@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { open as shellOpen } from '@tauri-apps/plugin-shell'
 import type {
   AppConfig,
   AppStatus,
@@ -23,6 +24,7 @@ import type {
   AppUpdateCheckResult,
   AppUpdateInstallResult,
   MrsRulesInfo,
+  SniffedAccessLogEntry,
 } from '../types'
 import {
   APP_VERSION,
@@ -1013,6 +1015,17 @@ export async function getConnections(): Promise<ConnectionSnapshot> {
   return invoke<ConnectionSnapshot>('get_connections')
 }
 
+export async function getSniffedAccessLogs(
+  sinceEpochMs: number,
+): Promise<SniffedAccessLogEntry[]> {
+  if (!isTauriEnvironment()) {
+    return []
+  }
+  return invoke<SniffedAccessLogEntry[]>('get_sniffed_access_logs', {
+    sinceEpochMs,
+  })
+}
+
 export async function closeConnection(id: string): Promise<void> {
   if (!isTauriEnvironment()) return
   return invoke<void>('close_connection', { id })
@@ -1021,4 +1034,20 @@ export async function closeConnection(id: string): Promise<void> {
 export async function closeAllConnections(): Promise<void> {
   if (!isTauriEnvironment()) return
   return invoke<void>('close_all_connections')
+}
+
+export async function openExternalUrl(url: string): Promise<void> {
+  if (!isTauriEnvironment()) {
+    if (typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+    return
+  }
+  try {
+    await shellOpen(url)
+  } catch {
+    if (typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+  }
 }

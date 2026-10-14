@@ -299,6 +299,7 @@ pub fn run() {
             get_rules_info,
             update_rules,
             get_connections,
+            get_sniffed_access_logs,
             close_connection,
             close_all_connections,
         ])

@@ -331,3 +331,11 @@ export interface ConnectionSnapshot {
   memory?: number | null
   connections: ConnectionItem[]
 }
+
+export interface SniffedAccessLogEntry {
+  host: string
+  inboundPort?: string | null
+  chain: string
+  rule: string
+  timestampMs: number
+}

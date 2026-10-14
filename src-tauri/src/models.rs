@@ -531,3 +531,14 @@ pub struct ConnectionSnapshot {
     #[serde(default)]
     pub connections: Vec<ConnectionItem>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SniffedAccessLogEntry {
+    pub host: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub inbound_port: Option<String>,
+    pub chain: String,
+    pub rule: String,
+    pub timestamp_ms: u64,
+}

@@ -1,10 +1,10 @@
 use crate::core::config_generator::MinimalRuntimeConfig;
 use crate::error::{AppError, AppResult};
-use crate::models::{AppConfig, CoreStatus};
-use chrono::{Duration, Local, NaiveDate};
+use crate::models::{AppConfig, CoreStatus, SniffedAccessLogEntry};
+use chrono::{DateTime, Duration, Local, NaiveDate};
 use parking_lot::Mutex;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
@@ -60,6 +60,130 @@ pub fn clean_expired_logs(log_dir: &Path, retention_days: u32) {
             let _ = std::fs::remove_file(&path);
         }
     }
+}
+
+const MAX_SNIFF_LOG_TAIL_BYTES: u64 = 256 * 1024;
+
+fn extract_inbound_port_from_rule_or_chain(rule_raw: &str, chain_raw: &str) -> Option<String> {
+    if let Some((_, after_in_port)) = rule_raw.split_once("IN-PORT,") {
+        let port: String = after_in_port.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !port.is_empty() {
+            return Some(port);
+        }
+    }
+    if let Some(after_fb) = chain_raw.strip_prefix("fb-") {
+        let port: String = after_fb.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !port.is_empty() {
+            return Some(port);
+        }
+    }
+    None
+}
+
+fn normalize_chain_display(chain_raw: &str) -> String {
+    let trimmed = chain_raw.trim();
+    if trimmed.starts_with("fb-")
+        && let Some((_, inner)) = trimmed.split_once('[')
+        && let Some(stripped) = inner.strip_suffix(']')
+        && !stripped.is_empty()
+    {
+        return stripped.to_string();
+    }
+    trimmed.to_string()
+}
+
+/// Parse a single Mihomo log line (`[TCP]` / `[UDP]` access or dial warning) into `SniffedAccessLogEntry`.
+pub fn parse_mihomo_access_log_line(line: &str) -> Option<SniffedAccessLogEntry> {
+    let time_start = line.find("time=\"")? + 6;
+    let time_end = line[time_start..].find('"')? + time_start;
+    let dt = DateTime::parse_from_rfc3339(&line[time_start..time_end]).ok()?;
+    let timestamp_ms = dt.timestamp_millis().max(0) as u64;
+
+    let msg_start = line.find("msg=\"")? + 5;
+    let msg = line[msg_start..].trim_end().strip_suffix('"')?;
+    if !msg.starts_with("[TCP] ") && !msg.starts_with("[UDP] ") {
+        return None;
+    }
+
+    let (before_arrow, after_arrow) = msg.split_once(" --> ")?;
+    let (target_addr, after_target) = after_arrow.split_once(' ')?;
+    if target_addr.starts_with('[') {
+        return None;
+    }
+
+    let host_raw = target_addr
+        .rsplit_once(':')
+        .map(|(h, _)| h)
+        .unwrap_or(target_addr)
+        .trim()
+        .trim_matches('.');
+    if host_raw.is_empty() || !host_raw.contains('.') || host_raw.parse::<std::net::IpAddr>().is_ok() {
+        return None;
+    }
+    let host = host_raw.to_ascii_lowercase();
+
+    let (rule_raw, chain_raw) = if let Some(rest) = after_target.strip_prefix("match ") {
+        rest.split_once(" using ")?
+    } else if let Some((_, after_dial)) = before_arrow.split_once(" dial ") {
+        let (chain_part, dial_rest) = after_dial.split_once(' ')?;
+        let rule_part = dial_rest.split_once("(match ")?.1.split_once(')')?.0;
+        (rule_part, chain_part)
+    } else {
+        return None;
+    };
+
+    let inbound_port = extract_inbound_port_from_rule_or_chain(rule_raw, chain_raw);
+    let chain = normalize_chain_display(chain_raw);
+    let rule = rule_raw.trim().to_string();
+
+    Some(SniffedAccessLogEntry {
+        host,
+        inbound_port,
+        chain,
+        rule,
+        timestamp_ms,
+    })
+}
+
+/// Read recent access log entries from today's `mihomo-YYYY-MM-DD.log` in `log_dir` where `timestamp_ms >= since_epoch_ms`.
+pub fn read_recent_access_logs(log_dir: &Path, since_epoch_ms: u64) -> Vec<SniffedAccessLogEntry> {
+    let today = Local::now().date_naive();
+    let log_path = log_dir.join(format!("mihomo-{}.log", today.format("%Y-%m-%d")));
+    let Ok(mut file) = File::open(&log_path) else {
+        return Vec::new();
+    };
+    let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let seeked = if file_len > MAX_SNIFF_LOG_TAIL_BYTES {
+        file.seek(SeekFrom::End(-(MAX_SNIFF_LOG_TAIL_BYTES as i64))).is_ok()
+    } else {
+        false
+    };
+
+    let mut buf = Vec::new();
+    if file.read_to_end(&mut buf).is_err() {
+        return Vec::new();
+    }
+
+    let slice = if seeked {
+        if let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+            &buf[pos + 1..]
+        } else {
+            &buf[..]
+        }
+    } else {
+        &buf[..]
+    };
+
+    let content = String::from_utf8_lossy(slice);
+    let mut entries = Vec::new();
+    for line in content.lines() {
+        if let Some(entry) = parse_mihomo_access_log_line(line)
+            && entry.timestamp_ms >= since_epoch_ms
+        {
+            entries.push(entry);
+        }
+    }
+    entries
 }
 
 /// Pipe reader that reads stdout/stderr lines from Mihomo and writes them into daily-rotated log files.
@@ -813,5 +937,34 @@ mod tests {
 
         let received = crash_received.lock().clone();
         assert_eq!(received, Some("Fatal OOM crash".to_string()));
+    }
+
+    #[test]
+    fn test_parse_mihomo_access_log_line_variants() {
+        let line1 = r#"time="2026-10-14T21:33:04.422409800+08:00" level=info msg="[TCP] 127.0.0.1:63611 --> api.ip.sb:443 match Match using fb-7893[[ikuuu] 🇯🇵 日本S01 | IEPL]""#;
+        let entry1 = parse_mihomo_access_log_line(line1).expect("Should parse TCP match line");
+        assert_eq!(entry1.host, "api.ip.sb");
+        assert_eq!(entry1.inbound_port.as_deref(), Some("7893"));
+        assert_eq!(entry1.rule, "Match");
+        assert_eq!(entry1.chain, "[ikuuu] 🇯🇵 日本S01 | IEPL");
+
+        let line2 = r#"time="2026-10-14T21:33:04.386438600+08:00" level=info msg="[TCP] 127.0.0.1:55654 --> my.ip.cn:443 match RuleSet(cn_domain) using DIRECT""#;
+        let entry2 = parse_mihomo_access_log_line(line2).expect("Should parse DIRECT RuleSet line");
+        assert_eq!(entry2.host, "my.ip.cn");
+        assert_eq!(entry2.inbound_port, None);
+        assert_eq!(entry2.rule, "RuleSet(cn_domain)");
+        assert_eq!(entry2.chain, "DIRECT");
+
+        let line3 = r#"time="2026-10-14T00:00:30.138591900+08:00" level=info msg="[TCP] 127.0.0.1:56597 --> github.com:443 match SubRules((IN-PORT,7890)) using fb-7890[[ikuuu] 🇭🇰 香港S04 | IEPL]""#;
+        let entry3 = parse_mihomo_access_log_line(line3).expect("Should parse SubRules IN-PORT line");
+        assert_eq!(entry3.host, "github.com");
+        assert_eq!(entry3.inbound_port.as_deref(), Some("7890"));
+        assert_eq!(entry3.rule, "SubRules((IN-PORT,7890))");
+
+        let line4 = r#"time="2026-10-14T07:50:07.962088600+08:00" level=warning msg="[TCP] dial DIRECT (match SubRules/(IN-PORT,7892)) 127.0.0.1:54780 --> nstool.netease.com:80 error: dns resolve failed""#;
+        let entry4 = parse_mihomo_access_log_line(line4).expect("Should parse dial warning line");
+        assert_eq!(entry4.host, "nstool.netease.com");
+        assert_eq!(entry4.inbound_port.as_deref(), Some("7892"));
+        assert_eq!(entry4.chain, "DIRECT");
     }
 }
