@@ -73,9 +73,7 @@ pub async fn check_port_available(
     exclude_mapping_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    Ok(state
-        .port_router
-        .check_port_available(port, exclude_mapping_id.as_deref()))
+    Ok(state.check_port_available(port, exclude_mapping_id.as_deref()))
 }
 
 #[tauri::command]
@@ -324,52 +322,38 @@ pub async fn get_next_available_port(
     state: State<'_, AppState>,
 ) -> Result<u16, String> {
     state
-        .port_router
         .get_next_available_port(start_port, exclude_mapping_id.as_deref())
         .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 pub async fn save_port_mapping(mapping: PortMapping, state: State<'_, AppState>) -> Result<PortMapping, String> {
-    state
-        .port_router
-        .save_port_mapping(mapping)
-        .await
-        .map_err(|err| err.to_string())
+    state.save_port_mapping(mapping).await.map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 pub async fn delete_port_mapping(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    state
-        .port_router
-        .delete_port_mapping(&id)
-        .await
-        .map_err(|err| err.to_string())
+    state.delete_port_mapping(&id).await.map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 pub async fn toggle_port_mapping(id: String, enabled: bool, state: State<'_, AppState>) -> Result<PortMapping, String> {
     state
-        .port_router
         .toggle_port_mapping(&id, enabled)
         .await
         .map_err(|err| err.to_string())
 }
+
 #[tauri::command]
 pub async fn toggle_manual_fallback(
-    app: AppHandle,
     id: String,
     manual_fallback: bool,
     state: State<'_, AppState>,
 ) -> Result<PortMapping, String> {
-    let res = state
-        .port_router
+    state
         .toggle_manual_fallback(&id, manual_fallback)
         .await
-        .map_err(|err| err.to_string())?;
-
-    crate::tray::update_tray_menu(&app);
-    Ok(res)
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]

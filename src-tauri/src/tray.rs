@@ -480,7 +480,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                             .unwrap_or(false);
                         let target_enabled = !current_enabled;
 
-                        match state.port_router.toggle_port_mapping(&mapping_id, target_enabled).await {
+                        match state.toggle_port_mapping(&mapping_id, target_enabled).await {
                             Ok(updated) => {
                                 info!("Toggled port {} to {} from system tray", updated.port, target_enabled);
                             }

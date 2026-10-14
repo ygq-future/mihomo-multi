@@ -1,20 +1,12 @@
-use crate::core::config_generator::RuntimeGeneratorParams;
-use crate::core::kernel_engine::KernelEngine;
 use crate::core::port_probe::is_port_available_with_lan;
-use crate::core::profile_manager::{ProfileManager, atomic_write_file};
+use crate::core::profile_manager::atomic_write_file;
 use crate::error::{AppError, AppResult};
-use crate::models::{AppConfig, PortMapping};
+use crate::models::PortMapping;
 use parking_lot::RwLock;
-use std::collections::{HashMap, HashSet};
-use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::sync::Arc;
-use tauri::Emitter;
 use tracing::info;
 use uuid::Uuid;
-
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "action", content = "payload")]
@@ -25,227 +17,25 @@ pub enum PortChangeEvent {
     Resynced,
 }
 
-pub trait PortSyncDelegate: Send + Sync {
-    fn allow_lan(&self) -> bool {
-        false
-    }
-
-    fn core_pid(&self) -> Option<u32> {
-        None
-    }
-
-    fn reserved_ports(&self) -> Vec<u16> {
-        Vec::new()
-    }
-
-    fn on_ports_changed<'a>(&'a self, _event: &'a PortChangeEvent) -> BoxFuture<'a, AppResult<()>> {
-        Box::pin(async { Ok(()) })
-    }
-
-    fn sync_runtime<'a>(&'a self) -> BoxFuture<'a, AppResult<PathBuf>> {
-        Box::pin(async { Ok(PathBuf::new()) })
-    }
-}
-
-#[derive(Default)]
-pub struct NoopPortSyncDelegate;
-
-impl PortSyncDelegate for NoopPortSyncDelegate {}
-
-pub struct AppPortSyncDelegate {
-    engine: Arc<KernelEngine>,
-    profile_manager: Arc<ProfileManager>,
-    ports: Arc<RwLock<Vec<PortMapping>>>,
-    config: Arc<RwLock<AppConfig>>,
-    occupied_ports: Arc<RwLock<HashSet<u16>>>,
-    suspended_system_proxy: Arc<RwLock<Option<u16>>>,
-    app_dir: PathBuf,
-    app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
-}
-
-impl AppPortSyncDelegate {
-    pub fn new(
-        engine: Arc<KernelEngine>,
-        profile_manager: Arc<ProfileManager>,
-        ports: Arc<RwLock<Vec<PortMapping>>>,
-        config: Arc<RwLock<AppConfig>>,
-        occupied_ports: Arc<RwLock<HashSet<u16>>>,
-        suspended_system_proxy: Arc<RwLock<Option<u16>>>,
-        app_dir: PathBuf,
-    ) -> Self {
-        Self {
-            engine,
-            profile_manager,
-            ports,
-            config,
-            occupied_ports,
-            suspended_system_proxy,
-            app_dir,
-            app_handle: Arc::new(RwLock::new(None)),
-        }
-    }
-
-    pub fn set_app_handle(&self, handle: tauri::AppHandle) {
-        *self.app_handle.write() = Some(handle);
-    }
-
-    /// Enforces that bound system proxy or TUN port still corresponds to an active, enabled port mapping.
-    /// If the bound port was disabled, deleted, or changed, automatically cleans up OS proxy/TUN state and persists config.
-    pub fn reconcile_active_egress(&self) -> bool {
-        let mappings = self.ports.read();
-        let mut config = self.config.read().clone();
-        let mut modified = false;
-
-        if config.system_proxy_enabled {
-            let valid = config
-                .system_proxy_port
-                .is_some_and(|p| mappings.iter().any(|m| m.port == p && m.enabled));
-            if !valid {
-                let _ = crate::core::sysproxy::clear_system_proxy();
-                config.system_proxy_enabled = false;
-                config.system_proxy_port = None;
-                modified = true;
-            }
-        }
-
-        if config.tun_enabled {
-            let valid = config
-                .tun_port
-                .is_some_and(|p| mappings.iter().any(|m| m.port == p && m.enabled));
-            if !valid {
-                config.tun_enabled = false;
-                config.tun_port = None;
-                modified = true;
-            }
-        }
-
-        if let Some(susp_port) = *self.suspended_system_proxy.read()
-            && !mappings.iter().any(|m| m.port == susp_port && m.enabled)
-        {
-            *self.suspended_system_proxy.write() = None;
-        }
-
-        drop(mappings);
-
-        if modified {
-            *self.config.write() = config.clone();
-            let config_path = self.app_dir.join("config.json");
-            if let Ok(json) = serde_json::to_string_pretty(&config) {
-                let _ = atomic_write_file(&config_path, json.as_bytes());
-            }
-        }
-
-        modified
-    }
-}
-impl PortSyncDelegate for AppPortSyncDelegate {
-    fn allow_lan(&self) -> bool {
-        self.config.read().allow_lan
-    }
-
-    fn core_pid(&self) -> Option<u32> {
-        let status = self.engine.get_status();
-        if status.running { status.pid } else { None }
-    }
-
-    fn reserved_ports(&self) -> Vec<u16> {
-        vec![self.config.read().controller_port]
-    }
-
-    fn on_ports_changed<'a>(&'a self, event: &'a PortChangeEvent) -> BoxFuture<'a, AppResult<()>> {
-        Box::pin(async move {
-            self.reconcile_active_egress();
-            let _ = self.sync_runtime().await?;
-            if let Some(handle) = &*self.app_handle.read() {
-                crate::tray::update_tray_menu(handle);
-                let _ = handle.emit("port-mappings-changed", event);
-            }
-
-            Ok(())
-        })
-    }
-
-    fn sync_runtime<'a>(&'a self) -> BoxFuture<'a, AppResult<PathBuf>> {
-        Box::pin(async move {
-            let raw_proxies = self.profile_manager.get_raw_proxies_for_all_profiles();
-            let profiles = self.profile_manager.get_profiles();
-            let profile_map: HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
-
-            let mappings = self.ports.read().clone();
-            let cfg = self.config.read().clone();
-
-            let (active_mappings, occupied_set) = self.engine.filter_available_mappings(&mappings, cfg.allow_lan);
-            *self.occupied_ports.write() = occupied_set;
-
-            let params = RuntimeGeneratorParams {
-                controller_port: cfg.controller_port,
-                secret: &cfg.controller_secret,
-                log_level: &cfg.log_level,
-                allow_lan: cfg.allow_lan,
-                test_url: &cfg.test_url,
-                timeout_ms: cfg.timeout_ms,
-                fallback_interval: cfg.fallback_interval,
-                fallback_lazy: cfg.fallback_lazy,
-                user_bypass: &cfg.system_proxy_bypass_user,
-                tun_enabled: cfg.tun_enabled && crate::core::elevation::is_elevated(),
-                tun_port: cfg.tun_port,
-            };
-
-            let path = self
-                .engine
-                .apply_runtime_config(&params, &active_mappings, raw_proxies, &profile_map)
-                .await?;
-
-            if let Some(handle) = &*self.app_handle.read() {
-                crate::tray::update_tray_menu(handle);
-                let _ = handle.emit("port-mappings-changed", &PortChangeEvent::Resynced);
-            }
-
-            Ok(path)
-        })
-    }
+#[derive(Debug, Clone, Default)]
+pub struct PortProbeContext {
+    pub allow_lan: bool,
+    pub core_pid: Option<u32>,
+    pub reserved_ports: Vec<u16>,
 }
 
 #[derive(Clone)]
 pub struct PortRouter {
     ports: Arc<RwLock<Vec<PortMapping>>>,
     metadata_path: PathBuf,
-    sync_delegate: Arc<dyn PortSyncDelegate>,
 }
 
 impl PortRouter {
     pub fn new(app_dir: PathBuf) -> Self {
-        Self::with_delegate(app_dir, Arc::new(NoopPortSyncDelegate))
-    }
-
-    pub fn with_delegate(app_dir: PathBuf, delegate: Arc<dyn PortSyncDelegate>) -> Self {
         let metadata_path = app_dir.join("ports.json");
         let initial_ports = Self::load_metadata(&metadata_path);
         let ports = Arc::new(RwLock::new(initial_ports));
-        Self {
-            ports,
-            metadata_path,
-            sync_delegate: delegate,
-        }
-    }
-
-    pub fn load_initial(app_dir: &Path) -> (PathBuf, Arc<RwLock<Vec<PortMapping>>>) {
-        let metadata_path = app_dir.join("ports.json");
-        let initial_ports = Self::load_metadata(&metadata_path);
-        let ports = Arc::new(RwLock::new(initial_ports));
-        (metadata_path, ports)
-    }
-
-    pub fn with_ports_and_delegate(
-        metadata_path: PathBuf,
-        ports: Arc<RwLock<Vec<PortMapping>>>,
-        delegate: Arc<dyn PortSyncDelegate>,
-    ) -> Self {
-        Self {
-            ports,
-            metadata_path,
-            sync_delegate: delegate,
-        }
+        Self { ports, metadata_path }
     }
 
     pub fn create_default_direct_mapping(existing: &[PortMapping]) -> PortMapping {
@@ -327,7 +117,7 @@ impl PortRouter {
         self.ports.read().iter().find(|p| p.id == id).cloned()
     }
 
-    pub fn check_port_available(&self, port: u16, exclude_mapping_id: Option<&str>) -> bool {
+    pub fn check_port_available(&self, port: u16, exclude_mapping_id: Option<&str>, ctx: &PortProbeContext) -> bool {
         let guard = self.ports.read();
         for m in guard.iter() {
             if m.port == port {
@@ -338,7 +128,7 @@ impl PortRouter {
             }
         }
 
-        if self.sync_delegate.reserved_ports().contains(&port) {
+        if ctx.reserved_ports.contains(&port) {
             return false;
         }
 
@@ -348,27 +138,27 @@ impl PortRouter {
             false
         };
 
-        let allow_lan = self.sync_delegate.allow_lan();
-        let exclude_pid = if is_editing_own_active {
-            self.sync_delegate.core_pid()
-        } else {
-            None
-        };
+        let exclude_pid = if is_editing_own_active { ctx.core_pid } else { None };
 
-        is_port_available_with_lan(port, allow_lan, exclude_pid)
+        is_port_available_with_lan(port, ctx.allow_lan, exclude_pid)
     }
 
-    pub fn get_next_available_port(&self, start_port: Option<u16>, exclude_mapping_id: Option<&str>) -> AppResult<u16> {
+    pub fn get_next_available_port(
+        &self,
+        start_port: Option<u16>,
+        exclude_mapping_id: Option<&str>,
+        ctx: &PortProbeContext,
+    ) -> AppResult<u16> {
         let start = start_port.unwrap_or(7891);
         for candidate in start..=u16::MAX {
-            if self.check_port_available(candidate, exclude_mapping_id) {
+            if self.check_port_available(candidate, exclude_mapping_id, ctx) {
                 return Ok(candidate);
             }
         }
         Err(AppError::InvalidConfig("未能在可用范围内找到空闲端口".to_string()))
     }
 
-    pub async fn save_port_mapping(&self, mut mapping: PortMapping) -> AppResult<PortMapping> {
+    pub fn save_port_mapping(&self, mut mapping: PortMapping, ctx: &PortProbeContext) -> AppResult<PortMapping> {
         // Validate port range
         if !(1024..=65535).contains(&mapping.port) {
             return Err(AppError::InvalidConfig(
@@ -426,7 +216,7 @@ impl PortRouter {
             }
 
             // Check reserved ports
-            if self.sync_delegate.reserved_ports().contains(&mapping.port) {
+            if ctx.reserved_ports.contains(&mapping.port) {
                 return Err(AppError::InvalidConfig(format!(
                     "Port {} is reserved by the system or controller",
                     mapping.port
@@ -440,14 +230,9 @@ impl PortRouter {
                     .map(|ex| ex.port == mapping.port && ex.enabled)
                     .unwrap_or(false);
 
-                let allow_lan = self.sync_delegate.allow_lan();
-                let exclude_pid = if is_same_active_port {
-                    self.sync_delegate.core_pid()
-                } else {
-                    None
-                };
+                let exclude_pid = if is_same_active_port { ctx.core_pid } else { None };
 
-                if !is_port_available_with_lan(mapping.port, allow_lan, exclude_pid) {
+                if !is_port_available_with_lan(mapping.port, ctx.allow_lan, exclude_pid) {
                     return Err(AppError::PortOccupied(mapping.port));
                 }
             }
@@ -468,14 +253,10 @@ impl PortRouter {
             mapping.id, mapping.port
         );
 
-        self.sync_delegate
-            .on_ports_changed(&PortChangeEvent::Saved(mapping.clone()))
-            .await?;
-
         Ok(mapping)
     }
 
-    pub async fn delete_port_mapping(&self, id: &str) -> AppResult<()> {
+    pub fn delete_port_mapping(&self, id: &str) -> AppResult<()> {
         if id == crate::models::FIXED_DIRECT_PORT_ID {
             return Err(AppError::InvalidConfig(
                 "固定直连监听卡片为系统内置卡片，不可删除".to_string(),
@@ -490,9 +271,6 @@ impl PortRouter {
         if let Some(mapping) = removed {
             self.persist_metadata()?;
             info!("Port mapping '{}' on port {} deleted", id, mapping.port);
-            self.sync_delegate
-                .on_ports_changed(&PortChangeEvent::Deleted(id.to_string()))
-                .await?;
             Ok(())
         } else {
             Err(AppError::PortMappingNotFound(format!(
@@ -502,7 +280,7 @@ impl PortRouter {
         }
     }
 
-    pub async fn toggle_port_mapping(&self, id: &str, enabled: bool) -> AppResult<PortMapping> {
+    pub fn toggle_port_mapping(&self, id: &str, enabled: bool, ctx: &PortProbeContext) -> AppResult<PortMapping> {
         let mut target = self
             .get_port_mapping_by_id(id)
             .ok_or_else(|| AppError::PortMappingNotFound(format!("Port mapping with ID '{}' not found", id)))?;
@@ -523,15 +301,14 @@ impl PortRouter {
                 }
             }
 
-            if self.sync_delegate.reserved_ports().contains(&target.port) {
+            if ctx.reserved_ports.contains(&target.port) {
                 return Err(AppError::InvalidConfig(format!(
                     "Port {} is reserved by the system or controller",
                     target.port
                 )));
             }
 
-            let allow_lan = self.sync_delegate.allow_lan();
-            if !is_port_available_with_lan(target.port, allow_lan, None) {
+            if !is_port_available_with_lan(target.port, ctx.allow_lan, None) {
                 return Err(AppError::PortOccupied(target.port));
             }
         }
@@ -551,13 +328,10 @@ impl PortRouter {
             id, target.port, enabled
         );
 
-        self.sync_delegate
-            .on_ports_changed(&PortChangeEvent::Toggled(target.clone()))
-            .await?;
-
         Ok(target)
     }
-    pub async fn toggle_manual_fallback(&self, id: &str, manual_fallback: bool) -> AppResult<PortMapping> {
+
+    pub fn toggle_manual_fallback(&self, id: &str, manual_fallback: bool) -> AppResult<PortMapping> {
         let mut target = self
             .get_port_mapping_by_id(id)
             .ok_or_else(|| AppError::PortMappingNotFound(format!("Port mapping with ID '{}' not found", id)))?;
@@ -583,10 +357,6 @@ impl PortRouter {
             id, target.port, manual_fallback
         );
 
-        self.sync_delegate
-            .on_ports_changed(&PortChangeEvent::Saved(target.clone()))
-            .await?;
-
         Ok(target)
     }
 
@@ -609,51 +379,12 @@ impl PortRouter {
             )))
         }
     }
-
-    pub async fn sync_runtime(&self) -> AppResult<PathBuf> {
-        self.sync_delegate.sync_runtime().await
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::models::InboundProtocol;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-
-    #[derive(Default)]
-    struct MockPortSyncDelegate {
-        allow_lan_flag: AtomicBool,
-        core_pid_val: RwLock<Option<u32>>,
-        reserved: RwLock<Vec<u16>>,
-        events: RwLock<Vec<PortChangeEvent>>,
-        sync_calls: AtomicUsize,
-    }
-
-    impl PortSyncDelegate for MockPortSyncDelegate {
-        fn allow_lan(&self) -> bool {
-            self.allow_lan_flag.load(Ordering::SeqCst)
-        }
-
-        fn core_pid(&self) -> Option<u32> {
-            *self.core_pid_val.read()
-        }
-
-        fn reserved_ports(&self) -> Vec<u16> {
-            self.reserved.read().clone()
-        }
-
-        fn on_ports_changed<'a>(&'a self, event: &'a PortChangeEvent) -> BoxFuture<'a, AppResult<()>> {
-            self.events.write().push(event.clone());
-            self.sync_calls.fetch_add(1, Ordering::SeqCst);
-            Box::pin(async { Ok(()) })
-        }
-
-        fn sync_runtime<'a>(&'a self) -> BoxFuture<'a, AppResult<PathBuf>> {
-            self.sync_calls.fetch_add(1, Ordering::SeqCst);
-            Box::pin(async { Ok(PathBuf::from("/mock/runtime.yaml")) })
-        }
-    }
 
     fn create_test_mapping(id: &str, port: u16, profile_id: &str, node_name: &str, enabled: bool) -> PortMapping {
         PortMapping {
@@ -673,21 +404,20 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_exclusivity_invariant_rejects_duplicate_node_binding() {
+    #[test]
+    fn test_exclusivity_invariant_rejects_duplicate_node_binding() {
         let temp_dir = std::env::temp_dir().join(format!("test_port_router_exclusivity_{}", Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        let delegate = Arc::new(MockPortSyncDelegate::default());
-        let router = PortRouter::with_delegate(temp_dir.clone(), delegate);
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = PortProbeContext::default();
 
         let m1 = create_test_mapping("map-1", 10080, "prof-1", "Tokyo-01", false);
-        router.save_port_mapping(m1).await.expect("Save first mapping");
+        router.save_port_mapping(m1, &ctx).expect("Save first mapping");
 
         // Attempting to bind the SAME proxy node (Tokyo-01 in prof-1) to a DIFFERENT port MUST fail
         let m2 = create_test_mapping("map-2", 10081, "prof-1", "Tokyo-01", false);
         let err = router
-            .save_port_mapping(m2)
-            .await
+            .save_port_mapping(m2, &ctx)
             .expect_err("Should reject duplicate node binding");
 
         match err {
@@ -701,91 +431,85 @@ mod tests {
         // Updating the existing mapping with the same node should succeed
         let mut m1_update = create_test_mapping("map-1", 10080, "prof-1", "Tokyo-01", false);
         m1_update.description = Some("Updated Tokyo Port".to_string());
-        let res = router.save_port_mapping(m1_update).await;
+        let res = router.save_port_mapping(m1_update, &ctx);
         assert!(res.is_ok(), "Self update should succeed");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
-    #[tokio::test]
-    async fn test_delete_and_toggle_mutations_and_event_dispatch() {
+    #[test]
+    fn test_delete_and_toggle_mutations_and_persistence() {
         let temp_dir = std::env::temp_dir().join(format!("test_port_router_mutations_{}", Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        let delegate = Arc::new(MockPortSyncDelegate::default());
-        let router = PortRouter::with_delegate(temp_dir.clone(), delegate.clone());
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = PortProbeContext::default();
 
         // Find a safe available port
         let port = router
-            .get_next_available_port(Some(12340), None)
+            .get_next_available_port(Some(12340), None, &ctx)
             .expect("Find available port");
         let m1 = create_test_mapping("map-toggle", port, "prof-1", "Node-A", false);
-        router.save_port_mapping(m1).await.expect("Save mapping");
-
-        assert_eq!(delegate.events.read().len(), 1);
-        assert!(matches!(delegate.events.read()[0], PortChangeEvent::Saved(_)));
+        router.save_port_mapping(m1, &ctx).expect("Save mapping");
 
         // Toggle to enabled
-        let toggled = router.toggle_port_mapping("map-toggle", true).await.expect("Toggle on");
+        let toggled = router.toggle_port_mapping("map-toggle", true, &ctx).expect("Toggle on");
         assert!(toggled.enabled);
-        assert_eq!(delegate.events.read().len(), 2);
-        assert!(matches!(delegate.events.read()[1], PortChangeEvent::Toggled(_)));
 
         // Verify persistence to disk
-        let router_reloaded = PortRouter::with_delegate(temp_dir.clone(), delegate.clone());
+        let router_reloaded = PortRouter::new(temp_dir.clone());
         let loaded = router_reloaded
             .get_port_mapping_by_id("map-toggle")
             .expect("Found persisted mapping");
         assert!(loaded.enabled);
 
         // Delete mapping
-        router.delete_port_mapping("map-toggle").await.expect("Delete mapping");
-        assert_eq!(delegate.events.read().len(), 3);
-        assert!(matches!(delegate.events.read()[2], PortChangeEvent::Deleted(ref id) if id == "map-toggle"));
+        router.delete_port_mapping("map-toggle").expect("Delete mapping");
         assert!(router.get_port_mapping_by_id("map-toggle").is_none());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
-    #[tokio::test]
-    async fn test_port_availability_lan_and_pid_exclusion() {
+    #[test]
+    fn test_port_availability_lan_and_pid_exclusion() {
         let temp_dir = std::env::temp_dir().join(format!("test_port_router_lan_pid_{}", Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        let delegate = Arc::new(MockPortSyncDelegate::default());
-        delegate.reserved.write().push(9999); // Reserved controller port
-        let router = PortRouter::with_delegate(temp_dir.clone(), delegate.clone());
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = PortProbeContext {
+            allow_lan: false,
+            core_pid: Some(999999),
+            reserved_ports: vec![9999],
+        };
 
         // 1. Reserved port must not be available
-        assert!(!router.check_port_available(9999, None));
+        assert!(!router.check_port_available(9999, None, &ctx));
 
         // 2. Active mapping on port
         let m = create_test_mapping("map-active", 14500, "prof-1", "Node-X", true);
-        // Mock that core is running with a specific PID
-        *delegate.core_pid_val.write() = Some(999999);
         // Save mapping with enabled=false first to avoid real socket bind failure if port in use
         let mut m_disabled = m.clone();
         m_disabled.enabled = false;
-        router.save_port_mapping(m_disabled).await.unwrap();
+        router.save_port_mapping(m_disabled, &ctx).unwrap();
 
         // Check that 14500 is not available for a new mapping
-        assert!(!router.check_port_available(14500, None));
+        assert!(!router.check_port_available(14500, None, &ctx));
         // But check_port_available allows it when excluding its own mapping ID
-        assert!(router.check_port_available(14500, Some("map-active")));
+        assert!(router.check_port_available(14500, Some("map-active"), &ctx));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
-    #[tokio::test]
-    async fn test_atomic_persistence_and_file_integrity() {
+    #[test]
+    fn test_atomic_persistence_and_file_integrity() {
         let temp_dir = std::env::temp_dir().join(format!("test_port_router_atomic_{}", Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        let delegate = Arc::new(MockPortSyncDelegate::default());
-        let router = PortRouter::with_delegate(temp_dir.clone(), delegate.clone());
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = PortProbeContext::default();
 
         let m1 = create_test_mapping("map-persist-1", 11220, "prof-1", "Node-1", false);
         let m2 = create_test_mapping("map-persist-2", 11221, "prof-1", "Node-2", false);
 
-        router.save_port_mapping(m1).await.unwrap();
-        router.save_port_mapping(m2).await.unwrap();
+        router.save_port_mapping(m1, &ctx).unwrap();
+        router.save_port_mapping(m2, &ctx).unwrap();
 
         // Read ports.json directly from disk to confirm valid JSON serialization
         let content = std::fs::read_to_string(temp_dir.join("ports.json")).expect("Read ports.json");
@@ -796,18 +520,18 @@ mod tests {
         assert_eq!(disk_mappings[2].id, "map-persist-2");
 
         // New router instance loads identical state
-        let router2 = PortRouter::with_delegate(temp_dir.clone(), delegate.clone());
+        let router2 = PortRouter::new(temp_dir.clone());
         assert_eq!(router2.get_port_mappings().len(), 3);
         assert_eq!(router2.get_port_mappings()[0].id, crate::models::FIXED_DIRECT_PORT_ID);
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
-    #[tokio::test]
-    async fn test_fixed_direct_cannot_be_deleted() {
+    #[test]
+    fn test_fixed_direct_cannot_be_deleted() {
         let temp_dir = std::env::temp_dir().join(format!("test_port_router_direct_{}", Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        let delegate = Arc::new(MockPortSyncDelegate::default());
-        let router = PortRouter::with_delegate(temp_dir.clone(), delegate.clone());
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = PortProbeContext::default();
 
         // Direct mapping exists by default at index 0
         let mappings = router.get_port_mappings();
@@ -817,29 +541,15 @@ mod tests {
         assert!(!mappings[0].enabled);
 
         // Attempt to delete should return error
-        let del_res = router.delete_port_mapping(crate::models::FIXED_DIRECT_PORT_ID).await;
+        let del_res = router.delete_port_mapping(crate::models::FIXED_DIRECT_PORT_ID);
         assert!(del_res.is_err());
 
         // Modifying port on fixed direct works
         let mut direct = mappings[0].clone();
         direct.port = 17878;
-        let saved = router.save_port_mapping(direct).await.unwrap();
+        let saved = router.save_port_mapping(direct, &ctx).unwrap();
         assert_eq!(saved.port, 17878);
         assert_eq!(router.get_port_mappings()[0].port, 17878);
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-
-    #[tokio::test]
-    async fn test_sync_runtime_triggers_pipeline() {
-        let temp_dir = std::env::temp_dir().join(format!("test_port_router_sync_{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-        let delegate = Arc::new(MockPortSyncDelegate::default());
-        let router = PortRouter::with_delegate(temp_dir.clone(), delegate.clone());
-
-        let path = router.sync_runtime().await.expect("Sync runtime succeeds");
-        assert_eq!(path, PathBuf::from("/mock/runtime.yaml"));
-        assert_eq!(delegate.sync_calls.load(Ordering::SeqCst), 1);
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
