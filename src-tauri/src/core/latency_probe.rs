@@ -210,6 +210,50 @@ impl LatencyProbe {
             .map(|t| !t.is_cancelled())
             .unwrap_or(false)
     }
+    /// Internal helper executing bounded-concurrency delay probe with timeout guard.
+    async fn probe_delay_raw(
+        &self,
+        node_name: &str,
+        runtime_name: Option<&str>,
+        test_url: Option<&str>,
+        timeout_ms: Option<u32>,
+    ) -> AppResult<u32> {
+        let target_timeout = timeout_ms.unwrap_or(DEFAULT_TEST_TIMEOUT_MS);
+        let actual_url = test_url.map(|s| s.to_string());
+
+        let _permit = self
+            .concurrency_pool
+            .acquire()
+            .await
+            .map_err(|e| AppError::Internal(format!("Semaphore acquire failed: {}", e)))?;
+
+        let probe_target = runtime_name.unwrap_or(node_name);
+        let timeout_duration = Duration::from_millis(u64::from(target_timeout) + 1500);
+        let test_fut = self
+            .engine
+            .test_delay(probe_target, actual_url.as_deref(), Some(target_timeout));
+
+        match tokio::time::timeout(timeout_duration, test_fut).await {
+            Ok(inner_res) => inner_res,
+            Err(_) => Err(AppError::ExternalController(format!(
+                "Latency test timed out after {}ms",
+                target_timeout
+            ))),
+        }
+    }
+
+    /// Probe latency for a node against a specific URL without modifying the authoritative cache
+    /// or emitting global latency-update events (used for site-specific diversion latency checks).
+    pub async fn probe_node_ephemeral(
+        &self,
+        node_name: &str,
+        runtime_name: Option<&str>,
+        test_url: Option<&str>,
+        timeout_ms: Option<u32>,
+    ) -> AppResult<u32> {
+        self.probe_delay_raw(node_name, runtime_name, test_url, timeout_ms)
+            .await
+    }
 
     /// Probe latency for a single node with timeout handling and stream event emission
     pub async fn test_node(
@@ -220,30 +264,9 @@ impl LatencyProbe {
         timeout_ms: Option<u32>,
         mapping_id: Option<&str>,
     ) -> AppResult<u32> {
-        let target_timeout = timeout_ms.unwrap_or(DEFAULT_TEST_TIMEOUT_MS);
-        let actual_url = test_url.map(|s| s.to_string());
-
-        // Acquire permit from bounded concurrency pool
-        let _permit = self
-            .concurrency_pool
-            .acquire()
-            .await
-            .map_err(|e| AppError::Internal(format!("Semaphore acquire failed: {}", e)))?;
-
-        let probe_target = runtime_name.unwrap_or(node_name);
-
-        let timeout_duration = Duration::from_millis(u64::from(target_timeout) + 1500);
-        let test_fut = self
-            .engine
-            .test_delay(probe_target, actual_url.as_deref(), Some(target_timeout));
-
-        let res = match tokio::time::timeout(timeout_duration, test_fut).await {
-            Ok(inner_res) => inner_res,
-            Err(_) => Err(AppError::ExternalController(format!(
-                "Latency test timed out after {}ms",
-                target_timeout
-            ))),
-        };
+        let res = self
+            .probe_delay_raw(node_name, runtime_name, test_url, timeout_ms)
+            .await;
 
         match res {
             Ok(delay) => {
@@ -721,6 +744,41 @@ mod tests {
         assert!(cancelled_count > 0, "Expected at least some cancelled tasks");
 
         assert!(!probe.is_testing());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_probe_node_ephemeral_does_not_overwrite_cache_or_emit_events() {
+        let temp_dir = std::env::temp_dir().join(format!("test_ephemeral_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let fake_adapter = Arc::new(FakeControllerAdapter::new());
+        fake_adapter.set_node_delay("[AirportA] HK-01", 215);
+
+        let emitter = Arc::new(MockLatencyEventEmitter::new());
+        let probe = LatencyProbe::new(fake_adapter, &temp_dir, emitter.clone());
+
+        // Seed baseline latency of 24ms for the node
+        probe.set_latency("HK-01", Some(24));
+        probe.set_latency("[AirportA] HK-01", Some(24));
+
+        // Ephemeral site delay probe returns 215ms
+        let site_delay = probe
+            .probe_node_ephemeral(
+                "HK-01",
+                Some("[AirportA] HK-01"),
+                Some("https://gemini.google.com"),
+                Some(3000),
+            )
+            .await
+            .expect("Ephemeral probe succeeds");
+        assert_eq!(site_delay, 215);
+
+        // Authoritative node latency cache and event stream must remain untouched
+        assert_eq!(probe.get_latency("HK-01"), Some(Some(24)));
+        assert_eq!(probe.get_latency("[AirportA] HK-01"), Some(Some(24)));
+        assert!(emitter.updates.lock().is_empty());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

@@ -116,6 +116,9 @@ export const PortTableView: React.FC = () => {
   const [directMappingForEdit, setDirectMappingForEdit] =
     useState<PortMapping | null>(null)
   const [rulesMapping, setRulesMapping] = useState<PortMapping | null>(null)
+  const [rulesModalMode, setRulesModalMode] = useState<'port' | 'global'>(
+    'port',
+  )
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false)
   const [isEgressLoading, setIsEgressLoading] = useState(false)
   const handleProbeDirectEgress = useCallback(
@@ -674,6 +677,26 @@ export const PortTableView: React.FC = () => {
           )}
 
           <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setRulesMapping(null)
+              setRulesModalMode('global')
+              setIsRulesModalOpen(true)
+            }}
+            icon={<Split className="w-3.5 h-3.5 text-primary" />}
+            title="管理对所有代理端口生效的全局网站分流规则（单端口局部规则优先于全局规则）"
+          >
+            全局网站分流
+            {(config?.globalRules || []).filter((r) => r.enabled).length >
+              0 && (
+              <span className="ml-1 px-1.5 py-0.2 rounded-full bg-primary/15 text-primary text-[10px] font-mono">
+                {(config?.globalRules || []).filter((r) => r.enabled).length}
+              </span>
+            )}
+          </Button>
+
+          <Button
             variant="primary"
             size="sm"
             onClick={() => {
@@ -923,6 +946,7 @@ export const PortTableView: React.FC = () => {
                           type="button"
                           onClick={() => {
                             setRulesMapping(m)
+                            setRulesModalMode('port')
                             setIsRulesModalOpen(true)
                           }}
                           className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium text-primary bg-primary/10 border border-primary/20 shrink-0 hover:bg-primary/20 transition-colors"
@@ -1360,6 +1384,7 @@ export const PortTableView: React.FC = () => {
                             type="button"
                             onClick={() => {
                               setRulesMapping(m)
+                              setRulesModalMode('port')
                               setIsRulesModalOpen(true)
                             }}
                             className={`p-1 rounded transition-colors relative ${
@@ -1440,6 +1465,7 @@ export const PortTableView: React.FC = () => {
           setRulesMapping(null)
         }}
         mapping={rulesMapping}
+        mode={rulesModalMode}
       />
 
       {/* Delete Confirmation Modal */}

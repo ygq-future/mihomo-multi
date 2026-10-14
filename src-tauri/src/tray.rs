@@ -248,10 +248,10 @@ async fn query_runtime_infos(
         };
 
         // Latency resolution order:
-        // 1. Kernel history (if populated)
-        // 2. LatencyProbe cache by runtime name
-        // 3. LatencyProbe cache by node name
-        // 4. PortMapping latency
+        // 1. LatencyProbe cache by runtime name (authoritative baseline latency)
+        // 2. LatencyProbe cache by node name
+        // 3. PortMapping latency
+        // 4. Kernel history (fallback if not yet probed in cache)
         let kernel_latency = engine
             .get_proxy_detail(&target_runtime_name)
             .await
@@ -259,10 +259,13 @@ async fn query_runtime_infos(
             .and_then(|p| p.history.last().map(|h| h.delay))
             .filter(|&d| d > 0);
 
-        let active_latency = kernel_latency
-            .or_else(|| state.latency_probe.get_latency(&target_runtime_name).flatten())
+        let active_latency = state
+            .latency_probe
+            .get_latency(&target_runtime_name)
+            .flatten()
             .or_else(|| state.latency_probe.get_latency(target_node).flatten())
-            .or(if !is_fallback_active { m.latency } else { None });
+            .or(if !is_fallback_active { m.latency } else { None })
+            .or(kernel_latency);
 
         runtime_infos.insert(
             m.id,

@@ -250,6 +250,7 @@ pub struct RuntimeGeneratorParams<'a> {
     pub user_bypass: &'a [String],
     pub tun_enabled: bool,
     pub tun_port: Option<u16>,
+    pub global_rules: &'a [crate::models::PortRule],
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,56 +429,63 @@ impl MinimalRuntimeConfig {
                 sub_rule_list.push(rule.clone());
             }
 
-            // Custom port routing rules (specific sites -> designated egress)
-            for port_rule in m.rules.iter().filter(|r| r.enabled) {
-                let rule_target = match port_rule.target_type {
-                    crate::models::PortRuleTargetType::Direct => "DIRECT".to_string(),
-                    crate::models::PortRuleTargetType::Port => {
-                        if let Ok(target_port) = port_rule.target_value.parse::<u16>() {
-                            if let Some(action) = port_target_actions.get(&target_port) {
-                                action.clone()
+            let append_port_rules = |sub_rule_list: &mut Vec<String>, port_rules: &[crate::models::PortRule]| {
+                for port_rule in port_rules.iter().filter(|r| r.enabled) {
+                    let rule_target = match port_rule.target_type {
+                        crate::models::PortRuleTargetType::Direct => "DIRECT".to_string(),
+                        crate::models::PortRuleTargetType::Port => {
+                            if let Ok(target_port) = port_rule.target_value.parse::<u16>() {
+                                if target_port == m.port {
+                                    target_action.clone()
+                                } else if let Some(action) = port_target_actions.get(&target_port) {
+                                    action.clone()
+                                } else {
+                                    warn!(
+                                        "Port mapping {} rule target port {} not found or disabled, falling back to port default '{}'",
+                                        m.port, target_port, target_action
+                                    );
+                                    target_action.clone()
+                                }
+                            } else {
+                                target_action.clone()
+                            }
+                        }
+                        crate::models::PortRuleTargetType::Node => {
+                            let profile_id = port_rule.target_profile_id.as_deref().unwrap_or("");
+                            if let Some(resolved) = resolve_node_target(&port_rule.target_value, profile_id) {
+                                resolved
                             } else {
                                 warn!(
-                                    "Port mapping {} rule target port {} not found or disabled, falling back to port default '{}'",
-                                    m.port, target_port, target_action
+                                    "Port mapping {} rule target node '{}' (profile '{}') not found, falling back to port default '{}'",
+                                    m.port, port_rule.target_value, profile_id, target_action
                                 );
                                 target_action.clone()
                             }
-                        } else {
-                            target_action.clone()
-                        }
-                    }
-                    crate::models::PortRuleTargetType::Node => {
-                        let profile_id = port_rule.target_profile_id.as_deref().unwrap_or("");
-                        if let Some(resolved) = resolve_node_target(&port_rule.target_value, profile_id) {
-                            resolved
-                        } else {
-                            warn!(
-                                "Port mapping {} rule target node '{}' (profile '{}') not found, falling back to port default '{}'",
-                                m.port, port_rule.target_value, profile_id, target_action
-                            );
-                            target_action.clone()
-                        }
-                    }
-                };
-
-                for payload in &port_rule.payloads {
-                    let trimmed = payload.trim();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    let rule_str = match port_rule.match_type {
-                        crate::models::PortRuleMatchType::IpCidr => {
-                            format!("IP-CIDR,{},{},no-resolve", trimmed, rule_target)
-                        }
-                        _ => {
-                            format!("{},{},{}", port_rule.match_type, trimmed, rule_target)
                         }
                     };
-                    sub_rule_list.push(rule_str);
-                }
-            }
 
+                    for payload in &port_rule.payloads {
+                        let trimmed = payload.trim();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        let rule_str = match port_rule.match_type {
+                            crate::models::PortRuleMatchType::IpCidr => {
+                                format!("IP-CIDR,{},{},no-resolve", trimmed, rule_target)
+                            }
+                            _ => {
+                                format!("{},{},{}", port_rule.match_type, trimmed, rule_target)
+                            }
+                        };
+                        sub_rule_list.push(rule_str);
+                    }
+                }
+            };
+
+            // 1. Local port routing rules (higher priority than global rules)
+            append_port_rules(&mut sub_rule_list, &m.rules);
+            // 2. Global routing rules (fallback after local rules)
+            append_port_rules(&mut sub_rule_list, params.global_rules);
             if m.bypass_cn {
                 sub_rule_list.extend(vec![
                     "RULE-SET,private_ip,DIRECT,no-resolve".to_string(),
@@ -645,6 +653,7 @@ password: pass
             user_bypass: &[],
             tun_enabled: false,
             tun_port: None,
+            global_rules: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(
@@ -708,6 +717,7 @@ password: pass
             user_bypass: &[],
             tun_enabled: false,
             tun_port: None,
+            global_rules: &[],
         };
         let config = MinimalRuntimeConfig::with_mappings(&params, &[direct_mapping], Vec::new(), &HashMap::new());
         let yaml = config.to_yaml().expect("YAML serialize failed");
@@ -768,6 +778,7 @@ password: pass
             user_bypass: &[],
             tun_enabled: false,
             tun_port: None,
+            global_rules: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], proxies, &profile_map);
@@ -839,6 +850,7 @@ password: pass
             user_bypass: &[],
             tun_enabled: false,
             tun_port: None,
+            global_rules: &[],
         };
 
         let config =
@@ -911,6 +923,7 @@ password: pass
             user_bypass: &[],
             tun_enabled: false,
             tun_port: None,
+            global_rules: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1, p2], &profile_map);
@@ -980,6 +993,7 @@ password: pass
             user_bypass: &[],
             tun_enabled: false,
             tun_port: None,
+            global_rules: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], proxies, &profile_map);
@@ -1063,6 +1077,7 @@ password: pass
             user_bypass: &user_bypass,
             tun_enabled: false,
             tun_port: None,
+            global_rules: &[],
         };
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping_global], vec![p1], &profile_map);
         let yaml = config.to_yaml().expect("YAML serialize failed");
@@ -1117,6 +1132,7 @@ password: pass
             user_bypass: &[],
             tun_enabled: true,
             tun_port: Some(7899),
+            global_rules: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1], &profile_map);
@@ -1176,6 +1192,7 @@ password: pass
             user_bypass: &[],
             tun_enabled: true,
             tun_port: Some(7899),
+            global_rules: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1], &profile_map);
@@ -1229,6 +1246,7 @@ password: pass
             user_bypass: &[],
             tun_enabled: true,
             tun_port: Some(1234), // Not in mappings!
+            global_rules: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1], &profile_map);
@@ -1353,6 +1371,7 @@ password: pass
             user_bypass: &[],
             tun_enabled: true,
             tun_port: Some(7890),
+            global_rules: &[],
         };
 
         let config =
@@ -1368,5 +1387,103 @@ password: pass
         assert!(!yaml.contains("disabled.com"));
         // TUN must reuse sub-rule-7890
         assert!(yaml.contains("SUB-RULE,(IN-TYPE,TUN),sub-rule-7890"));
+    }
+
+    #[test]
+    fn test_local_port_rules_override_global_rules() {
+        use crate::models::{PortRule, PortRuleMatchType, PortRuleTargetType};
+
+        let mapping_7890 = PortMapping {
+            id: "m-7890".to_string(),
+            port: 7890,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: "HK-01".to_string(),
+            enabled: true,
+            latency: None,
+            description: None,
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: false,
+            manual_fallback: false,
+            rules: vec![PortRule {
+                id: "local-gemini".to_string(),
+                name: Some("Local Gemini Override".to_string()),
+                icon: None,
+                match_type: PortRuleMatchType::DomainSuffix,
+                payloads: vec!["google.com".to_string()],
+                target_type: PortRuleTargetType::Direct,
+                target_value: "DIRECT".to_string(),
+                target_profile_id: None,
+                enabled: true,
+            }],
+        };
+
+        let mapping_7894 = PortMapping {
+            id: "m-7894".to_string(),
+            port: 7894,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: "US-01".to_string(),
+            enabled: true,
+            latency: None,
+            description: None,
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: false,
+            manual_fallback: false,
+            rules: vec![],
+        };
+
+        let global_rules = vec![PortRule {
+            id: "global-gemini".to_string(),
+            name: Some("Global Gemini".to_string()),
+            icon: None,
+            match_type: PortRuleMatchType::DomainSuffix,
+            payloads: vec!["google.com".to_string(), "googleapis.com".to_string()],
+            target_type: PortRuleTargetType::Port,
+            target_value: "7894".to_string(),
+            target_profile_id: None,
+            enabled: true,
+        }];
+
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let p1: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str("name: \"[AirportA] HK-01\"\ntype: ss\nserver: 1.1.1.1\nport: 8388\n").unwrap();
+        let p2: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str("name: \"[AirportA] US-01\"\ntype: ss\nserver: 2.2.2.2\nport: 8388\n").unwrap();
+
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+            user_bypass: &[],
+            tun_enabled: false,
+            tun_port: None,
+            global_rules: &global_rules,
+        };
+
+        let config =
+            MinimalRuntimeConfig::with_mappings(&params, &[mapping_7890, mapping_7894], vec![p1, p2], &profile_map);
+
+        let sub_7890 = config.sub_rules.get("sub-rule-7890").expect("sub-rule-7890 exists");
+        // Local rule must appear before global rule so Mihomo matches local rule first
+        assert_eq!(sub_7890[0], "DOMAIN-SUFFIX,google.com,DIRECT");
+        assert_eq!(sub_7890[1], "DOMAIN-SUFFIX,google.com,[AirportA] US-01");
+        assert_eq!(sub_7890[2], "DOMAIN-SUFFIX,googleapis.com,[AirportA] US-01");
+        assert_eq!(sub_7890[3], "MATCH,[AirportA] HK-01");
+
+        // Port 7894 also inherits global rules (pointing to itself -> resolves to its own target_action)
+        let sub_7894 = config.sub_rules.get("sub-rule-7894").expect("sub-rule-7894 exists");
+        assert_eq!(sub_7894[0], "DOMAIN-SUFFIX,google.com,[AirportA] US-01");
+        assert_eq!(sub_7894[1], "DOMAIN-SUFFIX,googleapis.com,[AirportA] US-01");
+        assert_eq!(sub_7894[2], "MATCH,[AirportA] US-01");
     }
 }

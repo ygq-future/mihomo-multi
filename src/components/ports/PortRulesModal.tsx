@@ -71,6 +71,7 @@ interface PortRulesModalProps {
   isOpen: boolean
   onClose: () => void
   mapping: PortMapping | null
+  mode?: 'port' | 'global'
 }
 
 export const ServiceIcon: React.FC<{
@@ -207,6 +208,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
   isOpen,
   onClose,
   mapping,
+  mode = 'port',
 }) => {
   const {
     portMappings,
@@ -215,15 +217,19 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     config,
     fetchProfileNodes,
     savePortMapping,
+    saveConfig,
     latencies,
   } = useAppStore()
+
+  const isGlobal = mode === 'global'
 
   // 视图切换：'list' 列表视图 | 'add' 添加规则视图
   const [view, setView] = useState<'list' | 'add'>('list')
 
   // 规则列表草稿
-  const [rules, setRules] = useState<PortRule[]>(mapping?.rules || [])
-
+  const [rules, setRules] = useState<PortRule[]>(
+    isGlobal ? config?.globalRules || [] : mapping?.rules || [],
+  )
   // 添加模式 Tab: 预置 | 自定义
   const [activeTab, setActiveTab] = useState<'preset' | 'custom'>('preset')
   const [selectedPresetId, setSelectedPresetId] = useState<string>('')
@@ -276,13 +282,19 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
   )
   // 同步外部 mapping 规则
   useEffect(() => {
-    if (mapping) {
+    if (!isOpen) return
+    if (isGlobal) {
+      setRules(config?.globalRules || [])
+      setView('list')
+      setSelectedPresetId('')
+      setTestResult(null)
+    } else if (mapping) {
       setRules(mapping.rules || [])
       setView('list')
       setSelectedPresetId('')
       setTestResult(null)
     }
-  }, [mapping])
+  }, [isOpen, isGlobal, mapping, config?.globalRules])
 
   // 确保所有 profile 节点已拉取
   useEffect(() => {
@@ -370,17 +382,17 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     })
   }, [allAvailableNodes, latencies])
 
-  // 其他可用端口（排除自身和固定直连端口，按关联出口延迟升序排序）
+  // 其他可用端口（全局模式包含所有非直连已启用端口，单端口模式排除自身和固定直连端口）
   const otherPorts = useMemo(() => {
-    if (!mapping) return []
+    if (!isGlobal && !mapping) return []
     return portMappings.filter(
       (m) =>
-        m.id !== mapping.id &&
+        (isGlobal || m.id !== mapping?.id) &&
         m.id !== 'fixed-direct' &&
         m.nodeName !== 'DIRECT' &&
         m.enabled,
     )
-  }, [portMappings, mapping])
+  }, [portMappings, mapping, isGlobal])
   const portOptions = useMemo<SelectOption<string>[]>(() => {
     const getPortLatency = (p: PortMapping) => {
       const isFbActive = p.manualFallback && Boolean(p.fallbackNodeName)
@@ -562,6 +574,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           nodeNameToTest,
           currentTestUrl,
           timeout,
+          true,
         )
         setTestResult({ success: true, latency })
       } else if (targetType === 'port' && targetPortActiveNode) {
@@ -569,6 +582,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           targetPortActiveNode.runtimeName,
           currentTestUrl,
           timeout,
+          true,
         )
         setTestResult({ success: true, latency })
       }
@@ -648,14 +662,23 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
 
   // 保存所有规则
   const handleSaveAll = async () => {
-    if (!mapping) return
+    if (!isGlobal && !mapping) return
     setIsSaving(true)
     try {
-      await savePortMapping({
-        ...mapping,
-        rules,
-      })
-      toast.success('网站分流规则已保存并热加载生效')
+      if (isGlobal) {
+        if (!config) return
+        await saveConfig({
+          ...config,
+          globalRules: rules,
+        })
+        toast.success('全局网站分流规则已保存并热加载生效')
+      } else if (mapping) {
+        await savePortMapping({
+          ...mapping,
+          rules,
+        })
+        toast.success('网站分流规则已保存并热加载生效')
+      }
       onClose()
     } catch (err) {
       toast.error(`保存失败: ${err}`)
@@ -664,7 +687,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     }
   }
 
-  if (!mapping) return null
+  if (!isGlobal && !mapping) return null
+
+  const activeGlobalRulesCount = (config?.globalRules || []).filter(
+    (r) => r.enabled,
+  ).length
 
   // ================= 视图 1: 规则管理列表视图 =================
   if (view === 'list') {
@@ -672,8 +699,14 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
       <Modal
         isOpen={isOpen}
         onClose={onClose}
-        title={`端口 ${mapping.port} 网站分流规则`}
-        subtitle={`默认出口: ${mapping.nodeName} · 已配置 ${rules.length} 条特定网站规则`}
+        title={
+          isGlobal ? '全局网站分流规则' : `端口 ${mapping?.port} 网站分流规则`
+        }
+        subtitle={
+          isGlobal
+            ? `对所有代理监听端口生效 · 单端口局部规则优先级高于全局规则 · 已配置 ${rules.length} 条全局规则`
+            : `默认出口: ${mapping?.nodeName} · 已配置 ${rules.length} 条局部规则 (优先于 ${activeGlobalRulesCount} 条生效中的全局规则)`
+        }
         icon={<Split className="w-5 h-5 text-primary" />}
         maxWidth="xl"
         footer={
@@ -718,15 +751,23 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
               </div>
               <div className="space-y-1.5 max-w-sm mx-auto">
                 <div className="text-sm font-semibold text-foreground">
-                  暂无特定网站分流规则
+                  {isGlobal
+                    ? '暂无全局网站分流规则'
+                    : '暂无端口局部网站分流规则'}
                 </div>
                 <div className="text-xs text-muted-foreground leading-relaxed">
-                  默认所有流量均从{' '}
-                  <span className="font-mono text-foreground font-medium">
-                    {mapping.nodeName}
-                  </span>{' '}
-                  发出。添加分流规则后，可让指定网站（如 OpenAI、Google、YouTube
-                  等）单独走指定出口。
+                  {isGlobal ? (
+                    '配置全局网站分流后，所有代理端口在访问指定网站（如 Google Gemini、OpenAI、YouTube 等）时将统一走向指定出口；若某个端口单独配置了局部规则，局部规则将优先匹配生效。'
+                  ) : (
+                    <>
+                      默认所有流量均从{' '}
+                      <span className="font-mono text-foreground font-medium">
+                        {mapping?.nodeName}
+                      </span>{' '}
+                      发出（或继承已启用的 {activeGlobalRulesCount}{' '}
+                      条全局分流规则）。添加局部规则后，该端口将优先按局部规则转发指定网站。
+                    </>
+                  )}
                 </div>
               </div>
               <Button
@@ -829,8 +870,16 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={`为端口 ${mapping.port} 添加网站分流`}
-      subtitle="选择或输入目标网站，并指定命中后的特殊出口"
+      title={
+        isGlobal
+          ? '添加全局网站分流规则'
+          : `为端口 ${mapping?.port} 添加网站分流`
+      }
+      subtitle={
+        isGlobal
+          ? '选择或输入目标网站，为所有代理端口统一指定特殊出口 (单端口局部规则优先)'
+          : '选择或输入目标网站，并指定命中后的特殊出口 (优先级高于全局规则)'
+      }
       icon={<Split className="w-5 h-5 text-primary" />}
       maxWidth="lg"
       footer={

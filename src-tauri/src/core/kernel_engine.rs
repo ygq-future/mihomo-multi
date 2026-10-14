@@ -746,6 +746,7 @@ password: pass
             user_bypass: &[],
             tun_enabled: false,
             tun_port: None,
+            global_rules: &[],
         };
 
         let path = engine
@@ -804,6 +805,7 @@ password: pass
             user_bypass: &[],
             tun_enabled: false,
             tun_port: None,
+            global_rules: &[],
         };
 
         // Applying config should succeed (write to disk) even if controller hot-reload returns error

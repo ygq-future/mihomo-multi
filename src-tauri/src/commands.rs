@@ -175,7 +175,8 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
         || config.fallback_lazy != old_config.fallback_lazy
         || config.system_proxy_bypass_user != old_config.system_proxy_bypass_user
         || config.tun_enabled != old_config.tun_enabled
-        || config.tun_port != old_config.tun_port;
+        || config.tun_port != old_config.tun_port
+        || config.global_rules != old_config.global_rules;
     if runtime_settings_changed {
         let _ = state.sync_runtime_config().await;
     }
@@ -664,10 +665,13 @@ pub async fn get_port_fallback_statuses(
             // Do NOT fall back to historical cached latencies; reflect the actual timeout status!
             kernel_primary_latency
         } else {
-            kernel_primary_latency
-                .or_else(|| state.latency_probe.get_latency(&primary_runtime_name).flatten())
+            state
+                .latency_probe
+                .get_latency(&primary_runtime_name)
+                .flatten()
                 .or_else(|| state.latency_probe.get_latency(&m.node_name).flatten())
                 .or(m.latency)
+                .or(kernel_primary_latency)
         };
 
         let kernel_fallback_latency = engine
@@ -677,17 +681,20 @@ pub async fn get_port_fallback_statuses(
             .and_then(|p| p.history.last().map(|h| h.delay))
             .filter(|&d| d > 0);
 
-        let fallback_latency = kernel_fallback_latency
-            .or_else(|| state.latency_probe.get_latency(&fb_runtime_name).flatten())
-            .or_else(|| state.latency_probe.get_latency(&fallback_node).flatten());
+        let fallback_latency = state
+            .latency_probe
+            .get_latency(&fb_runtime_name)
+            .flatten()
+            .or_else(|| state.latency_probe.get_latency(&fallback_node).flatten())
+            .or(kernel_fallback_latency);
         if is_fallback_active && !m.manual_fallback && kernel_primary_latency.is_none() {
             latency_updates.push((primary_runtime_name, None));
             latency_updates.push((m.node_name.clone(), None));
-        } else if let Some(d) = kernel_primary_latency {
+        } else if let Some(d) = primary_latency {
             latency_updates.push((primary_runtime_name, Some(d)));
             latency_updates.push((m.node_name.clone(), Some(d)));
         }
-        if let Some(d) = kernel_fallback_latency {
+        if let Some(d) = fallback_latency {
             latency_updates.push((fb_runtime_name, Some(d)));
             latency_updates.push((fallback_node.clone(), Some(d)));
         }
@@ -963,6 +970,7 @@ pub async fn test_node_delay(
     node_name: String,
     test_url: Option<String>,
     timeout_ms: Option<u32>,
+    skip_cache: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<u32, String> {
     let status = state.engine.get_status();
@@ -986,6 +994,19 @@ pub async fn test_node_delay(
         .map(|n| n.name.clone())
         .unwrap_or_else(|| node_name.clone());
     let runtime_name = target_node.and_then(|n| n.runtime_name);
+
+    if skip_cache.unwrap_or(false) {
+        return state
+            .latency_probe
+            .probe_node_ephemeral(
+                &raw_name,
+                runtime_name.as_deref(),
+                Some(actual_url),
+                Some(actual_timeout),
+            )
+            .await
+            .map_err(|err| err.to_string());
+    }
 
     let res = state
         .latency_probe

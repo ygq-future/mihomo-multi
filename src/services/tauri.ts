@@ -149,6 +149,7 @@ export async function getConfig(): Promise<AppConfig> {
       tunEnabled: false,
       tunPort: null,
       updateProxyPort: null,
+      globalRules: [],
     }
   }
   return invoke<AppConfig>('get_config')
@@ -562,6 +563,7 @@ export async function testNodeDelay(
   nodeName: string,
   testUrl?: string,
   timeoutMs?: number,
+  skipCache?: boolean,
 ): Promise<number> {
   if (!isTauriEnvironment()) {
     await new Promise((r) => setTimeout(r, 200 + Math.random() * 300))
@@ -571,6 +573,7 @@ export async function testNodeDelay(
     nodeName,
     testUrl: testUrl || null,
     timeoutMs: timeoutMs || null,
+    skipCache: skipCache ?? false,
   })
 }
 

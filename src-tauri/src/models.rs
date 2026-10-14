@@ -353,6 +353,8 @@ pub struct AppConfig {
     pub tun_port: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update_proxy_port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub global_rules: Vec<PortRule>,
 }
 
 fn default_true() -> bool {
@@ -416,6 +418,7 @@ impl Default for AppConfig {
             tun_enabled: false,
             tun_port: None,
             update_proxy_port: None,
+            global_rules: Vec::new(),
         }
     }
 }
