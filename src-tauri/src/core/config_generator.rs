@@ -13,6 +13,10 @@ pub struct RuntimeListener {
     pub listener_type: String,
     pub port: u16,
     pub listen: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub proxy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub rule: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -175,9 +179,28 @@ pub fn parse_user_bypass_to_rules(user_bypass: &[String]) -> Vec<String> {
     rules
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuntimeProfileConfig {
+    #[serde(rename = "store-selected")]
+    pub store_selected: bool,
+    #[serde(rename = "store-fake-ip")]
+    pub store_fake_ip: bool,
+}
+
+impl Default for RuntimeProfileConfig {
+    fn default() -> Self {
+        Self {
+            store_selected: true,
+            store_fake_ip: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimeDnsConfig {
     pub enable: bool,
     pub ipv6: bool,
+    #[serde(rename = "cache-algorithm", default = "default_dns_cache_algorithm")]
+    pub cache_algorithm: String,
     #[serde(rename = "enhanced-mode")]
     pub enhanced_mode: String,
     #[serde(rename = "fake-ip-range", skip_serializing_if = "Option::is_none")]
@@ -193,11 +216,16 @@ pub struct RuntimeDnsConfig {
     pub proxy_server_nameserver: Vec<String>,
 }
 
+fn default_dns_cache_algorithm() -> String {
+    "arc".to_string()
+}
+
 impl Default for RuntimeDnsConfig {
     fn default() -> Self {
         Self {
             enable: true,
             ipv6: false,
+            cache_algorithm: default_dns_cache_algorithm(),
             enhanced_mode: "fake-ip".to_string(),
             fake_ip_range: Some("198.18.0.1/16".to_string()),
             fake_ip_filter: vec![
@@ -208,18 +236,82 @@ impl Default for RuntimeDnsConfig {
                 "ntp.*.com".to_string(),
                 "*.msftncsi.com".to_string(),
                 "www.msftconnecttest.com".to_string(),
+                "+.stun.*.*".to_string(),
+                "+.stun.*.*.*".to_string(),
+                "+.stun.*.*.*.*".to_string(),
             ],
             default_nameserver: vec!["223.5.5.5".to_string(), "119.29.29.29".to_string()],
-            nameserver: vec![
-                "https://dns.alidns.com/dns-query".to_string(),
-                "https://doh.pub/dns-query".to_string(),
-                "223.5.5.5".to_string(),
-            ],
+            nameserver: default_fast_nameservers(),
             fallback: Vec::new(),
-            proxy_server_nameserver: vec![
-                "https://dns.alidns.com/dns-query".to_string(),
-                "https://doh.pub/dns-query".to_string(),
-                "223.5.5.5".to_string(),
+            proxy_server_nameserver: default_fast_nameservers(),
+        }
+    }
+}
+
+fn default_fast_nameservers() -> Vec<String> {
+    vec![
+        "223.5.5.5".to_string(),
+        "119.29.29.29".to_string(),
+        "https://dns.alidns.com/dns-query".to_string(),
+        "https://doh.pub/dns-query".to_string(),
+    ]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuntimeSniffProtocolConfig {
+    pub ports: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuntimeSnifferConfig {
+    pub enable: bool,
+    #[serde(rename = "force-dns-mapping")]
+    pub force_dns_mapping: bool,
+    #[serde(rename = "parse-pure-ip")]
+    pub parse_pure_ip: bool,
+    #[serde(rename = "override-destination")]
+    pub override_destination: bool,
+    pub sniff: BTreeMap<String, RuntimeSniffProtocolConfig>,
+    #[serde(rename = "skip-domain", skip_serializing_if = "Vec::is_empty", default)]
+    pub skip_domain: Vec<String>,
+    #[serde(rename = "skip-dst-address", skip_serializing_if = "Vec::is_empty", default)]
+    pub skip_dst_address: Vec<String>,
+}
+
+impl Default for RuntimeSnifferConfig {
+    fn default() -> Self {
+        let mut sniff = BTreeMap::new();
+        sniff.insert(
+            "HTTP".to_string(),
+            RuntimeSniffProtocolConfig {
+                ports: vec!["80".to_string(), "8080-8880".to_string()],
+            },
+        );
+        for proto in ["TLS", "QUIC"] {
+            sniff.insert(
+                proto.to_string(),
+                RuntimeSniffProtocolConfig {
+                    ports: vec!["443".to_string(), "8443".to_string()],
+                },
+            );
+        }
+
+        Self {
+            enable: true,
+            force_dns_mapping: true,
+            parse_pure_ip: true,
+            override_destination: true,
+            sniff,
+            skip_domain: vec!["Mijia Cloud".to_string(), "+.push.apple.com".to_string()],
+            skip_dst_address: vec![
+                "127.0.0.0/8".to_string(),
+                "10.0.0.0/8".to_string(),
+                "172.16.0.0/12".to_string(),
+                "192.168.0.0/16".to_string(),
+                "169.254.0.0/16".to_string(),
+                "224.0.0.0/4".to_string(),
+                "240.0.0.0/4".to_string(),
+                "255.255.255.255/32".to_string(),
             ],
         }
     }
@@ -265,10 +357,18 @@ pub struct MinimalRuntimeConfig {
     pub allow_lan: bool,
     #[serde(rename = "bind-address")]
     pub bind_address: String,
+    #[serde(rename = "find-process-mode", default = "default_find_process_mode")]
+    pub find_process_mode: String,
+    #[serde(rename = "keep-alive-interval", default = "default_keep_alive_interval")]
+    pub keep_alive_interval: u32,
     #[serde(rename = "tcp-concurrent", default)]
     pub tcp_concurrent: bool,
     #[serde(rename = "unified-delay", default)]
     pub unified_delay: bool,
+    #[serde(default)]
+    pub profile: RuntimeProfileConfig,
+    #[serde(default)]
+    pub sniffer: RuntimeSnifferConfig,
     #[serde(default)]
     pub dns: RuntimeDnsConfig,
     pub ipv6: bool,
@@ -288,6 +388,14 @@ pub struct MinimalRuntimeConfig {
     pub rules: Vec<String>,
 }
 
+fn default_find_process_mode() -> String {
+    "off".to_string()
+}
+
+fn default_keep_alive_interval() -> u32 {
+    30
+}
+
 impl MinimalRuntimeConfig {
     pub fn new(controller_port: u16, secret: &str, log_level: &str) -> Self {
         Self {
@@ -298,9 +406,13 @@ impl MinimalRuntimeConfig {
             allow_lan: false,
             bind_address: "127.0.0.1".to_string(),
             ipv6: false,
+            find_process_mode: default_find_process_mode(),
+            keep_alive_interval: default_keep_alive_interval(),
             tcp_concurrent: true,
             tun: None,
             unified_delay: true,
+            profile: RuntimeProfileConfig::default(),
+            sniffer: RuntimeSnifferConfig::default(),
             dns: RuntimeDnsConfig::default(),
             rule_providers: default_rule_providers(),
             listeners: Vec::new(),
@@ -404,12 +516,8 @@ impl MinimalRuntimeConfig {
 
         // Pass 2: Build listeners, sub-rules, and rules
         for m in mappings.iter().filter(|m| m.enabled) {
-            listeners.push(RuntimeListener {
-                name: format!("in-{}", m.port),
-                listener_type: m.protocol.to_string(),
-                port: m.port,
-                listen: listen_addr.to_string(),
-            });
+            let listener_name = format!("in-{}", m.port);
+            let listener_type = m.protocol.as_listener_type().to_string();
 
             let target_action = port_target_actions
                 .get(&m.port)
@@ -420,6 +528,14 @@ impl MinimalRuntimeConfig {
                 if Some(m.port) == params.tun_port {
                     tun_target = Some("DIRECT".to_string());
                 }
+                listeners.push(RuntimeListener {
+                    name: listener_name,
+                    listener_type,
+                    port: m.port,
+                    listen: listen_addr.to_string(),
+                    proxy: Some("DIRECT".to_string()),
+                    rule: None,
+                });
                 rules.push(format!("IN-PORT,{},DIRECT", m.port));
                 continue;
             }
@@ -488,9 +604,9 @@ impl MinimalRuntimeConfig {
             append_port_rules(&mut sub_rule_list, params.global_rules);
             if m.bypass_cn {
                 sub_rule_list.extend(vec![
-                    "RULE-SET,private_ip,DIRECT,no-resolve".to_string(),
                     "RULE-SET,private_domain,DIRECT".to_string(),
                     "RULE-SET,cn_domain,DIRECT".to_string(),
+                    "RULE-SET,private_ip,DIRECT,no-resolve".to_string(),
                     "RULE-SET,cn_ip,DIRECT,no-resolve".to_string(),
                 ]);
             }
@@ -501,14 +617,25 @@ impl MinimalRuntimeConfig {
                 }
             }
 
-            if !sub_rule_list.is_empty() {
+            let (listener_proxy, listener_rule) = if !sub_rule_list.is_empty() {
                 sub_rule_list.push(format!("MATCH,{}", target_action));
                 let sub_rule_name = format!("sub-rule-{}", m.port);
                 sub_rules.insert(sub_rule_name.clone(), sub_rule_list);
                 rules.push(format!("SUB-RULE,(IN-PORT,{}),{}", m.port, sub_rule_name));
+                (None, Some(sub_rule_name))
             } else {
                 rules.push(format!("IN-PORT,{},{}", m.port, target_action));
-            }
+                (Some(target_action), None)
+            };
+
+            listeners.push(RuntimeListener {
+                name: listener_name,
+                listener_type,
+                port: m.port,
+                listen: listen_addr.to_string(),
+                proxy: listener_proxy,
+                rule: listener_rule,
+            });
         }
         let mut tun = None;
         if params.tun_enabled
@@ -521,11 +648,11 @@ impl MinimalRuntimeConfig {
             }
             tun = Some(RuntimeTunConfig {
                 enable: true,
-                stack: "gvisor".to_string(),
+                stack: "mixed".to_string(),
                 device: "Mihomo-Multi".to_string(),
                 auto_route: true,
                 auto_detect_interface: true,
-                dns_hijack: vec!["any:53".to_string()],
+                dns_hijack: vec!["any:53".to_string(), "tcp://any:53".to_string()],
             });
         }
 
@@ -541,8 +668,12 @@ impl MinimalRuntimeConfig {
             bind_address: bind_addr.to_string(),
             ipv6: false,
             tun,
+            find_process_mode: default_find_process_mode(),
+            keep_alive_interval: default_keep_alive_interval(),
             tcp_concurrent: true,
             unified_delay: true,
+            profile: RuntimeProfileConfig::default(),
+            sniffer: RuntimeSnifferConfig::default(),
             dns: RuntimeDnsConfig::default(),
             rule_providers: default_rule_providers(),
             listeners,
@@ -673,9 +804,19 @@ password: pass
         assert!(!yaml.contains("7893"));
         // MATCH,DIRECT is always present
         assert!(yaml.contains("MATCH,DIRECT"));
+        assert!(yaml.contains("find-process-mode: 'off'") || yaml.contains("find-process-mode: off"));
+        assert!(yaml.contains("keep-alive-interval: 30"));
         assert!(yaml.contains("tcp-concurrent: true"));
         assert!(yaml.contains("unified-delay: true"));
+        assert!(yaml.contains("profile:"));
+        assert!(yaml.contains("store-fake-ip: true"));
+        assert!(yaml.contains("sniffer:"));
+        assert!(yaml.contains("force-dns-mapping: true"));
+        assert!(yaml.contains("parse-pure-ip: true"));
+        assert!(yaml.contains("override-destination: true"));
+        assert!(yaml.contains("skip-dst-address:"));
         assert!(yaml.contains("dns:"));
+        assert!(yaml.contains("cache-algorithm: arc"));
         assert!(yaml.contains("enhanced-mode: fake-ip"));
         assert!(yaml.contains("fake-ip-range: 198.18.0.1/16"));
         assert!(yaml.contains("223.5.5.5"));
@@ -685,8 +826,10 @@ password: pass
         assert_eq!(config.listeners.len(), 2);
         assert_eq!(config.listeners[0].port, 7891);
         assert_eq!(config.listeners[0].listener_type, "mixed");
+        assert_eq!(config.listeners[0].proxy.as_deref(), Some("[AirportA] HK-Node-01"));
         assert_eq!(config.listeners[1].port, 7892);
-        assert_eq!(config.listeners[1].listener_type, "socks5");
+        assert_eq!(config.listeners[1].listener_type, "socks");
+        assert_eq!(config.listeners[1].proxy.as_deref(), Some("DIRECT"));
     }
     #[test]
     fn test_runtime_config_generation_with_fixed_direct() {
@@ -1139,7 +1282,7 @@ password: pass
         let yaml = config.to_yaml().expect("YAML serialize failed");
 
         assert!(yaml.contains("tun:"));
-        assert!(yaml.contains("stack: gvisor"));
+        assert!(yaml.contains("stack: mixed"));
         assert!(yaml.contains("auto-route: true"));
         assert!(yaml.contains("auto-detect-interface: true"));
         assert!(yaml.contains("device: Mihomo-Multi"));

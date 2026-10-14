@@ -17,7 +17,7 @@ export const MAX_TIMEOUT_MS = 60000
 /**
  * 默认 Fallback 健康检查周期 (秒)
  */
-export const DEFAULT_FALLBACK_INTERVAL = 5
+export const DEFAULT_FALLBACK_INTERVAL = 60
 
 /**
  * 最小与最大 Fallback 健康检查周期限制 (秒)
@@ -28,7 +28,7 @@ export const MAX_FALLBACK_INTERVAL = 300
 /**
  * 默认 Fallback 惰性检查
  */
-export const DEFAULT_FALLBACK_LAZY = false
+export const DEFAULT_FALLBACK_LAZY = true
 
 /**
  * 前端 Fallback 状态轮询周期 (毫秒)

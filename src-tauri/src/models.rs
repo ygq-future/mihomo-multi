@@ -33,6 +33,17 @@ pub enum InboundProtocol {
     Socks5,
 }
 
+impl InboundProtocol {
+    /// Returns the Mihomo listener `type` string (`"mixed"`, `"http"`, or `"socks"`).
+    pub fn as_listener_type(self) -> &'static str {
+        match self {
+            Self::Mixed => "mixed",
+            Self::Http => "http",
+            Self::Socks5 => "socks",
+        }
+    }
+}
+
 impl std::fmt::Display for InboundProtocol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -337,7 +348,7 @@ pub struct AppConfig {
     pub timeout_ms: u32,
     #[serde(default = "default_fallback_interval")]
     pub fallback_interval: u32,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub fallback_lazy: bool,
     #[serde(default)]
     pub system_proxy_enabled: bool,
@@ -382,7 +393,7 @@ fn default_timeout_ms() -> u32 {
 }
 
 fn default_fallback_interval() -> u32 {
-    5
+    60
 }
 
 fn default_controller_port() -> u16 {
@@ -409,8 +420,8 @@ impl Default for AppConfig {
             background_opacity: 80,
             test_url: default_test_url(),
             timeout_ms: 3000,
-            fallback_interval: 5,
-            fallback_lazy: false,
+            fallback_interval: default_fallback_interval(),
+            fallback_lazy: true,
             system_proxy_enabled: false,
             system_proxy_port: None,
             system_proxy_bypass_user: Vec::new(),

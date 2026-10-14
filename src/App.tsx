@@ -5,6 +5,7 @@ import { Shell } from './components/layout/Shell'
 import { useAppStore } from './stores/appStore'
 import { appReady } from './services/tauri'
 import { createEventScope } from './services/events'
+import { useWindowVisibility } from './services/useWindowVisibility'
 import type {
   AutoUpdateEventPayload,
   KernelCrashedPayload,
@@ -28,6 +29,7 @@ export const App: React.FC = () => {
     (state) => state.handleLatencyProgress,
   )
   const setDriftReports = useAppStore((state) => state.setDriftReports)
+  const isWindowVisible = useWindowVisibility()
   useEffect(() => {
     fetchConfig()
     fetchLatencies().catch(() => {})
@@ -57,11 +59,6 @@ export const App: React.FC = () => {
       .catch(() => {
         revealWindow()
       })
-    // Periodically poll status every 3 seconds
-    const interval = setInterval(() => {
-      fetchStatus()
-    }, 3000)
-
     // Listen for Tauri backend events using managed EventScope
     const scope = createEventScope()
 
@@ -177,7 +174,6 @@ export const App: React.FC = () => {
 
     return () => {
       clearTimeout(revealTimeout)
-      clearInterval(interval)
       scope.dispose()
     }
   }, [
@@ -192,6 +188,14 @@ export const App: React.FC = () => {
     handleLatencyProgress,
     setDriftReports,
   ])
+
+  useEffect(() => {
+    if (!isWindowVisible) return
+    const interval = setInterval(() => {
+      fetchStatus()
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [isWindowVisible, fetchStatus])
 
   return (
     <>
