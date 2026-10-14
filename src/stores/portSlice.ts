@@ -233,14 +233,17 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
         api.getOccupiedPorts().catch(() => []),
       ])
       const storeState = get() as unknown as {
-        config?: { systemProxyPort?: number | null }
+        config?: { systemProxyPort?: number | null; tunPort?: number | null }
         fetchConfig?: () => Promise<void>
+        fetchTunStatus?: () => Promise<void>
       }
       if (
-        storeState.config?.systemProxyPort &&
-        targetPort === storeState.config.systemProxyPort
+        targetPort !== undefined &&
+        (targetPort === storeState.config?.systemProxyPort ||
+          targetPort === storeState.config?.tunPort)
       ) {
         storeState.fetchConfig?.().catch(() => {})
+        storeState.fetchTunStatus?.().catch(() => {})
       }
       set((state) => ({
         portMappings: state.portMappings.filter((p) => p.id !== id),
@@ -268,14 +271,16 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
       if (!enabled) {
         const targetPort = updated.port
         const storeState = get() as unknown as {
-          config?: { systemProxyPort?: number | null }
+          config?: { systemProxyPort?: number | null; tunPort?: number | null }
           fetchConfig?: () => Promise<void>
+          fetchTunStatus?: () => Promise<void>
         }
         if (
-          storeState.config?.systemProxyPort &&
-          targetPort === storeState.config.systemProxyPort
+          targetPort === storeState.config?.systemProxyPort ||
+          targetPort === storeState.config?.tunPort
         ) {
           storeState.fetchConfig?.().catch(() => {})
+          storeState.fetchTunStatus?.().catch(() => {})
         }
       }
       set((state) => ({

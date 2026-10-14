@@ -58,6 +58,8 @@ pub struct AppPortSyncDelegate {
     ports: Arc<RwLock<Vec<PortMapping>>>,
     config: Arc<RwLock<AppConfig>>,
     occupied_ports: Arc<RwLock<HashSet<u16>>>,
+    suspended_system_proxy: Arc<RwLock<Option<u16>>>,
+    app_dir: PathBuf,
     app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
 }
 
@@ -68,6 +70,8 @@ impl AppPortSyncDelegate {
         ports: Arc<RwLock<Vec<PortMapping>>>,
         config: Arc<RwLock<AppConfig>>,
         occupied_ports: Arc<RwLock<HashSet<u16>>>,
+        suspended_system_proxy: Arc<RwLock<Option<u16>>>,
+        app_dir: PathBuf,
     ) -> Self {
         Self {
             engine,
@@ -75,6 +79,8 @@ impl AppPortSyncDelegate {
             ports,
             config,
             occupied_ports,
+            suspended_system_proxy,
+            app_dir,
             app_handle: Arc::new(RwLock::new(None)),
         }
     }
@@ -82,8 +88,56 @@ impl AppPortSyncDelegate {
     pub fn set_app_handle(&self, handle: tauri::AppHandle) {
         *self.app_handle.write() = Some(handle);
     }
-}
 
+    /// Enforces that bound system proxy or TUN port still corresponds to an active, enabled port mapping.
+    /// If the bound port was disabled, deleted, or changed, automatically cleans up OS proxy/TUN state and persists config.
+    pub fn reconcile_active_egress(&self) -> bool {
+        let mappings = self.ports.read();
+        let mut config = self.config.read().clone();
+        let mut modified = false;
+
+        if config.system_proxy_enabled {
+            let valid = config
+                .system_proxy_port
+                .is_some_and(|p| mappings.iter().any(|m| m.port == p && m.enabled));
+            if !valid {
+                let _ = crate::core::sysproxy::clear_system_proxy();
+                config.system_proxy_enabled = false;
+                config.system_proxy_port = None;
+                modified = true;
+            }
+        }
+
+        if config.tun_enabled {
+            let valid = config
+                .tun_port
+                .is_some_and(|p| mappings.iter().any(|m| m.port == p && m.enabled));
+            if !valid {
+                config.tun_enabled = false;
+                config.tun_port = None;
+                modified = true;
+            }
+        }
+
+        if let Some(susp_port) = *self.suspended_system_proxy.read()
+            && !mappings.iter().any(|m| m.port == susp_port && m.enabled)
+        {
+            *self.suspended_system_proxy.write() = None;
+        }
+
+        drop(mappings);
+
+        if modified {
+            *self.config.write() = config.clone();
+            let config_path = self.app_dir.join("config.json");
+            if let Ok(json) = serde_json::to_string_pretty(&config) {
+                let _ = atomic_write_file(&config_path, json.as_bytes());
+            }
+        }
+
+        modified
+    }
+}
 impl PortSyncDelegate for AppPortSyncDelegate {
     fn allow_lan(&self) -> bool {
         self.config.read().allow_lan
@@ -100,14 +154,11 @@ impl PortSyncDelegate for AppPortSyncDelegate {
 
     fn on_ports_changed<'a>(&'a self, event: &'a PortChangeEvent) -> BoxFuture<'a, AppResult<()>> {
         Box::pin(async move {
+            self.reconcile_active_egress();
             let _ = self.sync_runtime().await?;
-
-            if let Some(ref handle) = *self.app_handle.read() {
+            if let Some(handle) = &*self.app_handle.read() {
                 crate::tray::update_tray_menu(handle);
                 let _ = handle.emit("port-mappings-changed", event);
-                if let PortChangeEvent::Toggled(mapping) = event {
-                    let _ = handle.emit("port-mapping-updated", mapping);
-                }
             }
 
             Ok(())
@@ -145,7 +196,7 @@ impl PortSyncDelegate for AppPortSyncDelegate {
                 .apply_runtime_config(&params, &active_mappings, raw_proxies, &profile_map)
                 .await?;
 
-            if let Some(ref handle) = *self.app_handle.read() {
+            if let Some(handle) = &*self.app_handle.read() {
                 crate::tray::update_tray_menu(handle);
                 let _ = handle.emit("port-mappings-changed", &PortChangeEvent::Resynced);
             }

@@ -11,12 +11,12 @@ import type {
   LatencyProgressPayload,
   LatencyUpdatePayload,
   PortDriftReport,
-  PortMapping,
   ProxyRestoredPayload,
 } from './types'
 export const App: React.FC = () => {
   const fetchStatus = useAppStore((state) => state.fetchStatus)
   const fetchConfig = useAppStore((state) => state.fetchConfig)
+  const fetchTunStatus = useAppStore((state) => state.fetchTunStatus)
   const fetchProfiles = useAppStore((state) => state.fetchProfiles)
   const fetchPortMappings = useAppStore((state) => state.fetchPortMappings)
   const fetchAutoUpdaterStatus = useAppStore(
@@ -105,16 +105,11 @@ export const App: React.FC = () => {
       .catch(() => {})
 
     scope
-      .listen<PortMapping>('port-mapping-updated', () => {
-        fetchPortMappings().catch(() => {})
-        fetchStatus().catch(() => {})
-      })
-      .catch(() => {})
-
-    scope
       .listen('port-mappings-changed', () => {
         fetchPortMappings().catch(() => {})
         fetchStatus().catch(() => {})
+        fetchConfig().catch(() => {})
+        fetchTunStatus().catch(() => {})
       })
       .catch(() => {})
 
@@ -188,6 +183,7 @@ export const App: React.FC = () => {
   }, [
     fetchStatus,
     fetchConfig,
+    fetchTunStatus,
     fetchProfiles,
     fetchPortMappings,
     fetchAutoUpdaterStatus,

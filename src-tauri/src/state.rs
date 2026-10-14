@@ -5,7 +5,7 @@ use crate::core::latency_probe::{AppLatencyEventEmitter, LatencyProbe};
 use crate::core::port_router::{AppPortSyncDelegate, PortRouter};
 use crate::core::profile_manager::ProfileManager;
 use crate::error::AppResult;
-use crate::models::AppConfig;
+use crate::models::{AppConfig, SystemProxyStatus, TunStatus};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -55,7 +55,7 @@ impl AppState {
         };
 
         let config = Arc::new(RwLock::new(initial_config));
-
+        let suspended_system_proxy = Arc::new(RwLock::new(None));
         let (metadata_path, ports) = PortRouter::load_initial(&app_dir);
         let sync_delegate = Arc::new(AppPortSyncDelegate::new(
             engine.clone(),
@@ -63,6 +63,8 @@ impl AppState {
             ports.clone(),
             config.clone(),
             occupied_ports.clone(),
+            suspended_system_proxy.clone(),
+            app_dir.clone(),
         ));
         let port_router = Arc::new(PortRouter::with_ports_and_delegate(
             metadata_path,
@@ -75,9 +77,7 @@ impl AppState {
             &app_dir,
             latency_emitter.clone(),
         ));
-        let suspended_system_proxy = Arc::new(RwLock::new(None));
         let app_handle = Arc::new(RwLock::new(None));
-
         let config_clone = config.clone();
         let suspended_proxy_clone = suspended_system_proxy.clone();
         let app_handle_clone = app_handle.clone();
@@ -164,12 +164,128 @@ impl AppState {
         }
     }
 
+    /// Builds current system proxy status snapshot from config and combined bypass list.
+    pub fn build_system_proxy_status(&self) -> SystemProxyStatus {
+        let config = self.config.read().clone();
+        let bypass_domains = crate::core::sysproxy::build_combined_bypass_list(&config.system_proxy_bypass_user);
+        SystemProxyStatus {
+            enabled: config.system_proxy_enabled,
+            port: config.system_proxy_port,
+            bypass_domains,
+        }
+    }
+
+    /// Builds current TUN mode status snapshot based on elevation, port mapping state, and core status.
+    pub fn build_tun_status(&self) -> TunStatus {
+        let config = self.config.read().clone();
+        let elevated = crate::core::elevation::is_elevated();
+        let port_active = config.tun_port.is_some_and(|p| {
+            self.port_router
+                .get_port_mappings()
+                .iter()
+                .any(|m| m.port == p && m.enabled)
+        });
+        TunStatus {
+            enabled: config.tun_enabled,
+            active: elevated && config.tun_enabled && port_active && self.engine.get_status().running,
+            port: config.tun_port,
+            elevated,
+            pending_elevation: config.tun_enabled && !elevated,
+        }
+    }
+
+    /// EgressGuard: Transitions system proxy state while enforcing mutual exclusion with TUN mode.
+    /// Returns `(SystemProxyStatus, old_tun_was_enabled)`.
+    pub fn apply_system_proxy_transition(
+        &self,
+        enabled: bool,
+        port: Option<u16>,
+    ) -> Result<(SystemProxyStatus, bool), String> {
+        let mut config = self.config.read().clone();
+        let old_tun_enabled = config.tun_enabled;
+        self.clear_suspended_system_proxy();
+
+        if enabled {
+            if config.tun_enabled {
+                config.tun_enabled = false;
+            }
+            let p = port.ok_or_else(|| "启用系统代理必须指定端口".to_string())?;
+            let mappings = self.port_router.get_port_mappings();
+            if !mappings.iter().any(|m| m.port == p && m.enabled) {
+                return Err(format!("端口 {} 未在监听列表中或未启用，无法设为系统代理", p));
+            }
+
+            crate::core::sysproxy::apply_system_proxy(p, &config.system_proxy_bypass_user, config.system_proxy_sync_env)
+                .map_err(|e| e.to_string())?;
+
+            config.system_proxy_enabled = true;
+            config.system_proxy_port = Some(p);
+            config.tun_port = Some(p);
+        } else {
+            crate::core::sysproxy::clear_system_proxy().map_err(|e| e.to_string())?;
+            config.system_proxy_enabled = false;
+            if let Some(p) = port {
+                config.system_proxy_port = Some(p);
+                config.tun_port = Some(p);
+            }
+        }
+
+        self.persist_config(&config);
+        Ok((self.build_system_proxy_status(), old_tun_enabled))
+    }
+
+    /// EgressGuard: Validates and applies TUN mode configuration transition while enforcing mutual exclusion with system proxy.
+    pub fn prepare_tun_transition(&self, enabled: bool, port: Option<u16>) -> Result<AppConfig, String> {
+        let mut config = self.config.read().clone();
+
+        if enabled {
+            let p = port.ok_or_else(|| "启用 TUN 模式必须指定绑定端口".to_string())?;
+            let mappings = self.port_router.get_port_mappings();
+            if !mappings.iter().any(|m| m.port == p && m.enabled) {
+                return Err(format!("端口 {} 未在监听列表中或未启用，无法作为 TUN 出口", p));
+            }
+            if config.system_proxy_enabled {
+                let _ = crate::core::sysproxy::clear_system_proxy();
+            }
+            self.clear_suspended_system_proxy();
+            config.system_proxy_enabled = false;
+            config.tun_enabled = true;
+            config.tun_port = Some(p);
+            config.system_proxy_port = Some(p);
+        } else {
+            config.tun_enabled = false;
+            if let Some(p) = port {
+                config.tun_port = Some(p);
+                config.system_proxy_port = Some(p);
+            }
+        }
+
+        self.persist_config(&config);
+        Ok(config)
+    }
+
+    /// EgressGuard: Rolls back TUN mode configuration when UAC elevation fails or is canceled.
+    pub fn rollback_tun_transition(&self) -> AppConfig {
+        let mut rollback = self.config.read().clone();
+        rollback.tun_enabled = false;
+        rollback.tun_port = None;
+        self.persist_config(&rollback);
+        rollback
+    }
+
+    /// EgressGuard: Cleans up OS system proxy and suspended state when stopping the core.
+    pub fn deactivate_egress_on_core_stop(&self) {
+        if self.config.read().system_proxy_enabled {
+            let _ = crate::core::sysproxy::clear_system_proxy();
+        }
+        self.clear_suspended_system_proxy();
+    }
     /// Ensures system proxy is active either by restoring a crash-suspended proxy or applying configured proxy.
     pub fn ensure_system_proxy_active(&self) -> bool {
+        self.sync_delegate.reconcile_active_egress();
         if self.try_restore_suspended_system_proxy() {
             return true;
         }
-
         let config = self.config.read().clone();
         if config.system_proxy_enabled
             && let Some(port) = config.system_proxy_port
@@ -215,12 +331,7 @@ impl AppState {
 
         config.system_proxy_enabled = true;
         config.system_proxy_port = Some(port);
-        *self.config.write() = config.clone();
-
-        let config_path = self.app_dir.join("config.json");
-        if let Ok(json) = serde_json::to_string_pretty(&config) {
-            let _ = crate::core::profile_manager::atomic_write_file(&config_path, json.as_bytes());
-        }
+        self.persist_config(&config);
 
         if let Some(ref handle) = *self.app_handle.read() {
             crate::tray::update_tray_menu(handle);
@@ -338,6 +449,67 @@ mod tests {
 
         // Calling again should return false (already restored)
         assert!(!state.try_restore_suspended_system_proxy());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_egress_guard_reconciles_on_port_toggle_and_delete() {
+        let temp_dir = std::env::temp_dir().join(format!("mihomo_egress_guard_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let state = AppState::new(temp_dir.clone());
+        let test_port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+
+        let mapping = PortMapping {
+            id: "port-egress-1".to_string(),
+            port: test_port,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "test-prof".to_string(),
+            node_name: "test-node".to_string(),
+            enabled: true,
+            latency: None,
+            description: None,
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: false,
+            manual_fallback: false,
+            rules: vec![],
+        };
+        let _ = state.port_router.save_port_mapping(mapping).await;
+
+        // 1. Bind TUN to the enabled port via prepare_tun_transition
+        let cfg = state
+            .prepare_tun_transition(true, Some(test_port))
+            .expect("TUN transition should succeed for enabled port");
+        assert!(cfg.tun_enabled);
+        assert!(!cfg.system_proxy_enabled);
+        assert_eq!(cfg.tun_port, Some(test_port));
+
+        // 2. Toggle port off -> EgressGuard must automatically unbind TUN and persist to disk
+        let _ = state.port_router.toggle_port_mapping("port-egress-1", false).await;
+        assert!(!state.config.read().tun_enabled);
+        assert_eq!(state.config.read().tun_port, None);
+
+        // Attempting to bind TUN or system proxy to disabled port must fail
+        assert!(state.prepare_tun_transition(true, Some(test_port)).is_err());
+        assert!(state.apply_system_proxy_transition(true, Some(test_port)).is_err());
+
+        // 3. Re-enable port, bind TUN, then test UAC rollback
+        let _ = state.port_router.toggle_port_mapping("port-egress-1", true).await;
+        let _ = state.prepare_tun_transition(true, Some(test_port)).unwrap();
+        let rolled_back = state.rollback_tun_transition();
+        assert!(!rolled_back.tun_enabled);
+        assert_eq!(rolled_back.tun_port, None);
+
+        // 4. Bind TUN again and delete the port mapping -> EgressGuard must unbind TUN
+        let _ = state.prepare_tun_transition(true, Some(test_port)).unwrap();
+        let _ = state.port_router.delete_port_mapping("port-egress-1").await;
+        assert!(!state.config.read().tun_enabled);
+        assert_eq!(state.config.read().tun_port, None);
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
