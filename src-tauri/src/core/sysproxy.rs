@@ -152,6 +152,15 @@ pub fn apply_system_proxy(port: u16, user_bypass: &[String], sync_env: bool) -> 
     info!(port = port, sync_env = sync_env, "Applying system proxy");
     let combined_bypass = build_combined_bypass_list(user_bypass);
 
+    if cfg!(test) {
+        info!(
+            port = port,
+            sync_env = sync_env,
+            "[test] Skipped OS system proxy & environment mutation"
+        );
+        return Ok(());
+    }
+
     #[cfg(windows)]
     {
         windows::set_system_proxy_windows(port, &combined_bypass)?;
@@ -177,6 +186,11 @@ pub fn apply_system_proxy(port: u16, user_bypass: &[String], sync_env: bool) -> 
 /// Clears system proxy from the OS and removes environment variables
 pub fn clear_system_proxy() -> AppResult<()> {
     info!("Clearing system proxy");
+
+    if cfg!(test) {
+        info!("[test] Skipped OS system proxy & environment cleanup");
+        return Ok(());
+    }
 
     #[cfg(windows)]
     {
@@ -228,7 +242,11 @@ pub fn get_uwp_loopback_stats() -> AppResult<crate::models::UwpLoopbackStats> {
 pub fn refresh_and_cleanup_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
     #[cfg(windows)]
     {
-        let cleaned_count = windows::cleanup_orphaned_uwp_exemptions()?;
+        let cleaned_count = if cfg!(test) {
+            0
+        } else {
+            windows::cleanup_orphaned_uwp_exemptions()?
+        };
         let mut stats = get_uwp_loopback_stats()?;
         stats.cleaned_count = cleaned_count;
         Ok(stats)
@@ -292,9 +310,9 @@ pub fn get_uwp_app_list() -> AppResult<Vec<crate::models::UwpAppInfo>> {
 #[cfg(windows)]
 mod windows {
     use super::*;
-    use tracing::warn;
     use std::process::Command;
     use std::ptr::null_mut;
+    use tracing::warn;
     use windows_sys::Win32::Foundation::ERROR_SUCCESS;
     use windows_sys::Win32::Networking::WinInet::{
         INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED, InternetSetOptionW,
@@ -585,7 +603,6 @@ mod windows {
         set
     }
 
-
     pub fn get_uwp_apps_windows() -> Vec<crate::models::UwpAppInfo> {
         const MAPPINGS_SUBKEY: &str =
             "Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\AppContainer\\Mappings";
@@ -764,7 +781,10 @@ mod windows {
             return Ok(0);
         }
 
-        info!(count = orphaned_sids.len(), "检测到已卸载 UWP 应用残留的环回豁免记录，准备清理");
+        info!(
+            count = orphaned_sids.len(),
+            "检测到已卸载 UWP 应用残留的环回豁免记录，准备清理"
+        );
 
         let temp_path = std::env::temp_dir().join(format!("mihomo_clean_uwp_{}.cmd", uuid::Uuid::new_v4()));
         let mut script = String::from("@echo off\r\n");
@@ -801,7 +821,10 @@ mod windows {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::Internal(format!("执行 UWP 孤立豁免清理失败: {}", stderr.trim())));
+            return Err(AppError::Internal(format!(
+                "执行 UWP 孤立豁免清理失败: {}",
+                stderr.trim()
+            )));
         }
 
         info!(cleaned = orphaned_sids.len(), "已成功清理残留的孤立 UWP 环回豁免记录");
