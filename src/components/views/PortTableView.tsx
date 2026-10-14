@@ -579,9 +579,9 @@ export const PortTableView: React.FC = () => {
   return (
     <div className="h-full flex flex-col p-6 space-y-4 w-full overflow-hidden">
       {/* Top Sticky Single-Row Action Bar Card */}
-      <div className="bg-card border border-border rounded-xl p-3 shadow-sm shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+      <div className="bg-card border border-border rounded-xl p-3 shadow-sm shrink-0 flex items-center justify-between gap-2.5">
         {/* Left: Egress Mode (System Proxy / TUN) Control Group & LAN IP Selector */}
-        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
           <div className="flex items-center gap-1.5 text-xs font-semibold shrink-0">
             {egressSliderValue === 2 ? (
               <Shield className="w-3.5 h-3.5 text-purple-500 animate-pulse" />
@@ -616,7 +616,7 @@ export const PortTableView: React.FC = () => {
             headerTitle="接管模式"
           />
 
-          <div className="w-56 shrink-0">
+          <div className="w-44 sm:w-48 xl:w-52 min-w-[130px] max-w-[210px] shrink">
             {enabledPorts.length === 0 ? (
               <span className="text-[11px] text-muted-foreground font-medium">
                 无已启用端口
@@ -651,7 +651,7 @@ export const PortTableView: React.FC = () => {
             </Button>
           )}
           {config?.allowLan && (
-            <div className="w-44 shrink-0">
+            <div className="w-36 lg:w-40 min-w-[110px] shrink-0">
               <Select
                 value={activeHostIp}
                 onChange={(val) => handleLanIpChange(String(val))}
@@ -663,7 +663,7 @@ export const PortTableView: React.FC = () => {
         </div>
 
         {/* Right: Batch Test + Add Port Button */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {activePorts > 0 && (
             <Button
               variant="outline"
@@ -671,6 +671,7 @@ export const PortTableView: React.FC = () => {
               onClick={handleBatchDelayTest}
               loading={isTestingAllPorts}
               icon={<Zap className="w-3.5 h-3.5 text-amber-500" />}
+              className="px-2"
             >
               {isTestingAllPorts ? '正在测速...' : '一键测速'}
             </Button>
@@ -686,8 +687,9 @@ export const PortTableView: React.FC = () => {
             }}
             icon={<Split className="w-3.5 h-3.5 text-primary" />}
             title="管理对所有代理端口生效的全局网站分流规则（单端口局部规则优先于全局规则）"
+            className="px-2"
           >
-            全局网站分流
+            全局分流
             {(config?.globalRules || []).filter((r) => r.enabled).length >
               0 && (
               <span className="ml-1 px-1.5 py-0.2 rounded-full bg-primary/15 text-primary text-[10px] font-mono">
@@ -704,8 +706,9 @@ export const PortTableView: React.FC = () => {
               setIsAddModalOpen(true)
             }}
             icon={<Plus className="w-3.5 h-3.5" />}
+            className="px-2.5"
           >
-            添加端口映射
+            添加端口
           </Button>
         </div>
       </div>
