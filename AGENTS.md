@@ -151,3 +151,4 @@ Single-context layout (`CONTEXT.md` at root, system ADRs in `docs/adr/`). See `d
    * `src-tauri/tauri.conf.json`：Tauri 桌面应用打包配置中的 `version`；
    * `src/constants/app.ts`：前端静态兜底常量 `APP_VERSION`。
 2. **发版前强制检查**：在执行生产构建（`pnpm build` / `pnpm tauri build`）或推送 Release Tag 前，开发者与 AI Agent 必须将其作为前置检查项完成核对，杜绝因常量遗漏更新导致界面显示旧版本或更新状态误判。
+3. **发布说明必须齐备 (Release Notes Mandate)**：在发布新版本、提交发版 Commit 或推送 Git Tag 之前，必须在 `docs/release-notes/<tag>.md`（例如 `docs/release-notes/v1.5.1.md`）中完整编写该版本的发布说明（包含核心更新亮点、改动明细与全平台分发包下载指引）。GitHub Actions Release 工作流会自动读取该路径文件作为 GitHub Release 正文，严禁遗漏发布说明直接发版或打 Tag。
