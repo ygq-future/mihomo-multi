@@ -3,8 +3,9 @@ use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::is_port_available;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
-    DriftStatus, LanIpInfo, NodeLatencyResult, PortDriftReport, PortFallbackStatus, PortMapping, ProfileItem,
-    ProxyNode, SniffedAccessLogEntry, SystemProxyStatus, TunStatus, UwpAppInfo, UwpLoopbackStats,
+    DriftStatus, FIXED_DIRECT_PORT_ID, InboundProtocol, LanIpInfo, NodeLatencyResult, PortDriftReport,
+    PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, SniffedAccessLogEntry, SystemProxyStatus, TunStatus,
+    UwpAppInfo, UwpLoopbackStats,
 };
 use crate::state::AppState;
 use std::process::Command;
@@ -1333,4 +1334,189 @@ pub async fn get_sniffed_access_logs(
     }
 
     Ok(entries)
+}
+
+const SNIFFER_WEBVIEW_LABEL: &str = "sniffer-sandbox";
+
+/// Resolve an active inbound listener mapping for the built-in sniffer WebView sandbox.
+/// - When `preferred_port` is specified (single-port rule), enforces deterministic routing:
+///   if that port is disabled or missing, returns an explicit error instead of drifting to another port.
+/// - When `preferred_port` is `None` (global rule), selects the first enabled proxy port (or direct fallback).
+fn resolve_sniffer_proxy_mapping(mappings: &[PortMapping], preferred_port: Option<u16>) -> Result<PortMapping, String> {
+    if let Some(port) = preferred_port {
+        if let Some(found) = mappings.iter().find(|m| m.port == port) {
+            if !found.enabled {
+                return Err(format!(
+                    "当前监听端口 {} 尚未启用，请先启用该端口后再执行沙盒嗅探",
+                    port
+                ));
+            }
+            return Ok(found.clone());
+        }
+        return Err(format!("未找到监听端口 {} 的配置映射", port));
+    }
+
+    if let Some(found) = mappings.iter().find(|m| m.enabled && m.id != FIXED_DIRECT_PORT_ID) {
+        return Ok(found.clone());
+    }
+
+    if let Some(found) = mappings.iter().find(|m| m.enabled) {
+        return Ok(found.clone());
+    }
+
+    Err("未找到已启用的监听端口，请先启用至少一个端口映射后再执行沙盒嗅探".to_string())
+}
+
+#[tauri::command]
+pub async fn close_sniffer_webview(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window(SNIFFER_WEBVIEW_LABEL) {
+        let _ = win.destroy();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_sniffer_webview(
+    url: String,
+    proxy_port: Option<u16>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<u16, String> {
+    let status = state.engine.get_status();
+    if !status.running {
+        return Err("请先启动 Mihomo 内核后再进行流量链路嗅探".to_string());
+    }
+
+    let parsed_url: tauri::Url = url.parse().map_err(|e| format!("无效的目标网址 ({}): {}", url, e))?;
+    let host_display = parsed_url.host_str().unwrap_or(&url).to_string();
+
+    let mappings = state.port_router.get_port_mappings();
+    let target_mapping = resolve_sniffer_proxy_mapping(&mappings, proxy_port)?;
+    let bound_port = target_mapping.port;
+    let scheme = match target_mapping.protocol {
+        InboundProtocol::Socks5 => "socks5",
+        InboundProtocol::Mixed | InboundProtocol::Http => "http",
+    };
+    let proxy_addr = format!("{}://127.0.0.1:{}", scheme, bound_port);
+    let proxy_url: tauri::Url = proxy_addr.parse().map_err(|e| format!("构造本地代理地址失败: {}", e))?;
+
+    if let Some(existing_win) = app.get_webview_window(SNIFFER_WEBVIEW_LABEL) {
+        let _ = existing_win.destroy();
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    }
+
+    // Isolate WebView2 user-data directory per proxy port so Windows WebView2 creates a dedicated
+    // environment bound to this exact proxy port rather than reusing an existing environment.
+    let sandbox_data_dir = state
+        .app_dir
+        .join("sniffer-webview-sandbox")
+        .join(format!("port-{}", bound_port));
+    let _ = std::fs::create_dir_all(&sandbox_data_dir);
+
+    let browser_args = format!(
+        "--proxy-server={} --proxy-bypass-list=localhost;127.0.0.1;[::1] --disable-background-networking --disable-component-update --disable-domain-reliability --no-first-run --disable-features=msEdgeECS,msEdgeShopping,msImplicitSignin",
+        proxy_addr
+    );
+
+    let app_for_load = app.clone();
+    let host_for_load = host_display.clone();
+    let window = tauri::WebviewWindowBuilder::new(&app, SNIFFER_WEBVIEW_LABEL, tauri::WebviewUrl::External(parsed_url))
+        .title(format!(
+            "⏳ [正在加载网页...] {} | 链路嗅探沙盒 (隔离出口 :{})",
+            host_display, bound_port
+        ))
+        .inner_size(960.0, 660.0)
+        .min_inner_size(680.0, 460.0)
+        .center()
+        .visible(true)
+        .focused(true)
+        .incognito(true)
+        .data_directory(sandbox_data_dir)
+        .proxy_url(proxy_url)
+        .additional_browser_args(&browser_args)
+        .on_page_load(move |webview, payload| {
+            let url_str = payload.url().as_str();
+            if url_str.is_empty() || url_str == "about:blank" {
+                return;
+            }
+            match payload.event() {
+                tauri::webview::PageLoadEvent::Started => {
+                    let _ = webview.set_title(&format!(
+                        "⏳ [正在加载网页...] {} | 链路嗅探沙盒 (隔离出口 :{})",
+                        host_for_load, bound_port
+                    ));
+                    let _ = app_for_load.emit("sniffer-page-loading", url_str.to_string());
+                }
+                tauri::webview::PageLoadEvent::Finished => {
+                    let _ = webview.set_title(&format!(
+                        "✅ [页面加载完成，可关闭此窗口] {} | 链路嗅探沙盒 (隔离出口 :{})",
+                        host_for_load, bound_port
+                    ));
+                    let _ = app_for_load.emit("sniffer-page-loaded", url_str.to_string());
+                }
+            }
+        })
+        .build()
+        .map_err(|e| format!("创建内置嗅探沙盒窗口失败: {}", e))?;
+
+    let _ = window.show();
+    let _ = window.set_focus();
+
+    let app_for_close = app.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+            let _ = app_for_close.emit("sniffer-window-closed", ());
+        }
+    });
+    Ok(bound_port)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::DEFAULT_DIRECT_PORT;
+
+    #[test]
+    fn test_resolve_sniffer_proxy_mapping_selection_precedence() {
+        let direct = PortMapping {
+            id: FIXED_DIRECT_PORT_ID.to_string(),
+            port: DEFAULT_DIRECT_PORT,
+            enabled: true,
+            ..PortMapping::default()
+        };
+        let proxy_a = PortMapping {
+            id: "proxy-a".to_string(),
+            port: 7890,
+            enabled: true,
+            ..PortMapping::default()
+        };
+        let proxy_b_disabled = PortMapping {
+            id: "proxy-b".to_string(),
+            port: 7891,
+            enabled: false,
+            ..PortMapping::default()
+        };
+
+        let mappings = vec![direct.clone(), proxy_a.clone(), proxy_b_disabled];
+
+        // 1. Explicit enabled preferred port wins
+        let chosen_explicit = resolve_sniffer_proxy_mapping(&mappings, Some(DEFAULT_DIRECT_PORT)).unwrap();
+        assert_eq!(chosen_explicit.port, DEFAULT_DIRECT_PORT);
+
+        // 2. When preferred port is disabled, returns explicit deterministic error instead of drifting
+        assert!(resolve_sniffer_proxy_mapping(&mappings, Some(7891)).is_err());
+
+        // 3. When preferred port is None (global rule), prefers first enabled non-direct port
+        let chosen_global = resolve_sniffer_proxy_mapping(&mappings, None).unwrap();
+        assert_eq!(chosen_global.port, 7890);
+
+        // 4. When only direct port is enabled and preferred_port is None, falls back to direct port
+        let only_direct = vec![direct];
+        let chosen_direct = resolve_sniffer_proxy_mapping(&only_direct, None).unwrap();
+        assert_eq!(chosen_direct.port, DEFAULT_DIRECT_PORT);
+
+        // 5. When no ports are enabled, returns descriptive error
+        let empty: Vec<PortMapping> = Vec::new();
+        assert!(resolve_sniffer_proxy_mapping(&empty, None).is_err());
+    }
 }

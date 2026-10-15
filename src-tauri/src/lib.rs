@@ -115,9 +115,22 @@ pub fn run() {
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
+    // Clear inherited process-level proxy env vars (http_proxy / https_proxy / all_proxy)
+    // so the main Tauri WebView2 window never routes `http://localhost:1420` through an external proxy.
+    for var in [
+        "http_proxy",
+        "HTTP_PROXY",
+        "https_proxy",
+        "HTTPS_PROXY",
+        "all_proxy",
+        "ALL_PROXY",
+    ] {
+        unsafe {
+            std::env::remove_var(var);
+        }
+    }
 
     info!("Initializing Mihomo Multi application backend...");
-
     let window_state_flags =
         tauri_plugin_window_state::StateFlags::all() & !tauri_plugin_window_state::StateFlags::VISIBLE;
 
@@ -127,6 +140,7 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(window_state_flags)
+                .with_denylist(&["sniffer-sandbox"])
                 .build(),
         )
         .setup(|app| {
@@ -300,11 +314,16 @@ pub fn run() {
             update_rules,
             get_connections,
             get_sniffed_access_logs,
+            open_sniffer_webview,
+            close_sniffer_webview,
             close_connection,
             close_all_connections,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
+                if window.label() != "main" {
+                    return;
+                }
                 if let Some(state) = window.try_state::<AppState>() {
                     let config = state.config.read().clone();
                     if config.close_to_tray {
@@ -323,7 +342,7 @@ pub fn run() {
                 }
             }
             tauri::WindowEvent::Destroyed => {
-                info!("Window destroyed");
+                info!("Window destroyed: {}", window.label());
             }
             _ => {}
         })

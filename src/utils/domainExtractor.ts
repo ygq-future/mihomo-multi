@@ -76,6 +76,19 @@ const SYSTEM_NOISE_SUFFIXES = [
   'events.data.microsoft.com',
   'vortex.data.microsoft.com',
   'settings-win.data.microsoft.com',
+  'edge.microsoft.com',
+  'smartscreen.microsoft.com',
+  'smartscreen-prod.microsoft.com',
+  'skype.com',
+  'msedge.net',
+  'sfx.ms',
+  'nelreports.net',
+  'activity.windows.com',
+  'bing.com',
+  'msn.com',
+  'live.com',
+  'office.com',
+  'office.net',
   'digicert.com',
   'sectigo.com',
   'lencr.org',
@@ -84,12 +97,36 @@ const SYSTEM_NOISE_SUFFIXES = [
   'time.windows.com',
   'time.apple.com',
   'pool.ntp.org',
-  'Safebrowsing.googleapis.com'.toLowerCase(),
+  'safebrowsing.googleapis.com',
   'content-autofill.googleapis.com',
   'optimizationguide-pa.googleapis.com',
   'componentupdater.googleapis.com',
   'clientservices.googleapis.com',
   'accounts.google.com',
+  'update.googleapis.com',
+  'clients2.google.com',
+  'clients4.google.com',
+  'gvt1.com',
+  'gvt2.com',
+  '1e100.net',
+  'nel.cloudflare.com',
+  'cloudflare-dns.com',
+  'mozilla.cloudflare-dns.com',
+  'services.mozilla.com',
+  'telemetry.mozilla.org',
+  'push.services.mozilla.com',
+  'detectportal.firefox.com',
+  'icloud.com',
+  'mzstatic.com',
+  'services.jetbrains.com',
+  'jetbrains-ide-services.com',
+  'dc.services.visualstudio.com',
+  'vortex.data.trafficmanager.net',
+  'wns.windows.com',
+  'beacon.qq.com',
+  'trace.qq.com',
+  'bugly.qq.com',
+  'tpns.tencent.com',
 ]
 
 const IPV4_REGEX = /^(?:\d{1,3}\.){3}\d{1,3}$/
@@ -407,8 +444,10 @@ export function mergeSnapshotIntoCapturedRecords(
   connections: ConnectionItem[],
   now: number,
   isInitialSnapshot: boolean,
+  sessionStartMs?: number,
 ): Map<string, CapturedHostRecord> {
   let nextRecords: Map<string, CapturedHostRecord> | null = null
+  const recentThresholdMs = sessionStartMs ?? now - 4000
 
   for (const conn of connections) {
     const host = extractConnectionHost(conn)
@@ -418,8 +457,9 @@ export function mergeSnapshotIntoCapturedRecords(
 
     if (isInitialSnapshot) {
       const startMs = Date.parse(conn.start)
-      const isVeryRecent = !Number.isNaN(startMs) && now - startMs <= 4000
-      if (!isVeryRecent) {
+      const isStartedInSession =
+        !Number.isNaN(startMs) && startMs >= recentThresholdMs
+      if (!isStartedInSession) {
         baselineTraffic.set(conn.id, totalBytes)
         continue
       }

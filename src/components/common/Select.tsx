@@ -30,6 +30,7 @@ export interface SelectProps<T = string | number> {
   options: SelectOption<T>[]
   placeholder?: string
   disabled?: boolean
+  size?: 'sm' | 'md'
   className?: string
   width?: string
   prefixIcon?: React.ReactNode
@@ -82,6 +83,7 @@ export function Select<T extends string | number = string | number>({
   options,
   placeholder = '请选择',
   disabled = false,
+  size = 'md',
   className = '',
   width = 'w-full',
   prefixIcon,
@@ -461,7 +463,9 @@ export function Select<T extends string | number = string | number>({
         ref={triggerRef}
         id={id}
         onClick={handleContainerClick}
-        className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-background border text-xs text-foreground hover:border-primary/50 transition-colors duration-150 select-none ${
+        className={`w-full h-full flex items-center justify-between gap-2 rounded-lg bg-background border text-xs text-foreground hover:border-primary/50 transition-colors duration-150 select-none ${
+          size === 'sm' ? 'px-2.5 py-1' : 'px-3 py-2'
+        } ${
           disabled
             ? 'opacity-50 pointer-events-none'
             : isOpen && !isClosing && filterable

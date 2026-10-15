@@ -1281,6 +1281,9 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                 }
                 isGlobal={isGlobal}
                 mapping={mapping}
+                portMappings={portMappings}
+                profiles={profiles}
+                latencies={latencies}
                 coreRunning={coreStatus?.running ?? true}
                 matchType={customMatchType}
                 customDomains={customDomains}

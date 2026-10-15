@@ -71,6 +71,12 @@ fn extract_inbound_port_from_rule_or_chain(rule_raw: &str, chain_raw: &str) -> O
             return Some(port);
         }
     }
+    if let Some((_, after_sub_rule)) = rule_raw.split_once("sub-rule-") {
+        let port: String = after_sub_rule.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !port.is_empty() {
+            return Some(port);
+        }
+    }
     if let Some(after_fb) = chain_raw.strip_prefix("fb-") {
         let port: String = after_fb.chars().take_while(|c| c.is_ascii_digit()).collect();
         if !port.is_empty() {

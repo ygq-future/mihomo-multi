@@ -22,6 +22,7 @@ function loadSource(path) {
 const {
   extractValidHostname,
   extractRootDomain,
+  isSystemNoiseDomain,
   normalizeProbeUrl,
   aggregateCapturedDomains,
   mergeSnapshotIntoCapturedRecords,
@@ -340,4 +341,13 @@ test('mergeAccessLogsIntoCapturedRecords captures short-lived ip.skk.moe chain d
   // skk.moe replaced SEED chain with real node and combined ip.skk.moe + ipv4-ip.api.skk.moe (hitCount = 2)
   assert.equal(aggregated[0].chain, '[ikuuu] 🇯🇵 日本S01 | IEPL')
   assert.equal(aggregated[0].hitCount, 2)
+})
+
+test('isSystemNoiseDomain filters WebView2 ECS skype.com, QQ beacon, and background telemetry domains', () => {
+  assert.equal(isSystemNoiseDomain('config.edge.skype.com'), true)
+  assert.equal(isSystemNoiseDomain('otheve.beacon.qq.com'), true)
+  assert.equal(isSystemNoiseDomain('edge.microsoft.com'), true)
+  assert.equal(isSystemNoiseDomain('analytics.services.jetbrains.com'), true)
+  assert.equal(isSystemNoiseDomain('chatgpt.com'), false)
+  assert.equal(isSystemNoiseDomain('cdn.oaistatic.com'), false)
 })

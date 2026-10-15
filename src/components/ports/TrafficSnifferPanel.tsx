@@ -1,16 +1,19 @@
 import {
   Check,
   ExternalLink,
+  Loader2,
   Plus,
   Radar,
-  Radio,
   RotateCcw,
   Square,
+  XCircle,
 } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FIXED_DIRECT_PORT_ID } from '../../constants'
+import { createEventScope } from '../../services/events'
 import * as api from '../../services/tauri'
-import type { PortMapping, PortRuleMatchType } from '../../types'
+import type { PortMapping, PortRuleMatchType, ProfileItem } from '../../types'
 import {
   type CapturedHostRecord,
   aggregateCapturedDomains,
@@ -19,12 +22,24 @@ import {
   normalizeProbeUrl,
   upsertSeedHostRecord,
 } from '../../utils/domainExtractor'
-import { Badge, Button, Input, Segmented, Switch, toast } from '../common'
+import { getLatencyColor } from '../../utils/proxy'
+import {
+  Badge,
+  Button,
+  Input,
+  Segmented,
+  Select,
+  type SelectOption,
+  toast,
+} from '../common'
 
 interface TrafficSnifferPanelProps {
   isOpen: boolean
   isGlobal: boolean
   mapping: PortMapping | null
+  portMappings: PortMapping[]
+  profiles: ProfileItem[]
+  latencies: Record<string, number | null>
   coreRunning: boolean
   matchType: PortRuleMatchType
   customDomains: string
@@ -35,6 +50,9 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
   isOpen,
   isGlobal,
   mapping,
+  portMappings,
+  profiles,
+  latencies,
   coreRunning,
   matchType,
   customDomains,
@@ -44,8 +62,90 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
   const [isSniffing, setIsSniffing] = useState(false)
   const [probeUrlInput, setProbeUrlInput] = useState('')
   const [sniffMode, setSniffMode] = useState<'root' | 'full'>('root')
-  const [sniffHideNoise, setSniffHideNoise] = useState(true)
-  const [sniffPortFilter, setSniffPortFilter] = useState<string>('all')
+
+  const getPortLatency = useCallback(
+    (p: PortMapping): number | null => {
+      if (p.id === FIXED_DIRECT_PORT_ID || p.nodeName === 'DIRECT') {
+        return p.latency ?? null
+      }
+      const isFbActive = p.manualFallback && Boolean(p.fallbackNodeName)
+      const activeNodeName = isFbActive ? p.fallbackNodeName! : p.nodeName
+      const activeProfileId = isFbActive
+        ? p.fallbackProfileId || p.profileId
+        : p.profileId
+      const prof = profiles.find((pr) => pr.id === activeProfileId)
+      const runtimeKey = prof
+        ? `[${prof.name}] ${activeNodeName}`
+        : activeNodeName
+
+      if (runtimeKey in latencies && latencies[runtimeKey] !== undefined) {
+        return latencies[runtimeKey]
+      }
+      if (
+        activeNodeName in latencies &&
+        latencies[activeNodeName] !== undefined
+      ) {
+        return latencies[activeNodeName]
+      }
+      return p.latency ?? null
+    },
+    [profiles, latencies],
+  )
+
+  const sortedEnabledMappings = useMemo(() => {
+    const enabled = portMappings.filter((m) => m.enabled)
+    return [...enabled].sort((a, b) => {
+      const aIsDirect = a.id === FIXED_DIRECT_PORT_ID || a.nodeName === 'DIRECT'
+      const bIsDirect = b.id === FIXED_DIRECT_PORT_ID || b.nodeName === 'DIRECT'
+      if (aIsDirect !== bIsDirect) return aIsDirect ? 1 : -1
+
+      const latA = getPortLatency(a)
+      const latB = getPortLatency(b)
+      const hasA = latA !== undefined && latA !== null && latA > 0
+      const hasB = latB !== undefined && latB !== null && latB > 0
+
+      if (hasA && hasB) return (latA as number) - (latB as number)
+      if (hasA && !hasB) return -1
+      if (!hasA && hasB) return 1
+      return a.port - b.port
+    })
+  }, [portMappings, getPortLatency])
+
+  const testPortOptions = useMemo<SelectOption<number>[]>(() => {
+    return sortedEnabledMappings.map((m) => {
+      const isDirect = m.id === FIXED_DIRECT_PORT_ID || m.nodeName === 'DIRECT'
+      const isFbActive = m.manualFallback && Boolean(m.fallbackNodeName)
+      const activeNodeName = isFbActive ? m.fallbackNodeName! : m.nodeName
+      const lat = getPortLatency(m)
+      const hasLat = lat !== undefined && lat !== null && lat > 0
+
+      return {
+        value: m.port,
+        label: `:${m.port} (${isDirect ? 'DIRECT 直连' : activeNodeName})`,
+        rightNode: hasLat ? (
+          <span
+            className={`font-mono text-[11px] font-medium ${getLatencyColor(
+              lat,
+            )}`}
+          >
+            {lat} ms
+          </span>
+        ) : null,
+      }
+    })
+  }, [sortedEnabledMappings, getPortLatency])
+
+  const defaultTestPort = useMemo<number | null>(() => {
+    if (!isGlobal && mapping) return mapping.port
+    return sortedEnabledMappings[0]?.port ?? null
+  }, [isGlobal, mapping, sortedEnabledMappings])
+
+  const [selectedTestPort, setSelectedTestPort] = useState<number | null>(
+    defaultTestPort,
+  )
+  const [sandboxPort, setSandboxPort] = useState<number | null>(null)
+  const [pageLoaded, setPageLoaded] = useState(false)
+  const [sandboxFinished, setSandboxFinished] = useState(false)
   const [capturedRecordsMap, setCapturedRecordsMap] = useState<
     Map<string, CapturedHostRecord>
   >(() => new Map())
@@ -60,7 +160,12 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
   const sessionStartMsRef = useRef<number>(Date.now())
   const isInitialPollRef = useRef<boolean>(true)
   const isPollingRef = useRef<boolean>(false)
-  // 当外部 matchType 切换为 domain / domain-suffix 时，自动同步收敛粒度
+  const isSandboxActiveRef = useRef<boolean>(false)
+
+  useEffect(() => {
+    setSelectedTestPort(defaultTestPort)
+  }, [defaultTestPort])
+
   useEffect(() => {
     if (matchType === 'domain') {
       setSniffMode('full')
@@ -71,11 +176,14 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
 
   const resetCaptureBuffers = useCallback(
     (clearRecords: boolean, graceMs = 0) => {
+      const now = Date.now()
       baselineTrafficRef.current.clear()
       seenConnIdsRef.current.clear()
       seenLogKeysRef.current.clear()
-      sessionStartMsRef.current = Date.now() - graceMs
+      sessionStartMsRef.current = now - graceMs
       isInitialPollRef.current = true
+      setPageLoaded(false)
+      setSandboxFinished(false)
       if (clearRecords) {
         recordsRef.current = new Map()
         setCapturedRecordsMap(new Map())
@@ -85,14 +193,29 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
     [],
   )
 
+  const stopProbeSession = useCallback(
+    (closeWebview = true, markFinished = false) => {
+      isSandboxActiveRef.current = false
+      setIsSniffing(false)
+      if (markFinished) {
+        setSandboxFinished(true)
+      }
+      if (closeWebview) {
+        void api.closeSnifferWebview()
+      }
+    },
+    [],
+  )
+
   const resetSnifferSession = useCallback(() => {
-    setIsSniffing(false)
+    stopProbeSession(true, false)
     setSnifferOpen(false)
     setProbeUrlInput('')
-    setSniffPortFilter('all')
+    setSandboxPort(null)
+    setSelectedTestPort(defaultTestPort)
     isPollingRef.current = false
     resetCaptureBuffers(true)
-  }, [resetCaptureBuffers])
+  }, [defaultTestPort, resetCaptureBuffers, stopProbeSession])
 
   useEffect(() => {
     if (!isOpen) {
@@ -100,6 +223,29 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
     }
   }, [isOpen, resetSnifferSession])
 
+  useEffect(() => {
+    if (!isOpen || !snifferOpen) return
+    const scope = createEventScope()
+    void scope.listen<string>('sniffer-page-loading', () => {
+      if (isSandboxActiveRef.current) {
+        setPageLoaded(false)
+      }
+    })
+    void scope.listen<string>('sniffer-page-loaded', () => {
+      if (isSandboxActiveRef.current) {
+        setPageLoaded(true)
+      }
+    })
+    void scope.listen('sniffer-window-closed', () => {
+      if (isSandboxActiveRef.current) {
+        stopProbeSession(false, true)
+        toast.success('沙盒窗口已关闭，已锁定本次捕获的关联域名')
+      }
+    })
+    return () => {
+      scope.dispose()
+    }
+  }, [isOpen, snifferOpen, stopProbeSession])
   const pollSnifferConnections = useCallback(async () => {
     if (isPollingRef.current) return
     isPollingRef.current = true
@@ -121,6 +267,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
           connRes.value.connections,
           now,
           isInitial,
+          sessionStartMsRef.current,
         )
       }
 
@@ -142,7 +289,6 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
       isPollingRef.current = false
     }
   }, [])
-
   useEffect(() => {
     if (!isOpen || !isSniffing) {
       return
@@ -150,7 +296,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
     void pollSnifferConnections()
     const timer = setInterval(() => {
       void pollSnifferConnections()
-    }, 700)
+    }, 300)
     return () => clearInterval(timer)
   }, [isOpen, isSniffing, pollSnifferConnections])
 
@@ -163,19 +309,20 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
     return set
   }, [customDomains])
 
-  const resolvedPortFilter = useMemo<number | 'all'>(() => {
-    if (sniffPortFilter === 'all') return 'all'
-    const parsed = Number.parseInt(sniffPortFilter, 10)
-    return Number.isNaN(parsed) ? 'all' : parsed
-  }, [sniffPortFilter])
+  const activePortFilter = useMemo<number | 'all'>(() => {
+    if (sandboxPort !== null) return sandboxPort
+    if (!isGlobal && mapping) return mapping.port
+    if (selectedTestPort !== null) return selectedTestPort
+    return 'all'
+  }, [sandboxPort, isGlobal, mapping, selectedTestPort])
 
   const aggregatedSniffDomains = useMemo(() => {
     return aggregateCapturedDomains(Array.from(capturedRecordsMap.values()), {
       mode: sniffMode,
-      hideNoise: sniffHideNoise,
-      portFilter: resolvedPortFilter,
+      hideNoise: true,
+      portFilter: activePortFilter,
     })
-  }, [capturedRecordsMap, sniffMode, sniffHideNoise, resolvedPortFilter])
+  }, [capturedRecordsMap, sniffMode, activePortFilter])
 
   const selectedSniffDomains = useMemo(() => {
     return aggregatedSniffDomains.filter(
@@ -185,17 +332,9 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
     )
   }, [aggregatedSniffDomains, existingCustomDomainsSet, unselectedDomains])
 
-  const handleToggleSniffing = () => {
-    if (isSniffing) {
-      setIsSniffing(false)
-      return
-    }
-    if (!coreRunning) {
-      toast.warning('请先启动 Mihomo 内核后再进行流量链路嗅探')
-      return
-    }
-    resetCaptureBuffers(false, 2000)
-    setIsSniffing(true)
+  const handleFinishAndCloseSandbox = () => {
+    stopProbeSession(true, true)
+    toast.success('已关闭沙盒并完成链路域名采集')
   }
 
   const handleLaunchAndSniff = async () => {
@@ -208,21 +347,33 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
       toast.warning('请先启动 Mihomo 内核后再进行流量链路嗅探')
       return
     }
-    if (!isSniffing) {
-      resetCaptureBuffers(false, 2000)
+    const preferredPort = !isGlobal && mapping ? mapping.port : selectedTestPort
+    try {
+      const boundPort = await api.openSnifferWebview(parsed.url, preferredPort)
+      const now = Date.now()
+      resetCaptureBuffers(true, 0)
+      isSandboxActiveRef.current = true
+
+      const boundPortStr = String(boundPort)
+      setSandboxPort(boundPort)
+      setSelectedTestPort(boundPort)
+
+      const nextRecords = upsertSeedHostRecord(
+        recordsRef.current,
+        parsed.hostname,
+        boundPortStr,
+        now,
+      )
+      recordsRef.current = nextRecords
+      setCapturedRecordsMap(nextRecords)
+      setIsSniffing(true)
+      toast.info(
+        `已弹出内置沙盒加载 ${parsed.hostname} (出口 :${boundPort})，确认页面加载完成后关闭沙盒窗口即可`,
+      )
+    } catch (err) {
+      isSandboxActiveRef.current = false
+      toast.error(err instanceof Error ? err.message : String(err))
     }
-    const seedPort = !isGlobal && mapping ? String(mapping.port) : null
-    const nextRecords = upsertSeedHostRecord(
-      recordsRef.current,
-      parsed.hostname,
-      seedPort,
-      Date.now(),
-    )
-    recordsRef.current = nextRecords
-    setCapturedRecordsMap(nextRecords)
-    setIsSniffing(true)
-    await api.openExternalUrl(parsed.url)
-    toast.info(`已打开 ${parsed.hostname}，正在实时捕获整条请求链路域名...`)
   }
 
   const handleToggleSniffDomainSelect = (domain: string) => {
@@ -243,9 +394,8 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
     const domainsToAppend = selectedSniffDomains.map((d) => d.domain)
     const parsed = normalizeProbeUrl(probeUrlInput)
     onAppendDomains(domainsToAppend, parsed?.hostname || domainsToAppend[0])
-    setIsSniffing(false)
+    stopProbeSession(true, false)
   }
-
   const handleClearRecords = () => {
     resetCaptureBuffers(true)
   }
@@ -281,11 +431,11 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
 
       {snifferOpen && (
         <div className="p-3 rounded-xl border border-primary/25 bg-primary/[0.03] space-y-2.5 animate-fade-in">
-          {/* 第一行：输入探测网址自动打开 + 监听控制 */}
+          {/* 第一行：输入探测网址 + 沙盒嗅探 / 完成并关闭沙盒 */}
           <div className="flex items-center gap-2">
             <div className="flex-1 min-w-0">
               <Input
-                placeholder="输入目标网址打开并嗅探全链路 (如 ip.skk.moe)..."
+                placeholder="输入目标网址弹出内置沙盒嗅探全链路 (如 https://chatgpt.com)..."
                 value={probeUrlInput}
                 onChange={(e) => setProbeUrlInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -297,36 +447,63 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                 className="h-8 text-xs bg-background"
               />
             </div>
-            {probeUrlInput.trim() && (
+            {isSniffing ? (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span
+                  className={`inline-flex items-center gap-1 px-2 h-8 rounded-lg border text-[11px] font-medium ${
+                    pageLoaded
+                      ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+                      : 'bg-amber-500/10 text-amber-500 border-amber-500/30'
+                  }`}
+                  title={
+                    pageLoaded
+                      ? '沙盒页面 DOM 与静态资源已加载完成，可随时关闭沙盒'
+                      : '沙盒浏览器正在加载网页资源与接口...'
+                  }
+                >
+                  {pageLoaded ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>页面加载完成</span>
+                    </>
+                  ) : (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>网页加载中...</span>
+                    </>
+                  )}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="danger"
+                  onClick={handleFinishAndCloseSandbox}
+                  className="h-8 px-2.5 text-[11px] gap-1 shrink-0"
+                  title="关闭内置沙盒窗口并锁定当前捕获到的所有域名"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  完成并关闭
+                </Button>
+              </div>
+            ) : (
               <Button
                 type="button"
                 size="sm"
-                variant="outline"
+                variant="primary"
+                disabled={!probeUrlInput.trim()}
                 onClick={() => void handleLaunchAndSniff()}
-                className="h-8 px-2.5 text-[11px] gap-1 shrink-0 bg-background"
-                title="在浏览器打开该网址并实时捕获页面触发的所有关联域名"
+                className="h-8 px-3 text-[11px] gap-1.5 shrink-0"
+                title="弹出内置无痕 WebView 沙盒并通过指定测试端口访问该网址"
               >
-                <ExternalLink className="w-3 h-3" />
-                打开并嗅探
+                <ExternalLink className="w-3.5 h-3.5" />
+                打开沙盒嗅探
               </Button>
             )}
-            <Button
-              type="button"
-              size="sm"
-              variant={isSniffing ? 'danger' : 'primary'}
-              onClick={handleToggleSniffing}
-              className="h-8 px-2.5 text-[11px] gap-1 shrink-0"
-            >
-              <Radio
-                className={`w-3 h-3 ${isSniffing ? 'animate-pulse' : ''}`}
-              />
-              {isSniffing ? '停止嗅探' : '开始监听'}
-            </Button>
           </div>
 
-          {/* 第二行：聚合模式、端口过滤与噪音开关 */}
-          <div className="flex items-center justify-between gap-2 flex-wrap text-[11px]">
-            <div className="flex items-center gap-1.5 flex-wrap">
+          {/* 第二行：聚合模式、加长出口选择器（含延迟排序与展示）与清空按钮 */}
+          <div className="flex items-center justify-between gap-2 text-[11px]">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
               <Segmented<'root' | 'full'>
                 size="sm"
                 value={sniffMode}
@@ -337,56 +514,51 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                 ]}
               />
 
-              {!isGlobal && mapping && (
-                <Segmented<string>
+              {isGlobal ? (
+                <Select<number>
                   size="sm"
-                  value={sniffPortFilter}
-                  onChange={setSniffPortFilter}
-                  options={[
-                    { value: 'all', label: '全部入站' },
-                    {
-                      value: String(mapping.port),
-                      label: `仅端口 ${mapping.port}`,
-                    },
-                  ]}
+                  filterable={false}
+                  value={selectedTestPort ?? 0}
+                  onChange={(val) => setSelectedTestPort(val)}
+                  disabled={isSniffing || testPortOptions.length === 0}
+                  options={testPortOptions}
+                  placeholder="无可用启用端口"
+                  width="flex-1 min-w-[200px]"
+                  className="h-[30px] text-[11px]"
                 />
-              )}
-            </div>
-
-            <div className="flex items-center gap-2.5 text-muted-foreground">
-              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[10px]">
-                <Switch
-                  size="sm"
-                  checked={sniffHideNoise}
-                  onChange={setSniffHideNoise}
-                />
-                <span>过滤系统噪音</span>
-              </label>
-              {capturedRecordsMap.size > 0 && (
-                <button
-                  type="button"
-                  onClick={handleClearRecords}
-                  className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                  title="清空已捕获记录"
+              ) : mapping ? (
+                <Badge
+                  variant="outline"
+                  className="text-[10px] py-0.5 px-2 font-mono text-muted-foreground truncate"
                 >
-                  <RotateCcw className="w-3 h-3" />
-                  清空
-                </button>
-              )}
+                  隔离出口 :{mapping.port} ({mapping.nodeName})
+                </Badge>
+              ) : null}
             </div>
-          </div>
 
+            {capturedRecordsMap.size > 0 && (
+              <button
+                type="button"
+                onClick={handleClearRecords}
+                className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                title="清空已捕获记录"
+              >
+                <RotateCcw className="w-3 h-3" />
+                清空
+              </button>
+            )}
+          </div>
           {/* 第三行：捕获到的域名列表 */}
           {aggregatedSniffDomains.length === 0 ? (
             <div className="py-4 px-3 rounded-lg bg-background/60 border border-dashed border-border/70 text-center text-[11px] text-muted-foreground">
               {isSniffing ? (
                 <span className="inline-flex items-center gap-1.5 text-foreground/80">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                  正在监听内核实时请求链路，请在浏览器中打开或刷新目标网页...
+                  沙盒窗口运行中，正在实时捕获请求链路，网页加载完成后关闭沙盒窗口即可...
                 </span>
               ) : (
                 <span>
-                  上方输入目标网址点「打开并嗅探」，或点「开始监听」后在浏览器访问目标网页，即可自动抓出整条请求链路的所有关联域名
+                  上方输入目标网址点「打开沙盒嗅探」，在弹出的内置无痕沙盒窗口中查看网页，加载完成后关闭沙盒即可完整提取关联域名
                 </span>
               )}
             </div>
@@ -472,7 +644,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
 
               {/* 底部批量操作栏 */}
               <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/50 text-[11px]">
-                <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="flex items-center gap-2 text-muted-foreground flex-wrap">
                   <span>
                     共捕获{' '}
                     <strong className="text-foreground font-mono">
@@ -480,6 +652,22 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                     </strong>{' '}
                     个域名
                   </span>
+                  {isSniffing && pageLoaded && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] py-0 px-1.5 text-emerald-500 border-emerald-500/30"
+                    >
+                      页面已就绪，可关闭沙盒
+                    </Badge>
+                  )}
+                  {sandboxFinished && !isSniffing && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] py-0 px-1.5 text-emerald-500 border-emerald-500/30"
+                    >
+                      已完成沙盒采集
+                    </Badge>
+                  )}
                   <span>·</span>
                   <button
                     type="button"

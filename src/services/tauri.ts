@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core'
-import { open as shellOpen } from '@tauri-apps/plugin-shell'
 import type {
   AppConfig,
   AppStatus,
@@ -1036,18 +1035,23 @@ export async function closeAllConnections(): Promise<void> {
   return invoke<void>('close_all_connections')
 }
 
-export async function openExternalUrl(url: string): Promise<void> {
+export async function openSnifferWebview(
+  url: string,
+  proxyPort?: number | null,
+): Promise<number> {
   if (!isTauriEnvironment()) {
     if (typeof window !== 'undefined') {
       window.open(url, '_blank', 'noopener,noreferrer')
     }
-    return
+    return proxyPort ?? 7890
   }
-  try {
-    await shellOpen(url)
-  } catch {
-    if (typeof window !== 'undefined') {
-      window.open(url, '_blank', 'noopener,noreferrer')
-    }
-  }
+  return invoke<number>('open_sniffer_webview', {
+    url,
+    proxyPort: proxyPort ?? null,
+  })
+}
+
+export async function closeSnifferWebview(): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('close_sniffer_webview')
 }
