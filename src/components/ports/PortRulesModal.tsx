@@ -19,6 +19,7 @@ import {
   MessageCircle,
   MessageSquare,
   Music,
+  Pencil,
   PenTool,
   Play,
   PlaySquare,
@@ -225,8 +226,9 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
 
   const isGlobal = mode === 'global'
 
-  // 视图切换：'list' 列表视图 | 'add' 添加规则视图
-  const [view, setView] = useState<'list' | 'add'>('list')
+  // 视图切换：'list' 列表视图 | 'add' 添加规则视图 | 'edit' 编辑规则视图
+  const [view, setView] = useState<'list' | 'add' | 'edit'>('list')
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
 
   // 规则列表草稿
   const [rules, setRules] = useState<PortRule[]>(
@@ -282,21 +284,27 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
   const canTestDelay = Boolean(
     currentTestUrl && targetValue && targetType !== 'direct',
   )
+  // 返回列表并清空表单草稿
+  const handleBackToList = useCallback(() => {
+    setView('list')
+    setEditingRuleId(null)
+    setSelectedPresetId('')
+    setCustomDomains('')
+    setCustomName('')
+    setTestResult(null)
+  }, [])
+
   // 同步外部 mapping 规则
   useEffect(() => {
     if (!isOpen) return
     if (isGlobal) {
       setRules(config?.globalRules || [])
-      setView('list')
-      setSelectedPresetId('')
-      setTestResult(null)
+      handleBackToList()
     } else if (mapping) {
       setRules(mapping.rules || [])
-      setView('list')
-      setSelectedPresetId('')
-      setTestResult(null)
+      handleBackToList()
     }
-  }, [isOpen, isGlobal, mapping, config?.globalRules])
+  }, [isOpen, isGlobal, mapping, config?.globalRules, handleBackToList])
 
   // 将嗅探面板选中的域名追加到自定义规则匹配列表中
   const handleAppendSniffedDomains = useCallback(
@@ -524,9 +532,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     return PRESET_SERVICES.map((s) => {
       const catLabel =
         SERVICE_CATEGORIES.find((c) => c.id === s.category)?.label || s.category
+      const alreadyExists = rules.some((r) => r.name === s.name)
       return {
         value: s.id,
         label: s.name,
+        disabled: alreadyExists,
         icon: (
           <div className="w-5 h-5 rounded-md bg-muted/80 flex items-center justify-center shrink-0 text-foreground border border-border/50">
             <ServiceIcon iconKey={s.iconKey} className="w-3.5 h-3.5" />
@@ -536,18 +546,28 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           s.domains.length > 3 ? ' 等' : ''
         }`,
         rightNode: (
-          <Badge
-            variant="outline"
-            className="text-[10px] font-normal py-0 px-1.5 shrink-0"
-          >
-            {catLabel}
-          </Badge>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {alreadyExists && (
+              <Badge
+                variant="secondary"
+                className="text-[10px] font-normal py-0 px-1 text-muted-foreground"
+              >
+                已添加
+              </Badge>
+            )}
+            <Badge
+              variant="outline"
+              className="text-[10px] font-normal py-0 px-1.5 shrink-0"
+            >
+              {catLabel}
+            </Badge>
+          </div>
         ),
         group: catLabel,
         searchTarget: `${s.name} ${s.domains.join(' ')} ${catLabel}`,
       }
     })
-  }, [])
+  }, [rules])
 
   // 初始化目标出口默认值
   const ensureDefaultTarget = () => {
@@ -637,6 +657,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         toast.warning('请选择要添加的常用网站')
         return
       }
+      const duplicatePreset = rules.find((r) => r.name === selectedPreset.name)
+      if (duplicatePreset) {
+        toast.warning(`已存在【${selectedPreset.name}】规则`)
+        return
+      }
       newRule = {
         id: ruleId,
         name: selectedPreset.name,
@@ -657,9 +682,20 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         toast.warning('请输入至少一个域名或规则匹配项')
         return
       }
+      const targetRuleName = customName.trim() || rawLines[0]
+      const duplicateCustom = rules.find((r) => {
+        const existingName = (r.name || r.payloads[0] || '')
+          .trim()
+          .toLowerCase()
+        return existingName === targetRuleName.toLowerCase()
+      })
+      if (duplicateCustom) {
+        toast.warning(`已存在名称为【${targetRuleName}】的规则`)
+        return
+      }
       newRule = {
         id: ruleId,
-        name: customName.trim() || rawLines[0],
+        name: targetRuleName,
         icon: 'globe',
         matchType: customMatchType,
         payloads: rawLines,
@@ -669,14 +705,105 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         enabled: true,
       }
     }
-
     setRules((prev) => [newRule, ...prev])
-    setView('list')
-    setSelectedPresetId('')
-    setCustomDomains('')
-    setCustomName('')
-    setTestResult(null)
+    handleBackToList()
     toast.success(`已添加规则: ${newRule.name || '新规则'}`)
+  }
+
+  // 开启编辑规则
+  const handleStartEditRule = (rule: PortRule) => {
+    setEditingRuleId(rule.id)
+    setTestResult(null)
+
+    // 尝试匹配预置服务
+    const matchedPreset = PRESET_SERVICES.find(
+      (s) =>
+        s.name === rule.name ||
+        (s.iconKey === rule.icon &&
+          s.domains.length === rule.payloads.length &&
+          s.domains.every((d, i) => d === rule.payloads[i])),
+    )
+
+    if (matchedPreset) {
+      setActiveTab('preset')
+      setSelectedPresetId(matchedPreset.id)
+      setCustomName('')
+      setCustomDomains('')
+      setCustomMatchType('domain-suffix')
+    } else {
+      setActiveTab('custom')
+      setSelectedPresetId('')
+      setCustomName(rule.name || '')
+      setCustomDomains(rule.payloads.join('\n'))
+      setCustomMatchType(rule.matchType)
+    }
+
+    // 目标出口设置
+    setTargetType(rule.targetType)
+    setTargetValue(rule.targetValue)
+    setTargetProfileId(rule.targetProfileId || '')
+
+    setView('edit')
+  }
+
+  // 保存修改规则
+  const handleUpdateRule = () => {
+    if (!editingRuleId) return
+    if (!targetValue) {
+      toast.warning('请选择目标出口')
+      return
+    }
+
+    const currentRule = rules.find((r) => r.id === editingRuleId)
+    if (!currentRule) return
+
+    let updatedRule: PortRule
+    if (activeTab === 'preset') {
+      // 预置规则更新出口
+      updatedRule = {
+        ...currentRule,
+        targetType,
+        targetValue,
+        targetProfileId: targetProfileId || undefined,
+      }
+    } else {
+      // 自定义规则更新配置
+      const rawLines = customDomains
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean)
+      if (rawLines.length === 0) {
+        toast.warning('请输入至少一个域名或规则匹配项')
+        return
+      }
+      const targetRuleName = customName.trim() || rawLines[0]
+      const duplicateCustom = rules.find((r) => {
+        if (r.id === editingRuleId) return false
+        const existingName = (r.name || r.payloads[0] || '')
+          .trim()
+          .toLowerCase()
+        return existingName === targetRuleName.toLowerCase()
+      })
+      if (duplicateCustom) {
+        toast.warning(`已存在名称为【${targetRuleName}】的规则`)
+        return
+      }
+      updatedRule = {
+        ...currentRule,
+        name: targetRuleName,
+        icon: 'globe',
+        matchType: customMatchType,
+        payloads: rawLines,
+        targetType,
+        targetValue,
+        targetProfileId: targetProfileId || undefined,
+      }
+    }
+    setRules((prev) =>
+      prev.map((r) => (r.id === editingRuleId ? updatedRule : r)),
+    )
+    handleBackToList()
+    toast.success(`已更新规则: ${updatedRule.name || '分流规则'}`)
   }
 
   // 删除规则
@@ -733,8 +860,8 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         }
         subtitle={
           isGlobal
-            ? `对所有代理监听端口生效 · 单端口局部规则优先级高于全局规则 · 已配置 ${rules.length} 条全局规则`
-            : `默认出口: ${mapping?.nodeName} · 已配置 ${rules.length} 条局部规则 (优先于 ${activeGlobalRulesCount} 条生效中的全局规则)`
+            ? `对所有代理监听端口生效 · 已配置 ${rules.length} 条全局规则`
+            : `默认出口: ${mapping?.nodeName} · 已配置 ${rules.length} 条局部规则`
         }
         icon={<Split className="w-5 h-5 text-primary" />}
         maxWidth="xl"
@@ -745,6 +872,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                 variant="outline"
                 size="sm"
                 onClick={() => {
+                  setEditingRuleId(null)
+                  setSelectedPresetId('')
+                  setCustomDomains('')
+                  setCustomName('')
+                  setTestResult(null)
                   ensureDefaultTarget()
                   setView('add')
                 }}
@@ -801,6 +933,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
               </div>
               <Button
                 onClick={() => {
+                  setEditingRuleId(null)
+                  setSelectedPresetId('')
+                  setCustomDomains('')
+                  setCustomName('')
+                  setTestResult(null)
                   ensureDefaultTarget()
                   setView('add')
                 }}
@@ -859,15 +996,23 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                           </Badge>
                           <span className="text-muted-foreground/40">·</span>
                           <span className="text-[10px]">
-                            {rule.payloads.length} 个规则项 (
+                            {rule.payloads.length} 项 ·{' '}
                             {rule.payloads.slice(0, 2).join(', ')}
-                            {rule.payloads.length > 2 ? ' 等' : ''})
+                            {rule.payloads.length > 2 ? ' 等' : ''}
                           </span>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleStartEditRule(rule)}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        title="修改规则"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
                       <Switch
                         checked={rule.enabled}
                         onChange={(checked) =>
@@ -894,20 +1039,27 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     )
   }
 
-  // ================= 视图 2: 添加网站分流视图 (纯粹紧凑自适应) =================
+  // ================= 视图 2: 添加/编辑网站分流视图 =================
+  const isEditing = view === 'edit'
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
       title={
-        isGlobal
-          ? '添加全局网站分流规则'
-          : `为端口 ${mapping?.port} 添加网站分流`
+        isEditing
+          ? isGlobal
+            ? '修改全局网站分流规则'
+            : `修改端口 ${mapping?.port} 网站分流规则`
+          : isGlobal
+            ? '添加全局网站分流规则'
+            : `为端口 ${mapping?.port} 添加网站分流`
       }
       subtitle={
-        isGlobal
-          ? '选择或输入目标网站，为所有代理端口统一指定特殊出口 (单端口局部规则优先)'
-          : '选择或输入目标网站，并指定命中后的特殊出口 (优先级高于全局规则)'
+        isEditing
+          ? '调整该规则的配置与目标出口'
+          : isGlobal
+            ? '为全局流量配置目标网站的分流出口'
+            : `为端口 ${mapping?.port} 配置目标网站的分流出口`
       }
       icon={<Split className="w-5 h-5 text-primary" />}
       maxWidth="lg"
@@ -915,68 +1067,77 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         <div className="flex items-center justify-between w-full">
           <Button
             variant="ghost"
-            onClick={() => setView('list')}
+            onClick={handleBackToList}
             className="gap-1.5"
           >
             <ArrowLeft className="w-4 h-4" />
             返回列表
           </Button>
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setView('list')}>
+            <Button variant="outline" onClick={handleBackToList}>
               取消
             </Button>
             <Button
-              onClick={handleAddRule}
+              onClick={isEditing ? handleUpdateRule : handleAddRule}
               disabled={
                 !targetValue ||
-                (activeTab === 'preset' && !selectedPreset) ||
+                (!isEditing && activeTab === 'preset' && !selectedPreset) ||
                 (activeTab === 'custom' && !customDomains.trim())
               }
             >
-              确认添加此规则
+              {isEditing ? '保存修改' : '确认添加此规则'}
             </Button>
           </div>
         </div>
       }
     >
       <div className="space-y-4">
-        {/* 顶部模式切换：下划线极简微 Tab */}
-        <div className="flex items-center gap-6 border-b border-border/60">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('preset')
-              setTestResult(null)
-            }}
-            className={`pb-2.5 text-xs transition-colors relative ${
-              activeTab === 'preset'
-                ? 'text-primary font-semibold'
-                : 'text-muted-foreground hover:text-foreground font-normal'
-            }`}
-          >
-            常用网站预置
-            {activeTab === 'preset' && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('custom')
-              setTestResult(null)
-            }}
-            className={`pb-2.5 text-xs transition-colors relative ${
-              activeTab === 'custom'
-                ? 'text-primary font-semibold'
-                : 'text-muted-foreground hover:text-foreground font-normal'
-            }`}
-          >
-            自定义规则
-            {activeTab === 'custom' && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
-            )}
-          </button>
-        </div>
+        {/* 顶部模式切换：添加模式下显示切换微 Tab；编辑模式下锁定类型不可修改 */}
+        {!isEditing ? (
+          <div className="flex items-center gap-6 border-b border-border/60">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('preset')
+                setTestResult(null)
+              }}
+              className={`pb-2.5 text-xs transition-colors relative ${
+                activeTab === 'preset'
+                  ? 'text-primary font-semibold'
+                  : 'text-muted-foreground hover:text-foreground font-normal'
+              }`}
+            >
+              常用网站预置
+              {activeTab === 'preset' && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('custom')
+                setTestResult(null)
+              }}
+              className={`pb-2.5 text-xs transition-colors relative ${
+                activeTab === 'custom'
+                  ? 'text-primary font-semibold'
+                  : 'text-muted-foreground hover:text-foreground font-normal'
+              }`}
+            >
+              自定义规则
+              {activeTab === 'custom' && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
+              )}
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 pb-2 border-b border-border/60 text-xs">
+            <span className="text-muted-foreground">规则类型:</span>
+            <Badge variant="outline" className="font-normal text-xs py-0.5">
+              {activeTab === 'preset' ? '常用网站' : '自定义规则'}
+            </Badge>
+          </div>
+        )}
 
         {/* --- 1. 目标网站配置区域 --- */}
         {activeTab === 'preset' ? (
@@ -985,45 +1146,75 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
               htmlFor="preset-service-select"
               className="text-xs font-medium text-foreground block"
             >
-              选择预置网站 / 服务:
+              预置网站 / 服务
             </label>
-            <Select
-              id="preset-service-select"
-              value={selectedPresetId}
-              onChange={(val) => setSelectedPresetId(val)}
-              options={presetSelectOptions}
-              placeholder="搜索或点选服务 (支持按名称、域名或分类模糊匹配)"
-              filterable
-              clearable
-              onClear={() => setSelectedPresetId('')}
-              className="h-10 text-xs w-full"
-            />
-
-            {/* 选中服务后紧凑展示关联域名 */}
-            {selectedPreset && (
-              <div className="p-3 rounded-xl bg-primary/5 border border-primary/20 text-xs space-y-2 animate-fade-in">
-                <div className="flex items-center justify-between text-muted-foreground text-[11px]">
-                  <span className="font-medium text-foreground flex items-center gap-1.5">
-                    <ServiceIcon
-                      iconKey={selectedPreset.iconKey}
-                      className="w-3.5 h-3.5 text-primary"
-                    />
-                    {selectedPreset.name} 包含的规则域名 (
-                    {selectedPreset.domains.length} 个):
+            {isEditing ? (
+              <div className="p-3 rounded-xl bg-muted/40 border border-border/60 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-foreground flex items-center gap-2 text-sm">
+                    <div className="w-6 h-6 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                      <ServiceIcon
+                        iconKey={selectedPreset?.iconKey}
+                        className="w-3.5 h-3.5"
+                      />
+                    </div>
+                    {selectedPreset?.name || '预置服务'}
                   </span>
-                  <span>{selectedPreset.description}</span>
                 </div>
-                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                  {selectedPreset.domains.map((dom) => (
-                    <span
-                      key={dom}
-                      className="px-2 py-0.5 rounded-md bg-background border border-border/60 text-[10px] text-muted-foreground font-mono"
-                    >
-                      {dom}
-                    </span>
-                  ))}
-                </div>
+                {selectedPreset && (
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                    {selectedPreset.domains.map((dom) => (
+                      <span
+                        key={dom}
+                        className="px-2 py-0.5 rounded-md bg-background border border-border/60 text-[10px] text-muted-foreground font-mono"
+                      >
+                        {dom}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
+            ) : (
+              <>
+                <Select
+                  id="preset-service-select"
+                  value={selectedPresetId}
+                  onChange={(val) => setSelectedPresetId(val)}
+                  options={presetSelectOptions}
+                  placeholder="搜索或点选服务 (支持按名称、域名或分类模糊匹配)"
+                  filterable
+                  clearable
+                  onClear={() => setSelectedPresetId('')}
+                  className="h-10 text-xs w-full"
+                />
+
+                {/* 选中服务后紧凑展示关联域名 */}
+                {selectedPreset && (
+                  <div className="p-3 rounded-xl bg-primary/5 border border-primary/20 text-xs space-y-2 animate-fade-in">
+                    <div className="flex items-center justify-between text-muted-foreground text-[11px]">
+                      <span className="font-medium text-foreground flex items-center gap-1.5">
+                        <ServiceIcon
+                          iconKey={selectedPreset.iconKey}
+                          className="w-3.5 h-3.5 text-primary"
+                        />
+                        {selectedPreset.name} 包含的规则域名 (
+                        {selectedPreset.domains.length} 个):
+                      </span>
+                      <span>{selectedPreset.description}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                      {selectedPreset.domains.map((dom) => (
+                        <span
+                          key={dom}
+                          className="px-2 py-0.5 rounded-md bg-background border border-border/60 text-[10px] text-muted-foreground font-mono"
+                        >
+                          {dom}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         ) : (
@@ -1034,7 +1225,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                   htmlFor="custom-rule-name-input"
                   className="text-xs font-medium text-foreground block mb-1.5"
                 >
-                  规则名称 (可选)
+                  规则名称
                 </label>
                 <Input
                   id="custom-rule-name-input"
@@ -1060,11 +1251,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                   options={[
                     {
                       value: 'domain-suffix',
-                      label: '域名后缀 DOMAIN-SUFFIX (包含所有子域名，推荐)',
+                      label: '域名后缀 DOMAIN-SUFFIX',
                     },
                     {
                       value: 'domain',
-                      label: '完整域名 DOMAIN (仅严格匹配单域名)',
+                      label: '完整域名 DOMAIN',
                     },
                     {
                       value: 'domain-regex',
@@ -1083,7 +1274,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
 
             <div className="space-y-2">
               <TrafficSnifferPanel
-                isOpen={isOpen && view === 'add' && activeTab === 'custom'}
+                isOpen={
+                  isOpen &&
+                  (view === 'add' || view === 'edit') &&
+                  activeTab === 'custom'
+                }
                 isGlobal={isGlobal}
                 mapping={mapping}
                 coreRunning={coreStatus?.running ?? true}
@@ -1190,7 +1385,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
 
               {targetType === 'direct' && (
                 <div className="h-9 px-3 rounded-lg bg-muted/40 border border-border/50 flex items-center text-xs text-muted-foreground font-mono">
-                  DIRECT (直接连接公网，不经过任何代理)
+                  DIRECT 直连公网
                 </div>
               )}
             </div>
