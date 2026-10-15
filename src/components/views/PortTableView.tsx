@@ -714,7 +714,7 @@ export const PortTableView: React.FC = () => {
       </div>
 
       {/* Scrollable Port Cards Grid Area */}
-      <div className="flex-1 overflow-y-auto pr-1 pb-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pr-1 pb-4">
         {totalPorts === 0 ? (
           /* Empty State Card */
           <div className="border border-dashed border-border rounded-xl p-12 flex flex-col items-center justify-center text-center space-y-4 bg-card/30">
@@ -846,7 +846,7 @@ export const PortTableView: React.FC = () => {
               return (
                 <div
                   key={m.id}
-                  className={`p-3.5 rounded-xl border shadow-sm transition-all flex flex-col justify-between space-y-2.5 group ${
+                  className={`min-w-0 p-3.5 rounded-xl border shadow-sm transition-all flex flex-col justify-between space-y-2.5 group ${
                     isStoppedWarning
                       ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
                       : isOccupiedWarning

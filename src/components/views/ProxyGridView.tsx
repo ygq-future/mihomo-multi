@@ -693,7 +693,7 @@ export const ProxyGridView: React.FC = () => {
       </div>
 
       {/* Scrollable Nodes Grid Area */}
-      <div className="flex-1 overflow-y-auto pr-1 pb-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pr-1 pb-4">
         {profiles.length > 0 && selectedProfileIds.length === 0 ? (
           <div className="border border-dashed border-border rounded-xl p-12 flex flex-col items-center justify-center text-center space-y-4 bg-card/30">
             <div className="w-12 h-12 rounded-full bg-secondary text-muted-foreground flex items-center justify-center">

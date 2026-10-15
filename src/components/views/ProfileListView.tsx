@@ -241,7 +241,7 @@ export const ProfileListView: React.FC = () => {
       </div>
 
       {/* Profile Cards Scrollable Container */}
-      <div className="flex-1 overflow-y-auto pr-1 pb-2">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pr-1 pb-2">
         {profileLoading && profiles.length === 0 ? (
           <div className="py-24 flex flex-col items-center justify-center space-y-3 text-muted-foreground">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
