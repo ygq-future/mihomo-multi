@@ -316,14 +316,16 @@ pub async fn check_app_update(proxy_port: Option<u16>) -> AppResult<AppUpdateChe
         .send()
         .await
         .map_err(|e| {
-            if let Some(port) = proxy_port {
-                AppError::Internal(format!(
+            let msg = if let Some(port) = proxy_port {
+                format!(
                     "Failed to query GitHub releases via proxy 127.0.0.1:{}: {}",
                     port, e
-                ))
+                )
             } else {
-                AppError::Internal(format!("Failed to query GitHub releases: {}", e))
-            }
+                format!("Failed to query GitHub releases: {}", e)
+            };
+            tracing::warn!("{}", msg);
+            AppError::Internal(msg)
         })?;
 
     if !res.status().is_success() {

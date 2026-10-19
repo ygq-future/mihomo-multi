@@ -151,6 +151,7 @@ export async function getConfig(): Promise<AppConfig> {
       tunPort: null,
       updateProxyPort: null,
       globalRules: [],
+      checkUpdateOnStart: true,
     }
   }
   return invoke<AppConfig>('get_config')

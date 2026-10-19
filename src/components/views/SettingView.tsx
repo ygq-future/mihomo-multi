@@ -51,7 +51,6 @@ import {
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import type {
-  AppUpdateCheckResult,
   AppUpdateProgressPayload,
   KernelUpdateCheckResult,
   MrsRulesInfo,
@@ -73,6 +72,11 @@ import { LiveUptimeDisplay } from './LiveUptimeDisplay'
 import { sortBypassItems } from '../../utils/bypassSort'
 import { UwpAppListModal } from '../setting/UwpAppListModal'
 import { scrollToSettingCard } from '../../utils/scroll'
+import {
+  isVersionNewer,
+  loadCachedAppUpdate,
+  saveCachedAppUpdate,
+} from '../../utils/appUpdateCache'
 
 function isValidBypassRule(value: string): boolean {
   const val = value.trim()
@@ -164,73 +168,9 @@ const testUrlOptions = [
   },
 ]
 
-const APP_UPDATE_CACHE_KEY = 'app_update_last_check_cache'
-
-interface AppUpdateCacheData {
-  latestVersion: string
-  hasUpdate: boolean
-  checkedAt: number
-  info: AppUpdateCheckResult
-}
-
-function loadCachedAppUpdate(): AppUpdateCacheData | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = localStorage.getItem(APP_UPDATE_CACHE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as AppUpdateCacheData
-    if (
-      parsed &&
-      typeof parsed.latestVersion === 'string' &&
-      typeof parsed.hasUpdate === 'boolean' &&
-      typeof parsed.checkedAt === 'number' &&
-      parsed.info
-    ) {
-      return parsed
-    }
-  } catch {
-    // ignore storage parsing error
-  }
-  return null
-}
-
-function saveCachedAppUpdate(info: AppUpdateCheckResult, checkedAt: number) {
-  if (typeof window === 'undefined') return
-  try {
-    const data: AppUpdateCacheData = {
-      latestVersion: info.latestVersion,
-      hasUpdate: info.hasUpdate,
-      checkedAt,
-      info,
-    }
-    localStorage.setItem(APP_UPDATE_CACHE_KEY, JSON.stringify(data))
-  } catch {
-    // ignore storage write error
-  }
-}
-
 function formatLastCheckTime(ts: number | null): string {
   if (!ts) return '未检查'
   return new Date(ts).toLocaleString()
-}
-
-function isVersionNewer(current: string, remote: string): boolean {
-  const cParts = current
-    .replace(/^v/i, '')
-    .split('.')
-    .map((p) => Number.parseInt(p, 10) || 0)
-  const rParts = remote
-    .replace(/^v/i, '')
-    .split('.')
-    .map((p) => Number.parseInt(p, 10) || 0)
-  const maxLen = Math.max(cParts.length, rParts.length)
-  for (let i = 0; i < maxLen; i++) {
-    const c = cParts[i] ?? 0
-    const r = rParts[i] ?? 0
-    if (r > c) return true
-    if (r < c) return false
-  }
-  return false
 }
 
 const themeOptions = [
@@ -268,6 +208,8 @@ export const SettingView: React.FC = () => {
     restartAsAdmin,
     targetSettingSection,
     clearTargetSettingSection,
+    appUpdateInfo,
+    setAppUpdateInfo,
   } = useAppStore()
   const [tunLoading, setTunLoading] = useState<boolean>(false)
   const [controllerPortInput, setControllerPortInput] = useState<string>(
@@ -293,6 +235,7 @@ export const SettingView: React.FC = () => {
   const [autoLaunch, setAutoLaunch] = useState<boolean>(false)
   const [silentStart, setSilentStart] = useState<boolean>(false)
   const [lightweightMode, setLightweightMode] = useState<boolean>(false)
+  const [checkUpdateOnStart, setCheckUpdateOnStart] = useState<boolean>(true)
 
   // Probe & Fallback Strategy
   const [testUrl, setTestUrl] = useState<string>(DEFAULT_TEST_URL)
@@ -335,11 +278,7 @@ export const SettingView: React.FC = () => {
   const [checkingAppUpdate, setCheckingAppUpdate] = useState<boolean>(false)
   const [downloadingAppUpdate, setDownloadingAppUpdate] =
     useState<boolean>(false)
-  const [appUpdateInfo, setAppUpdateInfo] =
-    useState<AppUpdateCheckResult | null>(() => {
-      const cached = loadCachedAppUpdate()
-      return cached?.info ?? null
-    })
+
   const [lastCheckTime, setLastCheckTime] = useState<number | null>(() => {
     const cached = loadCachedAppUpdate()
     return cached?.checkedAt ?? null
@@ -356,6 +295,13 @@ export const SettingView: React.FC = () => {
     }
     return ''
   })
+  useEffect(() => {
+    if (appUpdateInfo?.asset) {
+      setSelectedAssetUrl(appUpdateInfo.asset.downloadUrl)
+    } else if (appUpdateInfo?.availableAssets?.[0]) {
+      setSelectedAssetUrl(appUpdateInfo.availableAssets[0].downloadUrl)
+    }
+  }, [appUpdateInfo])
   const currentAppVersion = (
     appStatus?.version ||
     appUpdateInfo?.currentVersion ||
@@ -866,6 +812,7 @@ export const SettingView: React.FC = () => {
       setAutoLaunch(config.autoLaunch ?? false)
       setSilentStart(config.silentStart ?? false)
       setLightweightMode(config.lightweightMode ?? false)
+      setCheckUpdateOnStart(config.checkUpdateOnStart ?? true)
       setTestUrl(config.testUrl ?? DEFAULT_TEST_URL)
       setTimeoutMsInput(String(config.timeoutMs ?? DEFAULT_TIMEOUT_MS))
       setFallbackIntervalInput(
@@ -1083,6 +1030,17 @@ export const SettingView: React.FC = () => {
       lightweightMode: checked,
     })
     toast.success(checked ? '已开启轻量模式' : '已关闭轻量模式')
+  }
+  const handleCheckUpdateOnStartToggle = async (checked: boolean) => {
+    setCheckUpdateOnStart(checked)
+    if (!config) return
+    await saveConfig({
+      ...config,
+      checkUpdateOnStart: checked,
+    })
+    toast.success(
+      checked ? '已开启启动时自动检查更新' : '已关闭启动时自动检查更新',
+    )
   }
 
   const handleResetWindowSize = async () => {
@@ -2377,6 +2335,22 @@ export const SettingView: React.FC = () => {
               options={updateProxyOptions}
             />
           </div>
+        </div>
+        {/* Check Update On Start Switch */}
+        <div className="flex items-center justify-between p-3.5 rounded-lg bg-background/50 border border-border gap-6 text-xs">
+          <div className="space-y-0.5 min-w-0 flex-1">
+            <span className="text-xs font-medium text-foreground">
+              启动时自动检查更新
+            </span>
+            <p className="text-[11px] text-muted-foreground">
+              程序启动时在后台静默检测是否有新版本，若发现新版本则发送通知提醒
+            </p>
+          </div>
+          <Switch
+            checked={checkUpdateOnStart}
+            onChange={handleCheckUpdateOnStartToggle}
+            size="md"
+          />
         </div>
 
         {/* Last Check Timestamp & Status Meta */}

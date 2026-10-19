@@ -76,3 +76,53 @@ test('parseAppUpdateCache safely validates cache shape', () => {
   assert.equal(result.hasUpdate, true)
   assert.equal(result.checkedAt, 1727250000000)
 })
+
+test('shouldTriggerStartupUpdateCheck evaluates config and result correctly', () => {
+  function shouldTriggerStartupUpdateCheck(config, result, currentVersion) {
+    if (!config) return false
+    if (config.checkUpdateOnStart === false) return false
+    if (!result || !result.hasUpdate) return false
+    const current = currentVersion.replace(/^v/i, '')
+    return isVersionNewer(current, result.latestVersion)
+  }
+
+  // Config disabled
+  assert.equal(
+    shouldTriggerStartupUpdateCheck(
+      { checkUpdateOnStart: false },
+      { hasUpdate: true, latestVersion: '1.5.1' },
+      '1.5.0',
+    ),
+    false,
+  )
+
+  // Default enabled (omitted) and newer version available
+  assert.equal(
+    shouldTriggerStartupUpdateCheck(
+      {},
+      { hasUpdate: true, latestVersion: '1.5.1' },
+      '1.5.0',
+    ),
+    true,
+  )
+
+  // Explicitly enabled but remote version is not newer
+  assert.equal(
+    shouldTriggerStartupUpdateCheck(
+      { checkUpdateOnStart: true },
+      { hasUpdate: false, latestVersion: '1.5.0' },
+      '1.5.0',
+    ),
+    false,
+  )
+
+  // Remote version equals current version
+  assert.equal(
+    shouldTriggerStartupUpdateCheck(
+      { checkUpdateOnStart: true },
+      { hasUpdate: true, latestVersion: '1.5.0' },
+      '1.5.0',
+    ),
+    false,
+  )
+})

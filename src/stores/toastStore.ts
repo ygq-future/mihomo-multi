@@ -2,12 +2,18 @@ import { create } from 'zustand'
 
 export type ToastType = 'info' | 'success' | 'warning' | 'error'
 
+export interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
 export interface ToastItem {
   id: string
   message: string
   title?: string
   type: ToastType
   duration?: number
+  action?: ToastAction
 }
 
 interface ToastStore {
@@ -44,8 +50,13 @@ export const toast = {
     useToastStore
       .getState()
       .addToast({ type: 'warning', message, title, duration }),
-  info: (message: string, title?: string, duration?: number) =>
+  info: (
+    message: string,
+    title?: string,
+    duration?: number,
+    action?: ToastAction,
+  ) =>
     useToastStore
       .getState()
-      .addToast({ type: 'info', message, title, duration }),
+      .addToast({ type: 'info', message, title, duration, action }),
 }

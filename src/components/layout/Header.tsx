@@ -1,4 +1,4 @@
-import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { AlertTriangle, RefreshCw, Sparkles } from 'lucide-react'
 import type React from 'react'
 import { type TabType, useAppStore } from '../../stores/appStore'
 import { Button } from '../common'
@@ -34,6 +34,11 @@ export const Header: React.FC = () => {
   const startCore = useAppStore((state) => state.startCore)
   const coreLoading = useAppStore((state) => state.coreLoading)
   const error = useAppStore((state) => state.error)
+  const hasNewVersion = useAppStore((state) => state.hasNewVersion)
+  const appUpdateInfo = useAppStore((state) => state.appUpdateInfo)
+  const scrollToSettingSection = useAppStore(
+    (state) => state.scrollToSettingSection,
+  )
   const info = tabTitles[activeTab] || tabTitles.ports
 
   const isRunning = coreStatus?.running ?? false
@@ -54,6 +59,17 @@ export const Header: React.FC = () => {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        {hasNewVersion && activeTab !== 'settings' && (
+          <button
+            type="button"
+            onClick={() => scrollToSettingSection('setting-section-about')}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 text-primary hover:bg-primary/15 transition-all text-xs font-medium cursor-pointer shadow-xs active:scale-95 animate-in fade-in"
+            title="发现新版本，点击前往更新"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-primary shrink-0" />
+            <span>新版本 v{appUpdateInfo?.latestVersion}</span>
+          </button>
+        )}
         {portNeedsRestart ? (
           <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-medium">

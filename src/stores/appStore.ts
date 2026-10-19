@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 import * as api from '../services/tauri'
-import type { AppConfig, AppStatus, CoreStatus, TunStatus } from '../types'
+import type {
+  AppConfig,
+  AppStatus,
+  AppUpdateCheckResult,
+  CoreStatus,
+  TunStatus,
+} from '../types'
+import { isVersionNewer, loadCachedAppUpdate } from '../utils/appUpdateCache'
+import { APP_VERSION } from '../constants'
 import { type PortSlice, createPortSlice } from './portSlice'
 import { type ProfileSlice, createProfileSlice } from './profileSlice'
 import { type ProxySlice, createProxySlice } from './proxySlice'
@@ -37,6 +45,9 @@ export interface BaseAppState {
   fetchTunStatus: () => Promise<void>
   setTun: (enabled: boolean, port?: number | null) => Promise<TunStatus>
   restartAsAdmin: () => Promise<void>
+  appUpdateInfo: AppUpdateCheckResult | null
+  hasNewVersion: boolean
+  setAppUpdateInfo: (info: AppUpdateCheckResult | null) => void
 }
 
 export type RootStore = BaseAppState & ProfileSlice & ProxySlice & PortSlice
@@ -54,6 +65,28 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   coreStatus: null,
   config: null,
   coreLoading: false,
+  appUpdateInfo: (() => {
+    const cached = loadCachedAppUpdate()
+    return cached?.info ?? null
+  })(),
+  hasNewVersion: (() => {
+    const cached = loadCachedAppUpdate()
+    if (!cached?.info?.hasUpdate) return false
+    return isVersionNewer(
+      APP_VERSION.replace(/^v/i, ''),
+      cached.info.latestVersion,
+    )
+  })(),
+  setAppUpdateInfo: (info) => {
+    const currentVersion = (get().appStatus?.version || APP_VERSION).replace(
+      /^v/i,
+      '',
+    )
+    const hasNew = Boolean(
+      info?.hasUpdate && isVersionNewer(currentVersion, info.latestVersion),
+    )
+    set({ appUpdateInfo: info, hasNewVersion: hasNew })
+  },
   tunStatus: null,
   error: null,
   targetSettingSection: null,
@@ -107,11 +140,22 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
         if (!coreChanged && !appChanged) {
           return
         }
+        const nextAppStatus = appChanged ? appStatus : currentApp
+        const currentVersion = (nextAppStatus?.version || APP_VERSION).replace(
+          /^v/i,
+          '',
+        )
+        const updateInfo = state.appUpdateInfo
+        const hasNew = Boolean(
+          updateInfo?.hasUpdate &&
+            isVersionNewer(currentVersion, updateInfo.latestVersion),
+        )
 
         set({
-          appStatus: appChanged ? appStatus : currentApp,
+          appStatus: nextAppStatus,
           coreStatus: coreChanged ? core : currentCore,
           error: core.running ? null : (core.lastError ?? null),
+          hasNewVersion: hasNew,
         })
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })

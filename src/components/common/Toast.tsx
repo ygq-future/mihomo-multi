@@ -91,7 +91,7 @@ const ToastCard: React.FC<ToastCardProps> = ({ item, onRemove }) => {
         <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
       )}
 
-      <div className="space-y-0.5 flex-1 min-w-0">
+      <div className="space-y-1.5 flex-1 min-w-0">
         {item.title && (
           <div className="font-semibold text-foreground leading-none">
             {item.title}
@@ -100,6 +100,20 @@ const ToastCard: React.FC<ToastCardProps> = ({ item, onRemove }) => {
         <p className="text-[11px] text-muted-foreground leading-relaxed break-words">
           {item.message}
         </p>
+        {item.action && (
+          <div className="pt-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                item.action?.onClick()
+                handleDismiss()
+              }}
+              className="text-[11px] font-medium text-primary hover:underline hover:text-primary/80 transition-colors inline-flex items-center gap-1 cursor-pointer"
+            >
+              {item.action.label}
+            </button>
+          </div>
+        )}
       </div>
 
       <button

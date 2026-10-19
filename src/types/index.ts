@@ -196,6 +196,7 @@ export interface AppConfig {
   tunPort?: number | null
   updateProxyPort?: number | null
   globalRules?: PortRule[]
+  checkUpdateOnStart?: boolean
 }
 
 export interface SystemProxyStatus {

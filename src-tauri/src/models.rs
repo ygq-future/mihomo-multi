@@ -366,6 +366,8 @@ pub struct AppConfig {
     pub update_proxy_port: Option<u16>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub global_rules: Vec<PortRule>,
+    #[serde(default = "default_true")]
+    pub check_update_on_start: bool,
 }
 
 fn default_true() -> bool {
@@ -430,6 +432,7 @@ impl Default for AppConfig {
             tun_port: None,
             update_proxy_port: None,
             global_rules: Vec::new(),
+            check_update_on_start: true,
         }
     }
 }
@@ -541,4 +544,24 @@ pub struct SniffedAccessLogEntry {
     pub chain: String,
     pub rule: String,
     pub timestamp_ms: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_config_check_update_on_start_default() {
+        let cfg = AppConfig::default();
+        assert!(cfg.check_update_on_start);
+        // Verify deserialization when checkUpdateOnStart is omitted uses default_true
+        let json = r#"{"controllerSecret":"sec","theme":"system","logLevel":"info"}"#;
+        let deserialized: AppConfig = serde_json::from_str(json).expect("should deserialize config");
+        assert!(deserialized.check_update_on_start);
+
+        // Verify explicitly disabled
+        let json_disabled = r#"{"controllerSecret":"sec","theme":"system","logLevel":"info","checkUpdateOnStart":false}"#;
+        let deserialized_disabled: AppConfig = serde_json::from_str(json_disabled).expect("should deserialize");
+        assert!(!deserialized_disabled.check_update_on_start);
+    }
 }

@@ -85,7 +85,7 @@ export const Sidebar: React.FC = () => {
   const coreStatus = useAppStore((state) => state.coreStatus)
   const restartCore = useAppStore((state) => state.restartCore)
   const coreLoading = useAppStore((state) => state.coreLoading)
-
+  const hasNewVersion = useAppStore((state) => state.hasNewVersion)
   const isRunning = coreStatus?.running ?? false
   const activeIndex = navItems.findIndex((item) => item.id === activeTab)
   const [isSettingsHovered, setIsSettingsHovered] = useState(false)
@@ -209,13 +209,26 @@ export const Sidebar: React.FC = () => {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <Icon className="w-4 h-4 shrink-0" />
+                <div className="relative flex items-center justify-center">
+                  <Icon className="w-4 h-4 shrink-0" />
+                  {isSettingsItem && hasNewVersion && sidebarCollapsed && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-xs" />
+                  )}
+                </div>
                 {!sidebarCollapsed && (
-                  <span className="truncate">{item.label}</span>
+                  <>
+                    <span className="truncate flex-1 text-left">
+                      {item.label}
+                    </span>
+                    {isSettingsItem && hasNewVersion && (
+                      <span className="ml-auto px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0 leading-none">
+                        NEW
+                      </span>
+                    )}
+                  </>
                 )}
               </button>
             )
-
             if (!isSettingsItem) {
               return buttonContent
             }
@@ -257,11 +270,15 @@ export const Sidebar: React.FC = () => {
                               ? `${idx * 20}ms`
                               : '0ms',
                           }}
-                          className={`flex items-center justify-center rounded-md text-muted-foreground transition-all duration-150 active:scale-90 hover:shadow-xs ${section.color} ${
+                          className={`relative flex items-center justify-center rounded-md text-muted-foreground transition-all duration-150 active:scale-90 hover:shadow-xs ${section.color} ${
                             sidebarCollapsed ? 'w-7 h-7' : 'w-full h-8 p-1.5'
                           }`}
                         >
                           <SecIcon className="w-3.5 h-3.5 shrink-0" />
+                          {section.id === 'setting-section-about' &&
+                            hasNewVersion && (
+                              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            )}
                         </button>
                       )
                     })}
