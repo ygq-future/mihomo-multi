@@ -389,48 +389,110 @@ pub async fn test_port_mapping_delay(
     let actual_url = test_url.as_deref().unwrap_or(&default_url);
     let actual_timeout = timeout_ms.unwrap_or(default_timeout);
 
-    let res = state
-        .latency_probe
-        .test_node(
+    let fb_info = mapping
+        .fallback_node_name
+        .as_ref()
+        .filter(|fb| !fb.trim().is_empty())
+        .map(|fb_name| {
+            let fb_profile_id = mapping.fallback_profile_id.as_deref().unwrap_or(&mapping.profile_id);
+            let fb_profile = state.profile_manager.get_profile_by_id(fb_profile_id);
+            let fb_runtime_name = if let Some(prof) = fb_profile.as_ref() {
+                format!("[{}] {}", prof.name, fb_name)
+            } else {
+                fb_name.clone()
+            };
+            (fb_name.clone(), fb_runtime_name)
+        });
+
+    // When port is enabled with auto-fallback, run a single group healthcheck (`GET /group/fb-{port}/delay`).
+    // Mihomo probes both primary and backup nodes concurrently in one pass and updates fallback selection immediately.
+    if mapping.enabled
+        && !mapping.manual_fallback
+        && let Some((ref fb_name, ref fb_runtime_name)) = fb_info
+    {
+        let group_name = format!("fb-{}", mapping.port);
+        match state
+            .engine
+            .test_group_delay(&group_name, Some(actual_url), Some(actual_timeout))
+            .await
+        {
+            Ok(delays) => {
+                let primary_delay = delays
+                    .get(&runtime_name)
+                    .or_else(|| delays.get(&mapping.node_name))
+                    .copied();
+                let fb_delay = delays
+                    .get(fb_runtime_name)
+                    .or_else(|| delays.get(fb_name))
+                    .copied();
+                let timeout_err = format!("Latency test timed out after {}ms", actual_timeout);
+
+                state.latency_probe.record_node_result(
+                    &mapping.node_name,
+                    Some(&runtime_name),
+                    primary_delay,
+                    if primary_delay.is_none() {
+                        Some(timeout_err.clone())
+                    } else {
+                        None
+                    },
+                    Some(&id),
+                );
+                state.latency_probe.record_node_result(
+                    fb_name,
+                    Some(fb_runtime_name),
+                    fb_delay,
+                    if fb_delay.is_none() {
+                        Some(timeout_err.clone())
+                    } else {
+                        None
+                    },
+                    Some(&id),
+                );
+
+                let _ = state.port_router.update_port_latency(&id, primary_delay);
+                crate::tray::update_tray_menu(&app);
+                return primary_delay.ok_or(timeout_err);
+            }
+            Err(_) => {
+                // Fallback to concurrent individual node probes if group endpoint is unavailable
+            }
+        }
+    }
+
+    let res = if let Some((ref fb_name, ref fb_runtime_name)) = fb_info {
+        let primary_fut = state.latency_probe.test_node(
             &mapping.node_name,
             Some(&runtime_name),
             Some(actual_url),
             Some(actual_timeout),
             Some(&id),
-        )
-        .await;
-
-    if let Some(fb_name) = &mapping.fallback_node_name
-        && !fb_name.trim().is_empty()
-    {
-        let fb_profile_id = mapping.fallback_profile_id.as_deref().unwrap_or(&mapping.profile_id);
-        let fb_profile = state.profile_manager.get_profile_by_id(fb_profile_id);
-        let fb_runtime_name = if let Some(prof) = fb_profile.as_ref() {
-            format!("[{}] {}", prof.name, fb_name)
-        } else {
-            fb_name.clone()
-        };
-        let _ = state
+        );
+        let fb_fut = state.latency_probe.test_node(
+            fb_name,
+            Some(fb_runtime_name),
+            Some(actual_url),
+            Some(actual_timeout),
+            Some(&id),
+        );
+        let (primary_res, _) = tokio::join!(primary_fut, fb_fut);
+        primary_res
+    } else {
+        state
             .latency_probe
             .test_node(
-                fb_name,
-                Some(&fb_runtime_name),
+                &mapping.node_name,
+                Some(&runtime_name),
                 Some(actual_url),
                 Some(actual_timeout),
                 Some(&id),
             )
-            .await;
-    }
+            .await
+    };
+
     match res {
         Ok(delay) => {
             let _ = state.port_router.update_port_latency(&id, Some(delay));
-            if mapping.fallback_node_name.is_some() && !mapping.manual_fallback {
-                let group_name = format!("fb-{}", mapping.port);
-                let _ = state
-                    .engine
-                    .test_group_delay(&group_name, Some(actual_url), Some(actual_timeout))
-                    .await;
-            }
             crate::tray::update_tray_menu(&app);
             Ok(delay)
         }
@@ -490,6 +552,13 @@ pub async fn test_port_fallback_delay(
             Some(&id),
         )
         .await;
+    if mapping.enabled && !mapping.manual_fallback {
+        let group_name = format!("fb-{}", mapping.port);
+        let _ = state
+            .engine
+            .test_group_delay(&group_name, Some(actual_url), Some(actual_timeout))
+            .await;
+    }
 
     crate::tray::update_tray_menu(&app);
 
@@ -517,8 +586,25 @@ pub async fn test_all_port_mappings_delay(
     let profiles = state.profile_manager.get_profiles();
     let profile_map: std::collections::HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
 
+    let (default_url, default_timeout) = {
+        let cfg = state.config.read();
+        (cfg.test_url.clone(), cfg.timeout_ms)
+    };
+    let actual_url = test_url.as_deref().unwrap_or(&default_url);
+    let actual_timeout = timeout_ms.unwrap_or(default_timeout);
+
+    struct AutoFbGroupTarget {
+        mapping_id: String,
+        group_name: String,
+        primary_name: String,
+        primary_runtime: String,
+        fb_name: String,
+        fb_runtime: String,
+    }
+
     let mut targets = Vec::new();
     let mut mapping_id_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut auto_fb_groups: Vec<AutoFbGroupTarget> = Vec::new();
 
     for m in mappings.iter().filter(|m| m.enabled) {
         let runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
@@ -526,12 +612,6 @@ pub async fn test_all_port_mappings_delay(
         } else {
             m.node_name.clone()
         };
-        targets.push(
-            crate::core::latency_probe::BatchProbeTarget::new(m.node_name.clone())
-                .with_runtime_name(runtime_name)
-                .with_mapping_id(m.id.clone()),
-        );
-        mapping_id_map.insert(m.node_name.clone(), m.id.clone());
 
         if let Some(fb_name) = &m.fallback_node_name
             && !fb_name.trim().is_empty()
@@ -542,23 +622,54 @@ pub async fn test_all_port_mappings_delay(
             } else {
                 fb_name.clone()
             };
+
+            if !m.manual_fallback {
+                // Auto-fallback ports use `GET /group/fb-{port}/delay` directly so primary & backup
+                // are only probed ONCE while simultaneously updating Mihomo's fallback selection.
+                auto_fb_groups.push(AutoFbGroupTarget {
+                    mapping_id: m.id.clone(),
+                    group_name: format!("fb-{}", m.port),
+                    primary_name: m.node_name.clone(),
+                    primary_runtime: runtime_name,
+                    fb_name: fb_name.clone(),
+                    fb_runtime: fb_runtime_name,
+                });
+                continue;
+            }
+
             targets.push(
                 crate::core::latency_probe::BatchProbeTarget::new(fb_name.clone()).with_runtime_name(fb_runtime_name),
             );
         }
+
+        targets.push(
+            crate::core::latency_probe::BatchProbeTarget::new(m.node_name.clone())
+                .with_runtime_name(runtime_name)
+                .with_mapping_id(m.id.clone()),
+        );
+        mapping_id_map.insert(m.node_name.clone(), m.id.clone());
     }
 
-    let (default_url, default_timeout) = {
-        let cfg = state.config.read();
-        (cfg.test_url.clone(), cfg.timeout_ms)
-    };
-    let actual_url = test_url.as_deref().unwrap_or(&default_url);
-    let actual_timeout = timeout_ms.unwrap_or(default_timeout);
+    let mut join_set = tokio::task::JoinSet::new();
+    for grp in auto_fb_groups {
+        let engine = state.engine.clone();
+        let url = actual_url.to_string();
+        join_set.spawn(async move {
+            let res = engine
+                .test_group_delay(&grp.group_name, Some(&url), Some(actual_timeout))
+                .await;
+            (grp, res)
+        });
+    }
 
-    let results = state
-        .latency_probe
-        .test_nodes_batch(&targets, Some(actual_url), Some(actual_timeout), concurrency)
-        .await;
+    let mut results = if !targets.is_empty() {
+        state
+            .latency_probe
+            .test_nodes_batch(&targets, Some(actual_url), Some(actual_timeout), concurrency)
+            .await
+    } else {
+        Vec::new()
+    };
 
     for res in &results {
         if let Some(mapping_id) = mapping_id_map.get(&res.name) {
@@ -566,30 +677,60 @@ pub async fn test_all_port_mappings_delay(
         }
     }
 
-    // If any port mapping with fallback had its primary node test successfully,
-    // immediately trigger group delay test so Mihomo re-evaluates and restores fallback groups.
-    let re_eval_groups: Vec<String> = mappings
-        .iter()
-        .filter(|m| {
-            m.enabled
-                && m.fallback_node_name.is_some()
-                && !m.manual_fallback
-                && results.iter().any(|r| r.name == m.node_name && r.latency.is_some())
-        })
-        .map(|m| format!("fb-{}", m.port))
-        .collect();
+    let timeout_err = format!("Latency test timed out after {}ms", actual_timeout);
+    while let Some(Ok((grp, group_res))) = join_set.join_next().await {
+        let delays = group_res.unwrap_or_default();
+        let primary_delay = delays
+            .get(&grp.primary_runtime)
+            .or_else(|| delays.get(&grp.primary_name))
+            .copied();
+        let fb_delay = delays
+            .get(&grp.fb_runtime)
+            .or_else(|| delays.get(&grp.fb_name))
+            .copied();
 
-    if !re_eval_groups.is_empty() {
-        let mut join_set = tokio::task::JoinSet::new();
-        for group in re_eval_groups {
-            let engine = state.engine.clone();
-            let url = actual_url.to_string();
-            join_set.spawn(async move {
-                let _ = engine.test_group_delay(&group, Some(&url), Some(actual_timeout)).await;
-            });
-        }
-        while join_set.join_next().await.is_some() {}
+        let primary_err = if primary_delay.is_none() {
+            Some(timeout_err.clone())
+        } else {
+            None
+        };
+        let fb_err = if fb_delay.is_none() {
+            Some(timeout_err.clone())
+        } else {
+            None
+        };
+
+        state.latency_probe.record_node_result(
+            &grp.primary_name,
+            Some(&grp.primary_runtime),
+            primary_delay,
+            primary_err.clone(),
+            Some(&grp.mapping_id),
+        );
+        state.latency_probe.record_node_result(
+            &grp.fb_name,
+            Some(&grp.fb_runtime),
+            fb_delay,
+            fb_err.clone(),
+            Some(&grp.mapping_id),
+        );
+
+        let _ = state
+            .port_router
+            .update_port_latency(&grp.mapping_id, primary_delay);
+
+        results.push(NodeLatencyResult {
+            name: grp.primary_name,
+            latency: primary_delay,
+            error: primary_err,
+        });
+        results.push(NodeLatencyResult {
+            name: grp.fb_name,
+            latency: fb_delay,
+            error: fb_err,
+        });
     }
+
     crate::tray::update_tray_menu(&app);
     Ok(results)
 }
@@ -608,6 +749,10 @@ pub async fn get_port_fallback_statuses(
     let profiles = state.profile_manager.get_profiles();
     let profile_map: std::collections::HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
 
+    let (default_url, default_timeout) = {
+        let cfg = state.config.read();
+        (cfg.test_url.clone(), cfg.timeout_ms)
+    };
     let engine = state.engine.clone();
     let mut statuses = Vec::new();
     let mut latency_updates: Vec<(String, Option<u32>)> = Vec::new();
@@ -626,19 +771,13 @@ pub async fn get_port_fallback_statuses(
         };
 
         let group_name = format!("fb-{}", m.port);
-        let is_fallback_active = if m.manual_fallback {
+        let mut is_fallback_active = if m.manual_fallback {
             true
         } else if let Ok(detail) = engine.get_proxy_detail(&group_name).await {
             let active_node = detail.now.clone().unwrap_or_default();
             active_node.ends_with(&fallback_node)
         } else {
             false
-        };
-
-        let active_node = if is_fallback_active {
-            fallback_node.clone()
-        } else {
-            m.node_name.clone()
         };
 
         let primary_runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
@@ -654,48 +793,96 @@ pub async fn get_port_fallback_statuses(
             fallback_node.clone()
         };
 
-        let kernel_primary_latency = engine
+        let kernel_primary_history_delay = engine
             .get_proxy_detail(&primary_runtime_name)
             .await
             .ok()
-            .and_then(|p| p.history.last().map(|h| h.delay))
-            .filter(|&d| d > 0);
+            .and_then(|p| p.history.last().map(|h| h.delay));
+        let kernel_primary_latency = kernel_primary_history_delay.filter(|&d| d > 0);
+        let kernel_primary_timed_out = kernel_primary_history_delay == Some(0);
 
-        let primary_latency = if is_fallback_active && !m.manual_fallback {
-            // When automatically falling back, the primary node was deemed unreachable or timed out.
-            // Do NOT fall back to historical cached latencies; reflect the actual timeout status!
+        let cached_primary_entry = state
+            .latency_probe
+            .get_latency(&primary_runtime_name)
+            .or_else(|| state.latency_probe.get_latency(&m.node_name));
+
+        let mut primary_latency = if (is_fallback_active && !m.manual_fallback) || kernel_primary_timed_out {
+            // When automatically falling back or when Mihomo's latest healthcheck recorded delay == 0 (timeout),
+            // do NOT fall back to historical cached latencies; reflect the actual timeout status!
             kernel_primary_latency
         } else {
-            state
-                .latency_probe
-                .get_latency(&primary_runtime_name)
-                .flatten()
-                .or_else(|| state.latency_probe.get_latency(&m.node_name).flatten())
-                .or(m.latency)
-                .or(kernel_primary_latency)
+            match cached_primary_entry {
+                // Authoritative cache explicitly recorded a timeout (`Some(None)`); prefer latest kernel result if recovered, otherwise None.
+                Some(None) => kernel_primary_latency,
+                Some(Some(d)) => Some(d),
+                None => m.latency.or(kernel_primary_latency),
+            }
         };
 
-        let kernel_fallback_latency = engine
+        let kernel_fb_history_delay = engine
             .get_proxy_detail(&fb_runtime_name)
             .await
             .ok()
-            .and_then(|p| p.history.last().map(|h| h.delay))
-            .filter(|&d| d > 0);
+            .and_then(|p| p.history.last().map(|h| h.delay));
+        let kernel_fallback_latency = kernel_fb_history_delay.filter(|&d| d > 0);
+        let kernel_fb_timed_out = kernel_fb_history_delay == Some(0);
 
-        let fallback_latency = state
+        let cached_fb_entry = state
             .latency_probe
             .get_latency(&fb_runtime_name)
-            .flatten()
-            .or_else(|| state.latency_probe.get_latency(&fallback_node).flatten())
-            .or(kernel_fallback_latency);
-        if is_fallback_active && !m.manual_fallback && kernel_primary_latency.is_none() {
+            .or_else(|| state.latency_probe.get_latency(&fallback_node));
+
+        let mut fallback_latency = if kernel_fb_timed_out {
+            None
+        } else {
+            match cached_fb_entry {
+                Some(None) => kernel_fallback_latency,
+                Some(Some(d)) => Some(d),
+                None => kernel_fallback_latency,
+            }
+        };
+
+        // If primary node is known to have timed out (`Some(None)` in probe cache or `delay == 0` in kernel history),
+        // fallback node is reachable, and Mihomo has not yet switched `fb-{port}` to the backup node,
+        // immediately trigger group healthcheck and re-query `fb-{port}` so fallback engages without delay.
+        let primary_known_timeout = kernel_primary_timed_out || cached_primary_entry == Some(None);
+        if !m.manual_fallback && !is_fallback_active && primary_known_timeout && fallback_latency.is_some() {
+            let _ = engine
+                .test_group_delay(&group_name, Some(&default_url), Some(default_timeout))
+                .await;
+            if let Ok(detail) = engine.get_proxy_detail(&group_name).await {
+                let active_node = detail.now.unwrap_or_default();
+                is_fallback_active = active_node.ends_with(&fallback_node);
+            }
+            if let Ok(p_detail) = engine.get_proxy_detail(&primary_runtime_name).await
+                && let Some(last) = p_detail.history.last()
+            {
+                primary_latency = if last.delay > 0 { Some(last.delay) } else { None };
+            }
+            if let Ok(fb_detail) = engine.get_proxy_detail(&fb_runtime_name).await
+                && let Some(last) = fb_detail.history.last()
+            {
+                fallback_latency = if last.delay > 0 { Some(last.delay) } else { None };
+            }
+        }
+
+        let active_node = if is_fallback_active {
+            fallback_node.clone()
+        } else {
+            m.node_name.clone()
+        };
+
+        if ((is_fallback_active && !m.manual_fallback) || primary_known_timeout) && primary_latency.is_none() {
             latency_updates.push((primary_runtime_name, None));
             latency_updates.push((m.node_name.clone(), None));
         } else if let Some(d) = primary_latency {
             latency_updates.push((primary_runtime_name, Some(d)));
             latency_updates.push((m.node_name.clone(), Some(d)));
         }
-        if let Some(d) = fallback_latency {
+        if kernel_fb_timed_out && fallback_latency.is_none() {
+            latency_updates.push((fb_runtime_name, None));
+            latency_updates.push((fallback_node.clone(), None));
+        } else if let Some(d) = fallback_latency {
             latency_updates.push((fb_runtime_name, Some(d)));
             latency_updates.push((fallback_node.clone(), Some(d)));
         }
@@ -1018,20 +1205,34 @@ pub async fn test_node_delay(
             Some(actual_timeout),
             None,
         )
-        .await
-        .map_err(|err| err.to_string())?;
+        .await;
 
+    let tested_latency = res.as_ref().ok().copied();
     let mappings = state.port_router.get_port_mappings();
-    for m in mappings {
-        let matches =
+    for m in &mappings {
+        let matches_primary =
             m.node_name == raw_name || m.node_name == node_name || runtime_name.as_deref() == Some(&m.node_name);
-        if matches {
-            let _ = state.port_router.update_port_latency(&m.id, Some(res));
+        if matches_primary {
+            let _ = state.port_router.update_port_latency(&m.id, tested_latency);
+        }
+        let matches_fallback = m.fallback_node_name.as_deref().is_some_and(|fb| {
+            fb == raw_name || fb == node_name || runtime_name.as_deref() == Some(fb)
+        });
+        if m.enabled
+            && !m.manual_fallback
+            && m.fallback_node_name.as_ref().is_some_and(|fb| !fb.trim().is_empty())
+            && (matches_primary || matches_fallback)
+        {
+            let group_name = format!("fb-{}", m.port);
+            let _ = state
+                .engine
+                .test_group_delay(&group_name, Some(actual_url), Some(actual_timeout))
+                .await;
         }
     }
     crate::tray::update_tray_menu(&app);
 
-    Ok(res)
+    res.map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -1085,13 +1286,38 @@ pub async fn test_nodes_delay_batch(
         .await;
 
     let mappings = state.port_router.get_port_mappings();
+    let mut affected_groups = std::collections::HashSet::new();
     for res in &results {
         let raw_name = raw_name_map.get(&res.name).cloned().unwrap_or_else(|| res.name.clone());
         for m in &mappings {
-            if m.node_name == res.name || m.node_name == raw_name {
+            let matches_primary = m.node_name == res.name || m.node_name == raw_name;
+            if matches_primary {
                 let _ = state.port_router.update_port_latency(&m.id, res.latency);
             }
+            let matches_fallback = m
+                .fallback_node_name
+                .as_deref()
+                .is_some_and(|fb| fb == res.name || fb == raw_name);
+            if m.enabled
+                && !m.manual_fallback
+                && m.fallback_node_name.as_ref().is_some_and(|fb| !fb.trim().is_empty())
+                && (matches_primary || matches_fallback)
+            {
+                affected_groups.insert(format!("fb-{}", m.port));
+            }
         }
+    }
+
+    if !affected_groups.is_empty() {
+        let mut join_set = tokio::task::JoinSet::new();
+        for group in affected_groups {
+            let engine = state.engine.clone();
+            let url = actual_url.to_string();
+            join_set.spawn(async move {
+                let _ = engine.test_group_delay(&group, Some(&url), Some(actual_timeout)).await;
+            });
+        }
+        while join_set.join_next().await.is_some() {}
     }
     crate::tray::update_tray_menu(&app);
 

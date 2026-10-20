@@ -45,8 +45,8 @@ pub trait KernelControllerAdapter: Send + Sync {
         _group_name: &'a str,
         _test_url: Option<&'a str>,
         _timeout_ms: Option<u32>,
-    ) -> BoxFuture<'a, AppResult<()>> {
-        Box::pin(async { Ok(()) })
+    ) -> BoxFuture<'a, AppResult<HashMap<String, u32>>> {
+        Box::pin(async { Ok(HashMap::new()) })
     }
     /// Fetches snapshot of all current active connections
     fn get_connections<'a>(&'a self) -> BoxFuture<'a, AppResult<ConnectionSnapshot>>;
@@ -120,7 +120,7 @@ impl KernelControllerAdapter for HttpControllerAdapter {
         group_name: &'a str,
         test_url: Option<&'a str>,
         timeout_ms: Option<u32>,
-    ) -> BoxFuture<'a, AppResult<()>> {
+    ) -> BoxFuture<'a, AppResult<HashMap<String, u32>>> {
         Box::pin(async move {
             let client = self.client.read().clone();
             client.test_group_delay(group_name, test_url, timeout_ms).await
@@ -470,7 +470,7 @@ impl KernelEngine {
         group_name: &str,
         test_url: Option<&str>,
         timeout_ms: Option<u32>,
-    ) -> AppResult<()> {
+    ) -> AppResult<HashMap<String, u32>> {
         self.adapter.test_group_delay(group_name, test_url, timeout_ms).await
     }
 

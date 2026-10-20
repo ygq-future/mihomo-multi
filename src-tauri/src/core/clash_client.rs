@@ -1,6 +1,7 @@
 use crate::error::{AppError, AppResult};
 use crate::models::{ConnectionSnapshot, NodeLatencyResult};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -245,7 +246,7 @@ impl ClashApiClient {
         group_name: &str,
         test_url: Option<&str>,
         timeout_ms: Option<u32>,
-    ) -> AppResult<()> {
+    ) -> AppResult<HashMap<String, u32>> {
         let actual_url = test_url.unwrap_or(DEFAULT_TEST_URL);
         let actual_timeout = timeout_ms.unwrap_or(DEFAULT_TEST_TIMEOUT_MS);
 
@@ -270,7 +271,12 @@ impl ClashApiClient {
 
         let status = resp.status();
         if status.is_success() {
-            Ok(())
+            let raw_map: HashMap<String, serde_json::Value> = resp.json().await.unwrap_or_default();
+            let delays = raw_map
+                .into_iter()
+                .filter_map(|(k, v)| v.as_u64().map(|d| (k, d as u32)).filter(|(_, d)| *d > 0))
+                .collect();
+            Ok(delays)
         } else {
             let error_text = resp.text().await.unwrap_or_default();
             Err(AppError::ExternalController(format!(
@@ -504,7 +510,9 @@ mod tests {
 
         let client = ClashApiClient::new(port, "test-secret");
         let res = client.test_group_delay("fb-7890", None, Some(1000)).await;
-        assert!(res.is_ok());
+        let delays = res.expect("Group delay succeeds");
+        assert_eq!(delays.get("HK-01"), Some(&42));
+        assert_eq!(delays.get("HK-02"), Some(&50));
     }
 
     #[tokio::test]

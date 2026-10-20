@@ -252,3 +252,30 @@ test('IPC callers share the active status request and can retry failures', async
   finish([status])
   assert.equal((await retry)[0], status)
 })
+
+test('testPortDelay refreshes fallback statuses when primary node times out', async () => {
+  let fallbackRequests = 0
+  const store = createStore({
+    testPortMappingDelay: async () => {
+      throw new Error('Latency test timed out after 3000ms')
+    },
+    getPortFallbackStatuses: async () => {
+      fallbackRequests++
+      return [
+        {
+          ...status,
+          primaryLatency: null,
+          fallbackLatency: 818,
+          isFallbackActive: true,
+          activeNode: 'backup',
+        },
+      ]
+    },
+  })
+  const result = await store.get().testPortDelay('port-1')
+  await new Promise(setImmediate)
+  assert.equal(result, null)
+  assert.equal(fallbackRequests, 1)
+  assert.equal(store.get().fallbackStatuses['port-1']?.isFallbackActive, true)
+  assert.equal(store.get().portMappings[0].latency, null)
+})

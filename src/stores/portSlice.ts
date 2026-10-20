@@ -374,6 +374,9 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
         testingFbPortIds: { ...state.testingFbPortIds, [id]: false },
         portError: errMsg.includes('未运行') ? errMsg : state.portError,
       }))
+      get()
+        .fetchFallbackStatuses()
+        .catch(() => {})
       return null
     }
   },
@@ -416,6 +419,11 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
         testingFbPortIds: { ...state.testingFbPortIds, [id]: false },
         portError: errMsg.includes('未运行') ? errMsg : state.portError,
       }))
+      if (hasFb) {
+        get()
+          .fetchFallbackStatuses()
+          .catch(() => {})
+      }
       return null
     }
   },

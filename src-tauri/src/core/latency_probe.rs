@@ -317,6 +317,36 @@ impl LatencyProbe {
         }
     }
 
+    /// Records a node latency result obtained from a group healthcheck into the authoritative cache
+    /// and emits a `latency-update` event without performing a redundant HTTP probe.
+    pub fn record_node_result(
+        &self,
+        node_name: &str,
+        runtime_name: Option<&str>,
+        latency: Option<u32>,
+        error: Option<String>,
+        mapping_id: Option<&str>,
+    ) {
+        {
+            let mut guard = self.cache.write();
+            guard.insert(node_name.to_string(), latency);
+            if let Some(rt) = runtime_name {
+                guard.insert(rt.to_string(), latency);
+            }
+        }
+        let _ = self.persist_cache();
+
+        self.emitter.emit_update(&LatencyUpdatePayload {
+            name: node_name.to_string(),
+            runtime_name: runtime_name.map(|s| s.to_string()),
+            latency,
+            error,
+            mapping_id: mapping_id.map(|s| s.to_string()),
+            completed: 1,
+            total: 1,
+        });
+    }
+
     /// Probe latency for a batch of nodes concurrently using a bounded semaphore pool,
     /// timeout handling, cancellation tokens, and real-time stream event emission.
     pub async fn test_nodes_batch(
