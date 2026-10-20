@@ -1,3 +1,5 @@
+import type { DirectEgressInfo } from '../types'
+
 export interface RegionInfo {
   flag: string
   code: string
@@ -349,4 +351,32 @@ export function getProtocolBadgeProps(type: string): {
         className: 'bg-secondary text-muted-foreground border-border',
       }
   }
+}
+
+export function lookupNodeEgressInfo(
+  nodeEgressIps: Record<string, DirectEgressInfo>,
+  nodeName: string,
+  profileId?: string | null,
+  runtimeKey?: string,
+): DirectEgressInfo | null {
+  if (runtimeKey && nodeEgressIps[runtimeKey]) {
+    return nodeEgressIps[runtimeKey]
+  }
+  if (profileId && nodeEgressIps[`${profileId}_${nodeName}`]) {
+    return nodeEgressIps[`${profileId}_${nodeName}`]
+  }
+  return nodeEgressIps[nodeName] || null
+}
+
+export function isNodeEgressProbing(
+  probingEgressNodeKeys: Record<string, boolean>,
+  nodeName: string,
+  profileId?: string | null,
+  runtimeKey?: string,
+): boolean {
+  return Boolean(
+    (runtimeKey && probingEgressNodeKeys[runtimeKey]) ||
+      (profileId && probingEgressNodeKeys[`${profileId}_${nodeName}`]) ||
+      probingEgressNodeKeys[nodeName],
+  )
 }

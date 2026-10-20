@@ -6,6 +6,9 @@ use std::net::IpAddr;
 use std::path::Path;
 use tracing::warn;
 
+pub const EGRESS_PROBE_GROUP_NAME: &str = "egress-probe";
+pub const DEFAULT_EGRESS_PROBE_PORT: u16 = 19998;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimeListener {
     pub name: String,
@@ -25,12 +28,15 @@ pub struct RuntimeProxyGroup {
     #[serde(rename = "type")]
     pub group_type: String,
     pub proxies: Vec<String>,
-    pub url: String,
-    pub interval: u32,
-    pub timeout: u32,
-    pub lazy: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub interval: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub timeout: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub lazy: Option<bool>,
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimeRuleProvider {
     #[serde(rename = "type")]
@@ -343,6 +349,7 @@ pub struct RuntimeGeneratorParams<'a> {
     pub tun_enabled: bool,
     pub tun_port: Option<u16>,
     pub global_rules: &'a [crate::models::PortRule],
+    pub egress_probe_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -488,10 +495,10 @@ impl MinimalRuntimeConfig {
                         name: group_name.clone(),
                         group_type: "fallback".to_string(),
                         proxies: vec![primary, fallback.clone()],
-                        url: params.test_url.to_string(),
-                        interval: params.fallback_interval,
-                        timeout: params.timeout_ms,
-                        lazy: params.fallback_lazy,
+                        url: Some(params.test_url.to_string()),
+                        interval: Some(params.fallback_interval),
+                        timeout: Some(params.timeout_ms),
+                        lazy: Some(params.fallback_lazy),
                     });
                     if m.manual_fallback { fallback } else { group_name }
                 }
@@ -655,6 +662,36 @@ impl MinimalRuntimeConfig {
                 dns_hijack: vec!["any:53".to_string(), "tcp://any:53".to_string()],
             });
         }
+        if let Some(probe_port) = params.egress_probe_port {
+            let mut probe_proxies = Vec::with_capacity(proxies.len() + 1);
+            probe_proxies.push("DIRECT".to_string());
+            for p in &proxies {
+                if let Some(name) = p.as_mapping().and_then(|m| {
+                    m.get(serde_yaml_ng::Value::String("name".to_string()))
+                        .and_then(|v| v.as_str())
+                }) {
+                    probe_proxies.push(name.to_string());
+                }
+            }
+            proxy_groups.push(RuntimeProxyGroup {
+                name: EGRESS_PROBE_GROUP_NAME.to_string(),
+                group_type: "select".to_string(),
+                proxies: probe_proxies,
+                url: None,
+                interval: None,
+                timeout: None,
+                lazy: None,
+            });
+            listeners.push(RuntimeListener {
+                name: "in-egress-probe".to_string(),
+                listener_type: "mixed".to_string(),
+                port: probe_port,
+                listen: "127.0.0.1".to_string(),
+                proxy: Some(EGRESS_PROBE_GROUP_NAME.to_string()),
+                rule: None,
+            });
+            rules.push(format!("IN-PORT,{},{}", probe_port, EGRESS_PROBE_GROUP_NAME));
+        }
 
         // Invariant: Always end with MATCH,DIRECT fallback
         rules.push("MATCH,DIRECT".to_string());
@@ -785,6 +822,7 @@ password: pass
             tun_enabled: false,
             tun_port: None,
             global_rules: &[],
+            egress_probe_port: None,
         };
 
         let config = MinimalRuntimeConfig::with_mappings(
@@ -861,6 +899,7 @@ password: pass
             tun_enabled: false,
             tun_port: None,
             global_rules: &[],
+            egress_probe_port: None,
         };
         let config = MinimalRuntimeConfig::with_mappings(&params, &[direct_mapping], Vec::new(), &HashMap::new());
         let yaml = config.to_yaml().expect("YAML serialize failed");
@@ -922,6 +961,7 @@ password: pass
             tun_enabled: false,
             tun_port: None,
             global_rules: &[],
+            egress_probe_port: None,
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], proxies, &profile_map);
@@ -994,6 +1034,7 @@ password: pass
             tun_enabled: false,
             tun_port: None,
             global_rules: &[],
+            egress_probe_port: None,
         };
 
         let config =
@@ -1067,6 +1108,7 @@ password: pass
             tun_enabled: false,
             tun_port: None,
             global_rules: &[],
+            egress_probe_port: None,
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1, p2], &profile_map);
@@ -1137,6 +1179,7 @@ password: pass
             tun_enabled: false,
             tun_port: None,
             global_rules: &[],
+            egress_probe_port: None,
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], proxies, &profile_map);
@@ -1221,6 +1264,7 @@ password: pass
             tun_enabled: false,
             tun_port: None,
             global_rules: &[],
+            egress_probe_port: None,
         };
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping_global], vec![p1], &profile_map);
         let yaml = config.to_yaml().expect("YAML serialize failed");
@@ -1276,6 +1320,7 @@ password: pass
             tun_enabled: true,
             tun_port: Some(7899),
             global_rules: &[],
+            egress_probe_port: None,
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1], &profile_map);
@@ -1336,6 +1381,7 @@ password: pass
             tun_enabled: true,
             tun_port: Some(7899),
             global_rules: &[],
+            egress_probe_port: None,
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1], &profile_map);
@@ -1390,6 +1436,7 @@ password: pass
             tun_enabled: true,
             tun_port: Some(1234), // Not in mappings!
             global_rules: &[],
+            egress_probe_port: None,
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1], &profile_map);
@@ -1515,6 +1562,7 @@ password: pass
             tun_enabled: true,
             tun_port: Some(7890),
             global_rules: &[],
+            egress_probe_port: None,
         };
 
         let config =
@@ -1611,6 +1659,7 @@ password: pass
             tun_enabled: false,
             tun_port: None,
             global_rules: &global_rules,
+            egress_probe_port: None,
         };
 
         let config =
@@ -1628,5 +1677,50 @@ password: pass
         assert_eq!(sub_7894[0], "DOMAIN-SUFFIX,google.com,[AirportA] US-01");
         assert_eq!(sub_7894[1], "DOMAIN-SUFFIX,googleapis.com,[AirportA] US-01");
         assert_eq!(sub_7894[2], "MATCH,[AirportA] US-01");
+    }
+
+    #[test]
+    fn test_runtime_config_generation_with_egress_probe_port() {
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let p1: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str("name: \"[AirportA] HK-01\"\ntype: ss\nserver: 1.1.1.1\nport: 8388\n").unwrap();
+        let p2: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str("name: \"[AirportA] US-01\"\ntype: ss\nserver: 2.2.2.2\nport: 8388\n").unwrap();
+
+        let params = RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "secret123",
+            log_level: "info",
+            allow_lan: true,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+            user_bypass: &[],
+            tun_enabled: false,
+            tun_port: None,
+            global_rules: &[],
+            egress_probe_port: Some(19998),
+        };
+
+        let config = MinimalRuntimeConfig::with_mappings(&params, &[], vec![p1, p2], &profile_map);
+        assert_eq!(config.listeners.len(), 1);
+        assert_eq!(config.listeners[0].name, "in-egress-probe");
+        assert_eq!(config.listeners[0].port, 19998);
+        // Even when allow_lan is true, internal egress probe listener must bind strictly to 127.0.0.1
+        assert_eq!(config.listeners[0].listen, "127.0.0.1");
+        assert_eq!(config.listeners[0].proxy.as_deref(), Some(EGRESS_PROBE_GROUP_NAME));
+
+        assert_eq!(config.proxy_groups.len(), 1);
+        assert_eq!(config.proxy_groups[0].name, EGRESS_PROBE_GROUP_NAME);
+        assert_eq!(config.proxy_groups[0].group_type, "select");
+        assert_eq!(
+            config.proxy_groups[0].proxies,
+            vec!["DIRECT", "[AirportA] HK-01", "[AirportA] US-01"]
+        );
+        assert!(config.rules.contains(&"IN-PORT,19998,egress-probe".to_string()));
+        assert_eq!(config.rules.last(), Some(&"MATCH,DIRECT".to_string()));
     }
 }

@@ -274,6 +274,28 @@ export async function queryDirectEgressInfo(
   })
 }
 
+export async function queryNodeEgressInfo(
+  nodeName: string,
+  profileId?: string | null,
+  timeoutMs?: number | null,
+): Promise<DirectEgressInfo> {
+  if (!isTauriEnvironment()) {
+    return {
+      ip: '141.11.146.79',
+      region: 'Hong Kong · Kwai Chung',
+      countryCode: 'HK',
+      isp: 'Mock Proxy Network',
+      latencyMs: 42,
+      source: 'mock',
+    }
+  }
+  return invoke<DirectEgressInfo>('query_node_egress_info', {
+    nodeName,
+    profileId: profileId ?? null,
+    timeoutMs: timeoutMs ?? null,
+  })
+}
+
 export async function testPortMappingDelay(
   id: string,
   testUrl?: string,

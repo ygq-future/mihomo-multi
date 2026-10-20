@@ -27,6 +27,8 @@ pub struct AppState {
     pub app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
     pub is_silent_start: Arc<std::sync::atomic::AtomicBool>,
     pub initial_window_shown: Arc<std::sync::atomic::AtomicBool>,
+    pub egress_probe_port: Arc<RwLock<Option<u16>>>,
+    pub egress_probe_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl AppState {
@@ -39,6 +41,8 @@ impl AppState {
         let occupied_ports = Arc::new(RwLock::new(HashSet::new()));
         let is_silent_start = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let initial_window_shown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let egress_probe_port = Arc::new(RwLock::new(None));
+        let egress_probe_lock = Arc::new(tokio::sync::Mutex::new(()));
 
         let config_path = app_dir.join("config.json");
         let initial_config = if config_path.exists() {
@@ -127,6 +131,8 @@ impl AppState {
             app_handle,
             is_silent_start,
             initial_window_shown,
+            egress_probe_port,
+            egress_probe_lock,
         }
     }
 
@@ -179,10 +185,14 @@ impl AppState {
     pub fn port_probe_context(&self) -> PortProbeContext {
         let cfg = self.config.read();
         let status = self.engine.get_status();
+        let mut reserved_ports = vec![cfg.controller_port];
+        if let Some(probe_port) = *self.egress_probe_port.read() {
+            reserved_ports.push(probe_port);
+        }
         PortProbeContext {
             allow_lan: cfg.allow_lan,
             core_pid: if status.running { status.pid } else { None },
-            reserved_ports: vec![cfg.controller_port],
+            reserved_ports,
         }
     }
 
@@ -401,6 +411,7 @@ impl AppState {
         let (active_mappings, occupied_set) = self.engine.filter_available_mappings(&mappings, cfg.allow_lan);
         *self.occupied_ports.write() = occupied_set;
 
+        let probe_port = self.resolve_egress_probe_port(&mappings, cfg.controller_port);
         let params = RuntimeGeneratorParams {
             controller_port: cfg.controller_port,
             secret: &cfg.controller_secret,
@@ -414,6 +425,7 @@ impl AppState {
             tun_enabled: cfg.tun_enabled && crate::core::elevation::is_elevated(),
             tun_port: cfg.tun_port,
             global_rules: &cfg.global_rules,
+            egress_probe_port: probe_port,
         };
 
         let path = self
@@ -432,6 +444,40 @@ impl AppState {
     /// Synchronizes all active port listeners and proxy nodes into `runtime.yaml` and triggers a hot reload if the core is running.
     pub async fn sync_runtime_config(&self) -> AppResult<PathBuf> {
         self.sync_runtime_with_event(PortChangeEvent::Resynced).await
+    }
+
+    /// Resolves and caches an available local loopback port for the internal `egress-probe` listener.
+    pub fn resolve_egress_probe_port(&self, mappings: &[PortMapping], controller_port: u16) -> Option<u16> {
+        let status = self.engine.get_status();
+        let core_pid = if status.running { status.pid } else { None };
+
+        if let Some(current) = *self.egress_probe_port.read() {
+            let conflict_with_user = current == controller_port || mappings.iter().any(|m| m.port == current);
+            if !conflict_with_user
+                && crate::core::port_probe::is_port_available_with_lan(current, false, core_pid)
+            {
+                return Some(current);
+            }
+        }
+
+        let base_port = if cfg!(debug_assertions) {
+            crate::core::config_generator::DEFAULT_EGRESS_PROBE_PORT + 100
+        } else {
+            crate::core::config_generator::DEFAULT_EGRESS_PROBE_PORT
+        };
+
+        for offset in 0..50u16 {
+            let candidate = base_port.saturating_add(offset);
+            if candidate == controller_port || mappings.iter().any(|m| m.port == candidate) {
+                continue;
+            }
+            if crate::core::port_probe::is_port_available_with_lan(candidate, false, core_pid) {
+                *self.egress_probe_port.write() = Some(candidate);
+                return Some(candidate);
+            }
+        }
+
+        None
     }
 
     // --- Coordinated Port Mapping Operations ---

@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Copy,
   Edit2,
   Globe,
   Loader2,
@@ -22,7 +23,12 @@ import type {
   PortDriftReport,
   PortMapping,
 } from '../../types'
-import { extractRegion, getLatencyBadgeProps } from '../../utils/proxy'
+import {
+  extractRegion,
+  getLatencyBadgeProps,
+  isNodeEgressProbing,
+  lookupNodeEgressInfo,
+} from '../../utils/proxy'
 import {
   Badge,
   Button,
@@ -94,6 +100,9 @@ export const PortTableView: React.FC = () => {
     testingFbPortIds,
     fallbackStatuses,
     fetchFallbackStatuses,
+    nodeEgressIps,
+    probingEgressNodeKeys,
+    probeNodeEgressIp,
   } = useAppStore()
   const isRunning = coreStatus?.running ?? false
   const hasFallback = portMappings.some(
@@ -144,6 +153,67 @@ export const PortTableView: React.FC = () => {
       }
     },
     [],
+  )
+
+  const handleCopyNodeEgressIp = useCallback(
+    async (
+      nodeName: string,
+      profileId?: string | null,
+      runtimeKey?: string,
+      label = '节点',
+      forceRefresh = false,
+    ) => {
+      const cacheKey =
+        runtimeKey || (profileId ? `${profileId}_${nodeName}` : nodeName)
+      const cached = lookupNodeEgressInfo(
+        nodeEgressIps,
+        nodeName,
+        profileId,
+        cacheKey,
+      )
+      if (cached && !forceRefresh) {
+        await navigator.clipboard.writeText(cached.ip).catch(() => {})
+        toast.success(
+          `已复制${label}出口 IP: ${cached.ip}${cached.region ? ` (${cached.region})` : ''}`,
+        )
+        return
+      }
+
+      try {
+        const info = await probeNodeEgressIp(nodeName, profileId, cacheKey)
+        await navigator.clipboard.writeText(info.ip).catch(() => {})
+        toast.success(
+          `已复制${label}出口 IP: ${info.ip}${info.region ? ` (${info.region})` : ''}`,
+        )
+      } catch (err) {
+        toast.error(
+          `探测${label}出口 IP 失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    },
+    [nodeEgressIps, probeNodeEgressIp],
+  )
+
+  const handleCopyDirectEgressIp = useCallback(
+    async (port?: number | null, forceRefresh = false) => {
+      if (directEgressInfo && !forceRefresh) {
+        await navigator.clipboard.writeText(directEgressInfo.ip).catch(() => {})
+        toast.success(
+          `已复制直连出口 IP: ${directEgressInfo.ip}${directEgressInfo.region ? ` (${directEgressInfo.region})` : ''}`,
+        )
+        return
+      }
+      const info = await handleProbeDirectEgress(port, false)
+      if (info) {
+        await navigator.clipboard.writeText(info.ip).catch(() => {})
+        toast.success(
+          `已复制直连出口 IP: ${info.ip}${info.region ? ` (${info.region})` : ''}`,
+        )
+      } else {
+        toast.error('直连出口 IP 检测失败')
+      }
+    },
+    [directEgressInfo, handleProbeDirectEgress],
   )
 
   // Auto-probe on first mount if no cache exists
@@ -843,6 +913,40 @@ export const PortTableView: React.FC = () => {
                     : isCurrentSystemProxy
                       ? 2
                       : 1
+              const primaryEgressInfo = isDirectCard
+                ? directEgressInfo
+                : lookupNodeEgressInfo(
+                    nodeEgressIps,
+                    m.nodeName,
+                    m.profileId,
+                    nodeKey,
+                  )
+              const fallbackEgressInfo =
+                hasFallback && m.fallbackNodeName
+                  ? lookupNodeEgressInfo(
+                      nodeEgressIps,
+                      m.fallbackNodeName,
+                      m.fallbackProfileId || m.profileId,
+                      fbNodeKey,
+                    )
+                  : null
+              const isProbingPrimary = isDirectCard
+                ? isProbingDirect
+                : isNodeEgressProbing(
+                    probingEgressNodeKeys,
+                    m.nodeName,
+                    m.profileId,
+                    nodeKey,
+                  )
+              const isProbingFallback =
+                hasFallback && m.fallbackNodeName
+                  ? isNodeEgressProbing(
+                      probingEgressNodeKeys,
+                      m.fallbackNodeName,
+                      m.fallbackProfileId || m.profileId,
+                      fbNodeKey,
+                    )
+                  : false
               return (
                 <div
                   key={m.id}
@@ -998,20 +1102,32 @@ export const PortTableView: React.FC = () => {
                             code={directEgressInfo?.countryCode || 'CN'}
                             size="md"
                           />
-                          <span
-                            className="truncate font-mono font-semibold text-xs text-foreground"
-                            title={
-                              directEgressInfo?.ip ||
-                              '正在检测或尚未获取公网 IP'
-                            }
-                          >
-                            {directEgressInfo?.ip ||
-                              (isProbingDirect
+                          {directEgressInfo?.ip ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void handleCopyDirectEgressIp(
+                                  m.enabled ? m.port : null,
+                                  false,
+                                )
+                              }}
+                              className="truncate font-mono font-semibold text-xs text-foreground hover:text-primary transition-colors cursor-pointer text-left"
+                              title={`点击复制直连出口 IP: ${directEgressInfo.ip}`}
+                            >
+                              {directEgressInfo.ip}
+                            </button>
+                          ) : (
+                            <span
+                              className="truncate font-mono font-semibold text-xs text-foreground"
+                              title="正在检测或尚未获取公网 IP"
+                            >
+                              {isProbingDirect
                                 ? '正在探测 IP...'
                                 : m.enabled
                                   ? '点击测速检测 IP'
-                                  : '未开启监听')}
-                          </span>
+                                  : '未开启监听'}
+                            </span>
+                          )}
                           <span
                             className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 shrink-0 select-none"
                             title="流量出口: 本地 DIRECT 直连"
@@ -1074,16 +1190,56 @@ export const PortTableView: React.FC = () => {
                               {profileName}
                             </span>
                           )}
-                          <span
-                            className="truncate flex-1 font-semibold text-foreground"
-                            title={
-                              profileName
-                                ? `[${profileName}] ${m.nodeName}`
-                                : m.nodeName
-                            }
-                          >
-                            {m.nodeName}
-                          </span>
+                          <div className="relative flex items-center flex-1 min-w-0 group/name">
+                            <span
+                              className="truncate flex-1 font-semibold text-foreground"
+                              title={
+                                profileName
+                                  ? `[${profileName}] ${m.nodeName}`
+                                  : m.nodeName
+                              }
+                            >
+                              {m.nodeName}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={isProbingPrimary}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void handleCopyNodeEgressIp(
+                                  m.nodeName,
+                                  m.profileId,
+                                  nodeKey,
+                                  hasFallback ? '主节点' : '节点',
+                                  false,
+                                )
+                              }}
+                              className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-5 px-2 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer disabled:opacity-70 transition-all duration-200 ease-out ${
+                                isProbingPrimary
+                                  ? 'opacity-100 scale-100 translate-x-0 pointer-events-auto'
+                                  : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/name:opacity-100 group-hover/name:scale-100 group-hover/name:translate-x-0 group-hover/name:pointer-events-auto'
+                              }`}
+                              title={
+                                isProbingPrimary
+                                  ? '正在探测出口 IP...'
+                                  : primaryEgressInfo
+                                    ? `点击复制出口 IP: ${primaryEgressInfo.ip}${primaryEgressInfo.region ? ` (${primaryEgressInfo.region})` : ''}`
+                                    : '点击探测并复制该节点出口 IP'
+                              }
+                            >
+                              {isProbingPrimary ? (
+                                <>
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                  <span>探测中</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-2.5 h-2.5" />
+                                  <span>复制IP</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
                           {isDrifted && (
                             <Badge
                               variant={
@@ -1177,16 +1333,77 @@ export const PortTableView: React.FC = () => {
                               }
                               size="sm"
                             />
-                            <span
-                              className="truncate font-medium text-[11px]"
-                              title={
-                                fbProfileName
-                                  ? `[${fbProfileName}] ${m.fallbackNodeName}`
-                                  : m.fallbackNodeName || ''
-                              }
-                            >
-                              {m.fallbackNodeName}
-                            </span>
+                            <div className="relative flex items-center flex-1 min-w-0 group/fbname">
+                              <span
+                                className="truncate font-medium text-[11px] flex-1 min-w-0 text-left"
+                                title={
+                                  fbProfileName
+                                    ? `[${fbProfileName}] ${m.fallbackNodeName}`
+                                    : m.fallbackNodeName || ''
+                                }
+                              >
+                                {m.fallbackNodeName}
+                              </span>
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  e.preventDefault()
+                                  if (isProbingFallback || !m.fallbackNodeName)
+                                    return
+                                  void handleCopyNodeEgressIp(
+                                    m.fallbackNodeName,
+                                    m.fallbackProfileId || m.profileId,
+                                    fbNodeKey,
+                                    '备用节点',
+                                    false,
+                                  )
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.stopPropagation()
+                                    e.preventDefault()
+                                    if (
+                                      isProbingFallback ||
+                                      !m.fallbackNodeName
+                                    )
+                                      return
+                                    void handleCopyNodeEgressIp(
+                                      m.fallbackNodeName,
+                                      m.fallbackProfileId || m.profileId,
+                                      fbNodeKey,
+                                      '备用节点',
+                                      false,
+                                    )
+                                  }
+                                }}
+                                className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-[18px] px-1.5 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer transition-all duration-200 ease-out ${
+                                  isProbingFallback
+                                    ? 'opacity-80 scale-100 translate-x-0 pointer-events-auto'
+                                    : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/fbname:opacity-100 group-hover/fbname:scale-100 group-hover/fbname:translate-x-0 group-hover/fbname:pointer-events-auto'
+                                }`}
+                                title={
+                                  isProbingFallback
+                                    ? '正在探测备用节点出口 IP...'
+                                    : fallbackEgressInfo
+                                      ? `点击复制备用节点出口 IP: ${fallbackEgressInfo.ip}${fallbackEgressInfo.region ? ` (${fallbackEgressInfo.region})` : ''}`
+                                      : '点击探测并复制备用节点出口 IP'
+                                }
+                              >
+                                {isProbingFallback ? (
+                                  <>
+                                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                    <span>探测中</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-2.5 h-2.5" />
+                                    <span>复制IP</span>
+                                  </>
+                                )}
+                              </span>
+                            </div>
                           </div>
 
                           {isManualFallback ? (
@@ -1354,6 +1571,41 @@ export const PortTableView: React.FC = () => {
                         hostIp={activeHostIp}
                         bypassDomains={config?.systemProxyBypassUser}
                         disabled={!isEffectiveEnabled}
+                        isDirect={isDirectCard}
+                        primaryNodeName={m.nodeName}
+                        fallbackNodeName={
+                          hasFallback ? m.fallbackNodeName : undefined
+                        }
+                        primaryEgressInfo={primaryEgressInfo}
+                        fallbackEgressInfo={fallbackEgressInfo}
+                        isProbingPrimary={isProbingPrimary}
+                        isProbingFallback={isProbingFallback}
+                        onCopyPrimaryEgressIp={(forceRefresh) =>
+                          isDirectCard
+                            ? handleCopyDirectEgressIp(
+                                m.enabled ? m.port : null,
+                                forceRefresh,
+                              )
+                            : handleCopyNodeEgressIp(
+                                m.nodeName,
+                                m.profileId,
+                                nodeKey,
+                                hasFallback ? '主节点' : '节点',
+                                forceRefresh,
+                              )
+                        }
+                        onCopyFallbackEgressIp={
+                          hasFallback && m.fallbackNodeName
+                            ? (forceRefresh) =>
+                                handleCopyNodeEgressIp(
+                                  m.fallbackNodeName!,
+                                  m.fallbackProfileId || m.profileId,
+                                  fbNodeKey,
+                                  '备用节点',
+                                  forceRefresh,
+                                )
+                            : undefined
+                        }
                         onCopySuccess={toast.success}
                       />
                       {isDirectCard ? (

@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand'
 import * as api from '../services/tauri'
 import type {
+  DirectEgressInfo,
   LatencyProgressPayload,
   LatencyUpdatePayload,
   NodeLatencyResult,
@@ -11,17 +12,23 @@ import { DEFAULT_TIMEOUT_MS } from '../constants'
 export interface ProxySlice {
   latencies: Record<string, number | null>
   testingNodeNames: Record<string, boolean>
+  nodeEgressIps: Record<string, DirectEgressInfo>
+  probingEgressNodeKeys: Record<string, boolean>
   isTestingAll: boolean
   quickBindTarget: { profileId: string; nodeName: string } | null
   isAddPortModalOpen: boolean
   proxyError: string | null
-
   fetchLatencies: () => Promise<void>
   testNodeDelay: (
     nodeName: string,
     testUrl?: string,
     timeoutMs?: number,
   ) => Promise<number | null>
+  probeNodeEgressIp: (
+    nodeName: string,
+    profileId?: string | null,
+    runtimeKey?: string,
+  ) => Promise<DirectEgressInfo>
   testAllNodesDelay: (
     nodeNames: string[],
     testUrl?: string,
@@ -44,6 +51,8 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
 ) => ({
   latencies: {},
   testingNodeNames: {},
+  nodeEgressIps: {},
+  probingEgressNodeKeys: {},
   isTestingAll: false,
   quickBindTarget: null,
   isAddPortModalOpen: false,
@@ -93,6 +102,46 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
         }
       })
       return null
+    }
+  },
+
+  probeNodeEgressIp: async (nodeName, profileId, runtimeKey) => {
+    const cacheKey =
+      runtimeKey || (profileId ? `${profileId}_${nodeName}` : nodeName)
+    set((state) => ({
+      probingEgressNodeKeys: {
+        ...state.probingEgressNodeKeys,
+        [cacheKey]: true,
+      },
+    }))
+    try {
+      const info = await api.queryNodeEgressInfo(nodeName, profileId)
+      set((state) => {
+        const nextProbing = { ...state.probingEgressNodeKeys }
+        delete nextProbing[cacheKey]
+        const nextEgress: Record<string, DirectEgressInfo> = {
+          ...state.nodeEgressIps,
+          [cacheKey]: info,
+          [nodeName]: info,
+        }
+        if (profileId) {
+          nextEgress[`${profileId}_${nodeName}`] = info
+        }
+        return {
+          nodeEgressIps: nextEgress,
+          probingEgressNodeKeys: nextProbing,
+        }
+      })
+      return info
+    } catch (err) {
+      set((state) => {
+        const nextProbing = { ...state.probingEgressNodeKeys }
+        delete nextProbing[cacheKey]
+        return {
+          probingEgressNodeKeys: nextProbing,
+        }
+      })
+      throw err
     }
   },
 

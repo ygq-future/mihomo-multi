@@ -1,4 +1,12 @@
-import { ChevronDown, Copy, Terminal } from 'lucide-react'
+import {
+  ChevronDown,
+  Copy,
+  Globe,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  Terminal,
+} from 'lucide-react'
 import type React from 'react'
 import {
   useCallback,
@@ -8,7 +16,7 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import type { InboundProtocol } from '../../types'
+import type { DirectEgressInfo, InboundProtocol } from '../../types'
 
 export interface QuickCopyMenuProps {
   port: number
@@ -16,6 +24,15 @@ export interface QuickCopyMenuProps {
   hostIp?: string
   bypassDomains?: string[]
   disabled?: boolean
+  isDirect?: boolean
+  primaryNodeName?: string
+  fallbackNodeName?: string
+  primaryEgressInfo?: DirectEgressInfo | null
+  fallbackEgressInfo?: DirectEgressInfo | null
+  isProbingPrimary?: boolean
+  isProbingFallback?: boolean
+  onCopyPrimaryEgressIp?: (forceRefresh?: boolean) => Promise<void>
+  onCopyFallbackEgressIp?: (forceRefresh?: boolean) => Promise<void>
   onCopySuccess: (text: string) => void
 }
 
@@ -25,6 +42,15 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
   hostIp,
   bypassDomains,
   disabled = false,
+  isDirect = false,
+  primaryNodeName,
+  fallbackNodeName,
+  primaryEgressInfo,
+  fallbackEgressInfo,
+  isProbingPrimary = false,
+  isProbingFallback = false,
+  onCopyPrimaryEgressIp,
+  onCopyFallbackEgressIp,
   onCopySuccess,
 }) => {
   const [isOpen, setIsOpen] = useState(false)
@@ -74,9 +100,9 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
     if (!triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
     const spaceBelow = window.innerHeight - rect.bottom
-    const menuHeight = 220
+    const hasFallbackRow = Boolean(fallbackNodeName && onCopyFallbackEgressIp)
+    const menuHeight = hasFallbackRow ? 310 : 265
     const shouldPlaceTop = spaceBelow < menuHeight && rect.top > menuHeight
-
     const top = shouldPlaceTop ? rect.top - menuHeight - 4 : rect.bottom + 4
     const left = Math.max(
       8,
@@ -88,7 +114,7 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
       left,
       placement: shouldPlaceTop ? 'top' : 'bottom',
     })
-  }, [])
+  }, [fallbackNodeName, onCopyFallbackEgressIp])
   useLayoutEffect(() => {
     if (disabled && isOpen) {
       setIsOpen(false)
@@ -254,6 +280,108 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
               </span>
             </div>
             <div className="p-1 space-y-0.5">
+              {onCopyPrimaryEgressIp && (
+                <div className="flex items-center gap-0.5 rounded-lg hover:bg-accent hover:text-accent-foreground transition-colors group">
+                  <button
+                    type="button"
+                    disabled={isProbingPrimary}
+                    onClick={async () => {
+                      await onCopyPrimaryEgressIp(false)
+                      closeMenu()
+                    }}
+                    className="flex-1 min-w-0 text-left p-1.5 rounded-lg disabled:opacity-60"
+                  >
+                    <div className="flex items-center justify-between text-xs font-medium text-foreground">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {isProbingPrimary ? (
+                          <Loader2 className="w-3 h-3 text-primary animate-spin shrink-0" />
+                        ) : (
+                          <Globe className="w-3 h-3 text-emerald-500 shrink-0" />
+                        )}
+                        <span className="truncate">
+                          {isDirect
+                            ? '复制直连出口 IP'
+                            : fallbackNodeName
+                              ? '复制主节点出口 IP'
+                              : '复制节点出口 IP'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">
+                      {isProbingPrimary
+                        ? '正在实时探测出口 IP...'
+                        : primaryEgressInfo
+                          ? `${primaryEgressInfo.ip}${primaryEgressInfo.region ? ` (${primaryEgressInfo.region})` : ''}`
+                          : `点击探测并复制纯 IP${primaryNodeName && !isDirect ? ` · ${primaryNodeName}` : ''}`}
+                    </div>
+                  </button>
+                  {primaryEgressInfo && !isProbingPrimary && (
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        await onCopyPrimaryEgressIp(true)
+                        closeMenu()
+                      }}
+                      className="p-1.5 mr-0.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors shrink-0"
+                      title="重新探测并复制最新出口 IP"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {fallbackNodeName && onCopyFallbackEgressIp && (
+                <div className="flex items-center gap-0.5 rounded-lg hover:bg-accent hover:text-accent-foreground transition-colors group">
+                  <button
+                    type="button"
+                    disabled={isProbingFallback}
+                    onClick={async () => {
+                      await onCopyFallbackEgressIp(false)
+                      closeMenu()
+                    }}
+                    className="flex-1 min-w-0 text-left p-1.5 rounded-lg disabled:opacity-60"
+                  >
+                    <div className="flex items-center justify-between text-xs font-medium text-foreground">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {isProbingFallback ? (
+                          <Loader2 className="w-3 h-3 text-primary animate-spin shrink-0" />
+                        ) : (
+                          <ShieldCheck className="w-3 h-3 text-amber-500 shrink-0" />
+                        )}
+                        <span className="truncate">复制备用节点出口 IP</span>
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">
+                      {isProbingFallback
+                        ? '正在实时探测备用节点出口 IP...'
+                        : fallbackEgressInfo
+                          ? `${fallbackEgressInfo.ip}${fallbackEgressInfo.region ? ` (${fallbackEgressInfo.region})` : ''}`
+                          : `点击探测并复制纯 IP · ${fallbackNodeName}`}
+                    </div>
+                  </button>
+                  {fallbackEgressInfo && !isProbingFallback && (
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        await onCopyFallbackEgressIp(true)
+                        closeMenu()
+                      }}
+                      className="p-1.5 mr-0.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors shrink-0"
+                      title="重新探测并复制备用节点最新出口 IP"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {(onCopyPrimaryEgressIp || onCopyFallbackEgressIp) && (
+                <div className="my-1 border-t border-border/50" />
+              )}
+
               {copyOptions.map((opt) => (
                 <button
                   key={opt.label}

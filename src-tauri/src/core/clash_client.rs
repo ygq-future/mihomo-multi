@@ -240,6 +240,39 @@ impl ClashApiClient {
         }
     }
 
+    /// Switches the active proxy in a `select` proxy-group via PUT /proxies/{group_name}
+    pub async fn select_proxy(&self, group_name: &str, proxy_name: &str) -> AppResult<()> {
+        let encoded_group = urlencoding::encode(group_name);
+        let request_url = format!("{}/proxies/{}", self.base_url, encoded_group);
+        let payload = serde_json::json!({
+            "name": proxy_name,
+        });
+
+        let mut req = self
+            .http_client
+            .put(&request_url)
+            .json(&payload)
+            .timeout(Duration::from_secs(5));
+        if !self.secret.is_empty() {
+            req = req.header(AUTHORIZATION, format!("Bearer {}", self.secret));
+        }
+
+        let resp = req.send().await.map_err(|err| {
+            AppError::ExternalController(format!("Failed to connect to Mihomo proxy selector API: {}", err))
+        })?;
+
+        let status = resp.status();
+        if status.is_success() || status.as_u16() == 204 {
+            Ok(())
+        } else {
+            let error_text = resp.text().await.unwrap_or_default();
+            Err(AppError::ExternalController(format!(
+                "Failed to select proxy '{}' in group '{}' (status {}): {}",
+                proxy_name, group_name, status, error_text
+            )))
+        }
+    }
+
     /// Triggers healthcheck and latency test for an entire proxy group via GET /group/{name}/delay
     pub async fn test_group_delay(
         &self,

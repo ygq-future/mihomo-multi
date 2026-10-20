@@ -1498,6 +1498,72 @@ pub async fn query_direct_egress_info(port: Option<u16>, timeout_ms: Option<u64>
 }
 
 #[tauri::command]
+pub async fn query_node_egress_info(
+    node_name: String,
+    profile_id: Option<String>,
+    timeout_ms: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<DirectEgressInfo, String> {
+    if node_name.trim().is_empty() {
+        return Err("节点名称不能为空".to_string());
+    }
+    if node_name == "DIRECT" {
+        return crate::core::egress_probe::query_direct_egress_info(None, timeout_ms)
+            .await
+            .map_err(|e| e.to_string());
+    }
+
+    let status = state.engine.get_status();
+    if !status.running {
+        return Err("Mihomo 内核未运行，请先启动内核后再探测节点出口 IP".to_string());
+    }
+
+    let all_nodes = state.profile_manager.get_all_nodes();
+    let target_runtime_name = if let Some(ref pid) = profile_id
+        && !pid.trim().is_empty()
+    {
+        if let Some(found) = all_nodes
+            .iter()
+            .find(|n| n.profile_id.as_deref() == Some(pid.as_str()) && n.name == node_name)
+        {
+            found.runtime_name.clone().unwrap_or_else(|| found.name.clone())
+        } else if let Some(prof) = state.profile_manager.get_profile_by_id(pid) {
+            format!("[{}] {}", prof.name, node_name)
+        } else {
+            node_name.clone()
+        }
+    } else if let Some(found) = all_nodes
+        .iter()
+        .find(|n| n.runtime_name.as_deref() == Some(node_name.as_str()) || n.name == node_name)
+    {
+        found.runtime_name.clone().unwrap_or_else(|| found.name.clone())
+    } else {
+        node_name.clone()
+    };
+
+    let mut probe_port_opt = *state.egress_probe_port.read();
+    if probe_port_opt.is_none() {
+        let _ = state.sync_runtime_config().await;
+        probe_port_opt = *state.egress_probe_port.read();
+    }
+    let probe_port = probe_port_opt.ok_or_else(|| "未能分配内部出口探测监听端口".to_string())?;
+
+    let _guard = state.egress_probe_lock.lock().await;
+    state
+        .engine
+        .select_proxy(
+            crate::core::config_generator::EGRESS_PROBE_GROUP_NAME,
+            &target_runtime_name,
+        )
+        .await
+        .map_err(|e| format!("切换节点探测通道失败: {}", e))?;
+
+    crate::core::egress_probe::query_proxy_egress_info(probe_port, timeout_ms)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_connections(state: State<'_, AppState>) -> Result<ConnectionSnapshot, String> {
     let status = state.engine.get_status();
     if !status.running {

@@ -270,6 +270,7 @@ pub fn run() {
             test_all_port_mappings_delay,
             get_port_fallback_statuses,
             query_direct_egress_info,
+            query_node_egress_info,
             get_profiles,
             add_remote_profile,
             add_local_profile,

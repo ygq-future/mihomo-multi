@@ -39,6 +39,10 @@ pub trait KernelControllerAdapter: Send + Sync {
 
     /// Queries details for a proxy or proxy-group
     fn get_proxy_detail<'a>(&'a self, name: &'a str) -> BoxFuture<'a, AppResult<ProxyDetail>>;
+    /// Switches the active proxy in a `select` proxy-group
+    fn select_proxy<'a>(&'a self, _group_name: &'a str, _proxy_name: &'a str) -> BoxFuture<'a, AppResult<()>> {
+        Box::pin(async { Ok(()) })
+    }
     /// Triggers healthcheck and latency test for an entire proxy group
     fn test_group_delay<'a>(
         &'a self,
@@ -112,6 +116,13 @@ impl KernelControllerAdapter for HttpControllerAdapter {
         Box::pin(async move {
             let client = self.client.read().clone();
             client.get_proxy_detail(name).await
+        })
+    }
+
+    fn select_proxy<'a>(&'a self, group_name: &'a str, proxy_name: &'a str) -> BoxFuture<'a, AppResult<()>> {
+        Box::pin(async move {
+            let client = self.client.read().clone();
+            client.select_proxy(group_name, proxy_name).await
         })
     }
 
@@ -465,6 +476,10 @@ impl KernelEngine {
         self.adapter.get_proxy_detail(name).await
     }
 
+    pub async fn select_proxy(&self, group_name: &str, proxy_name: &str) -> AppResult<()> {
+        self.adapter.select_proxy(group_name, proxy_name).await
+    }
+
     pub async fn test_group_delay(
         &self,
         group_name: &str,
@@ -747,6 +762,7 @@ password: pass
             tun_enabled: false,
             tun_port: None,
             global_rules: &[],
+            egress_probe_port: None,
         };
 
         let path = engine
@@ -806,6 +822,7 @@ password: pass
             tun_enabled: false,
             tun_port: None,
             global_rules: &[],
+            egress_probe_port: None,
         };
 
         // Applying config should succeed (write to disk) even if controller hot-reload returns error

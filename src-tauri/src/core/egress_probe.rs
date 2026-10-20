@@ -10,24 +10,31 @@ const DEFAULT_USER_AGENT: &str = "mihomo-multi/0.1.0 (clash.meta)";
 pub struct ProbeEndpoint {
     pub name: &'static str,
     pub url: &'static str,
+    /// Whether this endpoint is hosted in mainland China (must be skipped for proxy egress probes
+    /// so `bypass_cn` / `geosite-cn` rules never route the probe through DIRECT).
+    pub is_cn_endpoint: bool,
 }
 
 pub const PROBE_ENDPOINTS: [ProbeEndpoint; 4] = [
     ProbeEndpoint {
         name: "ip.sb",
         url: "https://api-ipv4.ip.sb/geoip",
+        is_cn_endpoint: false,
     },
     ProbeEndpoint {
         name: "ipwho.is",
         url: "https://ipwho.is/",
+        is_cn_endpoint: false,
     },
     ProbeEndpoint {
         name: "ipip.net",
         url: "https://myip.ipip.net/json",
+        is_cn_endpoint: true,
     },
     ProbeEndpoint {
         name: "ipapi.co",
         url: "https://ipapi.co/json/",
+        is_cn_endpoint: false,
     },
 ];
 
@@ -145,10 +152,25 @@ pub fn parse_probe_response(
 }
 
 pub async fn query_direct_egress_info(port: Option<u16>, timeout_ms: Option<u64>) -> AppResult<DirectEgressInfo> {
+    query_egress_info_with_mode(port, timeout_ms, false).await
+}
+
+pub async fn query_proxy_egress_info(port: u16, timeout_ms: Option<u64>) -> AppResult<DirectEgressInfo> {
+    query_egress_info_with_mode(Some(port), timeout_ms, true).await
+}
+
+async fn query_egress_info_with_mode(
+    port: Option<u16>,
+    timeout_ms: Option<u64>,
+    skip_cn_endpoints: bool,
+) -> AppResult<DirectEgressInfo> {
     let per_api_timeout = Duration::from_millis(timeout_ms.unwrap_or(PROBE_TIMEOUT_SECS * 1000));
     let mut last_err = String::new();
 
     for ep in &PROBE_ENDPOINTS {
+        if skip_cn_endpoints && ep.is_cn_endpoint {
+            continue;
+        }
         let mut builder = reqwest::Client::builder()
             .user_agent(DEFAULT_USER_AGENT)
             .timeout(per_api_timeout)
@@ -159,8 +181,9 @@ pub async fn query_direct_egress_info(port: Option<u16>, timeout_ms: Option<u64>
             if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
                 builder = builder.proxy(proxy);
             }
+        } else {
+            builder = builder.no_proxy();
         }
-
         let client = match builder.build() {
             Ok(c) => c,
             Err(e) => {
@@ -287,5 +310,14 @@ mod tests {
         let res = parse_probe_response("ip.sb", payload_ipv6);
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("不是合法的 IPv4 地址"));
+    }
+
+    #[test]
+    fn test_probe_endpoints_cn_classification() {
+        let cn_count = PROBE_ENDPOINTS.iter().filter(|ep| ep.is_cn_endpoint).count();
+        let global_count = PROBE_ENDPOINTS.iter().filter(|ep| !ep.is_cn_endpoint).count();
+        assert_eq!(cn_count, 1);
+        assert_eq!(global_count, 3);
+        assert!(PROBE_ENDPOINTS.iter().any(|ep| ep.name == "ipip.net" && ep.is_cn_endpoint));
     }
 }

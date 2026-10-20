@@ -1,9 +1,10 @@
-import { Compass, Loader2, Radio, Server } from 'lucide-react'
+import { Compass, Copy, Loader2, Radio, Server } from 'lucide-react'
 import type React from 'react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAppStore } from '../../stores/appStore'
 import type { ProfileItem, ProxyNode } from '../../types'
-import { Button, Input, Modal } from '../common'
+import { isNodeEgressProbing, lookupNodeEgressInfo } from '../../utils/proxy'
+import { Button, Input, Modal, toast } from '../common'
 
 interface ProfileNodesModalProps {
   profile: ProfileItem | null
@@ -16,7 +17,13 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { profileNodes, fetchProfileNodes } = useAppStore()
+  const {
+    profileNodes,
+    fetchProfileNodes,
+    nodeEgressIps,
+    probingEgressNodeKeys,
+    probeNodeEgressIp,
+  } = useAppStore()
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
 
@@ -26,6 +33,38 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
       fetchProfileNodes(profile.id).finally(() => setLoading(false))
     }
   }, [isOpen, profile, fetchProfileNodes])
+
+  const handleCopyEgress = useCallback(
+    async (node: ProxyNode) => {
+      if (!profile) return
+      const runtimeKey = node.runtimeName || `[${profile.name}] ${node.name}`
+      const cached = lookupNodeEgressInfo(
+        nodeEgressIps,
+        node.name,
+        profile.id,
+        runtimeKey,
+      )
+      if (cached) {
+        await navigator.clipboard.writeText(cached.ip).catch(() => {})
+        toast.success(
+          `已复制节点出口 IP: ${cached.ip}${cached.region ? ` (${cached.region})` : ''}`,
+        )
+        return
+      }
+      try {
+        const info = await probeNodeEgressIp(node.name, profile.id, runtimeKey)
+        await navigator.clipboard.writeText(info.ip).catch(() => {})
+        toast.success(
+          `已复制节点出口 IP: ${info.ip}${info.region ? ` (${info.region})` : ''}`,
+        )
+      } catch (err) {
+        toast.error(
+          `探测出口 IP 失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    },
+    [profile, nodeEgressIps, probeNodeEgressIp],
+  )
 
   if (!profile) return null
 
@@ -101,35 +140,83 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {filteredNodes.map((node) => (
-                <div
-                  key={`${node.name}-${node.server}-${node.port}`}
-                  className="p-3 rounded-xl border border-border bg-background/50 hover:bg-background/80 transition-colors flex items-center justify-between gap-3 text-xs"
-                >
-                  <div className="min-w-0 space-y-1">
-                    <div className="font-medium text-foreground truncate flex items-center gap-1.5">
-                      <Radio className="w-3 h-3 text-muted-foreground shrink-0" />
-                      <span className="truncate" title={node.name}>
-                        {node.name}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-muted-foreground font-mono truncate flex items-center gap-1">
-                      <Server className="w-2.5 h-2.5 shrink-0" />
-                      <span className="truncate">
-                        {node.server}:{node.port}
-                      </span>
-                    </div>
-                  </div>
-
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border uppercase shrink-0 ${getTypeBadgeColor(
-                      node.type,
-                    )}`}
+              {filteredNodes.map((node) => {
+                const runtimeKey =
+                  node.runtimeName || `[${profile.name}] ${node.name}`
+                const egressInfo = lookupNodeEgressInfo(
+                  nodeEgressIps,
+                  node.name,
+                  profile.id,
+                  runtimeKey,
+                )
+                const isProbing = isNodeEgressProbing(
+                  probingEgressNodeKeys,
+                  node.name,
+                  profile.id,
+                  runtimeKey,
+                )
+                return (
+                  <div
+                    key={`${node.name}-${node.server}-${node.port}`}
+                    className="p-3 rounded-xl border border-border bg-background/50 hover:bg-background/80 transition-colors flex items-center justify-between gap-3 text-xs"
                   >
-                    {node.type}
-                  </span>
-                </div>
-              ))}
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="relative font-medium text-foreground flex items-center gap-1.5 min-w-0 group/name">
+                        <Radio className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <span
+                          className="truncate flex-1 min-w-0"
+                          title={node.name}
+                        >
+                          {node.name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyEgress(node)}
+                          disabled={isProbing}
+                          className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-5 px-2 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer disabled:opacity-70 transition-all duration-200 ease-out ${
+                            isProbing
+                              ? 'opacity-100 scale-100 translate-x-0 pointer-events-auto'
+                              : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/name:opacity-100 group-hover/name:scale-100 group-hover/name:translate-x-0 group-hover/name:pointer-events-auto'
+                          }`}
+                          title={
+                            isProbing
+                              ? '正在探测出口 IP...'
+                              : egressInfo
+                                ? `点击复制节点出口 IP: ${egressInfo.ip}${egressInfo.region ? ` (${egressInfo.region})` : ''}`
+                                : '点击探测并复制该节点出口 IP'
+                          }
+                        >
+                          {isProbing ? (
+                            <>
+                              <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                              <span>探测中</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-2.5 h-2.5" />
+                              <span>复制IP</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground font-mono truncate flex items-center gap-1">
+                        <Server className="w-2.5 h-2.5 shrink-0" />
+                        <span className="truncate">
+                          {node.server}:{node.port}
+                        </span>
+                      </div>
+                    </div>
+
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border uppercase shrink-0 ${getTypeBadgeColor(
+                        node.type,
+                      )}`}
+                    >
+                      {node.type}
+                    </span>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>

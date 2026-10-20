@@ -2,6 +2,7 @@ import {
   AlertCircle,
   ArrowUpDown,
   Compass,
+  Copy,
   FileCode,
   Gauge,
   Globe,
@@ -14,12 +15,14 @@ import {
 } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../../stores/appStore'
-import type { ProxyNode } from '../../types'
+import type { DirectEgressInfo, ProxyNode } from '../../types'
 import {
   extractRegion,
   formatProtocolName,
   getLatencyBadgeProps,
   getProtocolBadgeProps,
+  isNodeEgressProbing,
+  lookupNodeEgressInfo,
 } from '../../utils/proxy'
 import {
   Badge,
@@ -29,6 +32,7 @@ import {
   type MultiSelectOption,
   RegionFlag,
   Select,
+  toast,
 } from '../common'
 import { AddPortModal } from '../ports/AddPortModal'
 
@@ -47,7 +51,10 @@ interface ProxyNodeCardProps {
   isTestingAll: boolean
   isBound: boolean
   boundPort?: number
+  egressInfo?: DirectEgressInfo | null
+  isProbingEgress: boolean
   onTestDelay: (nodeKey: string) => void
+  onCopyEgressIp: (node: AugmentedNode) => void
   onQuickBind: (target: { profileId: string; nodeName: string }) => void
 }
 
@@ -59,7 +66,10 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
     isTestingAll,
     isBound,
     boundPort,
+    egressInfo,
+    isProbingEgress,
     onTestDelay,
+    onCopyEgressIp,
     onQuickBind,
   }) => {
     const nodeKey = node.runtimeName || node.name
@@ -71,12 +81,46 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
         {/* Top Row: Region Flag (fixed) + Node Name (flex-1) + Profile Name (fixed right) */}
         <div className="flex items-center gap-1.5 min-w-0">
           <RegionFlag code={node.region.code} size="md" />
-          <span
-            className="truncate font-semibold text-xs text-foreground flex-1 min-w-0"
-            title={node.name}
-          >
-            {node.name}
-          </span>
+          <div className="relative flex items-center flex-1 min-w-0 group/name">
+            <span
+              className="truncate font-semibold text-xs text-foreground flex-1 min-w-0"
+              title={node.name}
+            >
+              {node.name}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onCopyEgressIp(node)
+              }}
+              disabled={isProbingEgress}
+              className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-5 px-2 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer disabled:opacity-70 transition-all duration-200 ease-out ${
+                isProbingEgress
+                  ? 'opacity-100 scale-100 translate-x-0 pointer-events-auto'
+                  : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/name:opacity-100 group-hover/name:scale-100 group-hover/name:translate-x-0 group-hover/name:pointer-events-auto'
+              }`}
+              title={
+                isProbingEgress
+                  ? '正在探测出口 IP...'
+                  : egressInfo
+                    ? `点击复制节点出口 IP: ${egressInfo.ip}${egressInfo.region ? ` (${egressInfo.region})` : ''}`
+                    : '点击探测并复制该节点出口 IP'
+              }
+            >
+              {isProbingEgress ? (
+                <>
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  <span>探测中</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-2.5 h-2.5" />
+                  <span>复制IP</span>
+                </>
+              )}
+            </button>
+          </div>
           <span
             className="shrink-0 max-w-[85px] truncate text-right text-[10px] text-muted-foreground/80"
             title={node.profileName}
@@ -163,6 +207,9 @@ export const ProxyGridView: React.FC = () => {
     isTestingAll,
     testNodeDelay,
     testAllNodesDelay,
+    nodeEgressIps,
+    probingEgressNodeKeys,
+    probeNodeEgressIp,
     proxyError,
     setProxyError,
   } = useAppStore()
@@ -476,6 +523,44 @@ export const ProxyGridView: React.FC = () => {
     [],
   )
 
+  const handleCopyNodeEgress = useCallback(
+    async (node: AugmentedNode) => {
+      const runtimeKey =
+        node.runtimeName ||
+        (node.profileName ? `[${node.profileName}] ${node.name}` : node.name)
+      const cached = lookupNodeEgressInfo(
+        nodeEgressIps,
+        node.name,
+        node.profileId,
+        runtimeKey,
+      )
+      if (cached) {
+        await navigator.clipboard.writeText(cached.ip).catch(() => {})
+        toast.success(
+          `已复制节点出口 IP: ${cached.ip}${cached.region ? ` (${cached.region})` : ''}`,
+        )
+        return
+      }
+
+      try {
+        const info = await probeNodeEgressIp(
+          node.name,
+          node.profileId,
+          runtimeKey,
+        )
+        await navigator.clipboard.writeText(info.ip).catch(() => {})
+        toast.success(
+          `已复制节点出口 IP: ${info.ip}${info.region ? ` (${info.region})` : ''}`,
+        )
+      } catch (err) {
+        toast.error(
+          `探测出口 IP 失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    },
+    [nodeEgressIps, probeNodeEgressIp],
+  )
+
   // Profile select dropdown options
   const profileOptions = useMemo<MultiSelectOption<string>[]>(() => {
     return profiles.map((p) => ({
@@ -775,6 +860,18 @@ export const ProxyGridView: React.FC = () => {
                 `${node.profileId}_${node.name}`,
               )
               const isBound = boundPort !== undefined
+              const egressInfo = lookupNodeEgressInfo(
+                nodeEgressIps,
+                node.name,
+                node.profileId,
+                nodeKey,
+              )
+              const isProbingEgress = isNodeEgressProbing(
+                probingEgressNodeKeys,
+                node.name,
+                node.profileId,
+                nodeKey,
+              )
 
               return (
                 <ProxyNodeCard
@@ -785,7 +882,10 @@ export const ProxyGridView: React.FC = () => {
                   isTestingAll={isTestingAll}
                   isBound={isBound}
                   boundPort={boundPort}
+                  egressInfo={egressInfo}
+                  isProbingEgress={isProbingEgress}
                   onTestDelay={handleSingleTest}
+                  onCopyEgressIp={handleCopyNodeEgress}
                   onQuickBind={handleQuickBind}
                 />
               )
