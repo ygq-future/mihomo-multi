@@ -124,6 +124,12 @@ input[type="number"] {
   -webkit-backdrop-filter: blur(var(--acrylic-blur, 12px)) !important;
 }
 
+/* Dense list item cards inherit background tint without stacking expensive independent blur layers */
+[data-acrylic="true"] .proxy-node-card {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
 /* Modals floating on backdrop should be solid surfaces to avoid black backdrop bleed-through */
 [data-acrylic="true"] [role="dialog"] .bg-card,
 [data-acrylic="true"] [role="dialog"] [class*="bg-card"] {

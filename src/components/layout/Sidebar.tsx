@@ -121,7 +121,7 @@ export const Sidebar: React.FC = () => {
     <aside
       className={`${
         sidebarCollapsed ? 'w-16' : 'w-48'
-      } bg-card border-r border-border flex flex-col justify-between select-none shrink-0 transition-all duration-200 ease-in-out`}
+      } bg-card border-r border-border flex flex-col justify-between select-none shrink-0 transition-[width] duration-200 ease-in-out will-change-[width]`}
     >
       <div>
         {/* App Branding & Collapse Toggle */}

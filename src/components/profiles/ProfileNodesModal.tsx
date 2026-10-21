@@ -17,13 +17,13 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const {
-    profileNodes,
-    fetchProfileNodes,
-    nodeEgressIps,
-    probingEgressNodeKeys,
-    probeNodeEgressIp,
-  } = useAppStore()
+  const profileNodes = useAppStore((state) => state.profileNodes)
+  const fetchProfileNodes = useAppStore((state) => state.fetchProfileNodes)
+  const nodeEgressIps = useAppStore((state) => state.nodeEgressIps)
+  const probingEgressNodeKeys = useAppStore(
+    (state) => state.probingEgressNodeKeys,
+  )
+  const probeNodeEgressIp = useAppStore((state) => state.probeNodeEgressIp)
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
 
@@ -139,7 +139,7 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
                 : '没有找到匹配的节点。'}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 [contain:layout_style]">
               {filteredNodes.map((node) => {
                 const runtimeKey =
                   node.runtimeName || `[${profile.name}] ${node.name}`
@@ -158,7 +158,7 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
                 return (
                   <div
                     key={`${node.name}-${node.server}-${node.port}`}
-                    className="p-3 rounded-xl border border-border bg-background/50 hover:bg-background/80 transition-colors flex items-center justify-between gap-3 text-xs"
+                    className="p-3 rounded-xl border border-border bg-background/50 hover:bg-background/80 transition-colors flex items-center justify-between gap-3 text-xs [contain:layout_style] [content-visibility:auto] [contain-intrinsic-size:56px]"
                   >
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="relative font-medium text-foreground flex items-center gap-1.5 min-w-0 group/name">

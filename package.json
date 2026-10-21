@@ -22,7 +22,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.2.0",
+    "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-process": "^2.2.0",
     "@tauri-apps/plugin-shell": "^2.2.0",
     "@tauri-apps/plugin-dialog": "^2.2.0",
@@ -36,7 +36,7 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@eslint/js": "^9.20.0",
-    "@tauri-apps/cli": "^2.2.3",
+    "@tauri-apps/cli": "^2.12.3",
     "@types/adm-zip": "^0.5.7",
     "@types/node": "^22.13.4",
     "@types/react": "^19.0.8",

@@ -77,7 +77,7 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
     const protocolProps = getProtocolBadgeProps(node.type)
 
     return (
-      <div className="p-2.5 rounded-xl border border-border bg-card hover:border-primary/40 hover:shadow-sm transition-all flex flex-col justify-between space-y-2 group">
+      <div className="proxy-node-card p-2.5 rounded-xl border border-border bg-card hover:border-primary/40 hover:shadow-sm transition-[border-color,box-shadow] flex flex-col justify-between space-y-2 group [contain:layout_style] [content-visibility:auto] [contain-intrinsic-size:84px]">
         {/* Top Row: Region Flag (fixed) + Node Name (flex-1) + Profile Name (fixed right) */}
         <div className="flex items-center gap-1.5 min-w-0">
           <RegionFlag code={node.region.code} size="md" />
@@ -195,24 +195,24 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
 )
 
 export const ProxyGridView: React.FC = () => {
-  const {
-    profiles,
-    fetchProfiles,
-    profileNodes,
-    fetchProfileNodes,
-    portMappings,
-    setActiveTab,
-    latencies,
-    testingNodeNames,
-    isTestingAll,
-    testNodeDelay,
-    testAllNodesDelay,
-    nodeEgressIps,
-    probingEgressNodeKeys,
-    probeNodeEgressIp,
-    proxyError,
-    setProxyError,
-  } = useAppStore()
+  const profiles = useAppStore((state) => state.profiles)
+  const fetchProfiles = useAppStore((state) => state.fetchProfiles)
+  const profileNodes = useAppStore((state) => state.profileNodes)
+  const fetchProfileNodes = useAppStore((state) => state.fetchProfileNodes)
+  const portMappings = useAppStore((state) => state.portMappings)
+  const setActiveTab = useAppStore((state) => state.setActiveTab)
+  const latencies = useAppStore((state) => state.latencies)
+  const testingNodeNames = useAppStore((state) => state.testingNodeNames)
+  const isTestingAll = useAppStore((state) => state.isTestingAll)
+  const testNodeDelay = useAppStore((state) => state.testNodeDelay)
+  const testAllNodesDelay = useAppStore((state) => state.testAllNodesDelay)
+  const nodeEgressIps = useAppStore((state) => state.nodeEgressIps)
+  const probingEgressNodeKeys = useAppStore(
+    (state) => state.probingEgressNodeKeys,
+  )
+  const probeNodeEgressIp = useAppStore((state) => state.probeNodeEgressIp)
+  const proxyError = useAppStore((state) => state.proxyError)
+  const setProxyError = useAppStore((state) => state.setProxyError)
 
   const [search, setSearch] = useState('')
 
@@ -850,7 +850,7 @@ export const ProxyGridView: React.FC = () => {
             </Button>
           </div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2.5">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2.5 [contain:layout_style]">
             {processedNodes.map((node) => {
               const nodeKey = node.runtimeName || node.name
               const latency =
