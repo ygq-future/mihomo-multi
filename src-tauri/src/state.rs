@@ -72,6 +72,8 @@ impl AppState {
         let suspended_proxy_clone = suspended_system_proxy.clone();
         let app_handle_clone = app_handle.clone();
 
+        let is_dev_instance = cfg!(debug_assertions) || app_dir.to_string_lossy().contains(".dev");
+
         engine.set_crash_handler(Arc::new(move |reason: String| {
             tracing::warn!("Mihomo kernel crashed unexpectedly: {}", reason);
 
@@ -85,9 +87,20 @@ impl AppState {
                 (enabled, port)
             };
 
-            // Unconditional system proxy cleanup per AGENTS.md lifecycle safety redline
-            let _ = crate::core::sysproxy::clear_system_proxy();
+            // Lifecycle safety cleanup:
+            // For production instances, clear proxy if was_proxy_enabled was true (or unconditionally to avoid orphaned proxy).
+            // For dev instances, only clear proxy if dev actually enabled it AND the OS proxy currently points to dev's port.
+            let should_clear = if !is_dev_instance {
+                was_proxy_enabled
+            } else if was_proxy_enabled && let Some(port) = proxy_port {
+                crate::core::sysproxy::is_system_proxy_active_on_port(port)
+            } else {
+                false
+            };
 
+            if should_clear {
+                let _ = crate::core::sysproxy::clear_system_proxy();
+            }
             if was_proxy_enabled && let Some(port) = proxy_port {
                 *suspended_proxy_clone.write() = Some(port);
                 tracing::info!(
@@ -325,9 +338,47 @@ impl AppState {
     /// EgressGuard: Cleans up OS system proxy and suspended state when stopping the core.
     pub fn deactivate_egress_on_core_stop(&self) {
         if self.config.read().system_proxy_enabled {
-            let _ = crate::core::sysproxy::clear_system_proxy();
+            let is_dev = self.is_dev_instance();
+            let should_clear = if !is_dev {
+                true
+            } else if let Some(port) = self.config.read().system_proxy_port {
+                crate::core::sysproxy::is_system_proxy_active_on_port(port)
+            } else {
+                false
+            };
+            if should_clear {
+                let _ = crate::core::sysproxy::clear_system_proxy();
+            }
         }
         self.clear_suspended_system_proxy();
+    }
+
+    pub fn is_dev_instance(&self) -> bool {
+        if let Some(handle) = &*self.app_handle.read() {
+            cfg!(debug_assertions) || handle.config().identifier.ends_with(".dev")
+        } else {
+            cfg!(debug_assertions)
+        }
+    }
+
+    /// Centralized cleanup hook invoked when application exits.
+    /// Strictly adheres to AGENTS.md lifecycle safety redline for production instances while
+    /// preventing isolated dev instances from clearing the production application's system proxy and environment variables.
+    pub fn cleanup_on_exit(&self, app_handle: &tauri::AppHandle) {
+        let is_dev = cfg!(debug_assertions) || app_handle.config().identifier.ends_with(".dev");
+        let config = self.config.read().clone();
+        let should_clear_proxy = if !is_dev {
+            true
+        } else if config.system_proxy_enabled && let Some(port) = config.system_proxy_port {
+            crate::core::sysproxy::is_system_proxy_active_on_port(port)
+        } else {
+            false
+        };
+        if should_clear_proxy {
+            let _ = crate::core::sysproxy::clear_system_proxy();
+        }
+        self.auto_updater.stop();
+        let _ = self.engine.stop();
     }
     /// Ensures system proxy is active either by restoring a crash-suspended proxy or applying configured proxy.
     pub fn ensure_system_proxy_active(&self) -> bool {

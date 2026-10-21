@@ -519,7 +519,6 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 }
                 "quit_app" => {
                     info!("Quitting application from tray");
-                    let _ = crate::core::sysproxy::clear_system_proxy();
                     app.exit(0);
                 }
                 _ => {}

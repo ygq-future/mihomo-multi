@@ -358,13 +358,7 @@ pub fn run() {
         }
         tauri::RunEvent::Exit => {
             if let Some(state) = app_handle.try_state::<AppState>() {
-                let is_dev = cfg!(debug_assertions) || app_handle.config().identifier.ends_with(".dev");
-                let should_clear_proxy = !is_dev || state.config.read().system_proxy_enabled;
-                if should_clear_proxy {
-                    let _ = crate::core::sysproxy::clear_system_proxy();
-                }
-                state.auto_updater.stop();
-                let _ = state.engine.stop();
+                state.cleanup_on_exit(app_handle);
             }
         }
         _ => {}

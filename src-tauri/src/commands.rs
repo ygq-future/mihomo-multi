@@ -1421,7 +1421,6 @@ pub async fn reset_window_size(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn exit_app(app: AppHandle) -> Result<(), String> {
-    let _ = crate::core::sysproxy::clear_system_proxy();
     app.exit(0);
     Ok(())
 }

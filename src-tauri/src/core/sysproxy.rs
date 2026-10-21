@@ -210,6 +210,41 @@ pub fn clear_system_proxy() -> AppResult<()> {
 
     Ok(())
 }
+/// Helper to check if a ProxyServer string (e.g. "127.0.0.1:7890" or "http=127.0.0.1:7890;https=127.0.0.1:7890")
+/// matches the given port.
+pub fn parse_proxy_server_matches_port(server: &str, port: u16) -> bool {
+    let target_port_str = port.to_string();
+    server.split(';').any(|entry| {
+        let entry = entry.trim();
+        let addr = entry.split_once('=').map(|(_, v)| v).unwrap_or(entry);
+        addr.rsplit_once(':').map(|(_, p)| p) == Some(&target_port_str)
+    })
+}
+
+/// Checks if the system proxy currently configured in OS is enabled and points to the specified port.
+pub fn is_system_proxy_active_on_port(port: u16) -> bool {
+    #[cfg(windows)]
+    {
+        windows::is_system_proxy_active_on_port_windows(port)
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        macos::is_system_proxy_active_on_port_macos(port)
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        linux::is_system_proxy_active_on_port_linux(port)
+    }
+
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        let _ = port;
+        true
+    }
+}
+
 
 /// Queries current UWP Loopback exemption statistics
 pub fn get_uwp_loopback_stats() -> AppResult<crate::models::UwpLoopbackStats> {
@@ -403,6 +438,28 @@ mod windows {
         }
     }
 
+    fn get_reg_dword(hkey: HKEY, name: &str) -> Option<u32> {
+        let name_w = to_wide(name);
+        let mut data = 0u32;
+        let mut data_len = std::mem::size_of::<u32>() as u32;
+        let mut val_type = 0u32;
+        let ret = unsafe {
+            RegQueryValueExW(
+                hkey,
+                name_w.as_ptr(),
+                null_mut(),
+                &mut val_type,
+                &mut data as *mut u32 as *mut u8,
+                &mut data_len,
+            )
+        };
+        if ret == ERROR_SUCCESS && val_type == REG_DWORD {
+            Some(data)
+        } else {
+            None
+        }
+    }
+
     fn get_reg_sz(hkey: HKEY, name: &str) -> Option<String> {
         let name_w = to_wide(name);
         let mut data_len = 0u32;
@@ -493,6 +550,22 @@ mod windows {
         }
         Ok(())
     }
+    pub fn is_system_proxy_active_on_port_windows(port: u16) -> bool {
+        let Ok(key) = open_reg_key(HKEY_CURRENT_USER, INTERNET_SETTINGS_SUBKEY, KEY_READ) else {
+            return false;
+        };
+
+        if get_reg_dword(key.0, "ProxyEnable") != Some(1) {
+            return false;
+        }
+
+        let Some(server) = get_reg_sz(key.0, "ProxyServer") else {
+            return false;
+        };
+
+        parse_proxy_server_matches_port(&server, port)
+    }
+
 
     pub fn set_user_env_proxy_windows(port: u16, bypass_list: &[String]) -> AppResult<()> {
         let key = open_reg_key(HKEY_CURRENT_USER, ENVIRONMENT_SUBKEY, KEY_READ | KEY_SET_VALUE)?;
@@ -922,6 +995,25 @@ mod macos {
         info!("macOS networksetup system proxy disabled");
         Ok(())
     }
+    pub fn is_system_proxy_active_on_port_macos(port: u16) -> bool {
+        let services = get_active_network_services();
+        let port_str = port.to_string();
+        for service in services {
+            if let Ok(output) = Command::new("networksetup").args(["-getwebproxy", &service]).output() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let enabled = stdout.lines().any(|l| l.to_ascii_lowercase().starts_with("enabled: yes"));
+                let port_match = stdout.lines().any(|l| {
+                    let l = l.trim().to_ascii_lowercase();
+                    l.starts_with("port:") && l.ends_with(&port_str)
+                });
+                if enabled && port_match {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
 }
 
 // ----------------------------------------------------------------------------
@@ -973,6 +1065,23 @@ mod linux {
         info!("Linux gsettings proxy disabled");
         Ok(())
     }
+    pub fn is_system_proxy_active_on_port_linux(port: u16) -> bool {
+        let port_str = port.to_string();
+        if let Ok(mode_out) = Command::new("gsettings").args(["get", "org.gnome.system.proxy", "mode"]).output() {
+            let mode = String::from_utf8_lossy(&mode_out.stdout);
+            if !mode.contains("manual") {
+                return false;
+            }
+        }
+        if let Ok(port_out) = Command::new("gsettings").args(["get", "org.gnome.system.proxy.http", "port"]).output() {
+            let p = String::from_utf8_lossy(&port_out.stdout);
+            if p.trim().trim_matches('\'') == port_str {
+                return true;
+            }
+        }
+        false
+    }
+
 }
 
 #[cfg(test)]
@@ -1092,5 +1201,22 @@ mod tests {
                 "<local>".to_string(),
             ]
         );
+    }
+    #[test]
+    fn test_parse_proxy_server_matches_port() {
+        assert!(parse_proxy_server_matches_port("127.0.0.1:7890", 7890));
+        assert!(!parse_proxy_server_matches_port("127.0.0.1:7890", 17890));
+        assert!(!parse_proxy_server_matches_port("127.0.0.1:7890", 890));
+        assert!(parse_proxy_server_matches_port(
+            "http=127.0.0.1:7890;https=127.0.0.1:7890",
+            7890
+        ));
+        assert!(!parse_proxy_server_matches_port(
+            "http=127.0.0.1:7890;https=127.0.0.1:7890",
+            17890
+        ));
+        assert!(parse_proxy_server_matches_port("  127.0.0.1:17890  ", 17890));
+        assert!(!parse_proxy_server_matches_port("", 7890));
+        assert!(!parse_proxy_server_matches_port("invalid", 7890));
     }
 }
