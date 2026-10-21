@@ -109,16 +109,26 @@ export function MultiSelect<T extends string | number = string>({
     setHighlightedIndex(-1)
   }, [disabled])
 
-  const closeDropdown = useCallback(() => {
-    if (isClosing || !isOpen) return
-    setIsClosing(true)
-    clearTimeout(closeTimerRef.current as NodeJS.Timeout)
-    closeTimerRef.current = setTimeout(() => {
-      setIsOpen(false)
-      setIsClosing(false)
-      closeTimerRef.current = null
-    }, 120)
-  }, [isClosing, isOpen])
+  const closeDropdown = useCallback(
+    (immediate = false) => {
+      if (immediate) {
+        clearTimeout(closeTimerRef.current as NodeJS.Timeout)
+        closeTimerRef.current = null
+        setIsOpen(false)
+        setIsClosing(false)
+        return
+      }
+      if (isClosing || !isOpen) return
+      setIsClosing(true)
+      clearTimeout(closeTimerRef.current as NodeJS.Timeout)
+      closeTimerRef.current = setTimeout(() => {
+        setIsOpen(false)
+        setIsClosing(false)
+        closeTimerRef.current = null
+      }, 120)
+    },
+    [isClosing, isOpen],
+  )
 
   useEffect(() => {
     return () => {
@@ -221,16 +231,24 @@ export function MultiSelect<T extends string | number = string>({
       }
     }
 
+    const handleDismiss = () => {
+      closeDropdown(true)
+    }
+
     window.addEventListener('resize', handleScrollOrResize)
     window.addEventListener('scroll', handleScrollOrResize, true)
     document.addEventListener('mousedown', handleClickOutside, true)
     document.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('blur', handleDismiss)
+    window.addEventListener('app:dismiss-popovers', handleDismiss)
 
     return () => {
       window.removeEventListener('resize', handleScrollOrResize)
       window.removeEventListener('scroll', handleScrollOrResize, true)
       document.removeEventListener('mousedown', handleClickOutside, true)
       document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('blur', handleDismiss)
+      window.removeEventListener('app:dismiss-popovers', handleDismiss)
     }
   }, [isOpen, isClosing, updatePosition, closeDropdown])
 
@@ -296,6 +314,9 @@ export function MultiSelect<T extends string | number = string>({
     }
   }
 
+  const isInsideDialog = Boolean(triggerRef.current?.closest('[role="dialog"]'))
+  const dropdownZIndex = isInsideDialog ? 1050 : 60
+
   return (
     <div className={`relative ${width} ${className}`}>
       {/* Trigger Container */}
@@ -357,7 +378,7 @@ export function MultiSelect<T extends string | number = string>({
               left: `${position.left}px`,
               width: `${position.width}px`,
               maxHeight: `${position.maxHeight}px`,
-              zIndex: 99999,
+              zIndex: dropdownZIndex,
             }}
             className={`flex flex-col bg-card border border-border rounded-xl shadow-2xl overflow-hidden ${
               isClosing

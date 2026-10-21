@@ -43,6 +43,9 @@ export const Modal: React.FC<ModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('app:dismiss-popovers'))
+      }
       if (timerRef.current) {
         clearTimeout(timerRef.current)
         timerRef.current = null
@@ -83,7 +86,7 @@ export const Modal: React.FC<ModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className={`fixed inset-0 z-[999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 ${
+      className={`fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 ${
         isClosing ? 'animate-fade-out pointer-events-none' : 'animate-fade-in'
       }`}
       onMouseDown={(e) => {

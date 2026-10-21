@@ -55,18 +55,30 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
     setIsOpen(true)
   }, [disabled])
 
-  const closeMenu = useCallback(() => {
-    if (isClosing || !isOpen) return
-    setIsClosing(true)
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current)
-    }
-    closeTimerRef.current = setTimeout(() => {
-      setIsOpen(false)
-      setIsClosing(false)
-      closeTimerRef.current = null
-    }, 120)
-  }, [isClosing, isOpen])
+  const closeMenu = useCallback(
+    (immediate = false) => {
+      if (immediate) {
+        if (closeTimerRef.current) {
+          clearTimeout(closeTimerRef.current)
+          closeTimerRef.current = null
+        }
+        setIsOpen(false)
+        setIsClosing(false)
+        return
+      }
+      if (isClosing || !isOpen) return
+      setIsClosing(true)
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current)
+      }
+      closeTimerRef.current = setTimeout(() => {
+        setIsOpen(false)
+        setIsClosing(false)
+        closeTimerRef.current = null
+      }, 120)
+    },
+    [isClosing, isOpen],
+  )
 
   useEffect(() => {
     return () => {
@@ -126,16 +138,24 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
       }
     }
 
+    const handleDismiss = () => {
+      closeMenu(true)
+    }
+
     window.addEventListener('resize', updatePos)
     window.addEventListener('scroll', updatePos, true)
     document.addEventListener('mousedown', handleEvents, true)
     document.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('blur', handleDismiss)
+    window.addEventListener('app:dismiss-popovers', handleDismiss)
 
     return () => {
       window.removeEventListener('resize', updatePos)
       window.removeEventListener('scroll', updatePos, true)
       document.removeEventListener('mousedown', handleEvents, true)
       document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('blur', handleDismiss)
+      window.removeEventListener('app:dismiss-popovers', handleDismiss)
     }
   }, [isOpen, isClosing, updatePos, closeMenu])
 
@@ -199,6 +219,9 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
     closeMenu()
   }
 
+  const isInsideDialog = Boolean(triggerRef.current?.closest('[role="dialog"]'))
+  const menuZIndex = isInsideDialog ? 1050 : 60
+
   return (
     <>
       <button
@@ -249,7 +272,7 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
               top: `${menuPos.top}px`,
               left: `${menuPos.left}px`,
               width: '232px',
-              zIndex: 99999,
+              zIndex: menuZIndex,
             }}
             className={`p-1 bg-card border border-border rounded-xl shadow-2xl ${
               isClosing

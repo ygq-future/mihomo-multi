@@ -364,11 +364,19 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
         updatePosition()
       }
     }
+    const handleDismiss = () => {
+      setIsOpen(false)
+      isHoveredRef.current = false
+    }
     window.addEventListener('scroll', handleScrollOrResize, true)
     window.addEventListener('resize', handleScrollOrResize)
+    window.addEventListener('blur', handleDismiss)
+    window.addEventListener('app:dismiss-popovers', handleDismiss)
     return () => {
       window.removeEventListener('scroll', handleScrollOrResize, true)
       window.removeEventListener('resize', handleScrollOrResize)
+      window.removeEventListener('blur', handleDismiss)
+      window.removeEventListener('app:dismiss-popovers', handleDismiss)
     }
   }, [isOpen, updatePosition])
 
@@ -486,7 +494,7 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
               top: `${coords.top}px`,
               left: `${coords.left}px`,
             }}
-            className={`fixed z-[9999] animate-in fade-in zoom-in-95 duration-150 ${
+            className={`fixed z-[60] animate-in fade-in zoom-in-95 duration-150 ${
               coords.placement === 'top'
                 ? 'slide-in-from-bottom-2'
                 : 'slide-in-from-top-2'

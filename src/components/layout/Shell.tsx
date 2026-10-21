@@ -46,6 +46,9 @@ export const Shell: React.FC = () => {
     const scope = createEventScope()
     scope
       .listen('request-window-close', () => {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('app:dismiss-popovers'))
+        }
         setCloseToTrayChecked(false)
         setShowExitModal(true)
       })

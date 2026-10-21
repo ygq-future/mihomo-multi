@@ -120,18 +120,31 @@ export function Select<T extends string | number = string | number>({
     }
   }, [disabled, filterable])
 
-  const closeDropdown = useCallback(() => {
-    if (isClosing || !isOpen) return
-    setIsClosing(true)
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current)
-    }
-    closeTimerRef.current = setTimeout(() => {
-      setIsOpen(false)
-      setIsClosing(false)
-      closeTimerRef.current = null
-    }, 120)
-  }, [isClosing, isOpen])
+  const closeDropdown = useCallback(
+    (immediate = false) => {
+      if (immediate) {
+        if (closeTimerRef.current) {
+          clearTimeout(closeTimerRef.current)
+          closeTimerRef.current = null
+        }
+        setIsOpen(false)
+        setIsClosing(false)
+        setSearchQuery('')
+        return
+      }
+      if (isClosing || !isOpen) return
+      setIsClosing(true)
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current)
+      }
+      closeTimerRef.current = setTimeout(() => {
+        setIsOpen(false)
+        setIsClosing(false)
+        closeTimerRef.current = null
+      }, 120)
+    },
+    [isClosing, isOpen],
+  )
 
   useEffect(() => {
     return () => {
@@ -383,16 +396,24 @@ export function Select<T extends string | number = string | number>({
       }
     }
 
+    const handleDismiss = () => {
+      closeDropdown(true)
+    }
+
     window.addEventListener('resize', handleScrollOrResize)
     window.addEventListener('scroll', handleScrollOrResize, true)
     document.addEventListener('mousedown', handleClickOutside, true)
     document.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('blur', handleDismiss)
+    window.addEventListener('app:dismiss-popovers', handleDismiss)
 
     return () => {
       window.removeEventListener('resize', handleScrollOrResize)
       window.removeEventListener('scroll', handleScrollOrResize, true)
       document.removeEventListener('mousedown', handleClickOutside, true)
       document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('blur', handleDismiss)
+      window.removeEventListener('app:dismiss-popovers', handleDismiss)
     }
   }, [isOpen, isClosing, updatePosition, closeDropdown])
 
@@ -455,6 +476,9 @@ export function Select<T extends string | number = string | number>({
       scrollToOption(prevIndex)
     }
   }
+
+  const isInsideDialog = Boolean(triggerRef.current?.closest('[role="dialog"]'))
+  const dropdownZIndex = isInsideDialog ? 1050 : 60
 
   return (
     <div className={`relative ${width} ${className}`}>
@@ -552,7 +576,7 @@ export function Select<T extends string | number = string | number>({
               left: `${position.left}px`,
               width: `${position.width}px`,
               maxHeight: `${position.maxHeight}px`,
-              zIndex: 99999,
+              zIndex: dropdownZIndex,
             }}
             className={`p-1 bg-card border border-border rounded-xl shadow-2xl overflow-y-auto ${
               isClosing
