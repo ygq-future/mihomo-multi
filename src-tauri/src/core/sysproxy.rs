@@ -218,6 +218,11 @@ pub fn apply_env_proxy(port: u16, user_bypass: &[String]) -> AppResult<()> {
     {
         windows::set_user_env_proxy_windows(port, &combined_bypass)?;
     }
+    #[cfg(not(windows))]
+    {
+        let _ = combined_bypass;
+        let _ = port;
+    }
 
     Ok(())
 }
