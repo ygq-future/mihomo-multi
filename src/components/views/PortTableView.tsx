@@ -1574,7 +1574,9 @@ export const PortTableView: React.FC = () => {
                         isDirect={isDirectCard}
                         primaryNodeName={m.nodeName}
                         fallbackNodeName={
-                          hasFallback ? m.fallbackNodeName : undefined
+                          hasFallback
+                            ? (m.fallbackNodeName ?? undefined)
+                            : undefined
                         }
                         primaryEgressInfo={primaryEgressInfo}
                         fallbackEgressInfo={fallbackEgressInfo}

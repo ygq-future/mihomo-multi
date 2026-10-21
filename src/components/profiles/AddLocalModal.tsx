@@ -1,12 +1,17 @@
-import { AlertCircle, FileCode } from 'lucide-react'
+import { AlertCircle, FileCode, FolderOpen } from 'lucide-react'
 import type React from 'react'
 import { useState } from 'react'
+import { openConfigFilePicker } from '../../services/tauri'
 import { Button, Input, Modal } from '../common'
-
 interface AddLocalModalProps {
   isOpen: boolean
   onClose: () => void
   onSubmit: (name: string, filePath: string) => Promise<void>
+}
+function extractProfileName(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/')
+  const filename = normalized.split('/').pop() || ''
+  return filename.replace(/\.(ya?ml)$/i, '')
 }
 
 export const AddLocalModal: React.FC<AddLocalModalProps> = ({
@@ -18,6 +23,22 @@ export const AddLocalModal: React.FC<AddLocalModalProps> = ({
   const [filePath, setFilePath] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const handleBrowseFile = async () => {
+    try {
+      const selected = await openConfigFilePicker()
+      if (!selected) return
+      setFilePath(selected)
+      setError(null)
+      if (!name.trim()) {
+        const suggestedName = extractProfileName(selected)
+        if (suggestedName) {
+          setName(suggestedName)
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -87,16 +108,39 @@ export const AddLocalModal: React.FC<AddLocalModalProps> = ({
           autoFocus
         />
 
-        <Input
-          id="local-path"
-          label="文件绝对路径"
-          required
-          placeholder="例如：C:\Users\Desktop\clash_config.yaml"
-          value={filePath}
-          onChange={(e) => setFilePath(e.target.value)}
-          disabled={loading}
-          helperText="系统将复制该文件并提取其中 proxies 节点池"
-        />
+        <div className="space-y-1.5 w-full">
+          <label
+            htmlFor="local-path"
+            className="text-xs font-medium text-foreground flex items-center gap-1"
+          >
+            <span>文件绝对路径</span>
+            <span className="text-destructive">*</span>
+          </label>
+          <div className="flex gap-2 items-center">
+            <div className="flex-1">
+              <Input
+                id="local-path"
+                required
+                placeholder="例如：C:\Users\Desktop\clash_config.yaml"
+                value={filePath}
+                onChange={(e) => setFilePath(e.target.value)}
+                disabled={loading}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleBrowseFile}
+              disabled={loading}
+              icon={<FolderOpen className="w-3.5 h-3.5" />}
+            >
+              浏览...
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            系统将复制该文件并提取其中 proxies 节点池
+          </p>
+        </div>
       </form>
     </Modal>
   )

@@ -143,6 +143,7 @@ pub fn run() {
                 .with_denylist(&["sniffer-sandbox"])
                 .build(),
         )
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_handle = app.handle();
             let is_dev_instance = cfg!(debug_assertions) || app_handle.config().identifier.ends_with(".dev");

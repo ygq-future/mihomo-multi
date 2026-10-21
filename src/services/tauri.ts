@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import type {
   AppConfig,
   AppStatus,
@@ -1077,4 +1078,28 @@ export async function openSnifferWebview(
 export async function closeSnifferWebview(): Promise<void> {
   if (!isTauriEnvironment()) return
   return invoke<void>('close_sniffer_webview')
+}
+
+export async function openConfigFilePicker(): Promise<string | null> {
+  if (!isTauriEnvironment()) {
+    return 'D:\\MockPath\\clash_config.yaml'
+  }
+  const selected = await openDialog({
+    multiple: false,
+    directory: false,
+    filters: [
+      {
+        name: 'Clash YAML 配置文件',
+        extensions: ['yaml', 'yml'],
+      },
+      {
+        name: '所有文件',
+        extensions: ['*'],
+      },
+    ],
+  })
+  if (typeof selected === 'string') {
+    return selected
+  }
+  return null
 }
