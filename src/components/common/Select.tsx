@@ -473,8 +473,9 @@ export function Select<T extends string | number = string | number>({
               : 'cursor-pointer'
         } ${isOpen && !isClosing ? 'border-primary ring-2 ring-primary/20' : 'border-border'}`}
       >
-        <div className="flex items-center gap-2 truncate min-w-0 flex-1">
-          {prefixIcon || selectedOption?.icon}
+        <div className="flex items-center gap-1.5 truncate min-w-0 flex-1">
+          {prefixIcon}
+          {selectedOption?.icon}
           <input
             ref={inputRef}
             type="text"

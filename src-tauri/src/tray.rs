@@ -377,6 +377,15 @@ pub fn format_tray_tooltip(app: &AppHandle) -> String {
     } else {
         "未开启".to_string()
     };
+    let env_proxy_str = if config.env_proxy_enabled {
+        if let Some(port) = config.env_proxy_port {
+            format!("已开启 (:{port})")
+        } else {
+            "已开启".to_string()
+        }
+    } else {
+        "未开启".to_string()
+    };
 
     let tun_str = if config.tun_enabled {
         match config.tun_port {
@@ -386,7 +395,6 @@ pub fn format_tray_tooltip(app: &AppHandle) -> String {
     } else {
         "未开启".to_string()
     };
-
     let core_status = if state.engine.get_status().running {
         "运行中"
     } else {
@@ -396,7 +404,7 @@ pub fn format_tray_tooltip(app: &AppHandle) -> String {
     let is_dev = is_dev_instance(app);
     let app_title = if is_dev { "Mihomo Multi [Dev]" } else { "Mihomo Multi" };
     format!(
-        "{app_title}\n内核状态: {core_status}\n监听端口: {enabled_ports} 个已启用 (共 {total_ports} 个)\n系统代理: {sys_proxy_str}\nTUN: {tun_str}"
+        "{app_title}\n内核状态: {core_status}\n监听端口: {enabled_ports} 个已启用 (共 {total_ports} 个)\n系统代理: {sys_proxy_str}\n终端代理: {env_proxy_str}\nTUN: {tun_str}"
     )
 }
 

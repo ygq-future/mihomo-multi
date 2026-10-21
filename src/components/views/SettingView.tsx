@@ -199,6 +199,7 @@ export const SettingView: React.FC = () => {
     fetchConfig,
     saveConfig,
     setSystemProxy,
+    setEnvProxy,
     openAppDataDir,
     coreLoading,
     fetchStatus,
@@ -357,12 +358,15 @@ export const SettingView: React.FC = () => {
     .filter((m) => m.enabled)
     .sort((a, b) => a.port - b.port)
 
-  const defaultProxyPort = useMemo(() => {
-    const proxyMapping = enabledPorts.find(
+  const proxyEnabledPorts = useMemo(() => {
+    return enabledPorts.filter(
       (m) => m.id !== FIXED_DIRECT_PORT_ID && m.nodeName !== 'DIRECT',
     )
-    return proxyMapping?.port ?? enabledPorts[0]?.port
   }, [enabledPorts])
+
+  const defaultProxyPort = useMemo(() => {
+    return proxyEnabledPorts[0]?.port
+  }, [proxyEnabledPorts])
 
   const updateProxyOptions = useMemo(() => {
     const options = [
@@ -417,11 +421,7 @@ export const SettingView: React.FC = () => {
 
       try {
         await setSystemProxy(true, targetPort)
-        if (config?.systemProxySyncEnv ?? true) {
-          toast.success(`已将端口 ${targetPort} 设为系统代理并同步环境变量`)
-        } else {
-          toast.success(`已将端口 ${targetPort} 设为系统代理`)
-        }
+        toast.success(`已将端口 ${targetPort} 设为系统代理`)
       } catch (err) {
         toast.error(
           `开启系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
@@ -430,11 +430,7 @@ export const SettingView: React.FC = () => {
     } else {
       try {
         await setSystemProxy(false)
-        if (config?.systemProxySyncEnv ?? true) {
-          toast.success('已关闭系统代理并清除环境变量')
-        } else {
-          toast.success('已关闭系统代理')
-        }
+        toast.success('已关闭系统代理')
       } catch (err) {
         toast.error(
           `关闭系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
@@ -443,19 +439,57 @@ export const SettingView: React.FC = () => {
     }
   }
 
-  const handleToggleSyncEnv = async (checked: boolean) => {
+  const handleToggleEnvProxy = async (checked: boolean) => {
+    if (checked) {
+      const targetPort =
+        config?.envProxyPort &&
+        enabledPorts.some((m) => m.port === config.envProxyPort)
+          ? config.envProxyPort
+          : defaultProxyPort
+
+      if (!targetPort) {
+        toast.error('当前无可用且已启用的监听端口，请先在端口管理中启用端口')
+        return
+      }
+
+      try {
+        await setEnvProxy(true, targetPort)
+        toast.success(`已开启终端环境变量代理 (端口 ${targetPort})`)
+      } catch (err) {
+        toast.error(
+          `开启终端代理失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    } else {
+      try {
+        await setEnvProxy(false)
+        toast.success('已关闭终端环境变量代理并清除环境变量')
+      } catch (err) {
+        toast.error(
+          `关闭终端代理失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    }
+  }
+
+  const handleEnvPortSelectChange = async (portStr: string) => {
+    const port = Number(portStr)
+    if (!port) return
     if (!config) return
     try {
-      await saveConfig({
-        ...config,
-        systemProxySyncEnv: checked,
-      })
-      toast.success(
-        checked ? '已开启环境变量联动同步' : '已关闭环境变量联动同步',
-      )
+      if (config.envProxyEnabled) {
+        await setEnvProxy(true, port)
+        toast.success(`已切换终端代理端口至 ${port}`)
+      } else {
+        await saveConfig({
+          ...config,
+          envProxyPort: port,
+        })
+        toast.success(`已设置终端代理预选端口为 ${port}`)
+      }
     } catch (err) {
       toast.error(
-        `更新设置失败: ${err instanceof Error ? err.message : String(err)}`,
+        `更新终端代理端口失败: ${err instanceof Error ? err.message : String(err)}`,
       )
     }
   }
@@ -1584,8 +1618,8 @@ export const SettingView: React.FC = () => {
                 系统代理设置
               </h3>
               <p className="text-xs text-muted-foreground">
-                接管操作系统网络代理，多监听端口单选互斥，支持联动写入环境变量
-                (all_proxy, http_proxy, https_proxy, no_proxy)
+                接管操作系统 WinInet
+                全局网络代理，多监听端口单选互斥，针对桌面浏览器与系统应用生效
               </p>
             </div>
           </div>
@@ -1621,9 +1655,9 @@ export const SettingView: React.FC = () => {
               </p>
             </div>
             <div className="w-full sm:w-80">
-              {enabledPorts.length === 0 ? (
+              {proxyEnabledPorts.length === 0 ? (
                 <span className="text-xs text-rose-500 font-medium">
-                  暂无已启用的监听端口，请先在端口管理中启用
+                  暂无可用代理节点端口，请先在端口管理中启用代理端口
                 </span>
               ) : (
                 <Select
@@ -1631,7 +1665,7 @@ export const SettingView: React.FC = () => {
                     config?.systemProxyPort ?? defaultProxyPort ?? '',
                   )}
                   onChange={(val) => handlePortSelectChange(String(val))}
-                  options={enabledPorts.map((m) => ({
+                  options={proxyEnabledPorts.map((m) => ({
                     value: String(m.port),
                     label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName}${
                       m.description ? ` · ${m.description}` : ''
@@ -1640,24 +1674,6 @@ export const SettingView: React.FC = () => {
                 />
               )}
             </div>
-          </div>
-
-          {/* Sync User Environment Variables Switch */}
-          <div className="pt-3 border-t border-border/70 flex items-center justify-between gap-6">
-            <div className="space-y-0.5 min-w-0 flex-1">
-              <label className="text-xs font-medium text-foreground">
-                联动设置环境变量
-              </label>
-              <p className="text-[11px] text-muted-foreground">
-                开启系统代理时，联动写入 all_proxy、http_proxy、https_proxy 与
-                no_proxy 用户环境变量。关闭则仅设置系统代理
-              </p>
-            </div>
-            <Switch
-              checked={config?.systemProxySyncEnv ?? true}
-              onChange={handleToggleSyncEnv}
-              size="md"
-            />
           </div>
 
           {/* Bypass Domains Section */}
@@ -1816,6 +1832,111 @@ export const SettingView: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Terminal / Environment Proxy Card */}
+      <div
+        id="setting-section-env-proxy"
+        className="scroll-mt-6 bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm"
+      >
+        <div className="pb-3 border-b border-border">
+          <div className="flex items-center gap-2.5">
+            <Terminal className="w-5 h-5 text-primary" />
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
+                终端环境变量代理设置
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                独立将指定端口注入 Windows 用户环境变量 (http_proxy,
+                https_proxy, all_proxy,
+                no_proxy)，供命令行及开发工具使用。与系统代理完全解耦，可独立切换不同节点端口
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* Main Switch */}
+          <div className="flex items-center justify-between gap-6">
+            <div className="space-y-0.5 min-w-0 flex-1">
+              <label className="text-xs font-medium text-foreground">
+                启用终端环境变量代理 (Windows HKCU)
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                修改系统用户级环境变量，自动广播给新打开的 CMD、PowerShell、Git
+                Bash 与开发工具。退出应用或端口停用时将自动清理，防止残留断网
+              </p>
+            </div>
+            <Switch
+              checked={config?.envProxyEnabled ?? false}
+              onChange={handleToggleEnvProxy}
+              size="md"
+            />
+          </div>
+
+          {/* Port Select */}
+          <div className="pt-3 border-t border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="space-y-0.5">
+              <label className="text-xs font-medium text-foreground">
+                终端代理绑定的监听端口
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                独立指定终端请求出口节点，无需与系统代理保持一致
+              </p>
+            </div>
+            <div className="w-full sm:w-80">
+              {proxyEnabledPorts.length === 0 ? (
+                <span className="text-xs text-rose-500 font-medium">
+                  暂无可用代理节点端口，请先在端口管理中启用代理端口
+                </span>
+              ) : (
+                <Select
+                  value={String(
+                    config?.envProxyPort ??
+                      config?.systemProxyPort ??
+                      defaultProxyPort ??
+                      '',
+                  )}
+                  onChange={(val) => handleEnvPortSelectChange(String(val))}
+                  options={proxyEnabledPorts.map((m) => ({
+                    value: String(m.port),
+                    label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName}${
+                      m.description ? ` · ${m.description}` : ''
+                    })`,
+                  }))}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Clean / Emergency Reset Helper */}
+          <div className="pt-3 border-t border-border/70 flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <label className="text-xs font-medium text-foreground">
+                环境变量异常急救与重置
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                如遇终端代理残留或网络异常，可一键主动清除 Windows
+                用户环境变量中的 proxy 设置
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                try {
+                  await setEnvProxy(false)
+                  toast.success('已清空用户环境变量中的代理配置')
+                } catch (e) {
+                  toast.error(`清除失败: ${e}`)
+                }
+              }}
+              className="shrink-0 text-xs"
+            >
+              清除终端代理变量
+            </Button>
+          </div>
         </div>
       </div>
 

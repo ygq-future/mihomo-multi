@@ -17,6 +17,7 @@ import type {
   PortMapping,
   ProfileItem,
   ProxyNode,
+  EnvProxyStatus,
   SystemProxyStatus,
   TunStatus,
   UwpAppInfo,
@@ -805,6 +806,32 @@ export async function getSystemProxyStatus(): Promise<SystemProxyStatus> {
     }
   }
   return invoke<SystemProxyStatus>('get_system_proxy_status')
+}
+
+export async function setEnvProxy(
+  enabled: boolean,
+  port?: number | null,
+): Promise<EnvProxyStatus> {
+  if (!isTauriEnvironment()) {
+    return {
+      enabled,
+      port: enabled ? (port ?? 7890) : null,
+    }
+  }
+  return invoke<EnvProxyStatus>('set_env_proxy', {
+    enabled,
+    port: port ?? null,
+  })
+}
+
+export async function getEnvProxyStatus(): Promise<EnvProxyStatus> {
+  if (!isTauriEnvironment()) {
+    return {
+      enabled: false,
+      port: null,
+    }
+  }
+  return invoke<EnvProxyStatus>('get_env_proxy_status')
 }
 
 export async function setTun(

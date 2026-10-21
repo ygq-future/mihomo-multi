@@ -192,6 +192,8 @@ export interface AppConfig {
   systemProxyPort?: number | null
   systemProxyBypassUser: string[]
   systemProxySyncEnv: boolean
+  envProxyEnabled?: boolean
+  envProxyPort?: number | null
   tunEnabled: boolean
   tunPort?: number | null
   updateProxyPort?: number | null
@@ -203,6 +205,11 @@ export interface SystemProxyStatus {
   enabled: boolean
   port?: number | null
   bypassDomains: string[]
+}
+
+export interface EnvProxyStatus {
+  enabled: boolean
+  port?: number | null
 }
 
 export interface TunStatus {

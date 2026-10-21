@@ -5,7 +5,7 @@ use crate::core::latency_probe::{AppLatencyEventEmitter, LatencyProbe};
 use crate::core::port_router::{PortChangeEvent, PortProbeContext, PortRouter};
 use crate::core::profile_manager::ProfileManager;
 use crate::error::AppResult;
-use crate::models::{AppConfig, PortMapping, SystemProxyStatus, TunStatus};
+use crate::models::{AppConfig, EnvProxyStatus, PortMapping, SystemProxyStatus, TunStatus};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -176,6 +176,14 @@ impl AppState {
         }
     }
 
+    pub fn build_env_proxy_status(&self) -> EnvProxyStatus {
+        let config = self.config.read().clone();
+        EnvProxyStatus {
+            enabled: config.env_proxy_enabled,
+            port: config.env_proxy_port,
+        }
+    }
+
     /// Builds current TUN mode status snapshot based on elevation, port mapping state, and core status.
     pub fn build_tun_status(&self) -> TunStatus {
         let config = self.config.read().clone();
@@ -228,6 +236,18 @@ impl AppState {
             }
         }
 
+        if config.env_proxy_enabled {
+            let valid = config
+                .env_proxy_port
+                .is_some_and(|p| mappings.iter().any(|m| m.port == p && m.enabled));
+            if !valid {
+                let _ = crate::core::sysproxy::clear_env_proxy();
+                config.env_proxy_enabled = false;
+                config.env_proxy_port = None;
+                modified = true;
+            }
+        }
+
         if config.tun_enabled {
             let valid = config
                 .tun_port
@@ -276,7 +296,6 @@ impl AppState {
             crate::core::sysproxy::apply_system_proxy(
                 p,
                 &config.system_proxy_bypass_user,
-                config.system_proxy_sync_env,
             )
             .map_err(|e| e.to_string())?;
 
@@ -294,6 +313,38 @@ impl AppState {
 
         self.persist_config(&config);
         Ok((self.build_system_proxy_status(), old_tun_enabled))
+    }
+
+    /// EgressGuard: Transitions terminal environment variables proxy state.
+    pub fn apply_env_proxy_transition(
+        &self,
+        enabled: bool,
+        port: Option<u16>,
+    ) -> Result<EnvProxyStatus, String> {
+        let mut config = self.config.read().clone();
+
+        if enabled {
+            let p = port.ok_or_else(|| "启用终端环境变量代理必须指定端口".to_string())?;
+            let mappings = self.port_router.get_port_mappings();
+            if !mappings.iter().any(|m| m.port == p && m.enabled) {
+                return Err(format!("端口 {} 未在监听列表中或未启用，无法设为终端代理", p));
+            }
+
+            crate::core::sysproxy::apply_env_proxy(p, &config.system_proxy_bypass_user)
+                .map_err(|e| e.to_string())?;
+
+            config.env_proxy_enabled = true;
+            config.env_proxy_port = Some(p);
+        } else {
+            crate::core::sysproxy::clear_env_proxy().map_err(|e| e.to_string())?;
+            config.env_proxy_enabled = false;
+            if let Some(p) = port {
+                config.env_proxy_port = Some(p);
+            }
+        }
+
+        self.persist_config(&config);
+        Ok(self.build_env_proxy_status())
     }
 
     /// EgressGuard: Validates and applies TUN mode configuration transition while enforcing mutual exclusion with system proxy.
@@ -350,6 +401,19 @@ impl AppState {
                 let _ = crate::core::sysproxy::clear_system_proxy();
             }
         }
+        if self.config.read().env_proxy_enabled {
+            let is_dev = self.is_dev_instance();
+            let should_clear = if !is_dev {
+                true
+            } else if let Some(port) = self.config.read().env_proxy_port {
+                crate::core::sysproxy::is_env_proxy_active_on_port(port)
+            } else {
+                false
+            };
+            if should_clear {
+                let _ = crate::core::sysproxy::clear_env_proxy();
+            }
+        }
         self.clear_suspended_system_proxy();
     }
 
@@ -377,6 +441,16 @@ impl AppState {
         if should_clear_proxy {
             let _ = crate::core::sysproxy::clear_system_proxy();
         }
+        let should_clear_env = if !is_dev {
+            true
+        } else if config.env_proxy_enabled && let Some(port) = config.env_proxy_port {
+            crate::core::sysproxy::is_env_proxy_active_on_port(port)
+        } else {
+            false
+        };
+        if should_clear_env {
+            let _ = crate::core::sysproxy::clear_env_proxy();
+        }
         self.auto_updater.stop();
         let _ = self.engine.stop();
     }
@@ -393,7 +467,6 @@ impl AppState {
             let _ = crate::core::sysproxy::apply_system_proxy(
                 port,
                 &config.system_proxy_bypass_user,
-                config.system_proxy_sync_env,
             );
             return true;
         }
@@ -423,7 +496,6 @@ impl AppState {
         if let Err(e) = crate::core::sysproxy::apply_system_proxy(
             port,
             &config.system_proxy_bypass_user,
-            config.system_proxy_sync_env,
         ) {
             tracing::error!("Failed to restore suspended system proxy on port {}: {}", port, e);
             return false;
@@ -698,6 +770,84 @@ mod tests {
         let _ = state.delete_port_mapping("port-egress-1").await;
         assert!(!state.config.read().tun_enabled);
         assert_eq!(state.config.read().tun_port, None);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_env_proxy_transition_and_egress_guard() {
+        let temp_dir = std::env::temp_dir().join(format!("mihomo_env_proxy_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let state = AppState::new(temp_dir.clone());
+        let port_a = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        let port_b = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+
+        let mapping_a = PortMapping {
+            id: "port-a".to_string(),
+            port: port_a,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "test-prof".to_string(),
+            node_name: "node-a".to_string(),
+            enabled: true,
+            latency: None,
+            description: None,
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: false,
+            manual_fallback: false,
+            rules: vec![],
+        };
+        let mapping_b = PortMapping {
+            id: "port-b".to_string(),
+            port: port_b,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "test-prof".to_string(),
+            node_name: "node-b".to_string(),
+            enabled: true,
+            latency: None,
+            description: None,
+            fallback_profile_id: None,
+            fallback_node_name: None,
+            bypass_cn: false,
+            manual_fallback: false,
+            rules: vec![],
+        };
+        let _ = state.save_port_mapping(mapping_a).await.unwrap();
+        let _ = state.save_port_mapping(mapping_b).await.unwrap();
+
+        // 1. Set System Proxy to port_a
+        let (sys_status, _) = state.apply_system_proxy_transition(true, Some(port_a)).unwrap();
+        assert!(sys_status.enabled);
+        assert_eq!(sys_status.port, Some(port_a));
+
+        // 2. Independently Set Env Proxy to port_b
+        let env_status = state.apply_env_proxy_transition(true, Some(port_b)).unwrap();
+        assert!(env_status.enabled);
+        assert_eq!(env_status.port, Some(port_b));
+
+        // System proxy is still port_a
+        assert!(state.config.read().system_proxy_enabled);
+        assert_eq!(state.config.read().system_proxy_port, Some(port_a));
+        // Env proxy is port_b
+        assert!(state.config.read().env_proxy_enabled);
+        assert_eq!(state.config.read().env_proxy_port, Some(port_b));
+
+        // 3. Toggle off port_b -> EgressGuard should auto disable env proxy
+        let _ = state.toggle_port_mapping("port-b", false).await;
+        assert!(!state.config.read().env_proxy_enabled);
+        assert_eq!(state.config.read().env_proxy_port, None);
+        // System proxy on port_a remains untouched
+        assert!(state.config.read().system_proxy_enabled);
+        assert_eq!(state.config.read().system_proxy_port, Some(port_a));
+
+        // 4. Attempting to bind env proxy to disabled port_b must fail
+        assert!(state.apply_env_proxy_transition(true, Some(port_b)).is_err());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

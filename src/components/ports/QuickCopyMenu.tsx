@@ -1,12 +1,4 @@
-import {
-  ChevronDown,
-  Copy,
-  Globe,
-  Loader2,
-  RefreshCw,
-  ShieldCheck,
-  Terminal,
-} from 'lucide-react'
+import { ChevronDown, Copy, Loader2, Terminal } from 'lucide-react'
 import type React from 'react'
 import {
   useCallback,
@@ -16,7 +8,7 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import type { DirectEgressInfo, InboundProtocol } from '../../types'
+import type { InboundProtocol } from '../../types'
 
 export interface QuickCopyMenuProps {
   port: number
@@ -24,16 +16,10 @@ export interface QuickCopyMenuProps {
   hostIp?: string
   bypassDomains?: string[]
   disabled?: boolean
-  isDirect?: boolean
-  primaryNodeName?: string
-  fallbackNodeName?: string
-  primaryEgressInfo?: DirectEgressInfo | null
-  fallbackEgressInfo?: DirectEgressInfo | null
-  isProbingPrimary?: boolean
-  isProbingFallback?: boolean
-  onCopyPrimaryEgressIp?: (forceRefresh?: boolean) => Promise<void>
-  onCopyFallbackEgressIp?: (forceRefresh?: boolean) => Promise<void>
   onCopySuccess: (text: string) => void
+  isEnvProxy?: boolean
+  onToggleEnvProxy?: () => Promise<void>
+  isEnvProxyLoading?: boolean
 }
 
 export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
@@ -42,16 +28,10 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
   hostIp,
   bypassDomains,
   disabled = false,
-  isDirect = false,
-  primaryNodeName,
-  fallbackNodeName,
-  primaryEgressInfo,
-  fallbackEgressInfo,
-  isProbingPrimary = false,
-  isProbingFallback = false,
-  onCopyPrimaryEgressIp,
-  onCopyFallbackEgressIp,
   onCopySuccess,
+  isEnvProxy = false,
+  onToggleEnvProxy,
+  isEnvProxyLoading = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
@@ -100,13 +80,13 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
     if (!triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
     const spaceBelow = window.innerHeight - rect.bottom
-    const hasFallbackRow = Boolean(fallbackNodeName && onCopyFallbackEgressIp)
-    const menuHeight = hasFallbackRow ? 310 : 265
+    const hasEnvRow = Boolean(onToggleEnvProxy)
+    const menuHeight = 225 + (hasEnvRow ? 45 : 0)
     const shouldPlaceTop = spaceBelow < menuHeight && rect.top > menuHeight
     const top = shouldPlaceTop ? rect.top - menuHeight - 4 : rect.bottom + 4
     const left = Math.max(
       8,
-      Math.min(rect.right - 224, window.innerWidth - 232),
+      Math.min(rect.right - 232, window.innerWidth - 240),
     )
 
     setMenuPos({
@@ -114,7 +94,7 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
       left,
       placement: shouldPlaceTop ? 'top' : 'bottom',
     })
-  }, [fallbackNodeName, onCopyFallbackEgressIp])
+  }, [onToggleEnvProxy])
   useLayoutEffect(() => {
     if (disabled && isOpen) {
       setIsOpen(false)
@@ -238,11 +218,19 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
         className={`p-1 rounded transition-colors flex items-center gap-0.5 ${
           disabled
             ? 'opacity-40 text-muted-foreground cursor-not-allowed pointer-events-none'
-            : 'text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer'
+            : isEnvProxy
+              ? 'text-primary bg-primary/10 hover:bg-primary/20 cursor-pointer'
+              : 'text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer'
         }`}
-        title={disabled ? '端口已禁用，无法复制代理配置' : '快捷复制代理格式'}
+        title={
+          disabled
+            ? '端口已禁用，无法复制或配置代理'
+            : isEnvProxy
+              ? '当前已设为全局终端代理出口 (点击管理/快捷复制)'
+              : '终端代理与快捷复制'
+        }
       >
-        <Copy className="w-3 h-3" />
+        <Terminal className="w-3 h-3" />
         <ChevronDown
           className={`w-2.5 h-2.5 opacity-60 transition-transform duration-200 ${
             isOpen && !isClosing ? 'rotate-180' : ''
@@ -260,7 +248,7 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
               position: 'fixed',
               top: `${menuPos.top}px`,
               left: `${menuPos.left}px`,
-              width: '224px',
+              width: '232px',
               zIndex: 99999,
             }}
             className={`p-1 bg-card border border-border rounded-xl shadow-2xl ${
@@ -279,109 +267,52 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
                 {host}
               </span>
             </div>
-            <div className="p-1 space-y-0.5">
-              {onCopyPrimaryEgressIp && (
-                <div className="flex items-center gap-0.5 rounded-lg hover:bg-accent hover:text-accent-foreground transition-colors group">
-                  <button
-                    type="button"
-                    disabled={isProbingPrimary}
-                    onClick={async () => {
-                      await onCopyPrimaryEgressIp(false)
-                      closeMenu()
-                    }}
-                    className="flex-1 min-w-0 text-left p-1.5 rounded-lg disabled:opacity-60"
-                  >
-                    <div className="flex items-center justify-between text-xs font-medium text-foreground">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {isProbingPrimary ? (
-                          <Loader2 className="w-3 h-3 text-primary animate-spin shrink-0" />
-                        ) : (
-                          <Globe className="w-3 h-3 text-emerald-500 shrink-0" />
-                        )}
-                        <span className="truncate">
-                          {isDirect
-                            ? '复制直连出口 IP'
-                            : fallbackNodeName
-                              ? '复制主节点出口 IP'
-                              : '复制节点出口 IP'}
+            {onToggleEnvProxy && (
+              <div className="p-1 mb-0.5 rounded-lg bg-accent/40 border border-border/60 flex items-center justify-between gap-1.5">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Terminal
+                    className={`w-3.5 h-3.5 shrink-0 ${
+                      isEnvProxy ? 'text-primary' : 'text-muted-foreground'
+                    }`}
+                  />
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-semibold text-foreground leading-tight flex items-center gap-1">
+                      <span>终端环境变量</span>
+                      {isEnvProxy && (
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-primary/20 text-primary font-mono font-normal">
+                          当前出口
                         </span>
-                      </div>
+                      )}
                     </div>
-                    <div className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">
-                      {isProbingPrimary
-                        ? '正在实时探测出口 IP...'
-                        : primaryEgressInfo
-                          ? `${primaryEgressInfo.ip}${primaryEgressInfo.region ? ` (${primaryEgressInfo.region})` : ''}`
-                          : `点击探测并复制纯 IP${primaryNodeName && !isDirect ? ` · ${primaryNodeName}` : ''}`}
+                    <div className="text-[10px] text-muted-foreground truncate">
+                      {isEnvProxy ? '新开终端已生效' : '注入系统环境变量'}
                     </div>
-                  </button>
-                  {primaryEgressInfo && !isProbingPrimary && (
-                    <button
-                      type="button"
-                      onClick={async (e) => {
-                        e.stopPropagation()
-                        await onCopyPrimaryEgressIp(true)
-                        closeMenu()
-                      }}
-                      className="p-1.5 mr-0.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors shrink-0"
-                      title="重新探测并复制最新出口 IP"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                    </button>
-                  )}
+                  </div>
                 </div>
-              )}
-
-              {fallbackNodeName && onCopyFallbackEgressIp && (
-                <div className="flex items-center gap-0.5 rounded-lg hover:bg-accent hover:text-accent-foreground transition-colors group">
-                  <button
-                    type="button"
-                    disabled={isProbingFallback}
-                    onClick={async () => {
-                      await onCopyFallbackEgressIp(false)
-                      closeMenu()
-                    }}
-                    className="flex-1 min-w-0 text-left p-1.5 rounded-lg disabled:opacity-60"
-                  >
-                    <div className="flex items-center justify-between text-xs font-medium text-foreground">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {isProbingFallback ? (
-                          <Loader2 className="w-3 h-3 text-primary animate-spin shrink-0" />
-                        ) : (
-                          <ShieldCheck className="w-3 h-3 text-amber-500 shrink-0" />
-                        )}
-                        <span className="truncate">复制备用节点出口 IP</span>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">
-                      {isProbingFallback
-                        ? '正在实时探测备用节点出口 IP...'
-                        : fallbackEgressInfo
-                          ? `${fallbackEgressInfo.ip}${fallbackEgressInfo.region ? ` (${fallbackEgressInfo.region})` : ''}`
-                          : `点击探测并复制纯 IP · ${fallbackNodeName}`}
-                    </div>
-                  </button>
-                  {fallbackEgressInfo && !isProbingFallback && (
-                    <button
-                      type="button"
-                      onClick={async (e) => {
-                        e.stopPropagation()
-                        await onCopyFallbackEgressIp(true)
-                        closeMenu()
-                      }}
-                      className="p-1.5 mr-0.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors shrink-0"
-                      title="重新探测并复制备用节点最新出口 IP"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                    </button>
+                <button
+                  type="button"
+                  disabled={isEnvProxyLoading || disabled}
+                  onClick={async (e) => {
+                    e.stopPropagation()
+                    await onToggleEnvProxy()
+                  }}
+                  className={`text-[10px] px-2 py-0.5 rounded font-medium transition-colors shrink-0 flex items-center justify-center min-w-[38px] ${
+                    isEnvProxy
+                      ? 'bg-destructive/10 text-destructive hover:bg-destructive/20 border border-destructive/20'
+                      : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  }`}
+                >
+                  {isEnvProxyLoading ? (
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  ) : isEnvProxy ? (
+                    '解绑'
+                  ) : (
+                    '绑定'
                   )}
-                </div>
-              )}
-
-              {(onCopyPrimaryEgressIp || onCopyFallbackEgressIp) && (
-                <div className="my-1 border-t border-border/50" />
-              )}
-
+                </button>
+              </div>
+            )}
+            <div className="p-1 space-y-0.5">
               {copyOptions.map((opt) => (
                 <button
                   key={opt.label}

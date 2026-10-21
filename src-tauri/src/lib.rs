@@ -300,6 +300,8 @@ pub fn run() {
             get_system_proxy_status,
             get_default_bypass_list,
             get_tun_status,
+            set_env_proxy,
+            get_env_proxy_status,
             set_tun,
             restart_as_admin,
             get_uwp_loopback_status,

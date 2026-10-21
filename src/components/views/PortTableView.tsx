@@ -10,6 +10,7 @@ import {
   Shield,
   ShieldCheck,
   Split,
+  Terminal,
   Trash2,
   Wrench,
   Zap,
@@ -76,6 +77,7 @@ export const PortTableView: React.FC = () => {
     fetchConfig,
     saveConfig,
     setSystemProxy,
+    setEnvProxy,
     tunStatus,
     setTun,
     restartAsAdmin,
@@ -383,6 +385,72 @@ export const PortTableView: React.FC = () => {
   const totalPorts = portMappings.length
   const activePorts = enabledPorts.length
   type PortState = 'disabled' | 'enabled' | 'systemProxy'
+  const isEnvProxyEnabled = Boolean(config?.envProxyEnabled)
+  const activeEnvProxyPort = config?.envProxyPort ?? null
+  const [isEnvProxyLoading, setIsEnvProxyLoading] = useState(false)
+  const proxyEnabledPorts = useMemo(() => {
+    return enabledPorts.filter(
+      (m) => m.id !== FIXED_DIRECT_PORT_ID && m.nodeName !== 'DIRECT',
+    )
+  }, [enabledPorts])
+
+  const egressPortOptions = useMemo(() => {
+    return proxyEnabledPorts.map((m) => {
+      const region = extractRegion(m.nodeName)
+      return {
+        value: String(m.port),
+        label: `${region.name} ${m.port}`,
+        icon: <RegionFlag code={region.code} size="sm" />,
+      }
+    })
+  }, [proxyEnabledPorts])
+
+  const envProxyOptions = useMemo(() => {
+    return [
+      {
+        value: 'off',
+        label: '关闭',
+      },
+      ...proxyEnabledPorts.map((m) => {
+        const region = extractRegion(m.nodeName)
+        return {
+          value: String(m.port),
+          label: `${region.name} ${m.port}`,
+          icon: <RegionFlag code={region.code} size="sm" />,
+        }
+      }),
+    ]
+  }, [proxyEnabledPorts])
+
+  const handleToggleEnvProxyForPort = useCallback(
+    async (targetPort: number) => {
+      setIsEnvProxyLoading(true)
+      try {
+        if (isEnvProxyEnabled && activeEnvProxyPort === targetPort) {
+          await setEnvProxy(false)
+          toast.success(`已解除端口 ${targetPort} 的终端环境变量代理`)
+        } else {
+          await setEnvProxy(true, targetPort)
+          toast.success(`已将端口 ${targetPort} 绑定为全局终端环境变量代理`)
+        }
+        await fetchConfig()
+        fetchStatus().catch(() => {})
+      } catch (err) {
+        toast.error(
+          `设置终端代理失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      } finally {
+        setIsEnvProxyLoading(false)
+      }
+    },
+    [
+      isEnvProxyEnabled,
+      activeEnvProxyPort,
+      setEnvProxy,
+      fetchConfig,
+      fetchStatus,
+    ],
+  )
 
   const [pendingPortStates, setPendingPortStates] = useState<
     Record<string, PortState>
@@ -649,7 +717,7 @@ export const PortTableView: React.FC = () => {
   return (
     <div className="h-full flex flex-col p-6 space-y-4 w-full overflow-hidden">
       {/* Top Sticky Single-Row Action Bar Card */}
-      <div className="bg-card border border-border rounded-xl p-3 shadow-sm shrink-0 flex items-center justify-between gap-2.5">
+      <div className="bg-card border border-border rounded-xl p-3 shadow-sm shrink-0 flex items-center justify-between gap-2.5 relative z-30">
         {/* Left: Egress Mode (System Proxy / TUN) Control Group & LAN IP Selector */}
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <div className="flex items-center gap-1.5 text-xs font-semibold shrink-0">
@@ -686,24 +754,33 @@ export const PortTableView: React.FC = () => {
             headerTitle="接管模式"
           />
 
-          <div className="w-44 sm:w-48 xl:w-52 min-w-[130px] max-w-[210px] shrink">
-            {enabledPorts.length === 0 ? (
+          <div className="w-36 lg:w-40 min-w-[125px] max-w-[165px] shrink-0">
+            {proxyEnabledPorts.length === 0 ? (
               <span className="text-[11px] text-muted-foreground font-medium">
-                无已启用端口
+                无可用代理端口
               </span>
             ) : (
               <Select
                 value={
                   activeEgressPort &&
-                  enabledPorts.some((m) => m.port === activeEgressPort)
+                  proxyEnabledPorts.some((m) => m.port === activeEgressPort)
                     ? String(activeEgressPort)
-                    : String(enabledPorts[0]?.port ?? '')
+                    : String(proxyEnabledPorts[0]?.port ?? '')
                 }
                 onChange={(val) => handleSelectEgressPort(String(val))}
-                options={enabledPorts.map((m) => ({
-                  value: String(m.port),
-                  label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName})`,
-                }))}
+                options={egressPortOptions}
+                prefixIcon={
+                  <Globe
+                    className={`w-3.5 h-3.5 shrink-0 ${
+                      activeEgressPort
+                        ? egressSliderValue === 2
+                          ? 'text-purple-500 animate-pulse'
+                          : 'text-sky-500 animate-pulse'
+                        : 'text-muted-foreground'
+                    }`}
+                  />
+                }
+                disabled={!isRunning || proxyEnabledPorts.length === 0}
               />
             )}
           </div>
@@ -720,6 +797,42 @@ export const PortTableView: React.FC = () => {
               需要提权
             </Button>
           )}
+          {/* Terminal Env Proxy Select */}
+          <div className="w-36 lg:w-40 min-w-[125px] max-w-[165px] shrink-0">
+            <Select
+              value={
+                isEnvProxyEnabled && activeEnvProxyPort
+                  ? String(activeEnvProxyPort)
+                  : 'off'
+              }
+              onChange={async (val) => {
+                const v = String(val)
+                if (v === 'off') {
+                  if (isEnvProxyEnabled) {
+                    await setEnvProxy(false)
+                    toast.success('已关闭终端环境变量代理')
+                    await fetchConfig()
+                  }
+                } else {
+                  const port = Number(v)
+                  await setEnvProxy(true, port)
+                  toast.success(`终端代理已切换至端口 ${port}`)
+                  await fetchConfig()
+                }
+              }}
+              options={envProxyOptions}
+              prefixIcon={
+                <Terminal
+                  className={`w-3.5 h-3.5 ${
+                    isEnvProxyEnabled
+                      ? 'text-blue-500 animate-pulse'
+                      : 'text-muted-foreground'
+                  }`}
+                />
+              }
+              disabled={!isRunning || proxyEnabledPorts.length === 0}
+            />
+          </div>
           {config?.allowLan && (
             <div className="w-36 lg:w-40 min-w-[110px] shrink-0">
               <Select
@@ -741,10 +854,9 @@ export const PortTableView: React.FC = () => {
               onClick={handleBatchDelayTest}
               loading={isTestingAllPorts}
               icon={<Zap className="w-3.5 h-3.5 text-amber-500" />}
-              className="px-2"
-            >
-              {isTestingAllPorts ? '正在测速...' : '一键测速'}
-            </Button>
+              title={isTestingAllPorts ? '正在批量测速...' : '一键测速所有端口'}
+              className="w-8 h-8 p-0 shrink-0"
+            />
           )}
 
           <Button
@@ -756,18 +868,20 @@ export const PortTableView: React.FC = () => {
               setIsRulesModalOpen(true)
             }}
             icon={<Split className="w-3.5 h-3.5 text-primary" />}
-            title="管理对所有代理端口生效的全局网站分流规则（单端口局部规则优先于全局规则）"
-            className="px-2"
+            title={`管理全局网站分流规则${
+              (config?.globalRules || []).filter((r) => r.enabled).length > 0
+                ? ` (已生效 ${(config?.globalRules || []).filter((r) => r.enabled).length} 条)`
+                : ''
+            }`}
+            className="w-8 h-8 p-0 shrink-0 relative"
           >
-            全局分流
             {(config?.globalRules || []).filter((r) => r.enabled).length >
               0 && (
-              <span className="ml-1 px-1.5 py-0.2 rounded-full bg-primary/15 text-primary text-[10px] font-mono">
+              <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-mono flex items-center justify-center">
                 {(config?.globalRules || []).filter((r) => r.enabled).length}
               </span>
             )}
           </Button>
-
           <Button
             variant="primary"
             size="sm"
@@ -1001,13 +1115,15 @@ export const PortTableView: React.FC = () => {
                       <span className="font-mono font-bold text-sm text-foreground">
                         {m.port}
                       </span>
-                      <Badge
-                        variant={inboundBadgeVariant}
-                        size="sm"
-                        className="uppercase font-mono font-medium !text-[10px] !py-0.5 !px-1.5"
-                      >
-                        {m.protocol}
-                      </Badge>
+                      {m.protocol !== 'mixed' && (
+                        <Badge
+                          variant={inboundBadgeVariant}
+                          size="sm"
+                          className="uppercase font-mono font-medium !text-[10px] !py-0.5 !px-1.5"
+                        >
+                          {m.protocol}
+                        </Badge>
+                      )}
                       {isDirectCard ? (
                         <Badge
                           variant="outline"
@@ -1048,6 +1164,18 @@ export const PortTableView: React.FC = () => {
                           TUN 出口
                         </Badge>
                       )}
+                      {config?.envProxyEnabled &&
+                        config.envProxyPort === m.port && (
+                          <Badge
+                            variant="outline"
+                            size="sm"
+                            className="!text-[10px] !py-0.5 !px-1.5 font-medium text-blue-500 border-blue-500/30 bg-blue-500/5 shrink-0 flex items-center gap-1"
+                            title="当前端口作为全局终端环境变量代理出口 (http_proxy / all_proxy)"
+                          >
+                            <Terminal className="w-2.5 h-2.5 text-blue-500" />
+                            ENV代理
+                          </Badge>
+                        )}
                       {m.rules && m.rules.length > 0 && (
                         <button
                           type="button"
@@ -1479,17 +1607,17 @@ export const PortTableView: React.FC = () => {
                                 : 'secondary'
                             }
                             size="sm"
-                            dot={Boolean(directEgressInfo?.latencyMs)}
+                            dot={false}
                             className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1 shrink-0 whitespace-nowrap"
                           >
+                            <Zap className="w-2.5 h-2.5 shrink-0 text-sky-500" />
                             {isProbingDirect ? (
-                              <span className="flex items-center gap-1">
+                              <span className="flex items-center gap-0.5">
                                 <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                检测中
                               </span>
                             ) : directEgressInfo?.latencyMs !== undefined &&
                               directEgressInfo?.latencyMs !== null ? (
-                              `${directEgressInfo.latencyMs} ms`
+                              `${directEgressInfo.latencyMs}`
                             ) : (
                               '检测出口'
                             )}
@@ -1511,21 +1639,18 @@ export const PortTableView: React.FC = () => {
                             <Badge
                               variant={latencyProps.variant}
                               size="sm"
-                              dot={latencyProps.dot}
+                              dot={false}
                               className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1 shrink-0 whitespace-nowrap"
                             >
-                              {hasFallback && (
-                                <span className="font-sans font-semibold text-[9px] opacity-75">
-                                  主
-                                </span>
-                              )}
+                              <Zap className="w-2.5 h-2.5 shrink-0" />
                               {isTesting ? (
-                                <span className="flex items-center gap-1">
+                                <span className="flex items-center gap-0.5">
                                   <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                  测速中
                                 </span>
                               ) : (
                                 latencyProps.label
+                                  .replace(' ms', '')
+                                  .replace('未测速', '--')
                               )}
                             </Badge>
                           </button>
@@ -1538,24 +1663,23 @@ export const PortTableView: React.FC = () => {
                               }
                               disabled={!m.enabled || isTestingFb}
                               className="focus:outline-none flex items-center shrink-0"
-                              title={`点击单独测试备用节点 (${m.fallbackNodeName}) 延迟`}
+                              title={`备用节点 (${m.fallbackNodeName}) 延迟: ${fbLatencyProps.label} (点击测速)`}
                             >
                               <Badge
                                 variant={fbLatencyProps.variant}
                                 size="sm"
-                                dot={fbLatencyProps.dot}
+                                dot={false}
                                 className="cursor-pointer hover:opacity-80 font-mono transition-opacity !text-[10px] !py-0.5 !px-1.5 flex items-center gap-1 shrink-0 whitespace-nowrap"
                               >
-                                <span className="font-sans font-semibold text-[9px] opacity-75">
-                                  备
-                                </span>
+                                <ShieldCheck className="w-2.5 h-2.5 shrink-0" />
                                 {isTestingFb ? (
-                                  <span className="flex items-center gap-1">
+                                  <span className="flex items-center gap-0.5">
                                     <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                    测速中
                                   </span>
                                 ) : (
                                   fbLatencyProps.label
+                                    .replace(' ms', '')
+                                    .replace('未测速', '--')
                                 )}
                               </Badge>
                             </button>
@@ -1571,44 +1695,15 @@ export const PortTableView: React.FC = () => {
                         hostIp={activeHostIp}
                         bypassDomains={config?.systemProxyBypassUser}
                         disabled={!isEffectiveEnabled}
-                        isDirect={isDirectCard}
-                        primaryNodeName={m.nodeName}
-                        fallbackNodeName={
-                          hasFallback
-                            ? (m.fallbackNodeName ?? undefined)
-                            : undefined
-                        }
-                        primaryEgressInfo={primaryEgressInfo}
-                        fallbackEgressInfo={fallbackEgressInfo}
-                        isProbingPrimary={isProbingPrimary}
-                        isProbingFallback={isProbingFallback}
-                        onCopyPrimaryEgressIp={(forceRefresh) =>
-                          isDirectCard
-                            ? handleCopyDirectEgressIp(
-                                m.enabled ? m.port : null,
-                                forceRefresh,
-                              )
-                            : handleCopyNodeEgressIp(
-                                m.nodeName,
-                                m.profileId,
-                                nodeKey,
-                                hasFallback ? '主节点' : '节点',
-                                forceRefresh,
-                              )
-                        }
-                        onCopyFallbackEgressIp={
-                          hasFallback && m.fallbackNodeName
-                            ? (forceRefresh) =>
-                                handleCopyNodeEgressIp(
-                                  m.fallbackNodeName!,
-                                  m.fallbackProfileId || m.profileId,
-                                  fbNodeKey,
-                                  '备用节点',
-                                  forceRefresh,
-                                )
-                            : undefined
-                        }
                         onCopySuccess={toast.success}
+                        isEnvProxy={
+                          config?.envProxyEnabled &&
+                          config.envProxyPort === m.port
+                        }
+                        onToggleEnvProxy={() =>
+                          handleToggleEnvProxyForPort(m.port)
+                        }
+                        isEnvProxyLoading={isEnvProxyLoading}
                       />
                       {isDirectCard ? (
                         <button

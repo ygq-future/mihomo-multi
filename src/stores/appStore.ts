@@ -5,6 +5,7 @@ import type {
   AppStatus,
   AppUpdateCheckResult,
   CoreStatus,
+  EnvProxyStatus,
   TunStatus,
 } from '../types'
 import { isVersionNewer, loadCachedAppUpdate } from '../utils/appUpdateCache'
@@ -44,6 +45,9 @@ export interface BaseAppState {
   tunStatus: TunStatus | null
   fetchTunStatus: () => Promise<void>
   setTun: (enabled: boolean, port?: number | null) => Promise<TunStatus>
+  envProxyStatus: EnvProxyStatus | null
+  fetchEnvProxyStatus: () => Promise<void>
+  setEnvProxy: (enabled: boolean, port?: number | null) => Promise<void>
   restartAsAdmin: () => Promise<void>
   appUpdateInfo: AppUpdateCheckResult | null
   hasNewVersion: boolean
@@ -65,6 +69,7 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   coreStatus: null,
   config: null,
   coreLoading: false,
+  envProxyStatus: null,
   appUpdateInfo: (() => {
     const cached = loadCachedAppUpdate()
     return cached?.info ?? null
@@ -295,6 +300,37 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
   fetchTunStatus: async () => {
     try {
       set({ tunStatus: await api.getTunStatus() })
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) })
+    }
+  },
+
+  setEnvProxy: async (enabled: boolean, port?: number | null) => {
+    try {
+      const status = await api.setEnvProxy(enabled, port)
+      set({ envProxyStatus: status })
+      const currentConfig = get().config
+      if (currentConfig) {
+        set({
+          config: {
+            ...currentConfig,
+            envProxyEnabled: status.enabled,
+            envProxyPort: status.port ?? null,
+          },
+        })
+      }
+      await get().fetchConfig()
+      await get().fetchStatus()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: msg })
+      throw err
+    }
+  },
+
+  fetchEnvProxyStatus: async () => {
+    try {
+      set({ envProxyStatus: await api.getEnvProxyStatus() })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })
     }

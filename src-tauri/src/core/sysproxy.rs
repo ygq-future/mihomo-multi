@@ -147,16 +147,15 @@ pub fn sort_bypass_items(items: &mut [String]) {
     });
 }
 
-/// Applies system proxy to the OS and environment variables
-pub fn apply_system_proxy(port: u16, user_bypass: &[String], sync_env: bool) -> AppResult<()> {
-    info!(port = port, sync_env = sync_env, "Applying system proxy");
+/// Applies system proxy to the OS
+pub fn apply_system_proxy(port: u16, user_bypass: &[String]) -> AppResult<()> {
+    info!(port = port, "Applying system proxy");
     let combined_bypass = build_combined_bypass_list(user_bypass);
 
     if cfg!(test) {
         info!(
             port = port,
-            sync_env = sync_env,
-            "[test] Skipped OS system proxy & environment mutation"
+            "[test] Skipped OS system proxy mutation"
         );
         return Ok(());
     }
@@ -164,11 +163,6 @@ pub fn apply_system_proxy(port: u16, user_bypass: &[String], sync_env: bool) -> 
     #[cfg(windows)]
     {
         windows::set_system_proxy_windows(port, &combined_bypass)?;
-        if sync_env {
-            windows::set_user_env_proxy_windows(port, &combined_bypass)?;
-        } else {
-            windows::clear_user_env_proxy_windows()?;
-        }
     }
     #[cfg(target_os = "macos")]
     {
@@ -183,19 +177,18 @@ pub fn apply_system_proxy(port: u16, user_bypass: &[String], sync_env: bool) -> 
     Ok(())
 }
 
-/// Clears system proxy from the OS and removes environment variables
+/// Clears system proxy from the OS
 pub fn clear_system_proxy() -> AppResult<()> {
     info!("Clearing system proxy");
 
     if cfg!(test) {
-        info!("[test] Skipped OS system proxy & environment cleanup");
+        info!("[test] Skipped OS system proxy cleanup");
         return Ok(());
     }
 
     #[cfg(windows)]
     {
         windows::clear_system_proxy_windows()?;
-        windows::clear_user_env_proxy_windows()?;
     }
 
     #[cfg(target_os = "macos")]
@@ -208,6 +201,48 @@ pub fn clear_system_proxy() -> AppResult<()> {
         linux::clear_system_proxy_linux()?;
     }
 
+    Ok(())
+}
+
+/// Applies terminal environment variables proxy (http_proxy, https_proxy, all_proxy, no_proxy)
+pub fn apply_env_proxy(port: u16, user_bypass: &[String]) -> AppResult<()> {
+    info!(port = port, "Applying terminal environment proxy");
+    let combined_bypass = build_combined_bypass_list(user_bypass);
+
+    if cfg!(test) {
+        info!(port = port, "[test] Skipped environment variable proxy mutation");
+        return Ok(());
+    }
+
+    #[cfg(windows)]
+    {
+        windows::set_user_env_proxy_windows(port, &combined_bypass)?;
+    }
+
+    Ok(())
+}
+
+/// Clears terminal environment variables proxy from the OS
+pub fn clear_env_proxy() -> AppResult<()> {
+    info!("Clearing terminal environment proxy");
+
+    if cfg!(test) {
+        info!("[test] Skipped environment variable proxy cleanup");
+        return Ok(());
+    }
+
+    #[cfg(windows)]
+    {
+        windows::clear_user_env_proxy_windows()?;
+    }
+
+    Ok(())
+}
+
+/// Clears both system proxy and environment variable proxy
+pub fn clear_all_system_and_env_proxies() -> AppResult<()> {
+    let _ = clear_system_proxy();
+    let _ = clear_env_proxy();
     Ok(())
 }
 /// Helper to check if a ProxyServer string (e.g. "127.0.0.1:7890" or "http=127.0.0.1:7890;https=127.0.0.1:7890")
@@ -242,6 +277,19 @@ pub fn is_system_proxy_active_on_port(port: u16) -> bool {
     {
         let _ = port;
         true
+    }
+}
+
+/// Checks if the user environment variables proxy points to the specified port.
+pub fn is_env_proxy_active_on_port(port: u16) -> bool {
+    #[cfg(windows)]
+    {
+        windows::is_env_proxy_active_on_port_windows(port)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = port;
+        false
     }
 }
 
@@ -564,6 +612,16 @@ mod windows {
         };
 
         parse_proxy_server_matches_port(&server, port)
+    }
+
+    pub fn is_env_proxy_active_on_port_windows(port: u16) -> bool {
+        let Ok(key) = open_reg_key(HKEY_CURRENT_USER, ENVIRONMENT_SUBKEY, KEY_READ) else {
+            return false;
+        };
+        let Some(val) = get_reg_sz(key.0, "http_proxy") else {
+            return false;
+        };
+        val.contains(&format!(":{}", port))
     }
 
 

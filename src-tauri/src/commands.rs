@@ -4,7 +4,7 @@ use crate::core::port_probe::is_port_available;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
     DriftStatus, FIXED_DIRECT_PORT_ID, InboundProtocol, LanIpInfo, NodeLatencyResult, PortDriftReport,
-    PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, SniffedAccessLogEntry, SystemProxyStatus, TunStatus,
+    EnvProxyStatus, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, SniffedAccessLogEntry, SystemProxyStatus, TunStatus,
     UwpAppInfo, UwpLoopbackStats,
 };
 use crate::state::AppState;
@@ -129,18 +129,32 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
     if config.system_proxy_enabled != old_config.system_proxy_enabled
         || config.system_proxy_port != old_config.system_proxy_port
         || config.system_proxy_bypass_user != old_config.system_proxy_bypass_user
-        || config.system_proxy_sync_env != old_config.system_proxy_sync_env
     {
         if config.system_proxy_enabled {
             if let Some(port) = config.system_proxy_port {
                 let _ = crate::core::sysproxy::apply_system_proxy(
                     port,
                     &config.system_proxy_bypass_user,
-                    config.system_proxy_sync_env,
                 );
             }
         } else {
             let _ = crate::core::sysproxy::clear_system_proxy();
+        }
+    }
+
+    if config.env_proxy_enabled != old_config.env_proxy_enabled
+        || config.env_proxy_port != old_config.env_proxy_port
+        || (config.env_proxy_enabled && config.system_proxy_bypass_user != old_config.system_proxy_bypass_user)
+    {
+        if config.env_proxy_enabled {
+            if let Some(port) = config.env_proxy_port {
+                let _ = crate::core::sysproxy::apply_env_proxy(
+                    port,
+                    &config.system_proxy_bypass_user,
+                );
+            }
+        } else {
+            let _ = crate::core::sysproxy::clear_env_proxy();
         }
     }
 
@@ -201,6 +215,23 @@ pub async fn set_system_proxy(
 
     crate::tray::update_tray_menu(&app);
     Ok(status)
+}
+
+#[tauri::command]
+pub async fn set_env_proxy(
+    app: AppHandle,
+    enabled: bool,
+    port: Option<u16>,
+    state: State<'_, AppState>,
+) -> Result<EnvProxyStatus, String> {
+    let status = state.apply_env_proxy_transition(enabled, port)?;
+    crate::tray::update_tray_menu(&app);
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn get_env_proxy_status(state: State<'_, AppState>) -> Result<EnvProxyStatus, String> {
+    Ok(state.build_env_proxy_status())
 }
 
 #[tauri::command]

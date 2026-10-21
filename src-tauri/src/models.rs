@@ -359,6 +359,10 @@ pub struct AppConfig {
     #[serde(default = "default_true")]
     pub system_proxy_sync_env: bool,
     #[serde(default)]
+    pub env_proxy_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_proxy_port: Option<u16>,
+    #[serde(default)]
     pub tun_enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tun_port: Option<u16>,
@@ -428,6 +432,8 @@ impl Default for AppConfig {
             system_proxy_port: None,
             system_proxy_bypass_user: Vec::new(),
             system_proxy_sync_env: true,
+            env_proxy_enabled: false,
+            env_proxy_port: None,
             tun_enabled: false,
             tun_port: None,
             update_proxy_port: None,
@@ -443,6 +449,13 @@ pub struct SystemProxyStatus {
     pub enabled: bool,
     pub port: Option<u16>,
     pub bypass_domains: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvProxyStatus {
+    pub enabled: bool,
+    pub port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
