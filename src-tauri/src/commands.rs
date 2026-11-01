@@ -1,6 +1,6 @@
 use crate::core::auto_updater::AutoUpdater;
 use crate::core::drift_guard::DriftGuard;
-use crate::core::port_probe::is_port_available;
+use crate::core::port_probe::{PortTransport, is_port_available};
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
     DriftStatus, FIXED_DIRECT_PORT_ID, InboundProtocol, LanIpInfo, NodeLatencyResult, PortDriftReport,
@@ -109,7 +109,7 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
         let is_current_active_core_port = core_status.running && core_status.controller_port == config.controller_port;
 
         if !is_current_active_core_port {
-            if !is_port_available(config.controller_port) {
+            if !is_port_available(config.controller_port, PortTransport::Tcp, false, None) {
                 return Err(format!(
                     "端口 {} 已被本地其他应用程序占用，无法设为控制器端口，请换用其他端口（如 9090）。",
                     config.controller_port

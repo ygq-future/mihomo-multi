@@ -11,8 +11,11 @@ pub mod tray;
 use commands::*;
 use state::AppState;
 use tauri::{Emitter, Manager};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+/// How often ports skipped as occupied are re-probed for availability.
+const OCCUPIED_PORT_RECHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
@@ -242,6 +245,25 @@ pub fn run() {
                     }
                     tray::update_tray_menu(&handle);
                     let _ = handle.emit("core-status-changed", ());
+                }
+            });
+
+            // Occupancy watchdog: a port skipped as occupied is re-probed periodically so its
+            // listener returns on its own as soon as the other application releases the port.
+            let watchdog_state = app_state.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut ticker = tokio::time::interval(OCCUPIED_PORT_RECHECK_INTERVAL);
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                ticker.tick().await;
+                loop {
+                    ticker.tick().await;
+                    let Some(port) = watchdog_state.recoverable_port() else {
+                        continue;
+                    };
+                    info!(port = port, "Skipped port is free again, restoring its listener");
+                    if let Err(err) = watchdog_state.sync_runtime_config().await {
+                        warn!("Restoring skipped port listener failed: {}", err);
+                    }
                 }
             });
 

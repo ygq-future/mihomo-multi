@@ -562,7 +562,12 @@ impl CoreSupervisor {
         }
 
         // 1. Check if controller port is available before spawning
-        if !crate::core::port_probe::is_port_available(config.controller_port) {
+        if !crate::core::port_probe::is_port_available(
+            config.controller_port,
+            crate::core::port_probe::PortTransport::Tcp,
+            false,
+            None,
+        ) {
             let err_msg = format!(
                 "外部控制器端口 {} 已被本地其他应用程序占用，无法启动 Mihomo 内核。请在「设置」中修改控制器端口（例如 9090），或关闭占用该端口的程序。",
                 config.controller_port

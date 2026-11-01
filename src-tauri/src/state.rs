@@ -569,6 +569,27 @@ impl AppState {
         self.sync_runtime_with_event(PortChangeEvent::Resynced).await
     }
 
+    /// Returns a port previously skipped as occupied that our sidecar can bind again.
+    ///
+    /// Occupancy is sampled at sync time only, so without this re-check a mapping skipped once
+    /// would keep missing its listener until the user toggles it by hand.
+    pub fn recoverable_port(&self) -> Option<u16> {
+        let status = self.engine.get_status();
+        if !status.running {
+            return None;
+        }
+        let core_pid = status.pid?;
+
+        let skipped_ports: Vec<u16> = self.occupied_ports.read().iter().copied().collect();
+        if skipped_ports.is_empty() {
+            return None;
+        }
+
+        let allow_lan = self.config.read().allow_lan;
+        let mappings = self.port_router.get_port_mappings();
+        crate::core::port_probe::first_recoverable_port(&skipped_ports, &mappings, allow_lan, core_pid)
+    }
+
     /// Resolves and caches an available local loopback port for the internal `egress-probe` listener.
     pub fn resolve_egress_probe_port(&self, mappings: &[PortMapping], controller_port: u16) -> Option<u16> {
         let status = self.engine.get_status();
@@ -577,7 +598,12 @@ impl AppState {
         if let Some(current) = *self.egress_probe_port.read() {
             let conflict_with_user = current == controller_port || mappings.iter().any(|m| m.port == current);
             if !conflict_with_user
-                && crate::core::port_probe::is_port_available_with_lan(current, false, core_pid)
+                && crate::core::port_probe::is_port_available(
+                    current,
+                    crate::core::port_probe::PortTransport::TcpAndUdp,
+                    false,
+                    core_pid,
+                )
             {
                 return Some(current);
             }
@@ -594,7 +620,12 @@ impl AppState {
             if candidate == controller_port || mappings.iter().any(|m| m.port == candidate) {
                 continue;
             }
-            if crate::core::port_probe::is_port_available_with_lan(candidate, false, core_pid) {
+            if crate::core::port_probe::is_port_available(
+                candidate,
+                crate::core::port_probe::PortTransport::TcpAndUdp,
+                false,
+                core_pid,
+            ) {
                 *self.egress_probe_port.write() = Some(candidate);
                 return Some(candidate);
             }
@@ -848,6 +879,26 @@ mod tests {
 
         // 4. Attempting to bind env proxy to disabled port_b must fail
         assert!(state.apply_env_proxy_transition(true, Some(port_b)).is_err());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_recoverable_port_requires_running_core() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "mihomo_state_recoverable_{}",
+            std::time::UNIX_EPOCH.elapsed().unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let state = AppState::new(temp_dir.clone());
+        *state.occupied_ports.write() = [7890u16].into_iter().collect();
+
+        assert_eq!(
+            state.recoverable_port(),
+            None,
+            "A stopped kernel must never trigger occupancy restoration"
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

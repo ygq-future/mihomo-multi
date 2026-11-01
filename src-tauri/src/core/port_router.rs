@@ -1,4 +1,4 @@
-use crate::core::port_probe::is_port_available_with_lan;
+use crate::core::port_probe::{PortTransport, is_port_available, transport_for};
 use crate::core::profile_manager::atomic_write_file;
 use crate::error::{AppError, AppResult};
 use crate::models::PortMapping;
@@ -140,7 +140,9 @@ impl PortRouter {
 
         let exclude_pid = if is_editing_own_active { ctx.core_pid } else { None };
 
-        is_port_available_with_lan(port, ctx.allow_lan, exclude_pid)
+        // The pre-check runs before the protocol is finalized, so it stays conservative and
+        // requires both transports (the default `mixed` listener binds TCP and UDP).
+        is_port_available(port, PortTransport::TcpAndUdp, ctx.allow_lan, exclude_pid)
     }
 
     pub fn get_next_available_port(
@@ -232,7 +234,7 @@ impl PortRouter {
 
                 let exclude_pid = if is_same_active_port { ctx.core_pid } else { None };
 
-                if !is_port_available_with_lan(mapping.port, ctx.allow_lan, exclude_pid) {
+                if !is_port_available(mapping.port, transport_for(mapping.protocol), ctx.allow_lan, exclude_pid) {
                     return Err(AppError::PortOccupied(mapping.port));
                 }
             }
@@ -308,7 +310,7 @@ impl PortRouter {
                 )));
             }
 
-            if !is_port_available_with_lan(target.port, ctx.allow_lan, None) {
+            if !is_port_available(target.port, transport_for(target.protocol), ctx.allow_lan, None) {
                 return Err(AppError::PortOccupied(target.port));
             }
         }

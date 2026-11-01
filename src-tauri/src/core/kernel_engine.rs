@@ -1,5 +1,6 @@
 use crate::core::clash_client::{ClashApiClient, ProxyDetail};
 use crate::core::config_generator::{MinimalRuntimeConfig, RuntimeGeneratorParams};
+use crate::core::port_probe;
 use crate::core::supervisor::CoreSupervisor;
 use crate::error::{AppError, AppResult};
 use crate::models::{AppConfig, ConnectionSnapshot, CoreStatus, NodeLatencyResult, PortMapping};
@@ -516,15 +517,25 @@ impl KernelEngine {
 
         for m in mappings {
             if m.enabled {
-                if crate::core::port_probe::is_port_available_with_lan(m.port, allow_lan, my_core_pid) {
+                let transport = port_probe::transport_for(m.protocol);
+                if port_probe::is_port_available(m.port, transport, allow_lan, my_core_pid) {
                     active_mappings.push(m.clone());
-                } else {
-                    warn!(
-                        "Port {} is occupied by third-party application, safely excluding from runtime listeners",
-                        m.port
-                    );
-                    occupied_set.insert(m.port);
+                    continue;
                 }
+
+                match port_probe::find_port_conflict(m.port, transport, my_core_pid) {
+                    Some(conflict) => warn!(
+                        port = m.port,
+                        transport = ?conflict.transport,
+                        owner_pid = conflict.owner_pid,
+                        "Port is held by a third-party process, safely excluding it from runtime listeners"
+                    ),
+                    None => warn!(
+                        port = m.port,
+                        "Port cannot be bound right now, safely excluding it from runtime listeners"
+                    ),
+                }
+                occupied_set.insert(m.port);
             } else {
                 active_mappings.push(m.clone());
             }
