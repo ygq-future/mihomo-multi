@@ -382,6 +382,9 @@ mod tests {
             },
         ];
 
+        // Only the Windows kernel tables can attribute a live listener to another process; on
+        // other targets an excluded PID short-circuits the probe to "available".
+        #[cfg(windows)]
         assert_eq!(
             first_recoverable_port(&[occupied_port], &mappings, false, 0),
             None,

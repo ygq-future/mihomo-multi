@@ -681,7 +681,42 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::AppError;
     use crate::models::{InboundProtocol, PortMapping};
+
+    /// Saves an enabled `mixed` mapping on a loopback port that is free for TCP *and* UDP.
+    ///
+    /// A `mixed` listener binds both socket families, so a port the OS hands out for TCP may
+    /// still be held by an unrelated UDP endpoint. Occupancy is a point-in-time sample, hence
+    /// the retry with a freshly picked port instead of asserting on the first candidate.
+    async fn save_mapping_on_free_port(state: &AppState, id: &str, node_name: &str) -> u16 {
+        for _ in 0..20 {
+            let port = {
+                let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                listener.local_addr().unwrap().port()
+            };
+            if state.port_router.get_port_mappings().iter().any(|m| m.port == port) {
+                continue;
+            }
+
+            let mapping = PortMapping {
+                id: id.to_string(),
+                port,
+                protocol: InboundProtocol::Mixed,
+                profile_id: "test-prof".to_string(),
+                node_name: node_name.to_string(),
+                enabled: true,
+                ..PortMapping::default()
+            };
+            match state.save_port_mapping(mapping).await {
+                Ok(_) => return port,
+                Err(AppError::PortOccupied(_)) => continue,
+                Err(err) => panic!("saving a mapping on port {port} failed: {err}"),
+            }
+        }
+
+        panic!("no port free for both TCP and UDP after 20 attempts");
+    }
 
     #[tokio::test]
     async fn test_crash_handler_suspends_and_restores_proxy() {
@@ -693,28 +728,8 @@ mod tests {
 
         let state = AppState::new(temp_dir.clone());
 
-        // Add an enabled port mapping
-        // Pick an unused local port to avoid collision with running core processes
-        let test_port = {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            listener.local_addr().unwrap().port()
-        };
-        let mapping = PortMapping {
-            id: "port-1".to_string(),
-            port: test_port,
-            protocol: InboundProtocol::Mixed,
-            profile_id: "test-prof".to_string(),
-            node_name: "test-node".to_string(),
-            enabled: true,
-            latency: None,
-            description: None,
-            fallback_profile_id: None,
-            fallback_node_name: None,
-            bypass_cn: false,
-            manual_fallback: false,
-            rules: vec![],
-        };
-        let _ = state.save_port_mapping(mapping).await;
+        // Add an enabled port mapping on a port free for both TCP and UDP
+        let test_port = save_mapping_on_free_port(&state, "port-1", "test-node").await;
 
         // Enable system proxy in config
         {
@@ -749,27 +764,8 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let state = AppState::new(temp_dir.clone());
-        let test_port = {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            listener.local_addr().unwrap().port()
-        };
+        let test_port = save_mapping_on_free_port(&state, "port-egress-1", "test-node").await;
 
-        let mapping = PortMapping {
-            id: "port-egress-1".to_string(),
-            port: test_port,
-            protocol: InboundProtocol::Mixed,
-            profile_id: "test-prof".to_string(),
-            node_name: "test-node".to_string(),
-            enabled: true,
-            latency: None,
-            description: None,
-            fallback_profile_id: None,
-            fallback_node_name: None,
-            bypass_cn: false,
-            manual_fallback: false,
-            rules: vec![],
-        };
-        let _ = state.save_port_mapping(mapping).await.unwrap();
         let runtime_yaml = std::fs::read_to_string(temp_dir.join("core").join("runtime.yaml")).unwrap();
         assert!(runtime_yaml.contains(&format!("port: {}", test_port)));
         // 1. Bind TUN to the enabled port via prepare_tun_transition
@@ -810,47 +806,8 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let state = AppState::new(temp_dir.clone());
-        let port_a = {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            listener.local_addr().unwrap().port()
-        };
-        let port_b = {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            listener.local_addr().unwrap().port()
-        };
-
-        let mapping_a = PortMapping {
-            id: "port-a".to_string(),
-            port: port_a,
-            protocol: InboundProtocol::Mixed,
-            profile_id: "test-prof".to_string(),
-            node_name: "node-a".to_string(),
-            enabled: true,
-            latency: None,
-            description: None,
-            fallback_profile_id: None,
-            fallback_node_name: None,
-            bypass_cn: false,
-            manual_fallback: false,
-            rules: vec![],
-        };
-        let mapping_b = PortMapping {
-            id: "port-b".to_string(),
-            port: port_b,
-            protocol: InboundProtocol::Mixed,
-            profile_id: "test-prof".to_string(),
-            node_name: "node-b".to_string(),
-            enabled: true,
-            latency: None,
-            description: None,
-            fallback_profile_id: None,
-            fallback_node_name: None,
-            bypass_cn: false,
-            manual_fallback: false,
-            rules: vec![],
-        };
-        let _ = state.save_port_mapping(mapping_a).await.unwrap();
-        let _ = state.save_port_mapping(mapping_b).await.unwrap();
+        let port_a = save_mapping_on_free_port(&state, "port-a", "node-a").await;
+        let port_b = save_mapping_on_free_port(&state, "port-b", "node-b").await;
 
         // 1. Set System Proxy to port_a
         let (sys_status, _) = state.apply_system_proxy_transition(true, Some(port_a)).unwrap();
