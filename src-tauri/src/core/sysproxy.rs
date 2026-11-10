@@ -303,6 +303,7 @@ pub fn is_env_proxy_active_on_port(port: u16) -> bool {
 /// Returns `(orphaned_sids, pending_sids)`: SIDs of uninstalled apps whose exemption must be
 /// removed, and AppContainer SIDs that need a new exemption. The pending set is only populated
 /// while the user's persisted "exempt all" intent is active.
+#[cfg(any(windows, test))]
 pub(crate) fn plan_uwp_exemption_maintenance(
     user_sids: &[String],
     exempted_sids: &std::collections::HashSet<String>,
