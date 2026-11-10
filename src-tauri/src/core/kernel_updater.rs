@@ -19,10 +19,18 @@ const CHECK_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const GITHUB_LATEST_RELEASE_API: &str = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest";
 const GITHUB_VERSION_TXT: &str = "https://github.com/MetaCubeX/mihomo/releases/latest/download/version.txt";
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum KernelInstallMode {
+    Portable,
+    Installed,
+    Dev,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KernelUpdateCheckResult {
-    pub is_portable: bool,
+    pub install_mode: KernelInstallMode,
     pub target_path: String,
     pub current_version: String,
     pub latest_version: String,
@@ -37,7 +45,7 @@ pub struct KernelUpgradeResult {
     pub previous_version: String,
     pub current_version: String,
     pub target_path: String,
-    pub is_portable: bool,
+    pub install_mode: KernelInstallMode,
 }
 
 #[derive(Debug, Clone)]
@@ -114,18 +122,28 @@ pub fn is_portable_mode() -> bool {
 
 /// Resolves the destination file path for kernel upgrades:
 /// - Portable mode: `exe_dir/binaries/mihomo-<target>`
+/// - Dev mode: the sidecar actually used by the running engine (usually the
+///   project's `src-tauri/binaries/mihomo-<target>`)
 /// - Installed mode: `app_local_data_dir/binaries/mihomo-<target>`
-pub fn get_kernel_destination(app: &tauri::AppHandle) -> AppResult<(bool, PathBuf)> {
+pub fn get_kernel_destination(app: &tauri::AppHandle, state: &AppState) -> AppResult<(KernelInstallMode, PathBuf)> {
     let host_target = CoreSupervisor::get_host_target();
     let binary_name = format!("mihomo-{}", host_target);
-    let is_portable = is_portable_mode();
 
-    if is_portable
+    if is_portable_mode()
         && let Ok(current_exe) = std::env::current_exe()
         && let Some(exe_dir) = current_exe.parent()
     {
         let bin_dir = exe_dir.join("binaries");
-        return Ok((true, bin_dir.join(&binary_name)));
+        return Ok((KernelInstallMode::Portable, bin_dir.join(&binary_name)));
+    }
+
+    if state.is_dev_instance() {
+        let resolved_sidecar = CoreSupervisor::resolve_sidecar_path(Some(app)).ok();
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        return Ok((
+            KernelInstallMode::Dev,
+            resolve_dev_kernel_destination(resolved_sidecar, &cwd, &binary_name),
+        ));
     }
 
     let app_dir = app
@@ -133,7 +151,14 @@ pub fn get_kernel_destination(app: &tauri::AppHandle) -> AppResult<(bool, PathBu
         .app_local_data_dir()
         .map_err(|e| AppError::Internal(format!("Failed to resolve app local data dir: {}", e)))?;
     let bin_dir = app_dir.join("binaries");
-    Ok((false, bin_dir.join(&binary_name)))
+    Ok((KernelInstallMode::Installed, bin_dir.join(&binary_name)))
+}
+
+/// Dev builds must update the sidecar that the engine actually launched.
+/// If no sidecar has been resolved yet, fall back to the project-local path
+/// used by `pnpm dev:sidecar`.
+fn resolve_dev_kernel_destination(resolved_sidecar: Option<PathBuf>, cwd: &Path, binary_name: &str) -> PathBuf {
+    resolved_sidecar.unwrap_or_else(|| cwd.join("src-tauri").join("binaries").join(binary_name))
 }
 
 /// Normalizes version strings for comparison, e.g. "Mihomo Meta v1.19.30 ..." -> "1.19.30"
@@ -172,7 +197,7 @@ struct GitHubReleaseResponse {
 }
 
 pub async fn check_kernel_update(app: &tauri::AppHandle, state: &AppState) -> AppResult<KernelUpdateCheckResult> {
-    let (is_portable, target_path) = get_kernel_destination(app)?;
+    let (install_mode, target_path) = get_kernel_destination(app, state)?;
 
     let current_version_raw = state
         .engine
@@ -187,7 +212,7 @@ pub async fn check_kernel_update(app: &tauri::AppHandle, state: &AppState) -> Ap
                 info!(egress = %egress.label(), version = %latest_version, "Kernel update check succeeded");
                 let has_update = is_newer_version(&current_version_raw, &latest_version);
                 return Ok(KernelUpdateCheckResult {
-                    is_portable,
+                    install_mode,
                     target_path: target_path.to_string_lossy().to_string(),
                     current_version: current_version_raw,
                     latest_version,
@@ -305,7 +330,7 @@ pub fn cleanup_downloading_files(dir: &Path) {
 }
 
 pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState) -> AppResult<KernelUpgradeResult> {
-    let (is_portable, target_path) = get_kernel_destination(app)?;
+    let (install_mode, target_path) = get_kernel_destination(app, state)?;
     let target_spec = get_current_target_spec().ok_or_else(|| {
         AppError::Internal("Current platform architecture is unsupported for auto-upgrade".to_string())
     })?;
@@ -433,7 +458,7 @@ pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState)
         previous_version,
         current_version: verified_version,
         target_path: target_path.to_string_lossy().to_string(),
-        is_portable,
+        install_mode,
     })
 }
 
@@ -460,6 +485,45 @@ mod tests {
     fn test_target_spec_resolved() {
         let spec = get_current_target_spec();
         assert!(spec.is_some());
+    }
+
+    #[test]
+    fn test_dev_destination_prefers_running_sidecar() {
+        let sidecar = PathBuf::from("workspace")
+            .join("src-tauri")
+            .join("binaries")
+            .join("mihomo-test.exe");
+        assert_eq!(
+            resolve_dev_kernel_destination(Some(sidecar.clone()), Path::new("workspace"), "mihomo-test.exe"),
+            sidecar
+        );
+    }
+
+    #[test]
+    fn test_dev_destination_falls_back_to_project_binaries() {
+        assert_eq!(
+            resolve_dev_kernel_destination(None, Path::new("workspace"), "mihomo-test.exe"),
+            PathBuf::from("workspace")
+                .join("src-tauri")
+                .join("binaries")
+                .join("mihomo-test.exe")
+        );
+    }
+
+    #[test]
+    fn test_kernel_install_mode_serializes() {
+        assert_eq!(
+            serde_json::to_string(&KernelInstallMode::Portable).expect("serialize portable"),
+            "\"portable\""
+        );
+        assert_eq!(
+            serde_json::to_string(&KernelInstallMode::Installed).expect("serialize installed"),
+            "\"installed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&KernelInstallMode::Dev).expect("serialize dev"),
+            "\"dev\""
+        );
     }
 
     #[test]

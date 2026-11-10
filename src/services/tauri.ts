@@ -693,7 +693,7 @@ export async function getLanIpAddresses(): Promise<LanIpInfo[]> {
 export async function checkKernelUpdate(): Promise<KernelUpdateCheckResult> {
   if (!isTauriEnvironment()) {
     return {
-      isPortable: false,
+      installMode: 'installed',
       targetPath: 'mock/binaries/mihomo.exe',
       currentVersion: 'Mihomo Meta v1.19.30',
       latestVersion: 'v1.19.30',
@@ -709,7 +709,7 @@ export async function upgradeKernel(): Promise<KernelUpgradeResult> {
       previousVersion: 'Mihomo Meta v1.19.30',
       currentVersion: 'Mihomo Meta v1.19.30',
       targetPath: 'mock/binaries/mihomo.exe',
-      isPortable: false,
+      installMode: 'installed',
     }
   }
   return invoke<KernelUpgradeResult>('upgrade_kernel')

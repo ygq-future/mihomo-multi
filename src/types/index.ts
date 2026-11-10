@@ -277,7 +277,7 @@ export interface AppStatus {
 }
 
 export interface KernelUpdateCheckResult {
-  isPortable: boolean
+  installMode: 'portable' | 'installed' | 'dev'
   targetPath: string
   currentVersion: string
   latestVersion: string
@@ -290,7 +290,7 @@ export interface KernelUpgradeResult {
   previousVersion: string
   currentVersion: string
   targetPath: string
-  isPortable: boolean
+  installMode: 'portable' | 'installed' | 'dev'
 }
 
 export interface MrsRulesInfo {

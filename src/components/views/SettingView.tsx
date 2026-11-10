@@ -1201,12 +1201,18 @@ export const SettingView: React.FC = () => {
                 </span>
                 {updateInfo && (
                   <Badge
-                    variant={updateInfo.isPortable ? 'success' : 'secondary'}
+                    variant={
+                      updateInfo.installMode === 'portable'
+                        ? 'success'
+                        : 'secondary'
+                    }
                     size="sm"
                   >
-                    {updateInfo.isPortable
+                    {updateInfo.installMode === 'portable'
                       ? '便携模式 (.portable)'
-                      : '安装模式 (AppData)'}
+                      : updateInfo.installMode === 'dev'
+                        ? '开发模式 (当前运行内核)'
+                        : '安装模式 (AppData)'}
                   </Badge>
                 )}
               </div>

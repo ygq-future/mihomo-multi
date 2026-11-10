@@ -429,6 +429,13 @@ impl CoreSupervisor {
     }
 
     pub fn locate_sidecar(&self, app_handle: Option<&tauri::AppHandle>) -> AppResult<PathBuf> {
+        Self::resolve_sidecar_path(app_handle)
+    }
+
+    /// Resolves the Mihomo sidecar path without requiring a supervisor instance.
+    /// Used by both the engine startup path and the kernel updater so they always
+    /// target the same binary.
+    pub fn resolve_sidecar_path(app_handle: Option<&tauri::AppHandle>) -> AppResult<PathBuf> {
         let host_target = Self::get_host_target();
         let binary_name = format!("mihomo-{}", host_target);
 
