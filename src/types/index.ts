@@ -196,7 +196,6 @@ export interface AppConfig {
   envProxyPort?: number | null
   tunEnabled: boolean
   tunPort?: number | null
-  updateProxyPort?: number | null
   globalRules?: PortRule[]
   checkUpdateOnStart?: boolean
 }

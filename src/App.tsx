@@ -1,15 +1,13 @@
 import type React from 'react'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { ToastContainer, toast } from './components/common'
 import { Shell } from './components/layout/Shell'
+import { useAppUpdateCheck } from './hooks/useAppUpdateCheck'
 import { useAppStore } from './stores/appStore'
-import { appReady, checkAppUpdate } from './services/tauri'
-import { APP_VERSION } from './constants'
-import { isVersionNewer, saveCachedAppUpdate } from './utils/appUpdateCache'
+import { appReady } from './services/tauri'
 import { createEventScope } from './services/events'
 import { useWindowVisibility } from './services/useWindowVisibility'
 import type {
-  AppUpdateCheckResult,
   AutoUpdateEventPayload,
   KernelCrashedPayload,
   LatencyProgressPayload,
@@ -33,114 +31,8 @@ export const App: React.FC = () => {
   )
   const setDriftReports = useAppStore((state) => state.setDriftReports)
   const isWindowVisible = useWindowVisibility()
-  const config = useAppStore((state) => state.config)
-  const coreStatus = useAppStore((state) => state.coreStatus)
-  const scrollToSettingSection = useAppStore(
-    (state) => state.scrollToSettingSection,
-  )
-  const setAppUpdateInfo = useAppStore((state) => state.setAppUpdateInfo)
-  const hasCheckedUpdateRef = useRef(false)
-  const isCheckingUpdateRef = useRef(false)
+  useAppUpdateCheck()
 
-  useEffect(() => {
-    if (!config || hasCheckedUpdateRef.current || isCheckingUpdateRef.current) {
-      return
-    }
-    if (config.checkUpdateOnStart === false) return
-
-    // 若指定了代理端口但内核尚未处于运行状态，等待内核就绪
-    // 但若内核 5 秒后仍未运行，由兜底定时器唤醒直连检查
-    if (config.updateProxyPort && !coreStatus?.running) {
-      const fallbackTimer = setTimeout(() => {
-        if (!hasCheckedUpdateRef.current && !isCheckingUpdateRef.current) {
-          isCheckingUpdateRef.current = true
-          checkAppUpdate(null)
-            .then((res) => {
-              hasCheckedUpdateRef.current = true
-              setAppUpdateInfo(res)
-              if (!res?.hasUpdate) return
-              const currentVersion = APP_VERSION.replace(/^v/i, '')
-              if (isVersionNewer(currentVersion, res.latestVersion)) {
-                saveCachedAppUpdate(res, Date.now())
-                toast.info(
-                  `发现新版本 v${res.latestVersion}，前往「设置 -> 软件关于与更新」即可查看并下载更新。`,
-                  '发现新版本',
-                  8000,
-                  {
-                    label: '立即前往',
-                    onClick: () => {
-                      scrollToSettingSection('setting-section-about')
-                    },
-                  },
-                )
-              }
-            })
-            .catch((err) => {
-              console.debug(
-                '[AppUpdate] Direct fallback update check failed:',
-                err,
-              )
-            })
-            .finally(() => {
-              isCheckingUpdateRef.current = false
-            })
-        }
-      }, 5000)
-
-      return () => clearTimeout(fallbackTimer)
-    }
-
-    isCheckingUpdateRef.current = true
-
-    // 缓冲 2.5 秒，保证代理连接就绪且首屏加载顺畅
-    const timer = setTimeout(async () => {
-      try {
-        let res: AppUpdateCheckResult | null = null
-        if (config.updateProxyPort) {
-          try {
-            res = await checkAppUpdate(config.updateProxyPort)
-          } catch (proxyErr) {
-            console.debug(
-              '[AppUpdate] Proxy check failed, falling back to direct:',
-              proxyErr,
-            )
-            res = await checkAppUpdate(null)
-          }
-        } else {
-          res = await checkAppUpdate(null)
-        }
-
-        hasCheckedUpdateRef.current = true
-
-        setAppUpdateInfo(res)
-        if (!res || !res.hasUpdate) return
-        const currentVersion = APP_VERSION.replace(/^v/i, '')
-        if (isVersionNewer(currentVersion, res.latestVersion)) {
-          saveCachedAppUpdate(res, Date.now())
-          toast.info(
-            `发现新版本 v${res.latestVersion}，前往「设置 -> 软件关于与更新」即可查看并下载更新。`,
-            '发现新版本',
-            8000,
-            {
-              label: '立即前往',
-              onClick: () => {
-                scrollToSettingSection('setting-section-about')
-              },
-            },
-          )
-        }
-      } catch (err) {
-        console.debug('[AppUpdate] Startup update check failed:', err)
-      } finally {
-        isCheckingUpdateRef.current = false
-      }
-    }, 2500)
-
-    return () => {
-      clearTimeout(timer)
-      isCheckingUpdateRef.current = false
-    }
-  }, [config, coreStatus?.running, scrollToSettingSection, setAppUpdateInfo])
   useEffect(() => {
     fetchConfig()
     fetchLatencies().catch(() => {})

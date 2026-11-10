@@ -15,3 +15,4 @@ pub mod port_router;
 pub mod profile_manager;
 pub mod supervisor;
 pub mod sysproxy;
+pub mod update_egress;

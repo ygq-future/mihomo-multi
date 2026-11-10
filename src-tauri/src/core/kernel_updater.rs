@@ -1,4 +1,7 @@
 use crate::core::supervisor::CoreSupervisor;
+use crate::core::update_egress::{
+    UpdateEgress, build_update_client, fetch_bytes_with_fallback, fetch_text_with_fallback, update_egress_chain,
+};
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use flate2::read::GzDecoder;
@@ -9,8 +12,10 @@ use std::time::Duration;
 use tauri::Manager;
 use tracing::{info, warn};
 
-const USER_AGENT: &str = crate::constants::APP_USER_AGENT;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
+const CHECK_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const GITHUB_LATEST_RELEASE_API: &str = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest";
 const GITHUB_VERSION_TXT: &str = "https://github.com/MetaCubeX/mihomo/releases/latest/download/version.txt";
 
@@ -159,21 +164,6 @@ pub fn is_newer_version(current: &str, latest: &str) -> bool {
     lat_nums > cur_nums
 }
 
-fn build_http_client(proxy_port: Option<u16>) -> AppResult<reqwest::Client> {
-    let mut builder = reqwest::Client::builder()
-        .user_agent(USER_AGENT)
-        .timeout(REQUEST_TIMEOUT);
-
-    if let Some(port) = proxy_port {
-        let proxy_url = format!("http://127.0.0.1:{}", port);
-        let proxy = reqwest::Proxy::all(&proxy_url)
-            .map_err(|e| AppError::Internal(format!("Invalid proxy configuration for port {}: {}", port, e)))?;
-        builder = builder.proxy(proxy);
-    }
-
-    builder.build().map_err(AppError::Network)
-}
-
 #[derive(Deserialize)]
 struct GitHubReleaseResponse {
     tag_name: String,
@@ -181,19 +171,46 @@ struct GitHubReleaseResponse {
     html_url: Option<String>,
 }
 
-pub async fn check_kernel_update(
-    app: &tauri::AppHandle,
-    state: &AppState,
-    proxy_port: Option<u16>,
-) -> AppResult<KernelUpdateCheckResult> {
+pub async fn check_kernel_update(app: &tauri::AppHandle, state: &AppState) -> AppResult<KernelUpdateCheckResult> {
     let (is_portable, target_path) = get_kernel_destination(app)?;
-    let client = build_http_client(proxy_port)?;
 
     let current_version_raw = state
         .engine
         .get_status()
         .version
         .unwrap_or_else(|| "Unknown".to_string());
+
+    let mut failures = Vec::new();
+    for egress in update_egress_chain(state) {
+        match fetch_kernel_release(egress).await {
+            Ok((latest_version, release_notes, release_url)) => {
+                info!(egress = %egress.label(), version = %latest_version, "Kernel update check succeeded");
+                let has_update = is_newer_version(&current_version_raw, &latest_version);
+                return Ok(KernelUpdateCheckResult {
+                    is_portable,
+                    target_path: target_path.to_string_lossy().to_string(),
+                    current_version: current_version_raw,
+                    latest_version,
+                    has_update,
+                    release_notes,
+                    release_url,
+                });
+            }
+            Err(err) => {
+                warn!(egress = %egress.label(), error = %err, "Kernel update check failed on egress candidate");
+                failures.push(format!("{}: {}", egress.label(), err));
+            }
+        }
+    }
+
+    Err(AppError::Internal(format!(
+        "检查内核更新失败，已尝试所有网络出口：{}",
+        failures.join("; ")
+    )))
+}
+
+async fn fetch_kernel_release(egress: UpdateEgress) -> AppResult<(String, Option<String>, Option<String>)> {
+    let client = build_update_client(egress, CHECK_TIMEOUT, CHECK_CONNECT_TIMEOUT)?;
 
     // 1. Try querying GitHub releases API
     let mut latest_version = String::new();
@@ -218,6 +235,12 @@ pub async fn check_kernel_update(
             .send()
             .await
             .map_err(|e| AppError::Internal(format!("Failed to fetch latest kernel version: {}", e)))?;
+        if !res.status().is_success() {
+            return Err(AppError::Internal(format!(
+                "Failed to fetch latest kernel version: HTTP {}",
+                res.status()
+            )));
+        }
         let text = res
             .text()
             .await
@@ -225,17 +248,13 @@ pub async fn check_kernel_update(
         latest_version = text.trim().to_string();
     }
 
-    let has_update = is_newer_version(&current_version_raw, &latest_version);
+    if latest_version.is_empty() {
+        return Err(AppError::Internal(
+            "Latest kernel version response was empty".to_string(),
+        ));
+    }
 
-    Ok(KernelUpdateCheckResult {
-        is_portable,
-        target_path: target_path.to_string_lossy().to_string(),
-        current_version: current_version_raw,
-        latest_version,
-        has_update,
-        release_notes,
-        release_url,
-    })
+    Ok((latest_version, release_notes, release_url))
 }
 
 fn extract_binary_from_zip(bytes: &[u8]) -> AppResult<Vec<u8>> {
@@ -285,30 +304,23 @@ pub fn cleanup_downloading_files(dir: &Path) {
     }
 }
 
-pub async fn download_and_apply_kernel(
-    app: &tauri::AppHandle,
-    state: &AppState,
-    proxy_port: Option<u16>,
-) -> AppResult<KernelUpgradeResult> {
+pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState) -> AppResult<KernelUpgradeResult> {
     let (is_portable, target_path) = get_kernel_destination(app)?;
     let target_spec = get_current_target_spec().ok_or_else(|| {
         AppError::Internal("Current platform architecture is unsupported for auto-upgrade".to_string())
     })?;
 
-    let client = build_http_client(proxy_port)?;
+    let chain = update_egress_chain(state);
 
     // 1. Get latest version tag
-    let version_res = client
-        .get(GITHUB_VERSION_TXT)
-        .send()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to query latest version: {}", e)))?;
-    let version = version_res
-        .text()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to read version string: {}", e)))?
-        .trim()
-        .to_string();
+    let (version_text, version_egress) =
+        fetch_text_with_fallback(&chain, GITHUB_VERSION_TXT, REQUEST_TIMEOUT, CONNECT_TIMEOUT).await?;
+    let version = version_text.trim().to_string();
+    if version.is_empty() {
+        return Err(AppError::Internal(
+            "Latest kernel version response was empty".to_string(),
+        ));
+    }
 
     let archive_name = format!("{}-{}.{}", target_spec.name, version, target_spec.ext);
     let download_url = format!(
@@ -316,26 +328,16 @@ pub async fn download_and_apply_kernel(
         version, archive_name
     );
 
-    info!("Downloading kernel from: {}", download_url);
+    info!(
+        egress = %version_egress.label(),
+        url = %download_url,
+        "Downloading kernel archive"
+    );
 
-    let res = client
-        .get(&download_url)
-        .send()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to download kernel archive: {}", e)))?;
+    let (archive_bytes, download_egress) =
+        fetch_bytes_with_fallback(&chain, &download_url, Duration::from_secs(600), Duration::from_secs(15)).await?;
 
-    if !res.status().is_success() {
-        return Err(AppError::Internal(format!(
-            "Failed to download kernel from {}: HTTP {}",
-            download_url,
-            res.status()
-        )));
-    }
-
-    let archive_bytes = res
-        .bytes()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to read kernel download stream: {}", e)))?;
+    info!(egress = %download_egress.label(), "Kernel archive downloaded");
 
     // 2. Extract executable bytes from archive
     let binary_bytes = if target_spec.ext == "zip" {
@@ -461,8 +463,18 @@ mod tests {
     }
 
     #[test]
-    fn test_build_http_client() {
-        assert!(build_http_client(None).is_ok());
-        assert!(build_http_client(Some(7890)).is_ok());
+    fn test_build_update_client() {
+        assert!(build_update_client(UpdateEgress::Direct, Duration::from_secs(5), Duration::from_secs(2)).is_ok());
+        assert!(
+            build_update_client(
+                UpdateEgress::Proxy {
+                    port: 7890,
+                    protocol: crate::models::InboundProtocol::Mixed,
+                },
+                Duration::from_secs(5),
+                Duration::from_secs(2),
+            )
+            .is_ok()
+        );
     }
 }

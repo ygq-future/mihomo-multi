@@ -1,4 +1,5 @@
-use crate::constants::{APP_USER_AGENT, APP_VERSION, GITHUB_OWNER, GITHUB_REPO};
+use crate::constants::{APP_VERSION, GITHUB_OWNER, GITHUB_REPO};
+use crate::core::update_egress::{UpdateEgress, build_update_client, update_egress_chain};
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -273,73 +274,57 @@ pub fn match_platform_assets(
     (recommended, matched)
 }
 
-/// Builds an HTTP client with optional proxy support for app updates
-pub fn build_updater_client(
-    proxy_port: Option<u16>,
-    timeout: Duration,
-    connect_timeout: Duration,
-) -> AppResult<reqwest::Client> {
-    let mut builder = reqwest::Client::builder()
-        .user_agent(APP_USER_AGENT)
-        .timeout(timeout)
-        .connect_timeout(connect_timeout);
+/// Checks the latest release from GitHub API, trying every update egress in order.
+pub async fn check_app_update(state: &AppState) -> AppResult<AppUpdateCheckResult> {
+    let chain = update_egress_chain(state);
+    let mut failures = Vec::new();
 
-    if let Some(port) = proxy_port {
-        let proxy_url = format!("http://127.0.0.1:{}", port);
-        let proxy = reqwest::Proxy::all(&proxy_url)
-            .map_err(|e| AppError::Internal(format!("Invalid proxy configuration for port {}: {}", port, e)))?;
-        builder = builder.proxy(proxy);
+    for egress in chain {
+        match check_app_update_via(egress).await {
+            Ok(result) => {
+                info!(egress = %egress.label(), "App update check succeeded");
+                return Ok(result);
+            }
+            Err(err) => {
+                warn!(egress = %egress.label(), error = %err, "App update check failed on egress candidate");
+                failures.push(format!("{}: {}", egress.label(), err));
+            }
+        }
     }
 
-    builder
-        .build()
-        .map_err(|e| AppError::Internal(format!("Failed to build HTTP client: {}", e)))
+    Err(AppError::Internal(format!(
+        "检查软件更新失败，已尝试所有网络出口：{}",
+        failures.join("; ")
+    )))
 }
 
-/// Checks latest release from GitHub API with optional proxy port
-pub async fn check_app_update(proxy_port: Option<u16>) -> AppResult<AppUpdateCheckResult> {
-    let client = build_updater_client(
-        proxy_port,
-        Duration::from_secs(20),
-        Duration::from_secs(10),
-    )?;
+async fn check_app_update_via(egress: UpdateEgress) -> AppResult<AppUpdateCheckResult> {
+    let client = build_update_client(egress, Duration::from_secs(10), Duration::from_secs(5))?;
 
     let api_url = format!(
         "https://api.github.com/repos/{}/{}/releases/latest",
         GITHUB_OWNER, GITHUB_REPO
     );
 
-    info!(url = %api_url, proxy_port = ?proxy_port, "Checking for latest app release from GitHub");
+    info!(url = %api_url, egress = %egress.label(), "Checking for latest app release from GitHub");
 
     let res = client
         .get(&api_url)
         .send()
         .await
-        .map_err(|e| {
-            let msg = if let Some(port) = proxy_port {
-                format!(
-                    "Failed to query GitHub releases via proxy 127.0.0.1:{}: {}",
-                    port, e
-                )
-            } else {
-                format!("Failed to query GitHub releases: {}", e)
-            };
-            tracing::warn!("{}", msg);
-            AppError::Internal(msg)
-        })?;
+        .map_err(|e| AppError::Internal(format!("Failed to query GitHub releases: {}", e)))?;
 
     if !res.status().is_success() {
         let status = res.status();
         let body = res.text().await.unwrap_or_default();
         if status.as_u16() == 403 && body.to_lowercase().contains("rate limit") {
             return Err(AppError::Internal(
-                "GitHub API 访问频次超限 (403 Rate Limit Exceeded)。请在上方「更新网络出口」切换其他代理端口后重试。".to_string()
+                "GitHub API 访问频次超限 (403 Rate Limit Exceeded)".to_string(),
             ));
         }
         return Err(AppError::Internal(format!(
             "GitHub API responded with status {}: {}",
-            status,
-            body
+            status, body
         )));
     }
 
@@ -373,7 +358,6 @@ pub async fn download_and_install_update(
     file_name: &str,
     package_type_str: &str,
     state: &AppState,
-    proxy_port: Option<u16>,
 ) -> AppResult<AppUpdateInstallResult> {
     let package_type = if package_type_str.eq_ignore_ascii_case("installer") {
         AppPackageType::Installer
@@ -381,26 +365,37 @@ pub async fn download_and_install_update(
         AppPackageType::Portable
     };
 
-    let client = build_updater_client(
-        proxy_port,
-        Duration::from_secs(600),
-        Duration::from_secs(15),
-    )?;
+    let chain = update_egress_chain(state);
+    let mut failures = Vec::new();
+    let mut selected = None;
 
-    info!(url = %download_url, proxy_port = ?proxy_port, "Starting app update download");
+    for egress in chain {
+        let client = match build_update_client(egress, Duration::from_secs(600), Duration::from_secs(15)) {
+            Ok(client) => client,
+            Err(err) => {
+                failures.push(format!("{}: {}", egress.label(), err));
+                continue;
+            }
+        };
 
-    let mut res = client
-        .get(download_url)
-        .send()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to start download from {}: {}", download_url, e)))?;
-
-    if !res.status().is_success() {
-        return Err(AppError::Internal(format!(
-            "Download failed with HTTP status: {}",
-            res.status()
-        )));
+        match client.get(download_url).send().await {
+            Ok(response) if response.status().is_success() => {
+                selected = Some((egress, response));
+                break;
+            }
+            Ok(response) => failures.push(format!("{}: HTTP {}", egress.label(), response.status())),
+            Err(err) => failures.push(format!("{}: {}", egress.label(), err)),
+        }
     }
+
+    let Some((egress, mut res)) = selected else {
+        return Err(AppError::Internal(format!(
+            "下载更新包失败，已尝试所有网络出口：{}",
+            failures.join("; ")
+        )));
+    };
+
+    info!(url = %download_url, egress = %egress.label(), "Starting app update download");
 
     let total_bytes = res.content_length().unwrap_or(0);
     let mut downloaded_bytes = 0u64;
@@ -701,11 +696,18 @@ mod tests {
     }
 
     #[test]
-    fn test_build_updater_client() {
-        let client_direct = build_updater_client(None, Duration::from_secs(5), Duration::from_secs(2));
+    fn test_build_update_client() {
+        let client_direct = build_update_client(UpdateEgress::Direct, Duration::from_secs(5), Duration::from_secs(2));
         assert!(client_direct.is_ok());
 
-        let client_proxy = build_updater_client(Some(7890), Duration::from_secs(5), Duration::from_secs(2));
+        let client_proxy = build_update_client(
+            UpdateEgress::Proxy {
+                port: 7890,
+                protocol: crate::models::InboundProtocol::Mixed,
+            },
+            Duration::from_secs(5),
+            Duration::from_secs(2),
+        );
         assert!(client_proxy.is_ok());
     }
 }
