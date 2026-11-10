@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { InboundProtocol } from '../../types'
+import { buildTerminalNoProxy } from '../../utils/envProxy'
 
 export interface QuickCopyMenuProps {
   port: number
@@ -164,10 +165,7 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
     (/win/i.test(navigator.userAgent) ||
       /windows/i.test(navigator.platform || ''))
 
-  const noProxyStr =
-    bypassDomains && bypassDomains.length > 0
-      ? bypassDomains.filter((d) => d.toLowerCase() !== '<local>').join(',')
-      : 'localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16'
+  const noProxyStr = buildTerminalNoProxy(bypassDomains)
 
   const httpProxyUrl = `http://${host}:${port}`
   const allProxyUrl =
