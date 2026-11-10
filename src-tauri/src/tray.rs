@@ -358,9 +358,18 @@ fn is_tray_menu_active() -> bool {
 fn is_tray_menu_active() -> bool {
     false
 }
+fn tray_app_title(is_dev: bool) -> String {
+    if is_dev {
+        format!("Mihomo Multi [Dev] v{}", crate::constants::APP_VERSION)
+    } else {
+        format!("Mihomo Multi v{}", crate::constants::APP_VERSION)
+    }
+}
+
 pub fn format_tray_tooltip(app: &AppHandle) -> String {
+    let app_title = tray_app_title(is_dev_instance(app));
     let Some(state) = app.try_state::<crate::state::AppState>() else {
-        return "Mihomo Multi".to_string();
+        return app_title;
     };
 
     let mappings = state.port_router.get_port_mappings();
@@ -401,8 +410,6 @@ pub fn format_tray_tooltip(app: &AppHandle) -> String {
         "已停止"
     };
 
-    let is_dev = is_dev_instance(app);
-    let app_title = if is_dev { "Mihomo Multi [Dev]" } else { "Mihomo Multi" };
     format!(
         "{app_title}\n内核状态: {core_status}\n监听端口: {enabled_ports} 个已启用 (共 {total_ports} 个)\n系统代理: {sys_proxy_str}\n终端代理: {env_proxy_str}\nTUN: {tun_str}"
     )
