@@ -298,9 +298,38 @@ pub fn is_env_proxy_active_on_port(port: u16) -> bool {
     }
 }
 
+/// Computes the UWP exemption changes required to stay in sync with the installed apps.
+///
+/// Returns `(orphaned_sids, pending_sids)`: SIDs of uninstalled apps whose exemption must be
+/// removed, and AppContainer SIDs that need a new exemption. The pending set is only populated
+/// while the user's persisted "exempt all" intent is active.
+pub(crate) fn plan_uwp_exemption_maintenance(
+    user_sids: &[String],
+    exempted_sids: &std::collections::HashSet<String>,
+    auto_exempt: bool,
+) -> (Vec<String>, Vec<String>) {
+    let user_set: std::collections::HashSet<&String> = user_sids.iter().collect();
+    let mut orphaned_sids: Vec<String> = exempted_sids
+        .iter()
+        .filter(|sid| !user_set.contains(sid))
+        .cloned()
+        .collect();
+    let mut pending_sids: Vec<String> = if auto_exempt {
+        user_sids
+            .iter()
+            .filter(|sid| !exempted_sids.contains(*sid))
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
+    orphaned_sids.sort();
+    pending_sids.sort();
+    (orphaned_sids, pending_sids)
+}
 
 /// Queries current UWP Loopback exemption statistics
-pub fn get_uwp_loopback_stats() -> AppResult<crate::models::UwpLoopbackStats> {
+pub fn get_uwp_loopback_stats(auto_exempt: bool) -> AppResult<crate::models::UwpLoopbackStats> {
     #[cfg(windows)]
     {
         let user_sids = windows::get_user_appcontainer_sids();
@@ -312,41 +341,67 @@ pub fn get_uwp_loopback_stats() -> AppResult<crate::models::UwpLoopbackStats> {
             exempted_count,
             total_count,
             cleaned_count: 0,
+            newly_exempted_count: 0,
+            auto_exempt,
         })
     }
 
     #[cfg(not(windows))]
     {
+        let _ = auto_exempt;
         Ok(crate::models::UwpLoopbackStats {
             supported: false,
             exempted_count: 0,
             total_count: 0,
             cleaned_count: 0,
+            newly_exempted_count: 0,
+            auto_exempt: false,
         })
     }
 }
 
-/// Refreshes UWP Loopback exemption status and cleans up orphaned exemptions
-pub fn refresh_and_cleanup_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
+/// Applies pending UWP exemption maintenance: removes exemptions of uninstalled apps and,
+/// when the "exempt all" intent is active, exempts newly installed AppContainers.
+/// Returns `(cleaned_count, newly_exempted_count)`.
+pub fn maintain_uwp_loopback(auto_exempt: bool) -> AppResult<(usize, usize)> {
     #[cfg(windows)]
     {
-        let cleaned_count = if cfg!(test) {
-            0
+        if cfg!(test) {
+            Ok((0, 0))
         } else {
-            windows::cleanup_orphaned_uwp_exemptions()?
-        };
-        let mut stats = get_uwp_loopback_stats()?;
+            windows::maintain_uwp_exemptions(auto_exempt)
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = auto_exempt;
+        Ok((0, 0))
+    }
+}
+
+/// Refreshes UWP Loopback exemption status, removes exemptions of uninstalled apps and,
+/// when the "exempt all" intent is active, exempts newly installed AppContainers.
+pub fn refresh_and_cleanup_uwp_loopback(auto_exempt: bool) -> AppResult<crate::models::UwpLoopbackStats> {
+    #[cfg(windows)]
+    {
+        let (cleaned_count, newly_exempted_count) = maintain_uwp_loopback(auto_exempt)?;
+        let mut stats = get_uwp_loopback_stats(auto_exempt)?;
         stats.cleaned_count = cleaned_count;
+        stats.newly_exempted_count = newly_exempted_count;
         Ok(stats)
     }
 
     #[cfg(not(windows))]
     {
+        let _ = auto_exempt;
         Ok(crate::models::UwpLoopbackStats {
             supported: false,
             exempted_count: 0,
             total_count: 0,
             cleaned_count: 0,
+            newly_exempted_count: 0,
+            auto_exempt: false,
         })
     }
 }
@@ -356,7 +411,7 @@ pub fn exempt_all_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
     #[cfg(windows)]
     {
         windows::exempt_all_uwp_windows()?;
-        get_uwp_loopback_stats()
+        get_uwp_loopback_stats(true)
     }
 
     #[cfg(not(windows))]
@@ -370,7 +425,7 @@ pub fn clear_all_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
     #[cfg(windows)]
     {
         windows::clear_all_uwp_windows()?;
-        get_uwp_loopback_stats()
+        get_uwp_loopback_stats(false)
     }
 
     #[cfg(not(windows))]
@@ -824,20 +879,21 @@ mod windows {
         apps
     }
 
-    pub fn exempt_all_uwp_windows() -> AppResult<()> {
+    fn loopback_exempt_line(action: &str, sid: &str) -> String {
+        format!("CheckNetIsolation.exe LoopbackExempt -{} -p={}", action, sid)
+    }
+
+    /// Writes a temporary batch script and executes it elevated. Returns `Ok(false)` when the
+    /// user dismissed the UAC prompt, `Ok(true)` when the script completed successfully.
+    fn run_elevated_loopback_script(lines: &[String], failure_context: &str) -> AppResult<bool> {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-        let sids = get_user_appcontainer_sids();
-        if sids.is_empty() {
-            info!("未发现任何 UWP 应用容器注册表项");
-            return Ok(());
-        }
-
-        let temp_path = std::env::temp_dir().join(format!("mihomo_exempt_uwp_{}.cmd", uuid::Uuid::new_v4()));
+        let temp_path = std::env::temp_dir().join(format!("mihomo_uwp_{}.cmd", uuid::Uuid::new_v4()));
         let mut script = String::from("@echo off\r\n");
-        for sid in &sids {
-            script.push_str(&format!("CheckNetIsolation.exe LoopbackExempt -a -p={}\r\n", sid));
+        for line in lines {
+            script.push_str(line);
+            script.push_str("\r\n");
         }
 
         std::fs::write(&temp_path, &script).map_err(AppError::Io)?;
@@ -863,12 +919,28 @@ mod windows {
             .map_err(|e| AppError::Internal(format!("启动提权进程失败: {}", e)))?;
 
         if output.status.code() == Some(1223) {
-            return Err(AppError::Internal("用户取消了管理员权限授权 (UAC)".to_string()));
+            return Ok(false);
         }
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::Internal(format!("执行 UWP 回环豁免失败: {}", stderr.trim())));
+            return Err(AppError::Internal(format!("{}: {}", failure_context, stderr.trim())));
+        }
+
+        Ok(true)
+    }
+
+    pub fn exempt_all_uwp_windows() -> AppResult<()> {
+        let sids = get_user_appcontainer_sids();
+        if sids.is_empty() {
+            info!("未发现任何 UWP 应用容器注册表项");
+            return Ok(());
+        }
+
+        let lines: Vec<String> = sids.iter().map(|sid| loopback_exempt_line("a", sid)).collect();
+
+        if !run_elevated_loopback_script(&lines, "执行 UWP 回环豁免失败")? {
+            return Err(AppError::Internal("用户取消了管理员权限授权 (UAC)".to_string()));
         }
 
         info!(count = sids.len(), "已完成所有 UWP 应用容器回环豁免");
@@ -900,71 +972,44 @@ mod windows {
         Ok(())
     }
 
-    pub fn cleanup_orphaned_uwp_exemptions() -> AppResult<usize> {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-        let user_sids_vec = get_user_appcontainer_sids();
-        let user_sids: std::collections::HashSet<String> = user_sids_vec.into_iter().collect();
+    /// Cleans exemptions of uninstalled apps and, while the "exempt all" intent is active,
+    /// exempts AppContainers that appeared after the last maintenance run. Both changes are
+    /// applied in a single elevated invocation so the user sees at most one UAC prompt.
+    pub fn maintain_uwp_exemptions(auto_exempt: bool) -> AppResult<(usize, usize)> {
+        let user_sids = get_user_appcontainer_sids();
         let exempted_sids = get_exempted_sids();
+        let (orphaned_sids, pending_sids) = plan_uwp_exemption_maintenance(&user_sids, &exempted_sids, auto_exempt);
 
-        let orphaned_sids: Vec<String> = exempted_sids
-            .into_iter()
-            .filter(|sid| !user_sids.contains(sid))
-            .collect();
-
-        if orphaned_sids.is_empty() {
-            return Ok(0);
+        if orphaned_sids.is_empty() && pending_sids.is_empty() {
+            return Ok((0, 0));
         }
 
         info!(
-            count = orphaned_sids.len(),
-            "检测到已卸载 UWP 应用残留的环回豁免记录，准备清理"
+            orphaned = orphaned_sids.len(),
+            pending = pending_sids.len(),
+            auto_exempt,
+            "检测到 UWP 回环豁免差异，准备自动维护"
         );
 
-        let temp_path = std::env::temp_dir().join(format!("mihomo_clean_uwp_{}.cmd", uuid::Uuid::new_v4()));
-        let mut script = String::from("@echo off\r\n");
+        let mut lines = Vec::with_capacity(orphaned_sids.len() + pending_sids.len());
         for sid in &orphaned_sids {
-            script.push_str(&format!("CheckNetIsolation.exe LoopbackExempt -d -p={}\r\n", sid));
+            lines.push(loopback_exempt_line("d", sid));
+        }
+        for sid in &pending_sids {
+            lines.push(loopback_exempt_line("a", sid));
         }
 
-        std::fs::write(&temp_path, &script).map_err(AppError::Io)?;
-
-        struct TempFileGuard(std::path::PathBuf);
-        impl Drop for TempFileGuard {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_file(&self.0);
-            }
+        if !run_elevated_loopback_script(&lines, "执行 UWP 回环豁免自动维护失败")? {
+            warn!("用户取消了管理员权限授权 (UAC)，跳过 UWP 回环豁免自动维护");
+            return Ok((0, 0));
         }
-        let _guard = TempFileGuard(temp_path.clone());
 
-        let temp_path_str = temp_path.to_string_lossy().replace('\'', "''");
-        let ps_cmd = format!(
-            "try {{ Start-Process cmd.exe -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '/c', '{}' }} catch {{ exit 1223 }}",
-            temp_path_str
+        info!(
+            cleaned = orphaned_sids.len(),
+            newly_exempted = pending_sids.len(),
+            "已完成 UWP 回环豁免自动维护"
         );
-
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps_cmd])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|e| AppError::Internal(format!("启动提权清理进程失败: {}", e)))?;
-
-        if output.status.code() == Some(1223) {
-            warn!("用户取消了管理员权限授权 (UAC)，跳过孤立 UWP 豁免清理");
-            return Ok(0);
-        }
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::Internal(format!(
-                "执行 UWP 孤立豁免清理失败: {}",
-                stderr.trim()
-            )));
-        }
-
-        info!(cleaned = orphaned_sids.len(), "已成功清理残留的孤立 UWP 环回豁免记录");
-        Ok(orphaned_sids.len())
+        Ok((orphaned_sids.len(), pending_sids.len()))
     }
 }
 
@@ -1153,10 +1198,11 @@ mod tests {
 
     #[test]
     fn test_uwp_loopback_stats_query() {
-        let stats = get_uwp_loopback_stats().expect("should query uwp stats without error");
+        let stats = get_uwp_loopback_stats(false).expect("should query uwp stats without error");
         #[cfg(windows)]
         {
             assert!(stats.supported);
+            assert!(!stats.auto_exempt);
         }
         #[cfg(not(windows))]
         {
@@ -1168,10 +1214,12 @@ mod tests {
 
     #[test]
     fn test_uwp_loopback_stats_invariant() {
-        let stats = get_uwp_loopback_stats().expect("should query uwp stats");
+        let stats = get_uwp_loopback_stats(false).expect("should query uwp stats");
         assert!(stats.exempted_count <= stats.total_count);
-        let refreshed = refresh_and_cleanup_uwp_loopback().expect("should refresh uwp stats");
+        let refreshed = refresh_and_cleanup_uwp_loopback(false).expect("should refresh uwp stats");
         assert!(refreshed.exempted_count <= refreshed.total_count);
+        assert_eq!(refreshed.newly_exempted_count, 0);
+        assert!(!refreshed.auto_exempt);
     }
     #[test]
     fn test_uwp_app_list_query() {
@@ -1214,21 +1262,69 @@ mod tests {
             exempted_count: 42,
             total_count: 100,
             cleaned_count: 5,
+            newly_exempted_count: 3,
+            auto_exempt: true,
         };
         let json = serde_json::to_string(&stats).expect("should serialize");
         assert!(json.contains("\"supported\":true"));
         assert!(json.contains("\"exemptedCount\":42"));
         assert!(json.contains("\"totalCount\":100"));
         assert!(json.contains("\"cleanedCount\":5"));
+        assert!(json.contains("\"newlyExemptedCount\":3"));
+        assert!(json.contains("\"autoExempt\":true"));
 
         let deserialized: crate::models::UwpLoopbackStats = serde_json::from_str(&json).expect("should deserialize");
         assert_eq!(stats, deserialized);
 
-        // Forward compatibility: cleanedCount omitted defaults to 0
+        // Forward compatibility: omitted maintenance fields default to zero/false
         let legacy_json = r#"{"supported":true,"exemptedCount":10,"totalCount":20}"#;
         let deserialized_legacy: crate::models::UwpLoopbackStats =
             serde_json::from_str(legacy_json).expect("should deserialize legacy json");
         assert_eq!(deserialized_legacy.cleaned_count, 0);
+        assert_eq!(deserialized_legacy.newly_exempted_count, 0);
+        assert!(!deserialized_legacy.auto_exempt);
+    }
+
+    #[test]
+    fn test_uwp_exemption_plan_without_intent_keeps_new_apps_untouched() {
+        let user_sids = vec!["S-1-15-2-old".to_string(), "S-1-15-2-new".to_string()];
+        let exempted_sids =
+            std::collections::HashSet::from(["S-1-15-2-old".to_string(), "S-1-15-2-uninstalled".to_string()]);
+
+        let (orphaned, pending) = plan_uwp_exemption_maintenance(&user_sids, &exempted_sids, false);
+
+        assert_eq!(orphaned, vec!["S-1-15-2-uninstalled".to_string()]);
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn test_uwp_exemption_plan_with_intent_exempts_only_new_apps() {
+        let user_sids = vec![
+            "S-1-15-2-old".to_string(),
+            "S-1-15-2-new-b".to_string(),
+            "S-1-15-2-new-a".to_string(),
+        ];
+        let exempted_sids =
+            std::collections::HashSet::from(["S-1-15-2-old".to_string(), "S-1-15-2-uninstalled".to_string()]);
+
+        let (orphaned, pending) = plan_uwp_exemption_maintenance(&user_sids, &exempted_sids, true);
+
+        assert_eq!(orphaned, vec!["S-1-15-2-uninstalled".to_string()]);
+        assert_eq!(
+            pending,
+            vec!["S-1-15-2-new-a".to_string(), "S-1-15-2-new-b".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_uwp_exemption_plan_noop_when_in_sync() {
+        let user_sids = vec!["S-1-15-2-a".to_string()];
+        let exempted_sids = std::collections::HashSet::from(["S-1-15-2-a".to_string()]);
+
+        let (orphaned, pending) = plan_uwp_exemption_maintenance(&user_sids, &exempted_sids, true);
+
+        assert!(orphaned.is_empty());
+        assert!(pending.is_empty());
     }
     #[test]
     fn test_sort_bypass_items() {

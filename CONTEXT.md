@@ -59,7 +59,7 @@ _Avoid_: AdminApi, 控制端点, 内核API, RestEndpoint
 _Avoid_: BackgroundDaemon, 后台守护进程, 子服务, CoreEngine
 
 **UwpLoopbackExemption (UWP 回环豁免)**:
-Windows 平台特有的本地代理沙盒网络隔离豁免机制，允许商店应用访问本机回环代理端口。
+Windows 平台特有的本地代理沙盒网络隔离豁免机制，允许商店应用访问本机回环代理端口；执行「一键豁免」后，新安装的 AppContainer 自动纳入豁免，已卸载应用的豁免记录自动清理。
 _Avoid_: LoopbackFix, 回环修复, 容器豁免, WindowsExempt
 
 ## 领域边界与不变式约束 (Invariants & Boundaries)

@@ -270,6 +270,30 @@ pub fn run() {
             // Start background profile auto-updater
             app_state.auto_updater.start(app_handle.clone(), app_state.clone());
 
+            // UWP loopback maintenance: drop exemptions of uninstalled apps and, when the user
+            // previously chose "exempt all", exempt AppContainers installed since then. The
+            // elevated step only runs when there is an actual difference to apply.
+            let uwp_state = app_state.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let auto_exempt = uwp_state.config.read().uwp_auto_exempt;
+                // Never touch the system exemption list at startup unless the user opted in
+                // through "exempt all"; manual refresh still performs orphan cleanup.
+                if !auto_exempt {
+                    return;
+                }
+                match crate::core::sysproxy::maintain_uwp_loopback(auto_exempt) {
+                    Ok((cleaned, newly_exempted)) if cleaned > 0 || newly_exempted > 0 => {
+                        info!(
+                            cleaned,
+                            newly_exempted,
+                            "UWP 回环豁免自动维护完成"
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(err) => warn!("UWP 回环豁免自动维护失败: {}", err),
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

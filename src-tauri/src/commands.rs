@@ -99,6 +99,10 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
     crate::core::sysproxy::sort_bypass_items(&mut cleaned_bypass);
     config.system_proxy_bypass_user = cleaned_bypass;
 
+    // The UWP auto-exempt intent is owned by the UWP commands; a generic settings save must
+    // never overwrite it with a stale frontend snapshot.
+    config.uwp_auto_exempt = state.config.read().uwp_auto_exempt;
+
     if config.tun_enabled && config.system_proxy_enabled {
         config.system_proxy_enabled = false;
     }
@@ -310,23 +314,37 @@ pub async fn restart_as_admin(app: AppHandle, state: State<'_, AppState>) -> Res
 }
 
 #[tauri::command]
-pub async fn get_uwp_loopback_status() -> Result<UwpLoopbackStats, String> {
-    crate::core::sysproxy::get_uwp_loopback_stats().map_err(|e| e.to_string())
+pub async fn get_uwp_loopback_status(state: State<'_, AppState>) -> Result<UwpLoopbackStats, String> {
+    let auto_exempt = state.config.read().uwp_auto_exempt;
+    crate::core::sysproxy::get_uwp_loopback_stats(auto_exempt).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn refresh_uwp_loopback_status() -> Result<UwpLoopbackStats, String> {
-    crate::core::sysproxy::refresh_and_cleanup_uwp_loopback().map_err(|e| e.to_string())
+pub async fn refresh_uwp_loopback_status(state: State<'_, AppState>) -> Result<UwpLoopbackStats, String> {
+    let auto_exempt = state.config.read().uwp_auto_exempt;
+    crate::core::sysproxy::refresh_and_cleanup_uwp_loopback(auto_exempt).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn exempt_all_uwp_loopback() -> Result<UwpLoopbackStats, String> {
-    crate::core::sysproxy::exempt_all_uwp_loopback().map_err(|e| e.to_string())
+pub async fn exempt_all_uwp_loopback(state: State<'_, AppState>) -> Result<UwpLoopbackStats, String> {
+    let stats = crate::core::sysproxy::exempt_all_uwp_loopback().map_err(|e| e.to_string())?;
+    if !state.config.read().uwp_auto_exempt {
+        let mut config = state.config.read().clone();
+        config.uwp_auto_exempt = true;
+        state.persist_config(&config);
+    }
+    Ok(stats)
 }
 
 #[tauri::command]
-pub async fn clear_all_uwp_loopback() -> Result<UwpLoopbackStats, String> {
-    crate::core::sysproxy::clear_all_uwp_loopback().map_err(|e| e.to_string())
+pub async fn clear_all_uwp_loopback(state: State<'_, AppState>) -> Result<UwpLoopbackStats, String> {
+    let stats = crate::core::sysproxy::clear_all_uwp_loopback().map_err(|e| e.to_string())?;
+    if state.config.read().uwp_auto_exempt {
+        let mut config = state.config.read().clone();
+        config.uwp_auto_exempt = false;
+        state.persist_config(&config);
+    }
+    Ok(stats)
 }
 
 #[tauri::command]

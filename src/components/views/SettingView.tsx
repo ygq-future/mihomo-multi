@@ -607,10 +607,15 @@ export const SettingView: React.FC = () => {
         setTimeout(resolve, 350 - elapsed)
         await promise
       }
+      const parts: string[] = []
+      if (stats.newlyExemptedCount && stats.newlyExemptedCount > 0) {
+        parts.push(`为 ${stats.newlyExemptedCount} 个新应用自动开启豁免`)
+      }
       if (stats.cleanedCount && stats.cleanedCount > 0) {
-        toast.success(
-          `已刷新状态，并自动清理了 ${stats.cleanedCount} 个已卸载应用的残留豁免`,
-        )
+        parts.push(`清理了 ${stats.cleanedCount} 个已卸载应用的残留豁免`)
+      }
+      if (parts.length > 0) {
+        toast.success(`已刷新状态，${parts.join('，')}`)
       } else {
         toast.success('已刷新 UWP 应用及豁免状态')
       }
@@ -628,7 +633,10 @@ export const SettingView: React.FC = () => {
     try {
       const stats = await api.exemptAllUwpLoopback()
       setUwpStats(stats)
-      toast.success(`成功为全部 ${stats.totalCount} 个 UWP 应用解除回环隔离`)
+      await fetchConfig()
+      toast.success(
+        `已为全部 ${stats.totalCount} 个 UWP 应用解除回环隔离，后续新安装应用将自动豁免`,
+      )
     } catch (err) {
       toast.error(
         `UWP 回环豁免失败: ${err instanceof Error ? err.message : String(err)}`,
@@ -643,7 +651,8 @@ export const SettingView: React.FC = () => {
     try {
       const stats = await api.clearAllUwpLoopback()
       setUwpStats(stats)
-      toast.success('已清除所有 UWP 应用回环豁免')
+      await fetchConfig()
+      toast.success('已清除所有 UWP 应用回环豁免，并停止新应用自动豁免')
     } catch (err) {
       toast.error(
         `清除 UWP 回环豁免失败: ${err instanceof Error ? err.message : String(err)}`,
@@ -1741,6 +1750,16 @@ export const SettingView: React.FC = () => {
                       已豁免 {uwpStats.exemptedCount} / 共 {uwpStats.totalCount}{' '}
                       个应用
                     </Badge>
+                    {uwpStats.autoExempt && (
+                      <Badge
+                        variant="primary"
+                        size="sm"
+                        className="text-[10px] py-0 px-1.5"
+                        title="已开启「一键豁免」，后续新安装的 UWP 应用会自动加入豁免；点击「一键清除」可停止"
+                      >
+                        新应用自动豁免
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-[11px] text-muted-foreground">
                     解除 Windows 沙箱对本地代理端口的隔离，使微软商店、UWP

@@ -255,6 +255,10 @@ pub struct UwpLoopbackStats {
     pub total_count: usize,
     #[serde(default)]
     pub cleaned_count: usize,
+    #[serde(default)]
+    pub newly_exempted_count: usize,
+    #[serde(default)]
+    pub auto_exempt: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -370,6 +374,10 @@ pub struct AppConfig {
     pub global_rules: Vec<PortRule>,
     #[serde(default = "default_true")]
     pub check_update_on_start: bool,
+    /// Persisted intent of the UWP "exempt all" action: newly installed AppContainers
+    /// are exempted automatically while this is true. Owned by the UWP commands.
+    #[serde(default)]
+    pub uwp_auto_exempt: bool,
 }
 
 fn default_true() -> bool {
@@ -436,6 +444,7 @@ impl Default for AppConfig {
             tun_port: None,
             global_rules: Vec::new(),
             check_update_on_start: true,
+            uwp_auto_exempt: false,
         }
     }
 }
@@ -564,14 +573,30 @@ mod tests {
     fn test_app_config_check_update_on_start_default() {
         let cfg = AppConfig::default();
         assert!(cfg.check_update_on_start);
+        assert!(!cfg.uwp_auto_exempt);
         // Verify deserialization when checkUpdateOnStart is omitted uses default_true
         let json = r#"{"controllerSecret":"sec","theme":"system","logLevel":"info"}"#;
         let deserialized: AppConfig = serde_json::from_str(json).expect("should deserialize config");
         assert!(deserialized.check_update_on_start);
+        assert!(!deserialized.uwp_auto_exempt);
 
         // Verify explicitly disabled
-        let json_disabled = r#"{"controllerSecret":"sec","theme":"system","logLevel":"info","checkUpdateOnStart":false}"#;
+        let json_disabled =
+            r#"{"controllerSecret":"sec","theme":"system","logLevel":"info","checkUpdateOnStart":false}"#;
         let deserialized_disabled: AppConfig = serde_json::from_str(json_disabled).expect("should deserialize");
         assert!(!deserialized_disabled.check_update_on_start);
+    }
+
+    #[test]
+    fn test_app_config_uwp_auto_exempt_round_trip() {
+        let cfg = AppConfig {
+            uwp_auto_exempt: true,
+            ..AppConfig::default()
+        };
+        let json = serde_json::to_string(&cfg).expect("should serialize config");
+        assert!(json.contains("\"uwpAutoExempt\":true"));
+
+        let deserialized: AppConfig = serde_json::from_str(&json).expect("should deserialize config");
+        assert!(deserialized.uwp_auto_exempt);
     }
 }

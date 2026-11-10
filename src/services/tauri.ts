@@ -900,6 +900,7 @@ export async function getUwpLoopbackStatus(): Promise<UwpLoopbackStats> {
       supported: isWindows,
       exemptedCount: isWindows ? 120 : 0,
       totalCount: isWindows ? 129 : 0,
+      autoExempt: false,
     }
   }
   return invoke<UwpLoopbackStats>('get_uwp_loopback_status')
@@ -916,6 +917,8 @@ export async function refreshUwpLoopbackStatus(): Promise<UwpLoopbackStats> {
       exemptedCount: isWindows ? 120 : 0,
       totalCount: isWindows ? 129 : 0,
       cleanedCount: 0,
+      newlyExemptedCount: 0,
+      autoExempt: false,
     }
   }
   return invoke<UwpLoopbackStats>('refresh_uwp_loopback_status')
@@ -927,6 +930,7 @@ export async function exemptAllUwpLoopback(): Promise<UwpLoopbackStats> {
       supported: true,
       exemptedCount: 129,
       totalCount: 129,
+      autoExempt: true,
     }
   }
   return invoke<UwpLoopbackStats>('exempt_all_uwp_loopback')
@@ -938,6 +942,7 @@ export async function clearAllUwpLoopback(): Promise<UwpLoopbackStats> {
       supported: true,
       exemptedCount: 0,
       totalCount: 129,
+      autoExempt: false,
     }
   }
   return invoke<UwpLoopbackStats>('clear_all_uwp_loopback')

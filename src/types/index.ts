@@ -198,6 +198,7 @@ export interface AppConfig {
   tunPort?: number | null
   globalRules?: PortRule[]
   checkUpdateOnStart?: boolean
+  uwpAutoExempt?: boolean
 }
 
 export interface SystemProxyStatus {
@@ -224,6 +225,8 @@ export interface UwpLoopbackStats {
   exemptedCount: number
   totalCount: number
   cleanedCount?: number
+  newlyExemptedCount?: number
+  autoExempt?: boolean
 }
 
 export interface UwpAppInfo {
