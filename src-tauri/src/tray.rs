@@ -1,8 +1,61 @@
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_window_state::{StateFlags, WindowExt};
 use tracing::{error, info, warn};
+
+mod terminal;
+
+#[derive(Default)]
+struct TrayClipboard(parking_lot::Mutex<Option<arboard::Clipboard>>);
+
+fn show_tray_error(app: &AppHandle, message: &str) {
+    error!("Tray action failed: {}", message);
+    app.dialog().message(message).title("托盘操作失败").show(|_| {});
+}
+
+fn copy_tray_text(app: &AppHandle, text: String) -> Result<(), String> {
+    let clipboard = app.state::<TrayClipboard>();
+    let mut guard = clipboard.0.lock();
+    if guard.is_none() {
+        *guard = Some(arboard::Clipboard::new().map_err(|e| e.to_string())?);
+    }
+    let clipboard = guard.as_mut().ok_or_else(|| "剪贴板初始化失败".to_string())?;
+    clipboard.set_text(text).map_err(|e| e.to_string())
+}
+
+async fn query_port_egress_ip(app: &AppHandle, mapping_id: &str) -> Result<String, String> {
+    let state = app.state::<crate::state::AppState>();
+    let mapping = state
+        .port_router
+        .get_port_mapping_by_id(mapping_id)
+        .ok_or_else(|| "监听端口已删除，请重新打开菜单".to_string())?;
+    if !mapping.enabled || !state.engine.get_status().running {
+        return Err("请先启动内核并启用监听端口，再复制出口 IP".into());
+    }
+    let (node_name, profile_id) = if mapping
+        .fallback_node_name
+        .as_ref()
+        .is_some_and(|name| !name.trim().is_empty())
+    {
+        // Resolve the live selection rather than assuming the primary or manual fallback is active.
+        let detail = state
+            .engine
+            .get_proxy_detail(&format!("fb-{}", mapping.port))
+            .await
+            .map_err(|e| format!("读取当前出口节点失败: {e}"))?;
+        let active = detail
+            .now
+            .filter(|name| !name.trim().is_empty())
+            .ok_or_else(|| "内核尚未选定出口节点，请稍后重试".to_string())?;
+        (active, None)
+    } else {
+        (mapping.node_name, Some(mapping.profile_id))
+    };
+    let info = crate::commands::query_node_egress_info(node_name, profile_id, None, state).await?;
+    Ok(info.ip)
+}
 
 struct PortRuntimeInfo {
     is_fallback_active: bool,
@@ -116,6 +169,10 @@ fn build_tray_menu_internal(
         let mut mappings = state.port_router.get_port_mappings();
         mappings.sort_by_key(|m| m.port);
         let is_running = state.engine.get_status().running;
+        let env_proxy_port = {
+            let config = state.config.read();
+            config.env_proxy_port.filter(|_| config.env_proxy_enabled)
+        };
 
         if mappings.is_empty() {
             let empty_item = MenuItem::with_id(app, "no_ports", "暂无端口监听 (可在窗口中添加)", false, None::<&str>)?;
@@ -159,12 +216,62 @@ fn build_tray_menu_internal(
                     None => "--ms".to_string(),
                 };
 
-                let check = if m.enabled { "✓ " } else { "   " };
-                // Windows 原生 \t 左右分栏：左侧为勾选+端口+节点，右侧通过中点整合为自然状态标签并由系统绝对贴右对齐
-                let item_title = format!("{}{}  {}\t{} · {}", check, m.port, node, delay, status);
-                let item_id = format!("port_toggle:{}", m.id);
-                let item = MenuItem::with_id(app, &item_id, &item_title, true, None::<&str>)?;
-                menu.append(&item)?;
+                // Node names are data; ampersands must not become menu mnemonics.
+                let item_title = format!("{}  {}\t{}", m.port, node.replace('&', "&&"), delay);
+                let submenu = Submenu::with_id(app, format!("port:{}", m.id), item_title, true)?;
+                submenu.append(&MenuItem::with_id(
+                    app,
+                    format!("port_status:{}", m.id),
+                    format!("{status} · {delay}"),
+                    false,
+                    None::<&str>,
+                )?)?;
+                submenu.append(&PredefinedMenuItem::separator(app)?)?;
+                submenu.append(&CheckMenuItem::with_id(
+                    app,
+                    format!("port_toggle:{}", m.id),
+                    "启用监听",
+                    true,
+                    m.enabled,
+                    None::<&str>,
+                )?)?;
+                let is_env_proxy = env_proxy_port == Some(m.port);
+                let can_bind =
+                    cfg!(windows) && m.enabled && is_running && m.protocol != crate::models::InboundProtocol::Socks5;
+                submenu.append(&CheckMenuItem::with_id(
+                    app,
+                    format!("port_env:{}", m.id),
+                    if is_env_proxy {
+                        "取消终端代理绑定"
+                    } else {
+                        "绑定终端代理"
+                    },
+                    is_env_proxy || can_bind,
+                    is_env_proxy,
+                    None::<&str>,
+                )?)?;
+                submenu.append(&PredefinedMenuItem::separator(app)?)?;
+                submenu.append(&MenuItem::with_id(
+                    app,
+                    format!("port_egress_ip:{}", m.id),
+                    "复制出口 IP",
+                    m.enabled && is_running,
+                    None::<&str>,
+                )?)?;
+                for (shell, label) in [
+                    ("powershell", "复制环境变量（PowerShell）"),
+                    ("cmd", "复制环境变量（CMD）"),
+                    ("shell", "复制环境变量（Shell / Bash / Zsh）"),
+                ] {
+                    submenu.append(&MenuItem::with_id(
+                        app,
+                        format!("port_copy_{shell}:{}", m.id),
+                        label,
+                        true,
+                        None::<&str>,
+                    )?)?;
+                }
+                menu.append(&submenu)?;
             }
         }
     } else {
@@ -476,6 +583,7 @@ pub fn update_tray_menu_with_fallback_statuses(
 
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let initial_runtime_infos = std::collections::HashMap::new();
+    app.manage(TrayClipboard::default());
     let menu = build_tray_menu_internal(app, &initial_runtime_infos)?;
     let initial_tooltip = format_tray_tooltip(app);
 
@@ -486,6 +594,78 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
             let event_id = event.id.as_ref();
+            if let Some(mapping_id) = event_id.strip_prefix("port_egress_ip:") {
+                let mapping_id = mapping_id.to_string();
+                let app_handle = app.clone();
+                if let Some(tray) = app.tray_by_id(get_tray_id(app))
+                    && let Err(error) = tray.set_tooltip(Some("正在探测出口 IP…"))
+                {
+                    show_tray_error(app, &error.to_string());
+                    return;
+                }
+                tauri::async_runtime::spawn(async move {
+                    let result = async {
+                        let ip = query_port_egress_ip(&app_handle, &mapping_id).await?;
+                        let message = format!("出口 IP 已复制：{ip}");
+                        copy_tray_text(&app_handle, ip)?;
+                        if let Some(tray) = app_handle.tray_by_id(get_tray_id(&app_handle)) {
+                            tray.set_tooltip(Some(message)).map_err(|e| e.to_string())?;
+                        }
+                        Ok::<(), String>(())
+                    }
+                    .await;
+                    if let Err(error) = result {
+                        update_tray_menu(&app_handle);
+                        show_tray_error(&app_handle, &error);
+                    }
+                });
+                return;
+            }
+            if let Some((action, mapping_id)) = event_id.split_once(':')
+                && (action == "port_env" || action.starts_with("port_copy_"))
+            {
+                let result = (|| -> Result<(), String> {
+                    let state = app.state::<crate::state::AppState>();
+                    let mapping = state
+                        .port_router
+                        .get_port_mapping_by_id(mapping_id)
+                        .ok_or_else(|| "监听端口已删除，请重新打开菜单".to_string())?;
+                    if action == "port_env" {
+                        let bound = {
+                            let config = state.config.read();
+                            config.env_proxy_enabled && config.env_proxy_port == Some(mapping.port)
+                        };
+                        if !bound
+                            && (!cfg!(windows)
+                                || !state.engine.get_status().running
+                                || mapping.protocol == crate::models::InboundProtocol::Socks5)
+                        {
+                            return Err("终端代理绑定需要 Windows 上运行中的 HTTP 或 Mixed 监听端口".into());
+                        }
+                        state.apply_env_proxy_transition(!bound, Some(mapping.port))?;
+                        app.emit("port-mappings-changed", ()).map_err(|e| e.to_string())?;
+                        update_tray_menu(app);
+                    } else {
+                        let config = state.config.read();
+                        let command = terminal::build_command(
+                            action.trim_start_matches("port_copy_"),
+                            mapping.port,
+                            mapping.protocol,
+                            &config.system_proxy_bypass_user,
+                        )?;
+                        copy_tray_text(app, command)?;
+                        if let Some(tray) = app.tray_by_id(get_tray_id(app)) {
+                            tray.set_tooltip(Some("环境变量命令已复制，可粘贴到终端执行"))
+                                .map_err(|e| e.to_string())?;
+                        }
+                    }
+                    Ok(())
+                })();
+                if let Err(error) = result {
+                    show_tray_error(app, &error);
+                }
+                return;
+            }
             if let Some(mapping_id) = event_id.strip_prefix("port_toggle:") {
                 let mapping_id = mapping_id.to_string();
                 let app_handle = app.clone();
@@ -503,7 +683,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                                 info!("Toggled port {} to {} from system tray", updated.port, target_enabled);
                             }
                             Err(e) => {
-                                error!("Failed to toggle port mapping from system tray: {}", e);
+                                show_tray_error(&app_handle, &e.to_string());
                                 let _ = app_handle.emit("port-toggle-error", e.to_string());
                             }
                         }
