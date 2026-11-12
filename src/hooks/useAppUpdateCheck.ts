@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { toast } from '../components/common'
 import { APP_VERSION } from '../constants'
-import { checkAppUpdate } from '../services/tauri'
+import {
+  checkAppUpdate,
+  checkKernelUpdate,
+  updateRules,
+} from '../services/tauri'
 import { useAppStore } from '../stores/appStore'
 import {
   isVersionNewer,
@@ -16,13 +20,10 @@ const DAILY_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
 /** How often a running app re-evaluates whether a daily check is due. */
 const DAILY_CHECK_TICK_MS = 15 * 60 * 1000
 
-/**
- * Runs the startup update check and keeps checking once per day while the app
- * stays open. The backend tries every enabled listener port in order and falls
- * back to a direct connection, so no egress selection is needed here.
- */
+/** Shares the app update schedule with kernel checks and refreshes MRS daily. */
 export function useAppUpdateCheck(): void {
   const config = useAppStore((state) => state.config)
+  const configLoaded = config !== null && config !== undefined
   const setAppUpdateInfo = useAppStore((state) => state.setAppUpdateInfo)
   const scrollToSettingSection = useAppStore(
     (state) => state.scrollToSettingSection,
@@ -31,9 +32,7 @@ export function useAppUpdateCheck(): void {
   const startupDoneRef = useRef(false)
   const isCheckingRef = useRef(false)
 
-  const runCheck = useCallback(async () => {
-    if (isCheckingRef.current) return
-    isCheckingRef.current = true
+  const runAppCheck = useCallback(async () => {
     try {
       const res = await checkAppUpdate()
       const now = Date.now()
@@ -57,10 +56,66 @@ export function useAppUpdateCheck(): void {
       )
     } catch (err) {
       console.debug('[AppUpdate] Update check failed:', err)
+    }
+  }, [scrollToSettingSection, setAppUpdateInfo])
+
+  const runCheck = useCallback(async () => {
+    if (isCheckingRef.current) return
+    isCheckingRef.current = true
+    try {
+      await Promise.all([
+        runAppCheck(),
+        checkKernelUpdate()
+          .then((res) => {
+            if (!res.hasUpdate) return
+            toast.info(
+              `发现 Mihomo 内核新版本 ${res.latestVersion}，可前往设置更新。`,
+              '发现内核新版本',
+              8000,
+              {
+                label: '立即前往',
+                onClick: () => scrollToSettingSection('setting-section-core'),
+              },
+            )
+          })
+          .catch((err: unknown) => {
+            console.debug('[KernelUpdate] Update check failed:', err)
+          }),
+      ])
     } finally {
       isCheckingRef.current = false
     }
-  }, [scrollToSettingSection, setAppUpdateInfo])
+  }, [runAppCheck, scrollToSettingSection])
+
+  useEffect(() => {
+    if (!configLoaded) return
+
+    let updating = false
+    let lastUpdatedAt = 0
+    const refreshRules = async () => {
+      if (updating || Date.now() - lastUpdatedAt < DAILY_CHECK_INTERVAL_MS)
+        return
+      updating = true
+      try {
+        await updateRules()
+        lastUpdatedAt = Date.now()
+      } catch (err) {
+        console.debug('[MrsUpdate] Rules update failed:', err)
+      } finally {
+        updating = false
+      }
+    }
+    const startupTimer = window.setTimeout(() => {
+      void refreshRules()
+    }, STARTUP_CHECK_DELAY_MS)
+    const dailyTimer = window.setInterval(() => {
+      void refreshRules()
+    }, DAILY_CHECK_TICK_MS)
+    return () => {
+      window.clearTimeout(startupTimer)
+      window.clearInterval(dailyTimer)
+    }
+  }, [configLoaded])
 
   useEffect(() => {
     if (!config || startupDoneRef.current || startupTimerRef.current) return
