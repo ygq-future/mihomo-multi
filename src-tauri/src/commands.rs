@@ -3,8 +3,8 @@ use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::{PortTransport, is_port_available};
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
-    DriftStatus, FIXED_DIRECT_PORT_ID, InboundProtocol, LanIpInfo, NodeLatencyResult, PortDriftReport,
-    EnvProxyStatus, PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, SniffedAccessLogEntry, SystemProxyStatus, TunStatus,
+    DriftStatus, EnvProxyStatus, FIXED_DIRECT_PORT_ID, InboundProtocol, LanIpInfo, NodeLatencyResult, PortDriftReport,
+    PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, SniffedAccessLogEntry, SystemProxyStatus, TunStatus,
     UwpAppInfo, UwpLoopbackStats,
 };
 use crate::state::AppState;
@@ -136,10 +136,7 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
     {
         if config.system_proxy_enabled {
             if let Some(port) = config.system_proxy_port {
-                let _ = crate::core::sysproxy::apply_system_proxy(
-                    port,
-                    &config.system_proxy_bypass_user,
-                );
+                let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user);
             }
         } else {
             let _ = crate::core::sysproxy::clear_system_proxy();
@@ -152,10 +149,7 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
     {
         if config.env_proxy_enabled {
             if let Some(port) = config.env_proxy_port {
-                let _ = crate::core::sysproxy::apply_env_proxy(
-                    port,
-                    &config.system_proxy_bypass_user,
-                );
+                let _ = crate::core::sysproxy::apply_env_proxy(port, &config.system_proxy_bypass_user);
             }
         } else {
             let _ = crate::core::sysproxy::clear_env_proxy();
@@ -470,10 +464,7 @@ pub async fn test_port_mapping_delay(
                     .get(&runtime_name)
                     .or_else(|| delays.get(&mapping.node_name))
                     .copied();
-                let fb_delay = delays
-                    .get(fb_runtime_name)
-                    .or_else(|| delays.get(fb_name))
-                    .copied();
+                let fb_delay = delays.get(fb_runtime_name).or_else(|| delays.get(fb_name)).copied();
                 let timeout_err = format!("Latency test timed out after {}ms", actual_timeout);
 
                 state.latency_probe.record_node_result(
@@ -764,9 +755,7 @@ pub async fn test_all_port_mappings_delay(
             Some(&grp.mapping_id),
         );
 
-        let _ = state
-            .port_router
-            .update_port_latency(&grp.mapping_id, primary_delay);
+        let _ = state.port_router.update_port_latency(&grp.mapping_id, primary_delay);
 
         results.push(NodeLatencyResult {
             name: grp.primary_name,
@@ -1264,9 +1253,10 @@ pub async fn test_node_delay(
         if matches_primary {
             let _ = state.port_router.update_port_latency(&m.id, tested_latency);
         }
-        let matches_fallback = m.fallback_node_name.as_deref().is_some_and(|fb| {
-            fb == raw_name || fb == node_name || runtime_name.as_deref() == Some(fb)
-        });
+        let matches_fallback = m
+            .fallback_node_name
+            .as_deref()
+            .is_some_and(|fb| fb == raw_name || fb == node_name || runtime_name.as_deref() == Some(fb));
         if m.enabled
             && !m.manual_fallback
             && m.fallback_node_name.as_ref().is_some_and(|fb| !fb.trim().is_empty())

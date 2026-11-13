@@ -293,11 +293,8 @@ impl AppState {
                 return Err(format!("端口 {} 未在监听列表中或未启用，无法设为系统代理", p));
             }
 
-            crate::core::sysproxy::apply_system_proxy(
-                p,
-                &config.system_proxy_bypass_user,
-            )
-            .map_err(|e| e.to_string())?;
+            crate::core::sysproxy::apply_system_proxy(p, &config.system_proxy_bypass_user)
+                .map_err(|e| e.to_string())?;
 
             config.system_proxy_enabled = true;
             config.system_proxy_port = Some(p);
@@ -316,11 +313,7 @@ impl AppState {
     }
 
     /// EgressGuard: Transitions terminal environment variables proxy state.
-    pub fn apply_env_proxy_transition(
-        &self,
-        enabled: bool,
-        port: Option<u16>,
-    ) -> Result<EnvProxyStatus, String> {
+    pub fn apply_env_proxy_transition(&self, enabled: bool, port: Option<u16>) -> Result<EnvProxyStatus, String> {
         let mut config = self.config.read().clone();
 
         if enabled {
@@ -330,8 +323,7 @@ impl AppState {
                 return Err(format!("端口 {} 未在监听列表中或未启用，无法设为终端代理", p));
             }
 
-            crate::core::sysproxy::apply_env_proxy(p, &config.system_proxy_bypass_user)
-                .map_err(|e| e.to_string())?;
+            crate::core::sysproxy::apply_env_proxy(p, &config.system_proxy_bypass_user).map_err(|e| e.to_string())?;
 
             config.env_proxy_enabled = true;
             config.env_proxy_port = Some(p);
@@ -433,7 +425,9 @@ impl AppState {
         let config = self.config.read().clone();
         let should_clear_proxy = if !is_dev {
             true
-        } else if config.system_proxy_enabled && let Some(port) = config.system_proxy_port {
+        } else if config.system_proxy_enabled
+            && let Some(port) = config.system_proxy_port
+        {
             crate::core::sysproxy::is_system_proxy_active_on_port(port)
         } else {
             false
@@ -443,7 +437,9 @@ impl AppState {
         }
         let should_clear_env = if !is_dev {
             true
-        } else if config.env_proxy_enabled && let Some(port) = config.env_proxy_port {
+        } else if config.env_proxy_enabled
+            && let Some(port) = config.env_proxy_port
+        {
             crate::core::sysproxy::is_env_proxy_active_on_port(port)
         } else {
             false
@@ -464,10 +460,7 @@ impl AppState {
         if config.system_proxy_enabled
             && let Some(port) = config.system_proxy_port
         {
-            let _ = crate::core::sysproxy::apply_system_proxy(
-                port,
-                &config.system_proxy_bypass_user,
-            );
+            let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user);
             return true;
         }
 
@@ -493,10 +486,7 @@ impl AppState {
 
         let mut config = self.config.read().clone();
         tracing::info!(port = port, "Restoring suspended system proxy after kernel recovery");
-        if let Err(e) = crate::core::sysproxy::apply_system_proxy(
-            port,
-            &config.system_proxy_bypass_user,
-        ) {
+        if let Err(e) = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user) {
             tracing::error!("Failed to restore suspended system proxy on port {}: {}", port, e);
             return false;
         }
@@ -798,6 +788,49 @@ mod tests {
         assert!(!state.config.read().tun_enabled);
         assert_eq!(state.config.read().tun_port, None);
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_egress_modes_switch_ports_and_remain_exclusive() -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = std::env::temp_dir().join(format!("mihomo_egress_modes_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir)?;
+        let state = AppState::new(temp_dir.clone());
+        let port_a = save_mapping_on_free_port(&state, "mode-port-a", "node-a").await;
+        let port_b = save_mapping_on_free_port(&state, "mode-port-b", "node-b").await;
+
+        let (system_proxy, was_tun) = state.apply_system_proxy_transition(true, Some(port_a))?;
+        assert!(system_proxy.enabled);
+        assert_eq!(system_proxy.port, Some(port_a));
+        assert!(!was_tun);
+
+        let config = state.prepare_tun_transition(true, Some(port_a))?;
+        assert!(config.tun_enabled);
+        assert!(!config.system_proxy_enabled);
+
+        let config = state.prepare_tun_transition(true, Some(port_b))?;
+        assert_eq!(config.tun_port, Some(port_b));
+        assert!(config.tun_enabled);
+        assert!(!config.system_proxy_enabled);
+
+        let (system_proxy, was_tun) = state.apply_system_proxy_transition(true, Some(port_b))?;
+        assert!(was_tun);
+        assert!(system_proxy.enabled);
+        assert_eq!(system_proxy.port, Some(port_b));
+        assert!(!state.config.read().tun_enabled);
+
+        let (system_proxy, _) = state.apply_system_proxy_transition(true, Some(port_a))?;
+        assert_eq!(system_proxy.port, Some(port_a));
+        let (system_proxy, _) = state.apply_system_proxy_transition(false, Some(port_a))?;
+        assert!(!system_proxy.enabled);
+        assert!(!state.config.read().tun_enabled);
+
+        state.prepare_tun_transition(true, Some(port_b))?;
+        let config = state.prepare_tun_transition(false, Some(port_b))?;
+        assert!(!config.tun_enabled);
+        assert!(!config.system_proxy_enabled);
+        drop(state);
+        std::fs::remove_dir_all(temp_dir)?;
+        Ok(())
     }
 
     #[tokio::test]

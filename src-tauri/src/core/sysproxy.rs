@@ -153,10 +153,7 @@ pub fn apply_system_proxy(port: u16, user_bypass: &[String]) -> AppResult<()> {
     let combined_bypass = build_combined_bypass_list(user_bypass);
 
     if cfg!(test) {
-        info!(
-            port = port,
-            "[test] Skipped OS system proxy mutation"
-        );
+        info!(port = port, "[test] Skipped OS system proxy mutation");
         return Ok(());
     }
 
@@ -685,7 +682,6 @@ mod windows {
         val.contains(&format!(":{}", port))
     }
 
-
     pub fn set_user_env_proxy_windows(port: u16, bypass_list: &[String]) -> AppResult<()> {
         let key = open_reg_key(HKEY_CURRENT_USER, ENVIRONMENT_SUBKEY, KEY_READ | KEY_SET_VALUE)?;
 
@@ -1110,7 +1106,9 @@ mod macos {
         for service in services {
             if let Ok(output) = Command::new("networksetup").args(["-getwebproxy", &service]).output() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                let enabled = stdout.lines().any(|l| l.to_ascii_lowercase().starts_with("enabled: yes"));
+                let enabled = stdout
+                    .lines()
+                    .any(|l| l.to_ascii_lowercase().starts_with("enabled: yes"));
                 let port_match = stdout.lines().any(|l| {
                     let l = l.trim().to_ascii_lowercase();
                     l.starts_with("port:") && l.ends_with(&port_str)
@@ -1122,7 +1120,6 @@ mod macos {
         }
         false
     }
-
 }
 
 // ----------------------------------------------------------------------------
@@ -1176,13 +1173,19 @@ mod linux {
     }
     pub fn is_system_proxy_active_on_port_linux(port: u16) -> bool {
         let port_str = port.to_string();
-        if let Ok(mode_out) = Command::new("gsettings").args(["get", "org.gnome.system.proxy", "mode"]).output() {
+        if let Ok(mode_out) = Command::new("gsettings")
+            .args(["get", "org.gnome.system.proxy", "mode"])
+            .output()
+        {
             let mode = String::from_utf8_lossy(&mode_out.stdout);
             if !mode.contains("manual") {
                 return false;
             }
         }
-        if let Ok(port_out) = Command::new("gsettings").args(["get", "org.gnome.system.proxy.http", "port"]).output() {
+        if let Ok(port_out) = Command::new("gsettings")
+            .args(["get", "org.gnome.system.proxy.http", "port"])
+            .output()
+        {
             let p = String::from_utf8_lossy(&port_out.stdout);
             if p.trim().trim_matches('\'') == port_str {
                 return true;
@@ -1190,7 +1193,6 @@ mod linux {
         }
         false
     }
-
 }
 
 #[cfg(test)]

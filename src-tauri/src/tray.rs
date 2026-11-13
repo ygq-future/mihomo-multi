@@ -10,6 +10,12 @@ mod terminal;
 #[derive(Default)]
 struct TrayClipboard(parking_lot::Mutex<Option<arboard::Clipboard>>);
 
+#[derive(Default)]
+struct TrayActions {
+    latency_test: tokio::sync::Mutex<()>,
+    egress: tokio::sync::Mutex<()>,
+}
+
 fn show_tray_error(app: &AppHandle, message: &str) {
     error!("Tray action failed: {}", message);
     app.dialog().message(message).title("托盘操作失败").show(|_| {});
@@ -60,7 +66,8 @@ async fn query_port_egress_ip(app: &AppHandle, mapping_id: &str) -> Result<Strin
 struct PortRuntimeInfo {
     is_fallback_active: bool,
     manual_fallback: bool,
-    active_latency: Option<u32>,
+    primary_latency: Option<u32>,
+    fallback_latency: Option<u32>,
 }
 
 pub fn is_dev_instance(app: &AppHandle) -> bool {
@@ -145,6 +152,102 @@ pub fn ensure_main_window_open(app: &AppHandle) {
     }
 }
 
+fn format_latency(latency: Option<u32>) -> String {
+    match latency {
+        Some(0) => "超时".to_string(),
+        Some(delay) => format!("{delay}ms"),
+        None => "--ms".to_string(),
+    }
+}
+
+async fn resolve_node_latency(
+    state: &crate::state::AppState,
+    profiles: &std::collections::HashMap<String, String>,
+    node: &str,
+    profile_id: &str,
+    mapping_latency: Option<u32>,
+) -> Option<u32> {
+    let runtime_name = profiles
+        .get(profile_id)
+        .map(|name| format!("[{name}] {node}"))
+        .unwrap_or_else(|| node.to_string());
+    if let Some(latency) = state
+        .latency_probe
+        .get_latency(&runtime_name)
+        .or_else(|| state.latency_probe.get_latency(node))
+    {
+        return Some(latency.unwrap_or(0));
+    }
+    if mapping_latency.is_some() {
+        return mapping_latency;
+    }
+    state
+        .engine
+        .get_proxy_detail(&runtime_name)
+        .await
+        .ok()
+        .and_then(|proxy| proxy.history.last().map(|history| history.delay))
+}
+
+async fn switch_tray_egress(app: &AppHandle, action: &str) -> Result<(), String> {
+    let state = app.state::<crate::state::AppState>();
+    let (tun_enabled, tun_port, system_proxy_enabled, system_proxy_port) = {
+        let config = state.config.read();
+        (
+            config.tun_enabled,
+            config.tun_port,
+            config.system_proxy_enabled,
+            config.system_proxy_port,
+        )
+    };
+    let mappings = state.port_router.get_port_mappings();
+    let (tun, enabled, port) = if let Some(id) = action.strip_prefix("port_egress:") {
+        let mapping = mappings
+            .iter()
+            .find(|mapping| mapping.id == id)
+            .ok_or_else(|| "监听端口已删除，请重新打开菜单".to_string())?;
+        let bound = if tun_enabled {
+            tun_port == Some(mapping.port)
+        } else {
+            system_proxy_enabled && system_proxy_port == Some(mapping.port)
+        };
+        (tun_enabled, !bound, Some(mapping.port))
+    } else {
+        let tun = action == "toggle_tun";
+        let enabled = if tun { !tun_enabled } else { !system_proxy_enabled };
+        let port = tun_port
+            .filter(|port| mappings.iter().any(|mapping| mapping.enabled && mapping.port == *port))
+            .or_else(|| {
+                system_proxy_port.filter(|port| mappings.iter().any(|mapping| mapping.enabled && mapping.port == *port))
+            })
+            .or_else(|| {
+                mappings
+                    .iter()
+                    .filter(|mapping| mapping.enabled)
+                    .map(|mapping| mapping.port)
+                    .min()
+            });
+        (tun, enabled, port)
+    };
+    if enabled
+        && (!state.engine.get_status().running
+            || !mappings
+                .iter()
+                .any(|mapping| mapping.enabled && Some(mapping.port) == port))
+    {
+        return Err("请先启动内核并启用监听端口，再启用代理".to_string());
+    }
+    if tun {
+        crate::commands::set_tun(app.clone(), enabled, port, state).await?;
+    } else {
+        let (_, old_tun_enabled) = state.apply_system_proxy_transition(enabled, port)?;
+        if enabled && old_tun_enabled {
+            state.sync_runtime_config().await.map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 fn build_tray_menu_internal(
     app: &AppHandle,
     runtime_infos: &std::collections::HashMap<String, PortRuntimeInfo>,
@@ -169,10 +272,44 @@ fn build_tray_menu_internal(
         let mut mappings = state.port_router.get_port_mappings();
         mappings.sort_by_key(|m| m.port);
         let is_running = state.engine.get_status().running;
-        let env_proxy_port = {
+        let (system_proxy_enabled, tun_enabled, system_proxy_port, tun_port, env_proxy_port) = {
             let config = state.config.read();
-            config.env_proxy_port.filter(|_| config.env_proxy_enabled)
+            (
+                config.system_proxy_enabled,
+                config.tun_enabled,
+                config.system_proxy_port.filter(|_| config.system_proxy_enabled),
+                config.tun_port.filter(|_| config.tun_enabled),
+                config.env_proxy_port.filter(|_| config.env_proxy_enabled),
+            )
         };
+        let actions = app.state::<TrayActions>();
+        let testing = actions.latency_test.try_lock().is_err();
+        let switching = actions.egress.try_lock().is_err();
+        let has_enabled_ports = mappings.iter().any(|m| m.enabled);
+        menu.append(&MenuItem::with_id(
+            app,
+            "test_ports_delay",
+            if testing { "延迟测速中…" } else { "延迟测速" },
+            is_running && has_enabled_ports && !testing,
+            None::<&str>,
+        )?)?;
+        menu.append(&CheckMenuItem::with_id(
+            app,
+            "toggle_tun",
+            "启用 TUN",
+            !switching && (tun_enabled || (is_running && has_enabled_ports)),
+            tun_enabled,
+            None::<&str>,
+        )?)?;
+        menu.append(&CheckMenuItem::with_id(
+            app,
+            "toggle_system_proxy",
+            "启用系统代理",
+            !switching && (system_proxy_enabled || (is_running && has_enabled_ports)),
+            system_proxy_enabled,
+            None::<&str>,
+        )?)?;
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
 
         if mappings.is_empty() {
             let empty_item = MenuItem::with_id(app, "no_ports", "暂无端口监听 (可在窗口中添加)", false, None::<&str>)?;
@@ -193,7 +330,13 @@ fn build_tray_menu_internal(
                 };
 
                 // 延迟与状态判定
-                let lat = runtime_info.and_then(|r| r.active_latency).or(m.latency);
+                let primary_latency = runtime_info.and_then(|r| r.primary_latency).or(m.latency);
+                let fallback_latency = runtime_info.and_then(|r| r.fallback_latency);
+                let lat = if is_fallback_active {
+                    fallback_latency
+                } else {
+                    primary_latency
+                };
                 let status = if !m.enabled {
                     "已禁用"
                 } else if !is_running {
@@ -210,10 +353,15 @@ fn build_tray_menu_internal(
                     "正常"
                 };
 
-                let delay = match lat {
-                    Some(d) if d > 0 => format!("{}ms", d),
-                    Some(_) => "超时".to_string(),
-                    None => "--ms".to_string(),
+                let delay = format_latency(lat);
+                let status_title = if has_fallback {
+                    format!(
+                        "{status} · 主 {} · 备 {}",
+                        format_latency(primary_latency),
+                        format_latency(fallback_latency),
+                    )
+                } else {
+                    format!("{status} · {delay}")
                 };
 
                 // Node names are data; ampersands must not become menu mnemonics.
@@ -222,7 +370,7 @@ fn build_tray_menu_internal(
                 submenu.append(&MenuItem::with_id(
                     app,
                     format!("port_status:{}", m.id),
-                    format!("{status} · {delay}"),
+                    status_title,
                     false,
                     None::<&str>,
                 )?)?;
@@ -233,6 +381,24 @@ fn build_tray_menu_internal(
                     "启用监听",
                     true,
                     m.enabled,
+                    None::<&str>,
+                )?)?;
+                let is_bound = if tun_enabled {
+                    tun_port == Some(m.port)
+                } else {
+                    system_proxy_port == Some(m.port)
+                };
+                submenu.append(&CheckMenuItem::with_id(
+                    app,
+                    format!("port_egress:{}", m.id),
+                    match (tun_enabled, is_bound) {
+                        (true, true) => "关闭 TUN 代理",
+                        (true, false) => "设为 TUN 代理",
+                        (false, true) => "关闭系统代理",
+                        (false, false) => "设为系统代理",
+                    },
+                    !switching && (is_bound || (m.enabled && is_running)),
+                    is_bound,
                     None::<&str>,
                 )?)?;
                 let is_env_proxy = env_proxy_port == Some(m.port);
@@ -313,11 +479,8 @@ async fn query_runtime_infos(
                 PortRuntimeInfo {
                     is_fallback_active: status.is_fallback_active,
                     manual_fallback: status.manual_fallback,
-                    active_latency: if status.is_fallback_active {
-                        status.fallback_latency
-                    } else {
-                        status.primary_latency
-                    },
+                    primary_latency: status.primary_latency,
+                    fallback_latency: status.fallback_latency,
                 },
             );
             continue;
@@ -339,47 +502,27 @@ async fn query_runtime_infos(
             (false, false)
         };
 
-        let (target_node, target_profile_id) = if is_fallback_active {
-            (
-                m.fallback_node_name.as_deref().unwrap_or(&m.node_name),
+        let primary_latency = resolve_node_latency(&state, &profile_map, &m.node_name, &m.profile_id, m.latency).await;
+        let fallback_latency = if let Some(node) = m.fallback_node_name.as_deref().filter(|n| !n.trim().is_empty()) {
+            resolve_node_latency(
+                &state,
+                &profile_map,
+                node,
                 m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id),
+                None,
             )
-        } else {
-            (m.node_name.as_str(), m.profile_id.as_str())
-        };
-
-        let target_runtime_name = if let Some(pname) = profile_map.get(target_profile_id) {
-            format!("[{}] {}", pname, target_node)
-        } else {
-            target_node.to_string()
-        };
-
-        // Latency resolution order:
-        // 1. LatencyProbe cache by runtime name (authoritative baseline latency)
-        // 2. LatencyProbe cache by node name
-        // 3. PortMapping latency
-        // 4. Kernel history (fallback if not yet probed in cache)
-        let kernel_latency = engine
-            .get_proxy_detail(&target_runtime_name)
             .await
-            .ok()
-            .and_then(|p| p.history.last().map(|h| h.delay))
-            .filter(|&d| d > 0);
-
-        let active_latency = state
-            .latency_probe
-            .get_latency(&target_runtime_name)
-            .flatten()
-            .or_else(|| state.latency_probe.get_latency(target_node).flatten())
-            .or(if !is_fallback_active { m.latency } else { None })
-            .or(kernel_latency);
+        } else {
+            None
+        };
 
         runtime_infos.insert(
             m.id,
             PortRuntimeInfo {
                 is_fallback_active,
                 manual_fallback,
-                active_latency,
+                primary_latency,
+                fallback_latency,
             },
         );
     }
@@ -396,12 +539,13 @@ fn compute_menu_fingerprint(
     fp.push_str(if is_running { "RUN;" } else { "STOP;" });
     for m in mappings {
         let r = runtime_infos.get(&m.id);
-        let active_lat = r.and_then(|x| x.active_latency).or(m.latency).unwrap_or(0);
+        let primary_lat = r.and_then(|x| x.primary_latency).or(m.latency);
+        let fallback_lat = r.and_then(|x| x.fallback_latency);
         let fb_active = r.map(|x| x.is_fallback_active).unwrap_or(m.manual_fallback);
         let manual = r.map(|x| x.manual_fallback).unwrap_or(m.manual_fallback);
         fp.push_str(&format!(
-            "{}:{}:{}:{}:{};",
-            m.port, m.enabled, active_lat, fb_active, manual
+            "{}:{}:{:?}:{:?}:{}:{};",
+            m.port, m.enabled, primary_lat, fallback_lat, fb_active, manual
         ));
     }
     fp
@@ -555,7 +699,27 @@ pub fn update_tray_menu_with_fallback_statuses(
         mappings.sort_by_key(|m| m.port);
 
         let runtime_infos = query_runtime_infos(&app_handle, &fallback_statuses).await;
-        let current_fp = compute_menu_fingerprint(&mappings, &runtime_infos, is_running);
+        let mut current_fp = compute_menu_fingerprint(&mappings, &runtime_infos, is_running);
+        {
+            use std::fmt::Write;
+            let config = state.config.read();
+            let actions = app_handle.state::<TrayActions>();
+            if let Err(error) = write!(
+                current_fp,
+                "{:?}:{}:{:?}:{}:{:?}:{}:{}:{};",
+                config.system_proxy_port,
+                config.system_proxy_enabled,
+                config.tun_port,
+                config.tun_enabled,
+                config.env_proxy_port,
+                config.env_proxy_enabled,
+                actions.latency_test.try_lock().is_err(),
+                actions.egress.try_lock().is_err(),
+            ) {
+                warn!("Failed to format tray fingerprint: {error}");
+                return;
+            }
+        }
 
         {
             let mut guard = LAST_TRAY_FINGERPRINT.lock();
@@ -584,6 +748,7 @@ pub fn update_tray_menu_with_fallback_statuses(
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let initial_runtime_infos = std::collections::HashMap::new();
     app.manage(TrayClipboard::default());
+    app.manage(TrayActions::default());
     let menu = build_tray_menu_internal(app, &initial_runtime_infos)?;
     let initial_tooltip = format_tray_tooltip(app);
 
@@ -616,6 +781,65 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                     .await;
                     if let Err(error) = result {
                         update_tray_menu(&app_handle);
+                        show_tray_error(&app_handle, &error);
+                    }
+                });
+                return;
+            }
+            if event_id == "test_ports_delay" {
+                let app_handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let actions = app_handle.state::<TrayActions>();
+                    let Ok(guard) = actions.latency_test.try_lock() else {
+                        return;
+                    };
+                    update_tray_menu(&app_handle);
+                    let result = crate::commands::test_all_port_mappings_delay(
+                        app_handle.clone(),
+                        None,
+                        None,
+                        None,
+                        app_handle.state::<crate::state::AppState>(),
+                    )
+                    .await;
+                    drop(guard);
+                    update_tray_menu(&app_handle);
+                    match result {
+                        Ok(results) => {
+                            let reachable = results
+                                .iter()
+                                .filter(|result| result.latency.is_some_and(|delay| delay > 0))
+                                .count();
+                            let failed = results.len() - reachable;
+                            app_handle
+                                .dialog()
+                                .message(format!(
+                                    "监听端口测速完成：{reachable} 个节点可用，{failed} 个节点超时或失败"
+                                ))
+                                .title("延迟测速")
+                                .show(|_| {});
+                        }
+                        Err(error) => show_tray_error(&app_handle, &error),
+                    }
+                });
+                return;
+            }
+            if event_id == "toggle_tun" || event_id == "toggle_system_proxy" || event_id.starts_with("port_egress:") {
+                let action = event_id.to_string();
+                let app_handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let actions = app_handle.state::<TrayActions>();
+                    let Ok(guard) = actions.egress.try_lock() else {
+                        return;
+                    };
+                    update_tray_menu(&app_handle);
+                    let result = switch_tray_egress(&app_handle, &action).await;
+                    drop(guard);
+                    update_tray_menu(&app_handle);
+                    if let Err(error) = app_handle.emit("port-mappings-changed", ()) {
+                        show_tray_error(&app_handle, &error.to_string());
+                    }
+                    if let Err(error) = result {
                         show_tray_error(&app_handle, &error);
                     }
                 });

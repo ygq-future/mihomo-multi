@@ -318,6 +318,10 @@ mod tests {
         let global_count = PROBE_ENDPOINTS.iter().filter(|ep| !ep.is_cn_endpoint).count();
         assert_eq!(cn_count, 1);
         assert_eq!(global_count, 3);
-        assert!(PROBE_ENDPOINTS.iter().any(|ep| ep.name == "ipip.net" && ep.is_cn_endpoint));
+        assert!(
+            PROBE_ENDPOINTS
+                .iter()
+                .any(|ep| ep.name == "ipip.net" && ep.is_cn_endpoint)
+        );
     }
 }

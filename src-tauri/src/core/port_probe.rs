@@ -69,7 +69,10 @@ pub fn is_port_available(port: u16, transport: PortTransport, allow_lan: bool, e
 pub fn find_port_conflict(port: u16, transport: PortTransport, exclude_pid: Option<u32>) -> Option<PortConflict> {
     #[cfg(windows)]
     {
-        for owner_pid in [tcp_v4_listener_owner(port), tcp_v6_listener_owner(port)].into_iter().flatten() {
+        for owner_pid in [tcp_v4_listener_owner(port), tcp_v6_listener_owner(port)]
+            .into_iter()
+            .flatten()
+        {
             if is_third_party_owner(owner_pid, exclude_pid) {
                 return Some(PortConflict {
                     transport: ConflictTransport::Tcp,
@@ -192,8 +195,7 @@ fn decode_table_port(raw: u32) -> u16 {
 /// with an empty state field, which is still identifiable by the absence of a peer endpoint.
 #[cfg(windows)]
 fn tcp_v4_row_is_listener(row: &MIB_TCPROW_OWNER_PID) -> bool {
-    row.dwState == TCP_STATE_LISTEN
-        || (row.dwState == 0 && row.dwRemoteAddr == 0 && row.dwRemotePort == 0)
+    row.dwState == TCP_STATE_LISTEN || (row.dwState == 0 && row.dwRemoteAddr == 0 && row.dwRemotePort == 0)
 }
 
 #[cfg(windows)]
@@ -322,7 +324,10 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        assert!(available, "Port {port} should become available after dropping the listener");
+        assert!(
+            available,
+            "Port {port} should become available after dropping the listener"
+        );
     }
 
     #[test]

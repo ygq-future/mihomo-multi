@@ -283,11 +283,7 @@ pub fn run() {
                 }
                 match crate::core::sysproxy::maintain_uwp_loopback(auto_exempt) {
                     Ok((cleaned, newly_exempted)) if cleaned > 0 || newly_exempted > 0 => {
-                        info!(
-                            cleaned,
-                            newly_exempted,
-                            "UWP 回环豁免自动维护完成"
-                        );
+                        info!(cleaned, newly_exempted, "UWP 回环豁免自动维护完成");
                     }
                     Ok(_) => {}
                     Err(err) => warn!("UWP 回环豁免自动维护失败: {}", err),

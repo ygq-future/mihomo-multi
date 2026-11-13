@@ -234,7 +234,12 @@ impl PortRouter {
 
                 let exclude_pid = if is_same_active_port { ctx.core_pid } else { None };
 
-                if !is_port_available(mapping.port, transport_for(mapping.protocol), ctx.allow_lan, exclude_pid) {
+                if !is_port_available(
+                    mapping.port,
+                    transport_for(mapping.protocol),
+                    ctx.allow_lan,
+                    exclude_pid,
+                ) {
                     return Err(AppError::PortOccupied(mapping.port));
                 }
             }
