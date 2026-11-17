@@ -5,7 +5,7 @@ use crate::core::latency_probe::{AppLatencyEventEmitter, LatencyProbe};
 use crate::core::port_router::{PortChangeEvent, PortProbeContext, PortRouter};
 use crate::core::profile_manager::ProfileManager;
 use crate::error::AppResult;
-use crate::models::{AppConfig, EnvProxyStatus, PortMapping, SystemProxyStatus, TunStatus};
+use crate::models::{AppConfig, EnvProxyStatus, PortMapping, ResidentialProxyTestResult, SystemProxyStatus, TunStatus};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -29,6 +29,9 @@ pub struct AppState {
     pub initial_window_shown: Arc<std::sync::atomic::AtomicBool>,
     pub egress_probe_port: Arc<RwLock<Option<u16>>>,
     pub egress_probe_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Serializes disposable residential-chain connectivity probes so only one isolated
+    /// Mihomo instance and one transient config exist at a time.
+    pub residential_probe_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl AppState {
@@ -43,6 +46,7 @@ impl AppState {
         let initial_window_shown = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let egress_probe_port = Arc::new(RwLock::new(None));
         let egress_probe_lock = Arc::new(tokio::sync::Mutex::new(()));
+        let residential_probe_lock = Arc::new(tokio::sync::Mutex::new(()));
 
         let config_path = app_dir.join("config.json");
         let initial_config = if config_path.exists() {
@@ -146,6 +150,7 @@ impl AppState {
             initial_window_shown,
             egress_probe_port,
             egress_probe_lock,
+            residential_probe_lock,
         }
     }
 
@@ -157,12 +162,35 @@ impl AppState {
         *self.suspended_system_proxy.write() = None;
     }
 
-    pub fn persist_config(&self, config: &crate::models::AppConfig) {
-        *self.config.write() = config.clone();
+    pub fn persist_config(&self, config: &crate::models::AppConfig) -> AppResult<()> {
+        let changed_chains: Vec<PortMapping> = {
+            let previous = self.config.read();
+            if previous.residential_proxies == config.residential_proxies {
+                Vec::new()
+            } else {
+                self.port_router
+                    .get_port_mappings()
+                    .into_iter()
+                    .filter(|mapping| {
+                        mapping.residential_proxy_id.as_ref().is_some_and(|id| {
+                            previous.residential_proxies.iter().find(|proxy| &proxy.id == id)
+                                != config.residential_proxies.iter().find(|proxy| &proxy.id == id)
+                        })
+                    })
+                    .collect()
+            }
+        };
+        self.port_router.clear_port_latencies(&changed_chains)?;
+        let invalidated: Vec<String> = changed_chains
+            .iter()
+            .map(|mapping| crate::core::config_generator::chain_proxy_name(mapping.port))
+            .collect();
+        self.latency_probe.remove_latencies(&invalidated)?;
         let config_path = self.app_dir.join("config.json");
-        if let Ok(json) = serde_json::to_string_pretty(config) {
-            let _ = crate::core::profile_manager::atomic_write_file(&config_path, json.as_bytes());
-        }
+        let json = serde_json::to_vec_pretty(config)?;
+        crate::core::profile_manager::atomic_write_file(&config_path, &json)?;
+        *self.config.write() = config.clone();
+        Ok(())
     }
 
     /// Builds current system proxy status snapshot from config and combined bypass list.
@@ -214,6 +242,7 @@ impl AppState {
             allow_lan: cfg.allow_lan,
             core_pid: if status.running { status.pid } else { None },
             reserved_ports,
+            residential_proxies: cfg.residential_proxies.clone(),
         }
     }
 
@@ -265,8 +294,9 @@ impl AppState {
             *self.suspended_system_proxy.write() = None;
         }
 
-        if modified {
-            self.persist_config(&config);
+        if modified && let Err(error) = self.persist_config(&config) {
+            *self.config.write() = config;
+            tracing::error!("Failed to persist reconciled egress settings: {}", error);
         }
 
         modified
@@ -308,7 +338,7 @@ impl AppState {
             }
         }
 
-        self.persist_config(&config);
+        self.persist_config(&config).map_err(|error| error.to_string())?;
         Ok((self.build_system_proxy_status(), old_tun_enabled))
     }
 
@@ -335,7 +365,7 @@ impl AppState {
             }
         }
 
-        self.persist_config(&config);
+        self.persist_config(&config).map_err(|error| error.to_string())?;
         Ok(self.build_env_proxy_status())
     }
 
@@ -365,7 +395,7 @@ impl AppState {
             }
         }
 
-        self.persist_config(&config);
+        self.persist_config(&config).map_err(|error| error.to_string())?;
         Ok(config)
     }
 
@@ -374,7 +404,10 @@ impl AppState {
         let mut rollback = self.config.read().clone();
         rollback.tun_enabled = false;
         rollback.tun_port = None;
-        self.persist_config(&rollback);
+        if let Err(error) = self.persist_config(&rollback) {
+            *self.config.write() = rollback.clone();
+            tracing::error!("Failed to persist TUN rollback: {}", error);
+        }
         rollback
     }
 
@@ -493,7 +526,10 @@ impl AppState {
 
         config.system_proxy_enabled = true;
         config.system_proxy_port = Some(port);
-        self.persist_config(&config);
+        if let Err(error) = self.persist_config(&config) {
+            *self.config.write() = config;
+            tracing::error!("Failed to persist restored system proxy: {}", error);
+        }
 
         if let Some(handle) = &*self.app_handle.read() {
             crate::tray::update_tray_menu(handle);
@@ -539,6 +575,7 @@ impl AppState {
             tun_port: cfg.tun_port,
             global_rules: &cfg.global_rules,
             egress_probe_port: probe_port,
+            residential_proxies: &cfg.residential_proxies,
         };
 
         let path = self
@@ -637,16 +674,45 @@ impl AppState {
             .get_next_available_port(start_port, exclude_mapping_id, &ctx)
     }
 
-    pub async fn save_port_mapping(&self, mapping: PortMapping) -> AppResult<PortMapping> {
+    pub async fn save_port_mapping(&self, mut mapping: PortMapping) -> AppResult<PortMapping> {
+        let previous = self.port_router.get_port_mapping_by_id(&mapping.id);
+        let chain_changed = (mapping.residential_proxy_id.is_some()
+            || previous.as_ref().is_some_and(|old| old.residential_proxy_id.is_some()))
+            && previous.as_ref().is_none_or(|old| {
+                old.port != mapping.port
+                    || old.protocol != mapping.protocol
+                    || old.profile_id != mapping.profile_id
+                    || old.node_name != mapping.node_name
+                    || old.residential_proxy_id != mapping.residential_proxy_id
+            });
+        if chain_changed {
+            mapping.latency = None;
+        }
         let ctx = self.port_probe_context();
         let saved = self.port_router.save_port_mapping(mapping, &ctx)?;
+        if chain_changed {
+            let mut targets = vec![crate::core::config_generator::chain_proxy_name(saved.port)];
+            if let Some(old) = previous
+                && old.port != saved.port
+            {
+                targets.push(crate::core::config_generator::chain_proxy_name(old.port));
+            }
+            self.latency_probe.remove_latencies(&targets)?;
+        }
         self.sync_runtime_with_event(PortChangeEvent::Saved(saved.clone()))
             .await?;
         Ok(saved)
     }
 
     pub async fn delete_port_mapping(&self, id: &str) -> AppResult<()> {
+        let previous = self.port_router.get_port_mapping_by_id(id);
         self.port_router.delete_port_mapping(id)?;
+        if let Some(mapping) = previous
+            && mapping.residential_proxy_id.is_some()
+        {
+            self.latency_probe
+                .remove_latencies(&[crate::core::config_generator::chain_proxy_name(mapping.port)])?;
+        }
         self.sync_runtime_with_event(PortChangeEvent::Deleted(id.to_string()))
             .await?;
         Ok(())
@@ -665,6 +731,64 @@ impl AppState {
         self.sync_runtime_with_event(PortChangeEvent::Saved(updated.clone()))
             .await?;
         Ok(updated)
+    }
+
+    /// Validates and runs a residential exit connectivity probe using only saved state.
+    ///
+    /// The probe runs in a disposable isolated Mihomo instance, so the live runtime config,
+    /// listeners, and connections are never reloaded or mutated. Probes are serialized to
+    /// bound transient processes and temporary files.
+    ///
+    /// `endpoints` is a diagnostics-only injection for local smoke fixtures; production IPC
+    /// passes `None` and uses the standard public endpoint rotation.
+    pub async fn probe_residential_chain(
+        &self,
+        app_handle: Option<&tauri::AppHandle>,
+        residential_proxy_id: &str,
+        profile_id: &str,
+        node_name: &str,
+        endpoints: Option<&[crate::core::egress_probe::ProbeEndpoint]>,
+    ) -> Result<ResidentialProxyTestResult, String> {
+        let _guard = self.residential_probe_lock.lock().await;
+        let (exit, timeout_ms) = {
+            let config = self.config.read();
+            let exit = config
+                .residential_proxies
+                .iter()
+                .find(|proxy| proxy.id.trim() == residential_proxy_id.trim())
+                .cloned()
+                .ok_or_else(|| "住宅代理出口不存在或尚未保存，请先保存设置后再测试".to_string())?;
+            (exit, config.timeout_ms as u64)
+        };
+
+        let requested = node_name.trim();
+        if requested.is_empty() {
+            return Err("请选择用于住宅代理链的上游节点".to_string());
+        }
+        let profile = if profile_id.trim().is_empty() {
+            None
+        } else {
+            Some(
+                self.profile_manager
+                    .get_profile_by_id(profile_id.trim())
+                    .ok_or_else(|| format!("订阅不存在，无法定位住宅代理链的上游节点「{}」", requested))?,
+            )
+        };
+        let raw_proxies = self.profile_manager.get_raw_proxies_for_all_profiles();
+        let chain = crate::core::residential_probe::prepare_probe(&raw_proxies, profile.as_ref(), &exit, requested)?;
+
+        match endpoints {
+            Some(endpoints) => {
+                crate::core::residential_probe::execute_probe_with_endpoints(
+                    app_handle,
+                    &chain,
+                    Some(timeout_ms),
+                    endpoints,
+                )
+                .await
+            }
+            None => crate::core::residential_probe::execute_probe(app_handle, &chain, Some(timeout_ms)).await,
+        }
     }
 }
 
@@ -706,6 +830,43 @@ mod tests {
         }
 
         panic!("no port free for both TCP and UDP after 20 attempts");
+    }
+
+    #[test]
+    fn residential_configuration_persists_credentials_and_loads_on_restart() {
+        let directory = std::env::temp_dir().join(format!("residential-config-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).expect("create isolated application directory");
+        let state = AppState::new(directory.clone());
+        let mut config = state.config.read().clone();
+        config.residential_proxies = serde_json::from_value(serde_json::json!([{
+            "id": "residential-1", "name": "Residential exit", "protocol": "socks5",
+            "server": "127.0.0.1", "port": 1080, "username": "test-user", "password": "test-password"
+        }]))
+        .expect("valid residential proxy fixture");
+        state.persist_config(&config).expect("save residential configuration");
+        let restarted = AppState::new(directory.clone());
+        let persisted = restarted.config.read();
+        assert_eq!(persisted.residential_proxies[0].id, "residential-1");
+        assert_eq!(persisted.residential_proxies[0].protocol, "socks5");
+        assert_eq!(persisted.residential_proxies[0].username, "test-user");
+        assert_eq!(persisted.residential_proxies[0].password, "test-password");
+        drop(persisted);
+        std::fs::remove_dir_all(directory).expect("remove isolated application directory");
+    }
+
+    #[test]
+    fn configuration_write_failure_preserves_accepted_state() {
+        let directory = std::env::temp_dir().join(format!("residential-write-failure-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).expect("create isolated application directory");
+        let state = AppState::new(directory.clone());
+        let before = state.config.read().clone();
+        let mut config = before.clone();
+        config.theme.push_str("-changed");
+        std::fs::remove_file(directory.join("config.json")).expect("remove initial configuration file");
+        std::fs::create_dir(directory.join("config.json")).expect("block configuration file with a directory");
+        assert!(state.persist_config(&config).is_err());
+        assert_eq!(*state.config.read(), before);
+        std::fs::remove_dir_all(directory).expect("remove isolated application directory");
     }
 
     #[tokio::test]
@@ -891,5 +1052,64 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+    #[tokio::test]
+    async fn chain_edits_invalidate_only_affected_measurements_and_persist_the_reset() {
+        let directory = std::env::temp_dir().join(format!("chain-measurements-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).expect("create isolated application directory");
+        let state = AppState::new(directory.clone());
+        let mut config = state.config.read().clone();
+        config.residential_proxies = serde_json::from_value(serde_json::json!([{
+            "id": "exit-1", "name": "Exit", "protocol": "http", "server": "127.0.0.1",
+            "port": 1080, "username": "test-user", "password": "test-password"
+        }]))
+        .expect("residential fixture");
+        state.persist_config(&config).expect("save residential proxy");
+        let port = state
+            .get_next_available_port(Some(24000), None)
+            .expect("free test port");
+        let mapping = PortMapping {
+            id: "chain-1".to_string(),
+            port,
+            enabled: false,
+            profile_id: "profile-1".to_string(),
+            node_name: "Upstream A".to_string(),
+            residential_proxy_id: Some("exit-1".to_string()),
+            ..PortMapping::default()
+        };
+        let mut saved = state.save_port_mapping(mapping).await.expect("save chain");
+        let target = crate::core::config_generator::chain_proxy_name(port);
+        state.latency_probe.set_latency("ordinary-node", Some(10));
+        state.latency_probe.set_latency(&target, Some(55));
+        saved.latency = Some(55);
+        saved.node_name = "Upstream B".to_string();
+        let mut changed = state.save_port_mapping(saved).await.expect("change upstream");
+        assert_eq!(changed.latency, None);
+        assert_eq!(state.latency_probe.get_latency(&target), None);
+        assert_eq!(state.latency_probe.get_latency("ordinary-node"), Some(Some(10)));
+
+        state.latency_probe.set_latency(&target, Some(65));
+        changed.latency = Some(65);
+        state
+            .save_port_mapping(changed)
+            .await
+            .expect("persist measured chain latency");
+        config.residential_proxies[0].password = "changed-password".to_string();
+        state.persist_config(&config).expect("change residential credentials");
+        let restarted = AppState::new(directory.clone());
+        assert_eq!(
+            restarted
+                .port_router
+                .get_port_mapping_by_id("chain-1")
+                .expect("chain persists")
+                .latency,
+            None
+        );
+        assert_eq!(restarted.latency_probe.get_latency(&target), None);
+        assert_eq!(restarted.latency_probe.get_latency("ordinary-node"), Some(Some(10)));
+        restarted.latency_probe.set_latency(&target, Some(75));
+        restarted.delete_port_mapping("chain-1").await.expect("delete chain");
+        assert_eq!(restarted.latency_probe.get_latency(&target), None);
+        std::fs::remove_dir_all(directory).expect("remove isolated application directory");
     }
 }

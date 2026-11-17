@@ -6,6 +6,7 @@ import type {
   PortFallbackStatus,
   PortMapping,
 } from '../types'
+import type { ProxySlice } from './proxySlice'
 
 export interface PortSlice {
   portMappings: PortMapping[]
@@ -50,10 +51,12 @@ export interface PortSlice {
   setDriftReports: (reports: PortDriftReport[]) => void
 }
 
-export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
-  set,
-  get,
-) => ({
+export const createPortSlice: StateCreator<
+  PortSlice & Pick<ProxySlice, 'portEgressIps'>,
+  [],
+  [],
+  PortSlice
+> = (set, get) => ({
   portMappings: [],
   occupiedPorts: [],
   driftReports: [],
@@ -81,6 +84,7 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
       }
       set({
         portMappings,
+        portEgressIps: {},
         driftReports,
         occupiedPorts,
         fallbackStatuses,
@@ -205,6 +209,7 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
             : [...state.portMappings, saved]
         return {
           portMappings: updated,
+          portEgressIps: {},
           driftReports,
           occupiedPorts,
           fallbackStatuses,
@@ -247,6 +252,7 @@ export const createPortSlice: StateCreator<PortSlice, [], [], PortSlice> = (
       }
       set((state) => ({
         portMappings: state.portMappings.filter((p) => p.id !== id),
+        portEgressIps: {},
         driftReports,
         occupiedPorts,
         portLoading: false,

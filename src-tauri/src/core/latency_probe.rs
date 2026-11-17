@@ -183,6 +183,23 @@ impl LatencyProbe {
         }
     }
 
+    pub fn remove_latencies(&self, names: &[String]) -> AppResult<()> {
+        if names.is_empty() {
+            return Ok(());
+        }
+        let mut changed = false;
+        {
+            let mut cache = self.cache.write();
+            for name in names {
+                changed |= cache.remove(name).is_some();
+            }
+        }
+        if changed {
+            self.persist_cache()?;
+        }
+        Ok(())
+    }
+
     /// Clear all cached latencies
     pub fn clear_latencies(&self) {
         self.cache.write().clear();

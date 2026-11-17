@@ -1,7 +1,9 @@
 import type { StateCreator } from 'zustand'
 import * as api from '../services/tauri'
 import type {
+  AppConfig,
   DirectEgressInfo,
+  InboundProtocol,
   LatencyProgressPayload,
   LatencyUpdatePayload,
   NodeLatencyResult,
@@ -14,6 +16,8 @@ export interface ProxySlice {
   testingNodeNames: Record<string, boolean>
   nodeEgressIps: Record<string, DirectEgressInfo>
   probingEgressNodeKeys: Record<string, boolean>
+  portEgressIps: Record<number, DirectEgressInfo>
+  probingPortEgress: Record<number, boolean>
   isTestingAll: boolean
   quickBindTarget: { profileId: string; nodeName: string } | null
   isAddPortModalOpen: boolean
@@ -28,6 +32,10 @@ export interface ProxySlice {
     nodeName: string,
     profileId?: string | null,
     runtimeKey?: string,
+  ) => Promise<DirectEgressInfo>
+  probePortEgressIp: (
+    port: number,
+    protocol: InboundProtocol,
   ) => Promise<DirectEgressInfo>
   testAllNodesDelay: (
     nodeNames: string[],
@@ -45,6 +53,28 @@ export interface ProxySlice {
   setProxyError: (error: string | null) => void
 }
 
+function portProbeRoute(
+  state: ProxySlice & {
+    portMappings?: PortMapping[]
+    config?: AppConfig | null
+  },
+  port: number,
+): string {
+  const mapping = state.portMappings?.find((item) => item.port === port)
+  const exit = state.config?.residentialProxies?.find(
+    (item) => item.id === mapping?.residentialProxyId,
+  )
+  return JSON.stringify([
+    mapping?.id,
+    mapping?.enabled,
+    mapping?.protocol,
+    mapping?.profileId,
+    mapping?.nodeName,
+    mapping?.residentialProxyId,
+    exit,
+  ])
+}
+
 export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
   set,
   get,
@@ -53,6 +83,8 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
   testingNodeNames: {},
   nodeEgressIps: {},
   probingEgressNodeKeys: {},
+  portEgressIps: {},
+  probingPortEgress: {},
   isTestingAll: false,
   quickBindTarget: null,
   isAddPortModalOpen: false,
@@ -145,6 +177,38 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
     }
   },
 
+  probePortEgressIp: async (port, protocol) => {
+    const route = portProbeRoute(get(), port)
+    set((state) => ({
+      probingPortEgress: { ...state.probingPortEgress, [port]: true },
+    }))
+    try {
+      // Chain egress must be probed through the local inbound listener so the
+      // measurement reflects upstream -> residential exit -> destination.
+      // The listener protocol matters for SOCKS5-only ports.
+      const info = await api.queryPortEgressInfo(port, protocol)
+      if (route !== portProbeRoute(get(), port)) {
+        throw new Error('链路配置已变化，请重新检测出口 IP')
+      }
+      set((state) => {
+        const nextProbing = { ...state.probingPortEgress }
+        delete nextProbing[port]
+        return {
+          portEgressIps: { ...state.portEgressIps, [port]: info },
+          probingPortEgress: nextProbing,
+        }
+      })
+      return info
+    } catch (err) {
+      set((state) => {
+        const nextProbing = { ...state.probingPortEgress }
+        delete nextProbing[port]
+        return { probingPortEgress: nextProbing }
+      })
+      throw err
+    }
+  },
+
   testAllNodesDelay: async (nodeNames, testUrl, timeoutMs) => {
     if (nodeNames.length === 0) return []
 
@@ -224,6 +288,13 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
         nextPortMappings = nextPortMappings.map((p) => {
           if (payload.mappingId && p.id === payload.mappingId) {
             return { ...p, latency: payload.latency }
+          }
+          if (p.residentialProxyId) {
+            // Chain ports are measured under the generated `chain-{port}`
+            // target. Never let an upstream node cache entry overwrite them.
+            return payload.name === `chain-${p.port}`
+              ? { ...p, latency: payload.latency }
+              : p
           }
           if (
             p.nodeName === payload.name ||

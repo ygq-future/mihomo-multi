@@ -1,11 +1,13 @@
 use crate::core::auto_updater::AutoUpdater;
+use crate::core::config_generator::chain_proxy_name;
 use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::{PortTransport, is_port_available};
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
     DriftStatus, EnvProxyStatus, FIXED_DIRECT_PORT_ID, InboundProtocol, LanIpInfo, NodeLatencyResult, PortDriftReport,
-    PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, SniffedAccessLogEntry, SystemProxyStatus, TunStatus,
-    UwpAppInfo, UwpLoopbackStats,
+    PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, ResidentialProxyTestResult, SniffedAccessLogEntry,
+    SystemProxyStatus, TunStatus, UwpAppInfo, UwpLoopbackStats, validate_residential_proxies,
+    validate_residential_proxy_removal,
 };
 use crate::state::AppState;
 use std::process::Command;
@@ -40,7 +42,10 @@ pub async fn get_core_status(state: State<'_, AppState>) -> Result<CoreStatus, S
 
 #[tauri::command]
 pub async fn start_core(app: AppHandle, state: State<'_, AppState>) -> Result<CoreStatus, String> {
-    let _ = state.sync_runtime_config().await;
+    state
+        .sync_runtime_config()
+        .await
+        .map_err(|err| format!("生成运行时配置失败: {}", err))?;
     let config = state.config.read().clone();
     let res = state.engine.start(Some(&app), &config).map_err(|err| err.to_string())?;
     state.ensure_system_proxy_active();
@@ -58,7 +63,10 @@ pub async fn stop_core(app: AppHandle, state: State<'_, AppState>) -> Result<(),
 
 #[tauri::command]
 pub async fn restart_core(app: AppHandle, state: State<'_, AppState>) -> Result<CoreStatus, String> {
-    let _ = state.sync_runtime_config().await;
+    state
+        .sync_runtime_config()
+        .await
+        .map_err(|err| format!("生成运行时配置失败: {}", err))?;
     let config = state.config.read().clone();
     let res = state
         .engine
@@ -84,6 +92,20 @@ pub async fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String>
 
 #[tauri::command]
 pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_, AppState>) -> Result<(), String> {
+    // Read the previously persisted config before touching runtime state so validation and
+    // diffing operate on the same snapshot.
+    let old_config = state.config.read().clone();
+
+    config.residential_proxies = config
+        .residential_proxies
+        .into_iter()
+        .map(|proxy| proxy.normalized())
+        .collect();
+    validate_residential_proxies(&config.residential_proxies)?;
+
+    let mappings = state.port_router.get_port_mappings();
+    validate_residential_proxy_removal(&old_config.residential_proxies, &config.residential_proxies, &mappings)?;
+
     let mut cleaned_bypass = Vec::new();
     let mut seen_bypass = std::collections::HashSet::new();
     for raw in &config.system_proxy_bypass_user {
@@ -107,7 +129,6 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
         config.system_proxy_enabled = false;
     }
 
-    let old_config = state.config.read().clone();
     if config.controller_port != old_config.controller_port {
         let core_status = state.engine.get_status();
         let is_current_active_core_port = core_status.running && core_status.controller_port == config.controller_port;
@@ -158,7 +179,7 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
 
     let config_changed = *state.config.read() != config;
     if config_changed {
-        state.persist_config(&config);
+        state.persist_config(&config).map_err(|error| error.to_string())?;
     }
     if !config.system_proxy_enabled {
         state.clear_suspended_system_proxy();
@@ -189,9 +210,17 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
         || config.system_proxy_bypass_user != old_config.system_proxy_bypass_user
         || config.tun_enabled != old_config.tun_enabled
         || config.tun_port != old_config.tun_port
-        || config.global_rules != old_config.global_rules;
-    if runtime_settings_changed {
-        let _ = state.sync_runtime_config().await;
+        || config.global_rules != old_config.global_rules
+        || config.residential_proxies != old_config.residential_proxies;
+    if runtime_settings_changed && let Err(error) = state.sync_runtime_config().await {
+        state
+            .persist_config(&old_config)
+            .map_err(|rollback| format!("应用运行时配置失败: {}；恢复已保存配置失败: {}", error, rollback))?;
+        state
+            .sync_runtime_config()
+            .await
+            .map_err(|rollback| format!("应用运行时配置失败: {}；恢复运行时配置失败: {}", error, rollback))?;
+        return Err(format!("应用运行时配置失败，已恢复原配置: {}", error));
     }
 
     crate::tray::update_tray_menu(&app);
@@ -325,7 +354,7 @@ pub async fn exempt_all_uwp_loopback(state: State<'_, AppState>) -> Result<UwpLo
     if !state.config.read().uwp_auto_exempt {
         let mut config = state.config.read().clone();
         config.uwp_auto_exempt = true;
-        state.persist_config(&config);
+        state.persist_config(&config).map_err(|error| error.to_string())?;
     }
     Ok(stats)
 }
@@ -336,7 +365,7 @@ pub async fn clear_all_uwp_loopback(state: State<'_, AppState>) -> Result<UwpLoo
     if state.config.read().uwp_auto_exempt {
         let mut config = state.config.read().clone();
         config.uwp_auto_exempt = false;
-        state.persist_config(&config);
+        state.persist_config(&config).map_err(|error| error.to_string())?;
     }
     Ok(stats)
 }
@@ -431,6 +460,23 @@ pub async fn test_port_mapping_delay(
     };
     let actual_url = test_url.as_deref().unwrap_or(&default_url);
     let actual_timeout = timeout_ms.unwrap_or(default_timeout);
+
+    if mapping.residential_proxy_id.is_some() {
+        if !mapping.enabled {
+            return Err("请先启用住宅代理链端口后再进行测速".to_string());
+        }
+        let target = chain_proxy_name(mapping.port);
+        let result = state
+            .latency_probe
+            .test_node(&target, None, Some(actual_url), Some(actual_timeout), Some(&id))
+            .await;
+        state
+            .port_router
+            .update_port_latency(&id, result.as_ref().ok().copied())
+            .map_err(|error| error.to_string())?;
+        crate::tray::update_tray_menu(&app);
+        return result.map_err(|error| error.to_string());
+    }
 
     let fb_info = mapping
         .fallback_node_name
@@ -561,6 +607,10 @@ pub async fn test_port_fallback_delay(
         .get_port_mapping_by_id(&id)
         .ok_or_else(|| format!("未找到 ID 为 '{}' 的端口映射", id))?;
 
+    if mapping.residential_proxy_id.is_some() {
+        return Err("住宅代理链端口不支持备用节点测速".to_string());
+    }
+
     let fb_name = mapping
         .fallback_node_name
         .as_ref()
@@ -647,13 +697,21 @@ pub async fn test_all_port_mappings_delay(
     let mut auto_fb_groups: Vec<AutoFbGroupTarget> = Vec::new();
 
     for m in mappings.iter().filter(|m| m.enabled) {
+        if m.residential_proxy_id.is_some() {
+            let target = chain_proxy_name(m.port);
+            targets
+                .push(crate::core::latency_probe::BatchProbeTarget::new(target.clone()).with_mapping_id(m.id.clone()));
+            mapping_id_map.insert(target, m.id.clone());
+            continue;
+        }
         let runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
             format!("[{}] {}", pname, m.node_name)
         } else {
             m.node_name.clone()
         };
 
-        if let Some(fb_name) = &m.fallback_node_name
+        if m.residential_proxy_id.is_none()
+            && let Some(fb_name) = &m.fallback_node_name
             && !fb_name.trim().is_empty()
         {
             let fb_profile_id = m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id);
@@ -801,7 +859,7 @@ pub async fn get_port_fallback_statuses(
 
     for m in mappings
         .into_iter()
-        .filter(|m| m.enabled && m.fallback_node_name.is_some())
+        .filter(|m| m.enabled && m.residential_proxy_id.is_none() && m.fallback_node_name.is_some())
     {
         let fallback_node = match &m.fallback_node_name {
             Some(fb) if !fb.trim().is_empty() => fb.clone(),
@@ -998,7 +1056,8 @@ pub async fn update_profile(id: String, app: AppHandle, state: State<'_, AppStat
     let _ = state.sync_runtime_config().await;
 
     let mappings = state.port_router.get_port_mappings();
-    let drift_reports = DriftGuard::check_all(&mappings, &state.profile_manager);
+    let residential_proxies = state.config.read().residential_proxies.clone();
+    let drift_reports = DriftGuard::check_all(&mappings, &state.profile_manager, &residential_proxies);
     let has_drift = drift_reports
         .iter()
         .any(|r| r.profile_id == id && r.status != DriftStatus::Healthy);
@@ -1034,7 +1093,8 @@ pub async fn delete_profile(id: String, app: AppHandle, state: State<'_, AppStat
     let _ = state.sync_runtime_config().await;
 
     let mappings = state.port_router.get_port_mappings();
-    let drift_reports = DriftGuard::check_all(&mappings, &state.profile_manager);
+    let residential_proxies = state.config.read().residential_proxies.clone();
+    let drift_reports = DriftGuard::check_all(&mappings, &state.profile_manager, &residential_proxies);
     let has_drift = drift_reports.iter().any(|r| r.status != DriftStatus::Healthy);
     if has_drift {
         let _ = app.emit("node-drift-detected", &drift_reports);
@@ -1046,7 +1106,8 @@ pub async fn delete_profile(id: String, app: AppHandle, state: State<'_, AppStat
 #[tauri::command]
 pub async fn get_drift_reports(state: State<'_, AppState>) -> Result<Vec<PortDriftReport>, String> {
     let mappings = state.port_router.get_port_mappings();
-    let reports = DriftGuard::check_all(&mappings, &state.profile_manager);
+    let residential_proxies = state.config.read().residential_proxies.clone();
+    let reports = DriftGuard::check_all(&mappings, &state.profile_manager, &residential_proxies);
     Ok(reports)
 }
 
@@ -1584,6 +1645,35 @@ pub async fn query_node_egress_info(
         .map_err(|e| format!("切换节点探测通道失败: {}", e))?;
 
     crate::core::egress_probe::query_proxy_egress_info(probe_port, timeout_ms)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Tests a saved residential exit through the selected upstream node using a disposable,
+/// isolated Mihomo instance. The live runtime config, listeners, and connections are never
+/// touched, and no probe config is persisted.
+#[tauri::command]
+pub async fn test_residential_proxy(
+    residential_proxy_id: String,
+    profile_id: String,
+    node_name: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ResidentialProxyTestResult, String> {
+    state
+        .probe_residential_chain(Some(&app), &residential_proxy_id, &profile_id, &node_name, None)
+        .await
+}
+
+/// Probes egress through a specific local listener using its actual inbound protocol.
+/// This is the accurate path for chain ports and SOCKS5-only listeners.
+#[tauri::command]
+pub async fn query_port_egress_info(
+    port: u16,
+    protocol: InboundProtocol,
+    timeout_ms: Option<u64>,
+) -> Result<DirectEgressInfo, String> {
+    crate::core::egress_probe::query_port_egress_info(port, protocol, timeout_ms)
         .await
         .map_err(|e| e.to_string())
 }

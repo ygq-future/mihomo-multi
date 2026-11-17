@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use crate::models::PortMapping;
+use crate::models::{PortMapping, ResidentialProxy};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::IpAddr;
@@ -335,6 +335,10 @@ pub struct RuntimeTunConfig {
     pub dns_hijack: Vec<String>,
 }
 
+pub fn chain_proxy_name(port: u16) -> String {
+    format!("chain-{}", port)
+}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeGeneratorParams<'a> {
     pub controller_port: u16,
@@ -350,6 +354,7 @@ pub struct RuntimeGeneratorParams<'a> {
     pub tun_port: Option<u16>,
     pub global_rules: &'a [crate::models::PortRule],
     pub egress_probe_port: Option<u16>,
+    pub residential_proxies: &'a [ResidentialProxy],
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -433,7 +438,7 @@ impl MinimalRuntimeConfig {
     pub fn with_mappings(
         params: &RuntimeGeneratorParams<'_>,
         mappings: &[PortMapping],
-        proxies: Vec<serde_yaml_ng::Value>,
+        mut proxies: Vec<serde_yaml_ng::Value>,
         profile_names: &HashMap<String, String>,
     ) -> Self {
         let mut listeners = Vec::new();
@@ -474,9 +479,151 @@ impl MinimalRuntimeConfig {
             }
         };
 
+        // Each chain listener uses its generated residential exit for every destination.
+        // Missing prerequisites keep the listener active with a rejecting route.
+        let mut chain_targets: HashMap<u16, String> = HashMap::new();
+        let has_chains = mappings.iter().any(|mapping| {
+            mapping.enabled
+                && mapping
+                    .residential_proxy_id
+                    .as_deref()
+                    .is_some_and(|id| !id.trim().is_empty())
+        });
+        let mut upstream_dialers: HashMap<&str, &str> = HashMap::new();
+        if has_chains {
+            for proxy in &proxies {
+                if let Some(map) = proxy.as_mapping() {
+                    let name = map
+                        .get(serde_yaml_ng::Value::String("name".to_string()))
+                        .and_then(|value| value.as_str());
+                    let dialer = map
+                        .get(serde_yaml_ng::Value::String("dialer-proxy".to_string()))
+                        .and_then(|value| value.as_str());
+                    if let (Some(name), Some(dialer)) = (name, dialer) {
+                        upstream_dialers.insert(name, dialer);
+                    }
+                }
+            }
+        }
+
+        let mut chain_proxies: Vec<serde_yaml_ng::Value> = Vec::new();
+        let mut generated_chain_names: HashSet<String> = HashSet::new();
+        let mut reject_chains: HashSet<u16> = HashSet::new();
+        for mapping in mappings.iter().filter(|m| m.enabled) {
+            let Some(exit_id) = mapping
+                .residential_proxy_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+            else {
+                continue;
+            };
+
+            let build_chain = (|| -> Result<(String, serde_yaml_ng::Value), String> {
+                if mapping.id == crate::models::FIXED_DIRECT_PORT_ID || mapping.node_name == "DIRECT" {
+                    return Err("直连监听不能配置住宅代理链".to_string());
+                }
+
+                let exit = params
+                    .residential_proxies
+                    .iter()
+                    .find(|proxy| proxy.id.trim() == exit_id)
+                    .ok_or_else(|| "引用的住宅代理出口不存在（不会回退直连）".to_string())?;
+                exit.validate()?;
+                let proxy_type = exit.proxy_type().ok_or_else(|| "住宅代理出口协议无效".to_string())?;
+
+                let upstream = resolve_node_target(&mapping.node_name, &mapping.profile_id)
+                    .ok_or_else(|| format!("上游节点「{}」不存在（不会回退直连）", mapping.node_name))?;
+
+                let mut dialer_cursor = upstream.as_str();
+                let mut visited_dialers: HashSet<&str> = HashSet::new();
+                while let Some(&dialer) = upstream_dialers.get(dialer_cursor) {
+                    if dialer == "DIRECT" {
+                        break;
+                    }
+                    if !available_proxy_names.contains(dialer) {
+                        return Err(format!(
+                            "上游节点「{}」引用了未导入的 dialer-proxy「{}」，不支持嵌套代理链",
+                            mapping.node_name, dialer
+                        ));
+                    }
+                    if !visited_dialers.insert(dialer_cursor) {
+                        return Err(format!(
+                            "上游节点「{}」存在循环 dialer-proxy 引用，无法生成代理链",
+                            mapping.node_name
+                        ));
+                    }
+                    dialer_cursor = dialer;
+                }
+
+                let chain_name = chain_proxy_name(mapping.port);
+                if available_proxy_names.contains(&chain_name) || !generated_chain_names.insert(chain_name.clone()) {
+                    return Err(format!("生成的链式出口名称「{}」与现有节点冲突", chain_name));
+                }
+
+                let mut entry = serde_yaml_ng::Mapping::new();
+                entry.insert(
+                    serde_yaml_ng::Value::String("name".to_string()),
+                    serde_yaml_ng::Value::String(chain_name.clone()),
+                );
+                entry.insert(
+                    serde_yaml_ng::Value::String("type".to_string()),
+                    serde_yaml_ng::Value::String(proxy_type.to_string()),
+                );
+                entry.insert(
+                    serde_yaml_ng::Value::String("server".to_string()),
+                    serde_yaml_ng::Value::String(exit.server.trim().to_string()),
+                );
+                entry.insert(
+                    serde_yaml_ng::Value::String("port".to_string()),
+                    serde_yaml_ng::Value::from(exit.port),
+                );
+                if !exit.username.trim().is_empty() {
+                    entry.insert(
+                        serde_yaml_ng::Value::String("username".to_string()),
+                        serde_yaml_ng::Value::String(exit.username.clone()),
+                    );
+                    entry.insert(
+                        serde_yaml_ng::Value::String("password".to_string()),
+                        serde_yaml_ng::Value::String(exit.password.clone()),
+                    );
+                }
+                entry.insert(
+                    serde_yaml_ng::Value::String("dialer-proxy".to_string()),
+                    serde_yaml_ng::Value::String(upstream),
+                );
+
+                Ok((chain_name, serde_yaml_ng::Value::Mapping(entry)))
+            })();
+
+            match build_chain {
+                Ok((chain_name, chain_proxy)) => {
+                    chain_proxies.push(chain_proxy);
+                    chain_targets.insert(mapping.port, chain_name);
+                }
+                Err(reason) => {
+                    warn!(
+                        port = mapping.port,
+                        reason = %reason,
+                        "Residential chain prerequisites unavailable; listener will reject all connections"
+                    );
+                    reject_chains.insert(mapping.port);
+                }
+            }
+        }
+        proxies.extend(chain_proxies);
+
         // Pass 1: Compute target_action and build fallback groups for each enabled port
         let mut port_target_actions: HashMap<u16, String> = HashMap::new();
         for m in mappings.iter().filter(|m| m.enabled) {
+            if reject_chains.contains(&m.port) {
+                port_target_actions.insert(m.port, "REJECT".to_string());
+                continue;
+            }
+            if let Some(chain_name) = chain_targets.get(&m.port) {
+                port_target_actions.insert(m.port, chain_name.clone());
+                continue;
+            }
             if m.id == crate::models::FIXED_DIRECT_PORT_ID || m.node_name == "DIRECT" {
                 port_target_actions.insert(m.port, "DIRECT".to_string());
                 continue;
@@ -530,6 +677,45 @@ impl MinimalRuntimeConfig {
                 .get(&m.port)
                 .cloned()
                 .unwrap_or_else(|| "DIRECT".to_string());
+
+            if reject_chains.contains(&m.port) {
+                // A chain with a missing upstream/exit keeps listening and blocks every
+                // destination. It must never downgrade to DIRECT or to the bare upstream node.
+                let sub_rule_name = format!("sub-rule-{}", m.port);
+                sub_rules.insert(sub_rule_name.clone(), vec!["MATCH,REJECT".to_string()]);
+                rules.push(format!("SUB-RULE,(IN-PORT,{}),{}", m.port, sub_rule_name));
+                if Some(m.port) == params.tun_port {
+                    tun_target = Some("REJECT".to_string());
+                    tun_sub_rule = Some(sub_rule_name.clone());
+                }
+                listeners.push(RuntimeListener {
+                    name: listener_name,
+                    listener_type,
+                    port: m.port,
+                    listen: listen_addr.to_string(),
+                    proxy: None,
+                    rule: Some(sub_rule_name),
+                });
+                continue;
+            }
+
+            if chain_targets.contains_key(&m.port) {
+                // Chain ports bypass every routing rule (local, global, CN) so all
+                // destinations use the residential chain; no fallback group is built.
+                if Some(m.port) == params.tun_port {
+                    tun_target = Some(target_action.clone());
+                }
+                listeners.push(RuntimeListener {
+                    name: listener_name,
+                    listener_type,
+                    port: m.port,
+                    listen: listen_addr.to_string(),
+                    proxy: Some(target_action.clone()),
+                    rule: None,
+                });
+                rules.push(format!("IN-PORT,{},{}", m.port, target_action));
+                continue;
+            }
 
             if m.id == crate::models::FIXED_DIRECT_PORT_ID || m.node_name == "DIRECT" {
                 if Some(m.port) == params.tun_port {
@@ -763,6 +949,7 @@ mod tests {
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let mapping2 = PortMapping {
@@ -778,6 +965,7 @@ mod tests {
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let mapping_disabled = PortMapping {
@@ -793,6 +981,7 @@ mod tests {
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -823,6 +1012,7 @@ password: pass
             tun_port: None,
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(
@@ -884,6 +1074,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let params = RuntimeGeneratorParams {
@@ -900,6 +1091,7 @@ password: pass
             tun_port: None,
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
         let config = MinimalRuntimeConfig::with_mappings(&params, &[direct_mapping], Vec::new(), &HashMap::new());
         let yaml = config.to_yaml().expect("YAML serialize failed");
@@ -923,6 +1115,7 @@ password: pass
             fallback_node_name: Some("HK-Node-02".to_string()),
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -962,6 +1155,7 @@ password: pass
             tun_port: None,
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], proxies, &profile_map);
@@ -990,6 +1184,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let mapping_global = PortMapping {
@@ -1005,6 +1200,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
 
@@ -1035,6 +1231,7 @@ password: pass
             tun_port: None,
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
 
         let config =
@@ -1070,6 +1267,7 @@ password: pass
             fallback_node_name: Some("HK-Backup".to_string()),
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1109,6 +1307,7 @@ password: pass
             tun_port: None,
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1, p2], &profile_map);
@@ -1141,6 +1340,7 @@ password: pass
             fallback_node_name: Some("HK-Node-02".to_string()),
             bypass_cn: false,
             manual_fallback: true,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1180,6 +1380,7 @@ password: pass
             tun_port: None,
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], proxies, &profile_map);
@@ -1235,6 +1436,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1265,6 +1467,7 @@ password: pass
             tun_port: None,
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping_global], vec![p1], &profile_map);
         let yaml = config.to_yaml().expect("YAML serialize failed");
@@ -1292,6 +1495,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1321,6 +1525,7 @@ password: pass
             tun_port: Some(7899),
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1], &profile_map);
@@ -1353,6 +1558,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1382,6 +1588,7 @@ password: pass
             tun_port: Some(7899),
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1], &profile_map);
@@ -1408,6 +1615,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1437,6 +1645,7 @@ password: pass
             tun_port: Some(1234), // Not in mappings!
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[mapping], vec![p1], &profile_map);
@@ -1463,6 +1672,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![
                 PortRule {
                     id: "r1".to_string(),
@@ -1524,6 +1734,7 @@ password: pass
             fallback_node_name: Some("N1".to_string()),
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
 
@@ -1563,6 +1774,7 @@ password: pass
             tun_port: Some(7890),
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
 
         let config =
@@ -1597,6 +1809,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![PortRule {
                 id: "local-gemini".to_string(),
                 name: Some("Local Gemini Override".to_string()),
@@ -1623,6 +1836,7 @@ password: pass
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
 
@@ -1660,6 +1874,7 @@ password: pass
             tun_port: None,
             global_rules: &global_rules,
             egress_probe_port: None,
+            residential_proxies: &[],
         };
 
         let config =
@@ -1703,6 +1918,7 @@ password: pass
             tun_port: None,
             global_rules: &[],
             egress_probe_port: Some(19998),
+            residential_proxies: &[],
         };
 
         let config = MinimalRuntimeConfig::with_mappings(&params, &[], vec![p1, p2], &profile_map);
@@ -1722,5 +1938,355 @@ password: pass
         );
         assert!(config.rules.contains(&"IN-PORT,19998,egress-probe".to_string()));
         assert_eq!(config.rules.last(), Some(&"MATCH,DIRECT".to_string()));
+    }
+
+    fn residential_exit(protocol: &str) -> ResidentialProxy {
+        ResidentialProxy {
+            id: "res-1".to_string(),
+            name: "Managed Exit".to_string(),
+            protocol: protocol.to_string(),
+            server: "127.0.0.1".to_string(),
+            port: 55942,
+            username: "chain-user".to_string(),
+            password: "pw-1234".to_string(),
+        }
+    }
+
+    fn upstream_value(name: &str, server: &str, dialer: Option<&str>) -> serde_yaml_ng::Value {
+        let mut yaml = format!("name: \"{name}\"\ntype: http\nserver: {server}\nport: 55940\n");
+        if let Some(dialer) = dialer {
+            yaml.push_str(&format!("dialer-proxy: \"{dialer}\"\n"));
+        }
+        serde_yaml_ng::from_str(&yaml).expect("valid upstream yaml")
+    }
+
+    fn proxy_field<'a>(proxy: &'a serde_yaml_ng::Value, key: &str) -> Option<&'a serde_yaml_ng::Value> {
+        proxy
+            .as_mapping()
+            .and_then(|map| map.get(serde_yaml_ng::Value::String(key.to_string())))
+    }
+
+    fn assert_reject_listener(config: &MinimalRuntimeConfig, port: u16) {
+        let listener = config
+            .listeners
+            .iter()
+            .find(|l| l.port == port)
+            .expect("reject listener");
+        let sub_rule_name = format!("sub-rule-{}", port);
+        assert!(listener.proxy.is_none(), "REJECT listener must not select a proxy");
+        assert_eq!(listener.rule.as_deref(), Some(sub_rule_name.as_str()));
+        assert_eq!(
+            config.sub_rules.get(&sub_rule_name),
+            Some(&vec!["MATCH,REJECT".to_string()])
+        );
+        assert!(
+            config
+                .rules
+                .contains(&format!("SUB-RULE,(IN-PORT,{}),{}", port, sub_rule_name))
+        );
+        assert!(!config.rules.contains(&format!("IN-PORT,{},DIRECT", port)));
+        let chain_name = format!("chain-{}", port);
+        assert!(
+            !config.proxies.iter().any(|proxy| {
+                proxy_field(proxy, "name").and_then(|v| v.as_str()) == Some(chain_name.as_str())
+                    && proxy_field(proxy, "dialer-proxy").is_some()
+            }),
+            "rejected chain must not emit a chain proxy"
+        );
+    }
+
+    fn chain_mapping(port: u16, upstream: &str, exit_id: &str) -> PortMapping {
+        PortMapping {
+            id: format!("m-{port}"),
+            port,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "prof-1".to_string(),
+            node_name: upstream.to_string(),
+            residential_proxy_id: Some(exit_id.to_string()),
+            enabled: true,
+            ..PortMapping::default()
+        }
+    }
+
+    fn chain_params<'a>(
+        user_bypass: &'a [String],
+        global_rules: &'a [crate::models::PortRule],
+        residentials: &'a [ResidentialProxy],
+    ) -> RuntimeGeneratorParams<'a> {
+        RuntimeGeneratorParams {
+            controller_port: 9999,
+            secret: "chain-secret",
+            log_level: "info",
+            allow_lan: false,
+            test_url: "http://cp.cloudflare.com/generate_204",
+            timeout_ms: 3000,
+            fallback_interval: 5,
+            fallback_lazy: false,
+            user_bypass,
+            tun_enabled: false,
+            tun_port: None,
+            global_rules,
+            egress_probe_port: None,
+            residential_proxies: residentials,
+        }
+    }
+
+    #[test]
+    fn test_chain_generation_direction_auth_and_bypass_isolation() {
+        use crate::models::{PortRule, PortRuleMatchType, PortRuleTargetType};
+
+        let mut exit = residential_exit("http");
+        exit.port = 55942;
+        let residentials = vec![exit];
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let mut mapping = chain_mapping(7891, "HK-01", "res-1");
+        mapping.bypass_cn = true;
+        // Legacy/defensive data: chain generation must ignore fallback configuration entirely.
+        mapping.fallback_node_name = Some("Backup-Node".to_string());
+        mapping.fallback_profile_id = Some("prof-1".to_string());
+        mapping.manual_fallback = true;
+        mapping.rules = vec![PortRule {
+            id: "local-direct".to_string(),
+            name: None,
+            icon: None,
+            match_type: PortRuleMatchType::Domain,
+            payloads: vec!["should-not-route.example".to_string()],
+            target_type: PortRuleTargetType::Direct,
+            target_value: "DIRECT".to_string(),
+            target_profile_id: None,
+            enabled: true,
+        }];
+        let global_rules = vec![PortRule {
+            id: "global-direct".to_string(),
+            name: None,
+            icon: None,
+            match_type: PortRuleMatchType::DomainSuffix,
+            payloads: vec!["global.example".to_string()],
+            target_type: PortRuleTargetType::Direct,
+            target_value: "DIRECT".to_string(),
+            target_profile_id: None,
+            enabled: true,
+        }];
+        let user_bypass = vec!["bypass.example".to_string()];
+
+        let params = chain_params(&user_bypass, &global_rules, &residentials);
+        let config = MinimalRuntimeConfig::with_mappings(
+            &params,
+            &[mapping],
+            vec![upstream_value("[AirportA] HK-01", "1.1.1.1", None)],
+            &profile_map,
+        );
+
+        let chain = config
+            .proxies
+            .iter()
+            .find(|proxy| proxy_field(proxy, "name").and_then(|v| v.as_str()) == Some("chain-7891"))
+            .expect("generated chain proxy");
+        assert_eq!(proxy_field(chain, "type").and_then(|v| v.as_str()), Some("http"));
+        assert_eq!(proxy_field(chain, "server").and_then(|v| v.as_str()), Some("127.0.0.1"));
+        assert_eq!(proxy_field(chain, "port").and_then(|v| v.as_u64()), Some(55942));
+        assert_eq!(
+            proxy_field(chain, "username").and_then(|v| v.as_str()),
+            Some("chain-user")
+        );
+        assert_eq!(proxy_field(chain, "password").and_then(|v| v.as_str()), Some("pw-1234"));
+        assert_eq!(
+            proxy_field(chain, "dialer-proxy").and_then(|v| v.as_str()),
+            Some("[AirportA] HK-01"),
+            "chain exit must dial through the namespaced upstream node"
+        );
+
+        let listener = config.listeners.iter().find(|l| l.port == 7891).expect("listener");
+        assert_eq!(listener.proxy.as_deref(), Some("chain-7891"));
+        assert!(listener.rule.is_none(), "chain listener must not use sub-rules");
+        assert!(
+            config.proxy_groups.is_empty(),
+            "chain ports must not create fallback groups"
+        );
+        assert!(config.sub_rules.is_empty(), "chain ports must ignore all routing rules");
+        assert_eq!(
+            config.rules,
+            vec!["IN-PORT,7891,chain-7891".to_string(), "MATCH,DIRECT".to_string()],
+            "only the chain rule plus terminal MATCH remain"
+        );
+        let yaml = config.to_yaml().expect("yaml");
+        assert!(!yaml.contains("should-not-route.example"));
+        assert!(!yaml.contains("global.example"));
+        assert!(!yaml.contains("bypass.example"));
+        assert!(!yaml.contains("RULE-SET,cn_domain,DIRECT"));
+    }
+
+    #[test]
+    fn test_chain_generation_socks5_exit_type() {
+        let residentials = vec![residential_exit("socks5")];
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let params = chain_params(&[], &[], &residentials);
+        let config = MinimalRuntimeConfig::with_mappings(
+            &params,
+            &[chain_mapping(7891, "HK-01", "res-1")],
+            vec![upstream_value("[AirportA] HK-01", "1.1.1.1", None)],
+            &profile_map,
+        );
+        let chain = config
+            .proxies
+            .iter()
+            .find(|proxy| proxy_field(proxy, "name").and_then(|v| v.as_str()) == Some("chain-7891"))
+            .expect("generated chain proxy");
+        assert_eq!(proxy_field(chain, "type").and_then(|v| v.as_str()), Some("socks5"));
+    }
+
+    #[test]
+    fn test_chain_two_ports_reuse_upstream_with_distinct_exits() {
+        let residentials = vec![residential_exit("http")];
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let params = chain_params(&[], &[], &residentials);
+        let config = MinimalRuntimeConfig::with_mappings(
+            &params,
+            &[
+                chain_mapping(7891, "HK-01", "res-1"),
+                chain_mapping(7892, "HK-01", "res-1"),
+            ],
+            vec![upstream_value("[AirportA] HK-01", "1.1.1.1", None)],
+            &profile_map,
+        );
+        assert_eq!(config.proxies.len(), 3, "one upstream plus one exit per port");
+        for chain_name in ["chain-7891", "chain-7892"] {
+            let chain = config
+                .proxies
+                .iter()
+                .find(|proxy| proxy_field(proxy, "name").and_then(|v| v.as_str()) == Some(chain_name))
+                .expect("per-port chain proxy");
+            assert_eq!(
+                proxy_field(chain, "dialer-proxy").and_then(|v| v.as_str()),
+                Some("[AirportA] HK-01")
+            );
+        }
+        assert_eq!(config.listeners.len(), 2);
+        assert_eq!(
+            config.rules,
+            vec![
+                "IN-PORT,7891,chain-7891".to_string(),
+                "IN-PORT,7892,chain-7892".to_string(),
+                "MATCH,DIRECT".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_chain_same_exit_distinct_upstreams_are_isolated() {
+        let residentials = vec![residential_exit("http")];
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let params = chain_params(&[], &[], &residentials);
+        let config = MinimalRuntimeConfig::with_mappings(
+            &params,
+            &[
+                chain_mapping(7891, "HK-01", "res-1"),
+                chain_mapping(7892, "US-01", "res-1"),
+            ],
+            vec![
+                upstream_value("[AirportA] HK-01", "1.1.1.1", None),
+                upstream_value("[AirportA] US-01", "2.2.2.2", None),
+            ],
+            &profile_map,
+        );
+        for (chain_name, upstream) in [("chain-7891", "[AirportA] HK-01"), ("chain-7892", "[AirportA] US-01")] {
+            let chain = config
+                .proxies
+                .iter()
+                .find(|proxy| proxy_field(proxy, "name").and_then(|v| v.as_str()) == Some(chain_name))
+                .expect("per-port chain proxy");
+            assert_eq!(
+                proxy_field(chain, "dialer-proxy").and_then(|v| v.as_str()),
+                Some(upstream),
+                "each port keeps its own upstream dialer"
+            );
+        }
+        assert_eq!(config.proxies.len(), 4);
+    }
+
+    #[test]
+    fn test_chain_missing_exit_and_upstream_keep_listening_with_reject() {
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+        let upstream = upstream_value("[AirportA] HK-01", "1.1.1.1", None);
+
+        let missing_exit = MinimalRuntimeConfig::with_mappings(
+            &chain_params(&[], &[], &[]),
+            &[chain_mapping(7891, "HK-01", "deleted-exit")],
+            vec![upstream.clone()],
+            &profile_map,
+        );
+        assert_reject_listener(&missing_exit, 7891);
+
+        let residentials = vec![residential_exit("http")];
+        let missing_upstream = MinimalRuntimeConfig::with_mappings(
+            &chain_params(&[], &[], &residentials),
+            &[chain_mapping(7891, "Missing-Node", "res-1")],
+            vec![upstream],
+            &profile_map,
+        );
+        assert_reject_listener(&missing_upstream, 7891);
+        assert!(missing_upstream.proxies.len() == 1, "only the raw upstream remains");
+    }
+
+    #[test]
+    fn test_chain_unsupported_nested_dialer_becomes_reject() {
+        let residentials = vec![residential_exit("http")];
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let nested = MinimalRuntimeConfig::with_mappings(
+            &chain_params(&[], &[], &residentials),
+            &[chain_mapping(7891, "HK-01", "res-1")],
+            vec![upstream_value("[AirportA] HK-01", "1.1.1.1", Some("ImportedGroup"))],
+            &profile_map,
+        );
+        assert_reject_listener(&nested, 7891);
+    }
+
+    #[test]
+    fn test_chain_fixed_direct_and_name_collision_become_reject() {
+        let residentials = vec![residential_exit("http")];
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-1".to_string(), "AirportA".to_string());
+
+        let mut direct = chain_mapping(7878, "DIRECT", "res-1");
+        direct.id = crate::models::FIXED_DIRECT_PORT_ID.to_string();
+        let direct_config = MinimalRuntimeConfig::with_mappings(
+            &chain_params(&[], &[], &residentials),
+            &[direct],
+            Vec::new(),
+            &profile_map,
+        );
+        assert_reject_listener(&direct_config, 7878);
+
+        let collision = MinimalRuntimeConfig::with_mappings(
+            &chain_params(&[], &[], &residentials),
+            &[chain_mapping(7891, "HK-01", "res-1")],
+            vec![
+                upstream_value("[AirportA] HK-01", "1.1.1.1", None),
+                upstream_value("chain-7891", "3.3.3.3", None),
+            ],
+            &profile_map,
+        );
+        assert_reject_listener(&collision, 7891);
+        let retained = collision
+            .proxies
+            .iter()
+            .find(|proxy| proxy_field(proxy, "name").and_then(|value| value.as_str()) == Some("chain-7891"))
+            .expect("imported proxy with a colliding name is retained");
+        assert_eq!(
+            proxy_field(retained, "server").and_then(|value| value.as_str()),
+            Some("3.3.3.3")
+        );
+        assert!(proxy_field(retained, "dialer-proxy").is_none());
     }
 }

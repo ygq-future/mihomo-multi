@@ -309,31 +309,84 @@ impl ProfileManager {
             node.profile_id = Some(profile_id.to_string());
             node.profile_name = Some(profile_name.to_string());
             node.runtime_name = Some(format!("[{}] {}", profile_name, node.name));
-            node_names.insert(node.name.clone());
-        }
-
-        let mut raw_proxies = Vec::new();
-        if let Ok(extracted) = extract_raw_proxies_from_yaml(yaml_content) {
-            for mut proxy in extracted {
-                if let Some(map) = proxy.as_mapping_mut() {
-                    let original_name = map
-                        .get(serde_yaml_ng::Value::String("name".to_string()))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .trim()
-                        .to_string();
-
-                    if !original_name.is_empty() {
-                        let runtime_name = format!("[{}] {}", profile_name, original_name);
-                        map.insert(
-                            serde_yaml_ng::Value::String("name".to_string()),
-                            serde_yaml_ng::Value::String(runtime_name),
-                        );
-                        raw_proxies.push(proxy);
-                    }
-                }
+            if !node_names.insert(node.name.clone()) {
+                return Err(AppError::InvalidConfig(format!(
+                    "订阅中存在重复节点名称「{}」",
+                    node.name
+                )));
             }
         }
+
+        let mut raw_proxies = extract_raw_proxies_from_yaml(yaml_content)?;
+        let name_key = serde_yaml_ng::Value::String("name".to_string());
+        let dialer_key = serde_yaml_ng::Value::String("dialer-proxy".to_string());
+        let mut dialers = HashMap::new();
+        for proxy in &raw_proxies {
+            let Some(map) = proxy.as_mapping() else { continue };
+            let Some(name) = map.get(&name_key).and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let Some(dialer) = map.get(&dialer_key) else { continue };
+            let target = dialer
+                .as_str()
+                .map(str::trim)
+                .filter(|target| !target.is_empty())
+                .ok_or_else(|| {
+                    AppError::InvalidConfig(format!("节点「{}」的 dialer-proxy 必须是非空节点名称", name))
+                })?;
+            if !node_names.contains(target) && target != "DIRECT" {
+                return Err(AppError::InvalidConfig(format!(
+                    "节点「{}」的 dialer-proxy「{}」不在本订阅节点中；仅支持节点间引用或 DIRECT，不支持代理组引用",
+                    name, target
+                )));
+            }
+            dialers.insert(name.trim(), target);
+        }
+        let mut complete = HashSet::new();
+        let mut active = HashSet::new();
+        for &name in dialers.keys() {
+            let mut current = name;
+            while let Some(&next) = dialers.get(current) {
+                if complete.contains(current) {
+                    break;
+                }
+                if !active.insert(current) {
+                    return Err(AppError::InvalidConfig(format!(
+                        "节点「{}」存在循环 dialer-proxy 引用",
+                        name
+                    )));
+                }
+                if next == "DIRECT" {
+                    break;
+                }
+                current = next;
+            }
+            complete.extend(active.drain());
+        }
+        raw_proxies.retain_mut(|proxy| {
+            let Some(map) = proxy.as_mapping_mut() else {
+                return false;
+            };
+            let Some(name) = map
+                .get(&name_key)
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            else {
+                return false;
+            };
+            let runtime_name = format!("[{}] {}", profile_name, name);
+            if let Some(target) = map.get(&dialer_key).and_then(|value| value.as_str()).map(str::trim) {
+                let runtime_target = if target == "DIRECT" {
+                    target.to_string()
+                } else {
+                    format!("[{}] {}", profile_name, target)
+                };
+                map.insert(dialer_key.clone(), serde_yaml_ng::Value::String(runtime_target));
+            }
+            map.insert(name_key.clone(), serde_yaml_ng::Value::String(runtime_name));
+            true
+        });
 
         Ok(ProfileNodeIndexEntry {
             nodes,
@@ -652,17 +705,35 @@ impl ProfileManager {
         if name_changed {
             let mut index_guard = self.node_index.write();
             if let Some(entry) = index_guard.get_mut(id) {
+                let previous_prefix = entry
+                    .nodes
+                    .first()
+                    .and_then(|node| node.profile_name.as_deref())
+                    .map(|name| format!("[{}] ", name));
                 for node in &mut entry.nodes {
                     node.profile_name = Some(trimmed_name.clone());
                     node.runtime_name = Some(format!("[{}] {}", trimmed_name, node.name));
                 }
                 for (node, proxy) in entry.nodes.iter().zip(entry.raw_proxies.iter_mut()) {
                     if let Some(map) = proxy.as_mapping_mut() {
-                        let new_runtime_name = format!("[{}] {}", trimmed_name, node.name);
-                        map.insert(
-                            serde_yaml_ng::Value::String("name".to_string()),
-                            serde_yaml_ng::Value::String(new_runtime_name),
-                        );
+                        let dialer_key = serde_yaml_ng::Value::String("dialer-proxy".to_string());
+                        if let Some(target) = map.get(&dialer_key).and_then(|value| value.as_str())
+                            && let Some(name) = previous_prefix
+                                .as_deref()
+                                .and_then(|prefix| target.strip_prefix(prefix))
+                            && entry.node_names.contains(name)
+                        {
+                            map.insert(
+                                dialer_key,
+                                serde_yaml_ng::Value::String(format!("[{}] {}", trimmed_name, name)),
+                            );
+                        }
+                        if let Some(runtime_name) = &node.runtime_name {
+                            map.insert(
+                                serde_yaml_ng::Value::String("name".to_string()),
+                                serde_yaml_ng::Value::String(runtime_name.clone()),
+                            );
+                        }
                     }
                 }
             }
@@ -1006,5 +1077,70 @@ proxies:
         assert_eq!(manager.get_all_nodes().len(), 0);
         assert!(manager.get_profile_nodes(&profile.id).is_err());
         assert!(!manager.has_node(&profile.id, "SG-Hysteria2-04"));
+    }
+    #[test]
+    fn imported_dialers_follow_subscription_namespace_and_renames() {
+        let yaml = r#"
+proxies:
+  - {name: Exit, type: socks5, server: exit.example, port: 1080, username: test-user, password: fixture-credential, dialer-proxy: Relay}
+  - {name: Relay, type: http, server: relay.example, port: 8080, dialer-proxy: DIRECT}
+"#;
+        let manager = ProfileManager::new_in_memory();
+        let profile = manager
+            .add_in_memory_profile("Airport A".to_string(), yaml)
+            .expect("import chain");
+        manager
+            .add_in_memory_profile("Airport B".to_string(), yaml)
+            .expect("import same names in another profile");
+        let raw = manager.get_raw_proxies_for_all_profiles();
+        assert_eq!(raw[0]["name"].as_str(), Some("[Airport A] Exit"));
+        assert_eq!(raw[0]["dialer-proxy"].as_str(), Some("[Airport A] Relay"));
+        assert_eq!(raw[0]["username"].as_str(), Some("test-user"));
+        assert_eq!(raw[0]["password"].as_str(), Some("fixture-credential"));
+        assert_eq!(raw[1]["dialer-proxy"].as_str(), Some("DIRECT"));
+        assert_eq!(raw[2]["dialer-proxy"].as_str(), Some("[Airport B] Relay"));
+        manager
+            .edit_profile(&profile.id, "Renamed".to_string(), None, 0)
+            .expect("rename profile");
+        let renamed = manager.get_raw_proxies_for_all_profiles();
+        assert_eq!(renamed[0]["dialer-proxy"].as_str(), Some("[Renamed] Relay"));
+        manager
+            .update_profile_with_yaml(&profile.id, yaml)
+            .expect("refresh chain");
+        assert_eq!(
+            manager.get_raw_proxies_for_all_profiles()[0]["dialer-proxy"].as_str(),
+            Some("[Renamed] Relay")
+        );
+    }
+
+    #[test]
+    fn imported_dialers_reject_missing_groups_cycles_and_invalid_targets() {
+        for (yaml, message) in [
+            ("proxies: [{name: Exit, dialer-proxy: Missing}]", "不在本订阅节点中"),
+            (
+                "proxies: [{name: Exit, dialer-proxy: Group}]\nproxy-groups: [{name: Group, type: select, proxies: [DIRECT]}]",
+                "不支持代理组引用",
+            ),
+            (
+                "proxies: [{name: A, dialer-proxy: B}, {name: B, dialer-proxy: A}]",
+                "循环",
+            ),
+            ("proxies: [{name: A, dialer-proxy: A}]", "循环"),
+            ("proxies: [{name: A, dialer-proxy: 123}]", "非空节点名称"),
+            ("proxies: [{name: A, dialer-proxy: ''}]", "非空节点名称"),
+            ("proxies: [{name: A}, {name: A}]", "重复节点名称"),
+        ] {
+            let error =
+                ProfileManager::index_yaml_content("p", "Airport", yaml).expect_err("invalid chain is rejected");
+            assert!(error.to_string().contains(message), "unexpected error: {error}");
+        }
+    }
+    #[test]
+    fn imported_direct_dialer_retains_builtin_semantics() {
+        let yaml = "proxies: [{name: DIRECT, dialer-proxy: DIRECT}, {name: Exit, dialer-proxy: ' DIRECT '}]";
+        let indexed = ProfileManager::index_yaml_content("p", "Airport", yaml).expect("built in direct references");
+        assert_eq!(indexed.raw_proxies[0]["name"].as_str(), Some("[Airport] DIRECT"));
+        assert_eq!(indexed.raw_proxies[0]["dialer-proxy"].as_str(), Some("DIRECT"));
+        assert_eq!(indexed.raw_proxies[1]["dialer-proxy"].as_str(), Some("DIRECT"));
     }
 }

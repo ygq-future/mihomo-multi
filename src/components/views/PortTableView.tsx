@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Building2,
   Copy,
   Edit2,
   Globe,
@@ -20,6 +21,7 @@ import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import type {
   DirectEgressInfo,
+  InboundProtocol,
   LanIpInfo,
   PortDriftReport,
   PortMapping,
@@ -105,6 +107,9 @@ export const PortTableView: React.FC = () => {
     nodeEgressIps,
     probingEgressNodeKeys,
     probeNodeEgressIp,
+    portEgressIps,
+    probingPortEgress,
+    probePortEgressIp,
   } = useAppStore()
   const isRunning = coreStatus?.running ?? false
   const hasFallback = portMappings.some(
@@ -216,6 +221,27 @@ export const PortTableView: React.FC = () => {
       }
     },
     [directEgressInfo, handleProbeDirectEgress],
+  )
+
+  const handleCopyChainEgressIp = useCallback(
+    async (port: number, protocol: InboundProtocol) => {
+      try {
+        const info = await probePortEgressIp(port, protocol)
+        try {
+          await navigator.clipboard.writeText(info.ip)
+          toast.success(
+            `已复制链路出口 IP: ${info.ip}${info.region ? ` (${info.region})` : ''}`,
+          )
+        } catch {
+          toast.error('复制到剪贴板失败，请手动复制')
+        }
+      } catch (err) {
+        toast.error(
+          `链路出口检测失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    },
+    [probePortEgressIp],
   )
 
   // Auto-probe on first mount if no cache exists
@@ -394,16 +420,31 @@ export const PortTableView: React.FC = () => {
     )
   }, [enabledPorts])
 
+  const getResidentialProxy = useCallback(
+    (mapping: PortMapping) =>
+      mapping.residentialProxyId
+        ? (config?.residentialProxies?.find(
+            (proxy) => proxy.id === mapping.residentialProxyId,
+          ) ?? null)
+        : null,
+    [config],
+  )
+
   const egressPortOptions = useMemo(() => {
     return proxyEnabledPorts.map((m) => {
-      const region = extractRegion(m.nodeName)
+      const exit = getResidentialProxy(m)
+      const region = extractRegion(exit?.name ?? m.nodeName)
       return {
         value: String(m.port),
-        label: `${region.name} ${m.port}`,
-        icon: <RegionFlag code={region.code} size="sm" />,
+        label: exit ? `${exit.name} ${m.port}` : `${region.name} ${m.port}`,
+        icon: exit ? (
+          <Building2 className="w-3.5 h-3.5 text-sky-500" />
+        ) : (
+          <RegionFlag code={region.code} size="sm" />
+        ),
       }
     })
-  }, [proxyEnabledPorts])
+  }, [proxyEnabledPorts, getResidentialProxy])
 
   const envProxyOptions = useMemo(() => {
     return [
@@ -412,15 +453,20 @@ export const PortTableView: React.FC = () => {
         label: '关闭',
       },
       ...proxyEnabledPorts.map((m) => {
-        const region = extractRegion(m.nodeName)
+        const exit = getResidentialProxy(m)
+        const region = extractRegion(exit?.name ?? m.nodeName)
         return {
           value: String(m.port),
-          label: `${region.name} ${m.port}`,
-          icon: <RegionFlag code={region.code} size="sm" />,
+          label: exit ? `${exit.name} ${m.port}` : `${region.name} ${m.port}`,
+          icon: exit ? (
+            <Building2 className="w-3.5 h-3.5 text-sky-500" />
+          ) : (
+            <RegionFlag code={region.code} size="sm" />
+          ),
         }
       }),
     ]
-  }, [proxyEnabledPorts])
+  }, [proxyEnabledPorts, getResidentialProxy])
 
   const handleToggleEnvProxyForPort = useCallback(
     async (targetPort: number) => {
@@ -911,7 +957,7 @@ export const PortTableView: React.FC = () => {
               </h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 点击上方按钮，分配独立本地入站端口（如
-                7891、7892）并精确绑定至指定的订阅代理节点。
+                7891、7892）并精确绑定至指定的订阅代理节点；也可叠加认证型住宅出口形成固定链路。
               </p>
             </div>
 
@@ -935,6 +981,8 @@ export const PortTableView: React.FC = () => {
               const isTesting = testingPortIds[m.id] || false
               const isDirectCard =
                 m.id === FIXED_DIRECT_PORT_ID || m.nodeName === 'DIRECT'
+              const residentialProxy = getResidentialProxy(m)
+              const isChainPort = Boolean(m.residentialProxyId)
               const profileName = profileMap[m.profileId] || '未知订阅'
               const drift = driftMap[m.id]
               const isDrifted = drift && drift.status !== 'healthy'
@@ -942,9 +990,9 @@ export const PortTableView: React.FC = () => {
                 ? `[${profileName}] ${m.nodeName}`
                 : m.nodeName
 
-              // Robust latency lookup preserving null (timeout)
-              const latency =
-                nodeKey in latencies && latencies[nodeKey] !== undefined
+              const latency = isChainPort
+                ? m.latency
+                : nodeKey in latencies && latencies[nodeKey] !== undefined
                   ? latencies[nodeKey]
                   : m.nodeName in latencies &&
                       latencies[m.nodeName] !== undefined
@@ -969,7 +1017,7 @@ export const PortTableView: React.FC = () => {
                 isRunning && m.enabled && occupiedPorts.includes(m.port)
               // 3. Fallback Degraded Warning (Amber)
               const fbStatus = fallbackStatuses[m.id]
-              const hasFallback = Boolean(m.fallbackNodeName)
+              const hasFallback = !isChainPort && Boolean(m.fallbackNodeName)
               const isManualFallback = m.manualFallback ?? false
               const isAutoFallbackActive =
                 !isManualFallback &&
@@ -1035,6 +1083,12 @@ export const PortTableView: React.FC = () => {
                     m.profileId,
                     nodeKey,
                   )
+              const chainEgressInfo = isChainPort
+                ? portEgressIps[m.port]
+                : undefined
+              const isProbingChain = isChainPort
+                ? Boolean(probingPortEgress[m.port])
+                : false
               const fallbackEgressInfo =
                 hasFallback && m.fallbackNodeName
                   ? lookupNodeEgressInfo(
@@ -1134,6 +1188,20 @@ export const PortTableView: React.FC = () => {
                           <Zap className="w-2.5 h-2.5 text-sky-500" />
                           直通
                         </Badge>
+                      ) : isChainPort ? (
+                        <Badge
+                          variant="outline"
+                          size="sm"
+                          className="!text-[10px] !py-0.5 !px-1.5 font-medium text-sky-500 border-sky-500/30 bg-sky-500/5 shrink-0 flex items-center gap-1"
+                          title={
+                            residentialProxy
+                              ? `全量流量经上游 ${m.nodeName} → 住宅出口 ${residentialProxy.name}；绕过大陆、备用节点与分流规则均不生效`
+                              : '住宅出口配置缺失，该端口将拒绝流量'
+                          }
+                        >
+                          <Building2 className="w-2.5 h-2.5 text-sky-500" />
+                          住宅链路
+                        </Badge>
                       ) : m.bypassCn !== false ? (
                         <Badge
                           variant="secondary"
@@ -1176,7 +1244,7 @@ export const PortTableView: React.FC = () => {
                             ENV代理
                           </Badge>
                         )}
-                      {m.rules && m.rules.length > 0 && (
+                      {!isChainPort && m.rules && m.rules.length > 0 && (
                         <button
                           type="button"
                           onClick={() => {
@@ -1289,6 +1357,201 @@ export const PortTableView: React.FC = () => {
                         {!m.enabled && (
                           <span className="text-[10px] text-muted-foreground/60 shrink-0">
                             (未开启)
+                          </span>
+                        )}
+                      </div>
+
+                      {m.description?.trim() && (
+                        <div
+                          className="text-[10px] text-muted-foreground truncate italic pt-0.5"
+                          title={m.description}
+                        >
+                          {m.description}
+                        </div>
+                      )}
+                    </div>
+                  ) : isChainPort ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <div className="flex items-center gap-1.5 font-medium text-xs text-foreground min-w-0 flex-1">
+                          <Building2 className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                          <div className="relative flex items-center flex-1 min-w-0 group/exit">
+                            <span
+                              className={`truncate flex-1 font-semibold ${
+                                residentialProxy
+                                  ? 'text-foreground'
+                                  : 'text-destructive'
+                              }`}
+                              title={
+                                residentialProxy
+                                  ? `${residentialProxy.name} (${residentialProxy.protocol.toUpperCase()} ${residentialProxy.server}:${residentialProxy.port})`
+                                  : '住宅出口配置缺失，该端口将拒绝流量'
+                              }
+                            >
+                              {residentialProxy
+                                ? residentialProxy.name
+                                : '住宅出口缺失'}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={
+                                isProbingChain ||
+                                !m.enabled ||
+                                !residentialProxy
+                              }
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void handleCopyChainEgressIp(m.port, m.protocol)
+                              }}
+                              className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-5 px-2 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer disabled:opacity-70 transition-all duration-200 ease-out ${
+                                isProbingChain
+                                  ? 'opacity-100 scale-100 translate-x-0 pointer-events-auto'
+                                  : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/exit:opacity-100 group-hover/exit:scale-100 group-hover/exit:translate-x-0 group-hover/exit:pointer-events-auto'
+                              }`}
+                              title={
+                                isProbingChain
+                                  ? '正在经本地映射端口探测链路出口 IP...'
+                                  : !m.enabled
+                                    ? '端口未开启监听，无法检测链路出口'
+                                    : !residentialProxy
+                                      ? '住宅出口配置缺失'
+                                      : chainEgressInfo
+                                        ? `点击复制链路出口 IP: ${chainEgressInfo.ip}${chainEgressInfo.region ? ` (${chainEgressInfo.region})` : ''}`
+                                        : '点击经本地映射端口探测并复制最终出口 IP'
+                              }
+                            >
+                              {isProbingChain ? (
+                                <>
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                  <span>探测中</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-2.5 h-2.5" />
+                                  <span>出口IP</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                          <span
+                            className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 shrink-0 select-none"
+                            title="最终出口: 认证型住宅代理"
+                          >
+                            住宅出口
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1 text-[11px] text-muted-foreground">
+                          <span className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none">
+                            上游
+                          </span>
+                          {profileName && (
+                            <span
+                              className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
+                              title={`所属订阅: ${profileName}`}
+                            >
+                              {profileName}
+                            </span>
+                          )}
+                          <RegionFlag
+                            code={extractRegion(m.nodeName).code}
+                            size="sm"
+                          />
+                          <span
+                            className="truncate font-medium text-foreground"
+                            title={
+                              profileName
+                                ? `[${profileName}] ${m.nodeName}`
+                                : m.nodeName
+                            }
+                          >
+                            {m.nodeName}
+                          </span>
+                          {isDrifted && residentialProxy && (
+                            <Badge
+                              variant="danger"
+                              size="sm"
+                              dot
+                              className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
+                              title={
+                                drift?.message ||
+                                '上游节点在订阅中不存在，链路端口将拒绝流量'
+                              }
+                            >
+                              {drift?.status === 'profile_missing'
+                                ? '订阅已删 (链路拒绝)'
+                                : drift?.status === 'empty_profile'
+                                  ? '订阅无节点 (链路拒绝)'
+                                  : '链路失效 (链路拒绝)'}
+                            </Badge>
+                          )}
+                          {!residentialProxy && (
+                            <Badge
+                              variant="danger"
+                              size="sm"
+                              dot
+                              className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
+                              title="住宅出口已从配置中删除，该端口将拒绝流量"
+                            >
+                              出口缺失 (链路拒绝)
+                            </Badge>
+                          )}
+                        </div>
+                        <Badge
+                          variant={
+                            latency === undefined
+                              ? 'secondary'
+                              : isPrimaryTimeout
+                                ? 'danger'
+                                : 'success'
+                          }
+                          size="sm"
+                          dot={latency !== undefined}
+                          className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
+                          title={
+                            latency === undefined
+                              ? '尚未测速，点击底部延迟徽章测试完整链路'
+                              : isPrimaryTimeout
+                                ? '端口链路超时或住宅出口不可用，链路端口将拒绝流量'
+                                : '端口链路 (上游节点 → 住宅出口) 正常'
+                          }
+                        >
+                          {latency === undefined
+                            ? '待测速'
+                            : isPrimaryTimeout
+                              ? '链路异常'
+                              : '链路正常'}
+                        </Badge>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground min-w-0">
+                        <span
+                          className="truncate"
+                          title={
+                            chainEgressInfo
+                              ? `${chainEgressInfo.ip}${chainEgressInfo.region ? ` · ${chainEgressInfo.region}` : ''}`
+                              : '通过本地映射端口探测最终出口 IP'
+                          }
+                        >
+                          {chainEgressInfo
+                            ? `${chainEgressInfo.ip}${
+                                chainEgressInfo.region
+                                  ? ` · ${chainEgressInfo.region}`
+                                  : ''
+                              }`
+                            : m.enabled
+                              ? '点击探测链路最终出口 IP'
+                              : '端口未开启监听'}
+                        </span>
+                        {residentialProxy && (
+                          <span
+                            className="font-mono text-[10px] text-muted-foreground/70 truncate shrink-0"
+                            title={`住宅代理 ${residentialProxy.protocol.toUpperCase()} ${residentialProxy.server}:${residentialProxy.port}`}
+                          >
+                            {residentialProxy.protocol.toUpperCase()}{' '}
+                            {residentialProxy.server}:{residentialProxy.port}
                           </span>
                         )}
                       </div>
@@ -1631,9 +1894,11 @@ export const PortTableView: React.FC = () => {
                             disabled={!m.enabled || isTesting}
                             className="focus:outline-none flex items-center shrink-0"
                             title={
-                              hasFallback
-                                ? '点击单端口测速 (同时测速主节点与备用节点)'
-                                : '点击单端口测速'
+                              isChainPort
+                                ? '点击端口链路测速 (上游节点 → 住宅出口 → 目标)'
+                                : hasFallback
+                                  ? '点击单端口测速 (同时测速主节点与备用节点)'
+                                  : '点击单端口测速'
                             }
                           >
                             <Badge
@@ -1727,35 +1992,41 @@ export const PortTableView: React.FC = () => {
                                 setIsAddModalOpen(true)
                               }}
                               className="p-1 rounded text-amber-500 hover:bg-amber-500/10 transition-colors"
-                              title="修复漂移/失效的节点绑定"
+                              title={
+                                isChainPort
+                                  ? '修复失效的上游节点绑定'
+                                  : '修复漂移/失效的节点绑定'
+                              }
                             >
                               <Wrench className="w-3 h-3" />
                             </button>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRulesMapping(m)
-                              setRulesModalMode('port')
-                              setIsRulesModalOpen(true)
-                            }}
-                            className={`p-1 rounded transition-colors relative ${
-                              m.rules && m.rules.length > 0
-                                ? 'text-primary hover:bg-primary/10'
-                                : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                            }`}
-                            title={
-                              m.rules && m.rules.length > 0
-                                ? `管理网站分流规则 (已配置 ${m.rules.length} 条)`
-                                : '配置特定网站分流规则'
-                            }
-                          >
-                            <Split className="w-3 h-3" />
-                            {m.rules &&
-                              m.rules.filter((r) => r.enabled).length > 0 && (
-                                <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-primary" />
-                              )}
-                          </button>
+                          {!isChainPort && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRulesMapping(m)
+                                setRulesModalMode('port')
+                                setIsRulesModalOpen(true)
+                              }}
+                              className={`p-1 rounded transition-colors relative ${
+                                m.rules && m.rules.length > 0
+                                  ? 'text-primary hover:bg-primary/10'
+                                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                              }`}
+                              title={
+                                m.rules && m.rules.length > 0
+                                  ? `管理网站分流规则 (已配置 ${m.rules.length} 条)`
+                                  : '配置特定网站分流规则'
+                              }
+                            >
+                              <Split className="w-3 h-3" />
+                              {m.rules &&
+                                m.rules.filter((r) => r.enabled).length > 0 && (
+                                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-primary" />
+                                )}
+                            </button>
+                          )}
 
                           <button
                             type="button"
@@ -1853,7 +2124,9 @@ export const PortTableView: React.FC = () => {
           <p className="text-xs text-muted-foreground leading-relaxed">
             删除后，Mihomo 将立即释放端口{' '}
             <b className="text-foreground font-mono">{deletingMapping.port}</b>
-            ，绑定的代理节点将不再接收该端口的流量。
+            {deletingMapping.residentialProxyId
+              ? '，该端口的「上游节点 → 住宅出口」链路将立即失效。'
+              : '，绑定的代理节点将不再接收该端口的流量。'}
           </p>
         </Modal>
       )}

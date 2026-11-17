@@ -22,6 +22,7 @@ pub struct PortProbeContext {
     pub allow_lan: bool,
     pub core_pid: Option<u32>,
     pub reserved_ports: Vec<u16>,
+    pub residential_proxies: Vec<crate::models::ResidentialProxy>,
 }
 
 #[derive(Clone)]
@@ -56,6 +57,7 @@ impl PortRouter {
             fallback_node_name: None,
             bypass_cn: false,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         }
     }
@@ -168,7 +170,45 @@ impl PortRouter {
             ));
         }
 
+        // Empty optional ID is equivalent to "no chain".
+        mapping.residential_proxy_id = mapping
+            .residential_proxy_id
+            .take()
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty());
+
         let is_direct = mapping.id == crate::models::FIXED_DIRECT_PORT_ID || mapping.node_name == "DIRECT";
+        if let Some(exit_id) = mapping.residential_proxy_id.as_deref() {
+            if is_direct {
+                return Err(AppError::InvalidConfig("直连监听不能配置住宅代理链".to_string()));
+            }
+            let exit = ctx
+                .residential_proxies
+                .iter()
+                .find(|proxy| proxy.id.trim() == exit_id)
+                .ok_or_else(|| {
+                    AppError::InvalidConfig(format!("引用的住宅代理出口不存在，无法保存端口 {}", mapping.port))
+                })?;
+            exit.validate().map_err(AppError::InvalidConfig)?;
+            if mapping
+                .fallback_node_name
+                .as_deref()
+                .is_some_and(|name| !name.trim().is_empty())
+                || mapping
+                    .fallback_profile_id
+                    .as_deref()
+                    .is_some_and(|id| !id.trim().is_empty())
+                || mapping.manual_fallback
+            {
+                return Err(AppError::InvalidConfig(
+                    "住宅代理链端口不支持备用节点或手动降级，以避免出口被静默切换".to_string(),
+                ));
+            }
+            // Chain listeners must send every destination through the chain; CN bypass and
+            // per-port/global rules are intentionally ignored by the generator.
+            mapping.bypass_cn = false;
+        }
+
         if !is_direct {
             if mapping.profile_id.trim().is_empty() {
                 return Err(AppError::InvalidConfig("Profile ID cannot be empty".to_string()));
@@ -190,10 +230,13 @@ impl PortRouter {
         {
             let guard = self.ports.read();
 
-            if !is_direct {
-                // 1:1 Strict Node Binding Invariant: A proxy node can only be bound by a single port listener
+            if !is_direct && mapping.residential_proxy_id.is_none() {
+                // 1:1 Strict Node Binding Invariant: A proxy node can only be bound by a single
+                // direct port listener. Chain ports generate a distinct per-port exit proxy, so
+                // multiple ports (and a direct listener) may reuse the same upstream node.
                 for existing in guard.iter() {
                     if existing.id != mapping_id
+                        && existing.residential_proxy_id.is_none()
                         && existing.profile_id == mapping.profile_id
                         && existing.node_name == mapping.node_name
                     {
@@ -343,6 +386,12 @@ impl PortRouter {
             .get_port_mapping_by_id(id)
             .ok_or_else(|| AppError::PortMappingNotFound(format!("Port mapping with ID '{}' not found", id)))?;
 
+        if target.residential_proxy_id.is_some() {
+            return Err(AppError::InvalidConfig(
+                "住宅代理链端口不支持手动降级，以避免出口被静默切换".to_string(),
+            ));
+        }
+
         if target.fallback_node_name.as_ref().is_none_or(|fb| fb.trim().is_empty()) {
             return Err(AppError::InvalidConfig(
                 "该端口未配置备用节点，无法切换备用模式".to_string(),
@@ -365,6 +414,21 @@ impl PortRouter {
         );
 
         Ok(target)
+    }
+
+    pub fn clear_port_latencies(&self, mappings: &[PortMapping]) -> AppResult<()> {
+        if mappings.is_empty() {
+            return Ok(());
+        }
+        {
+            let mut ports = self.ports.write();
+            for port in ports.iter_mut() {
+                if mappings.iter().any(|mapping| mapping.id == port.id) {
+                    port.latency = None;
+                }
+            }
+        }
+        self.persist_metadata()
     }
 
     pub fn update_port_latency(&self, id: &str, latency: Option<u32>) -> AppResult<()> {
@@ -404,6 +468,7 @@ mod tests {
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             enabled,
             latency: None,
             description: Some(format!("Test Port {}", port)),
@@ -485,6 +550,7 @@ mod tests {
             allow_lan: false,
             core_pid: Some(999999),
             reserved_ports: vec![9999],
+            ..PortProbeContext::default()
         };
 
         // 1. Reserved port must not be available
@@ -557,6 +623,94 @@ mod tests {
         let saved = router.save_port_mapping(direct, &ctx).unwrap();
         assert_eq!(saved.port, 17878);
         assert_eq!(router.get_port_mappings()[0].port, 17878);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    fn residential_exit() -> crate::models::ResidentialProxy {
+        crate::models::ResidentialProxy {
+            id: "res-1".to_string(),
+            name: "Managed Exit".to_string(),
+            protocol: "socks5".to_string(),
+            server: "127.0.0.1".to_string(),
+            port: 57421,
+            username: "chain-user".to_string(),
+            password: "pw-1234".to_string(),
+        }
+    }
+
+    fn chain_ctx() -> PortProbeContext {
+        PortProbeContext {
+            residential_proxies: vec![residential_exit()],
+            ..PortProbeContext::default()
+        }
+    }
+
+    #[test]
+    fn test_chain_mapping_rejects_missing_exit_fallback_and_direct() {
+        let temp_dir = std::env::temp_dir().join(format!("test_port_router_chain_validation_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = chain_ctx();
+
+        let mut missing_exit = create_test_mapping("chain-missing", 10080, "prof-1", "HK-01", false);
+        missing_exit.residential_proxy_id = Some("deleted-exit".to_string());
+        let err = router
+            .save_port_mapping(missing_exit, &ctx)
+            .expect_err("missing exit must reject");
+        assert!(matches!(&err, AppError::InvalidConfig(message) if message.contains("住宅代理出口不存在")));
+
+        let mut fallback = create_test_mapping("chain-fallback", 10081, "prof-1", "HK-01", false);
+        fallback.residential_proxy_id = Some("res-1".to_string());
+        fallback.fallback_node_name = Some("Backup".to_string());
+        let err = router
+            .save_port_mapping(fallback, &ctx)
+            .expect_err("chain fallback must reject");
+        assert!(matches!(&err, AppError::InvalidConfig(message) if message.contains("备用节点")));
+
+        let mut direct = create_test_mapping(crate::models::FIXED_DIRECT_PORT_ID, 7878, "direct", "DIRECT", false);
+        direct.residential_proxy_id = Some("res-1".to_string());
+        let err = router
+            .save_port_mapping(direct, &ctx)
+            .expect_err("direct chain must reject");
+        assert!(matches!(&err, AppError::InvalidConfig(message) if message.contains("直连监听")));
+
+        // A valid chain mapping is normalized: bypass_cn cannot stay enabled.
+        let mut valid = create_test_mapping("chain-valid", 10082, "prof-1", "HK-01", false);
+        valid.residential_proxy_id = Some(" res-1 ".to_string());
+        valid.bypass_cn = true;
+        let saved = router.save_port_mapping(valid, &ctx).expect("valid chain mapping");
+        assert_eq!(saved.residential_proxy_id.as_deref(), Some("res-1"));
+        assert!(!saved.bypass_cn);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_two_chain_ports_can_reuse_the_same_upstream_node() {
+        let temp_dir = std::env::temp_dir().join(format!("test_port_router_chain_reuse_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = chain_ctx();
+
+        let mut first = create_test_mapping("chain-a", 10090, "prof-1", "HK-01", false);
+        first.residential_proxy_id = Some("res-1".to_string());
+        router.save_port_mapping(first, &ctx).expect("first chain port");
+
+        let mut second = create_test_mapping("chain-b", 10091, "prof-1", "HK-01", false);
+        second.residential_proxy_id = Some("res-1".to_string());
+        router
+            .save_port_mapping(second, &ctx)
+            .expect("chain ports may share the same upstream node");
+
+        // The strict 1:1 node binding still applies to non-chain ports.
+        let plain = create_test_mapping("plain-c", 10092, "prof-2", "Node-X", false);
+        router.save_port_mapping(plain, &ctx).expect("plain mapping");
+        let duplicate = create_test_mapping("plain-d", 10093, "prof-2", "Node-X", false);
+        assert!(matches!(
+            router.save_port_mapping(duplicate, &ctx),
+            Err(AppError::DuplicateNodeBinding { .. })
+        ));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

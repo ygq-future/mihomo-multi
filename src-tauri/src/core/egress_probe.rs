@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use crate::models::DirectEgressInfo;
+use crate::models::{DirectEgressInfo, InboundProtocol};
 use serde_json::Value;
 use std::time::{Duration, Instant};
 
@@ -152,35 +152,77 @@ pub fn parse_probe_response(
 }
 
 pub async fn query_direct_egress_info(port: Option<u16>, timeout_ms: Option<u64>) -> AppResult<DirectEgressInfo> {
-    query_egress_info_with_mode(port, timeout_ms, false).await
+    query_egress_info_with_mode(port, timeout_ms, false, "http").await
 }
 
 pub async fn query_proxy_egress_info(port: u16, timeout_ms: Option<u64>) -> AppResult<DirectEgressInfo> {
-    query_egress_info_with_mode(Some(port), timeout_ms, true).await
+    query_egress_info_with_mode(Some(port), timeout_ms, true, "http").await
+}
+
+/// Probes egress through a real local inbound listener using the listener's own protocol.
+///
+/// Chain ports (and SOCKS5-only listeners) cannot be reached through an HTTP proxy probe,
+/// so the scheme must follow the listener: `http` for mixed/http, `socks5h` for socks5.
+pub async fn query_port_egress_info(
+    port: u16,
+    protocol: InboundProtocol,
+    timeout_ms: Option<u64>,
+) -> AppResult<DirectEgressInfo> {
+    let scheme = match protocol {
+        InboundProtocol::Socks5 => "socks5h",
+        InboundProtocol::Mixed | InboundProtocol::Http => "http",
+    };
+    query_egress_info_with_mode(Some(port), timeout_ms, true, scheme).await
+}
+
+/// Probes egress through a real local inbound listener with an explicit endpoint list.
+///
+/// Each endpoint's `name` still selects the JSON schema in [`parse_probe_response`], so
+/// this is the same production probe loop with injected destinations. It exists for local
+/// diagnostics and smoke fixtures; the IPC command always uses [`PROBE_ENDPOINTS`].
+pub async fn query_endpoints_egress_info(
+    port: u16,
+    protocol: InboundProtocol,
+    endpoints: &[ProbeEndpoint],
+    timeout_ms: Option<u64>,
+) -> AppResult<DirectEgressInfo> {
+    let scheme = match protocol {
+        InboundProtocol::Socks5 => "socks5h",
+        InboundProtocol::Mixed | InboundProtocol::Http => "http",
+    };
+    query_egress_over_endpoints(Some(port), scheme, endpoints.iter(), timeout_ms).await
 }
 
 async fn query_egress_info_with_mode(
     port: Option<u16>,
     timeout_ms: Option<u64>,
     skip_cn_endpoints: bool,
+    proxy_scheme: &str,
+) -> AppResult<DirectEgressInfo> {
+    let endpoints = PROBE_ENDPOINTS
+        .iter()
+        .filter(|endpoint| !(skip_cn_endpoints && endpoint.is_cn_endpoint));
+    query_egress_over_endpoints(port, proxy_scheme, endpoints, timeout_ms).await
+}
+
+async fn query_egress_over_endpoints<'a>(
+    port: Option<u16>,
+    proxy_scheme: &str,
+    endpoints: impl Iterator<Item = &'a ProbeEndpoint>,
+    timeout_ms: Option<u64>,
 ) -> AppResult<DirectEgressInfo> {
     let per_api_timeout = Duration::from_millis(timeout_ms.unwrap_or(PROBE_TIMEOUT_SECS * 1000));
     let mut last_err = String::new();
 
-    for ep in &PROBE_ENDPOINTS {
-        if skip_cn_endpoints && ep.is_cn_endpoint {
-            continue;
-        }
+    for ep in endpoints {
         let mut builder = reqwest::Client::builder()
             .user_agent(DEFAULT_USER_AGENT)
             .timeout(per_api_timeout)
             .connect_timeout(Duration::from_secs(2));
 
         if let Some(p) = port {
-            let proxy_url = format!("http://127.0.0.1:{}", p);
-            if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
-                builder = builder.proxy(proxy);
-            }
+            let proxy_url = format!("{}://127.0.0.1:{}", proxy_scheme, p);
+            builder = builder.no_proxy().proxy(reqwest::Proxy::all(&proxy_url)?);
         } else {
             builder = builder.no_proxy();
         }

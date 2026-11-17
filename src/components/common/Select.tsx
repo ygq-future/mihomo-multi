@@ -38,6 +38,8 @@ export interface SelectProps<T = string | number> {
   clearable?: boolean
   onClear?: () => void
   noDataText?: string
+  /** Accessible name for the inner search input when no external label is attached. */
+  ariaLabel?: string
 }
 
 interface DropdownPosition {
@@ -49,7 +51,7 @@ interface DropdownPosition {
 }
 
 /**
- * 搜索文本标准化：仅将 Unicode 区域指示字符（国旗 Emoji，如 🇭🇰 / 🇸🇬 / 🇯🇵）
+ * 搜索文本标准化：仅将 Unicode 区域指示字符（国旗 Emoji，如 🇭 / 🇸 / 🇯）
  * 换算还原为对应 ASCII 大写字母（HK / SG / JP 等），严格保留原有字符大小写。
  */
 function normalizeEmojiToAscii(text: string): string {
@@ -91,6 +93,7 @@ export function Select<T extends string | number = string | number>({
   clearable = false,
   onClear,
   noDataText = '无匹配选项',
+  ariaLabel,
 }: SelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
@@ -503,6 +506,7 @@ export function Select<T extends string | number = string | number>({
           <input
             ref={inputRef}
             type="text"
+            aria-label={ariaLabel}
             disabled={disabled}
             readOnly={!isOpen || isClosing || !filterable}
             value={

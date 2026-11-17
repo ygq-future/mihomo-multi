@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+
 pub const FIXED_DIRECT_PORT_ID: &str = "fixed-direct";
 pub const DEFAULT_DIRECT_PORT: u16 = 7878;
 
@@ -105,6 +107,126 @@ pub struct PortRule {
     pub enabled: bool,
 }
 
+/// A managed residential proxy used as the final hop of a per-port proxy chain.
+///
+/// Credentials are intentionally serialized with the rest of the config, but they must never
+/// appear in logs or validation error messages.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResidentialProxy {
+    pub id: String,
+    pub name: String,
+    /// `http` or `socks5` (case-insensitive on input, normalized on save).
+    pub protocol: String,
+    pub server: String,
+    pub port: u16,
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub password: String,
+}
+
+impl ResidentialProxy {
+    /// Returns the Mihomo proxy `type` for the configured protocol.
+    pub fn proxy_type(&self) -> Option<&'static str> {
+        let protocol = self.protocol.trim();
+        if protocol.eq_ignore_ascii_case("http") {
+            Some("http")
+        } else if protocol.eq_ignore_ascii_case("socks5") {
+            Some("socks5")
+        } else {
+            None
+        }
+    }
+
+    /// Validates identity, protocol, address and credential pairing without exposing secrets.
+    pub fn validate(&self) -> Result<(), String> {
+        let id = self.id.trim();
+        if id.is_empty() {
+            return Err("住宅代理出口 ID 不能为空".to_string());
+        }
+        let name = self.name.trim();
+        if name.is_empty() {
+            return Err("住宅代理出口名称不能为空".to_string());
+        }
+        if self.proxy_type().is_none() {
+            return Err(format!("住宅代理出口「{}」协议无效，仅支持 http 或 socks5", name));
+        }
+        let server = self.server.trim();
+        if server.is_empty() {
+            return Err(format!("住宅代理出口「{}」服务器地址不能为空", name));
+        }
+        if server.chars().any(char::is_whitespace) || server.contains("://") || server.contains('/') {
+            return Err(format!(
+                "住宅代理出口「{}」服务器地址格式无效，请仅填写主机名或 IP",
+                name
+            ));
+        }
+        let host = server.trim_start_matches('[').trim_end_matches(']');
+        if host.contains(':') && host.parse::<std::net::Ipv6Addr>().is_err() {
+            return Err(format!(
+                "住宅代理出口「{}」服务器地址不应包含端口，请将端口填写在端口字段",
+                name
+            ));
+        }
+        if self.port == 0 {
+            return Err(format!("住宅代理出口「{}」端口必须在 1-65535 之间", name));
+        }
+        let has_username = !self.username.trim().is_empty();
+        let has_password = !self.password.is_empty();
+        if has_username != has_password {
+            return Err(format!("住宅代理出口「{}」用户名与密码必须同时填写或同时留空", name));
+        }
+        Ok(())
+    }
+
+    /// Returns a copy with user-editable string fields trimmed/normalized.
+    pub fn normalized(mut self) -> Self {
+        self.id = self.id.trim().to_string();
+        self.name = self.name.trim().to_string();
+        self.protocol = self.protocol.trim().to_ascii_lowercase();
+        self.server = self.server.trim().to_string();
+        self
+    }
+}
+
+/// Validates a full managed residential proxy list (field validity plus unique IDs).
+pub fn validate_residential_proxies(proxies: &[ResidentialProxy]) -> Result<(), String> {
+    let mut ids = HashSet::new();
+    for proxy in proxies {
+        proxy.validate()?;
+        if !ids.insert(proxy.id.trim().to_string()) {
+            return Err(format!("住宅代理出口 ID「{}」重复", proxy.id.trim()));
+        }
+    }
+    Ok(())
+}
+
+/// Rejects removal of a residential exit that is still referenced by any port mapping,
+/// including disabled mappings.
+pub fn validate_residential_proxy_removal(
+    old_proxies: &[ResidentialProxy],
+    new_proxies: &[ResidentialProxy],
+    mappings: &[PortMapping],
+) -> Result<(), String> {
+    let retained: HashSet<&str> = new_proxies.iter().map(|proxy| proxy.id.trim()).collect();
+    for proxy in old_proxies {
+        if retained.contains(proxy.id.trim()) {
+            continue;
+        }
+        if let Some(mapping) = mappings
+            .iter()
+            .find(|mapping| mapping.residential_proxy_id.as_deref().map(str::trim) == Some(proxy.id.trim()))
+        {
+            return Err(format!(
+                "住宅代理出口「{}」仍被端口 {} 使用（包括已停用的端口），请先解除引用再删除",
+                proxy.name, mapping.port
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PortMapping {
@@ -113,6 +235,10 @@ pub struct PortMapping {
     pub protocol: InboundProtocol,
     pub profile_id: String,
     pub node_name: String,
+    /// When set, this port's traffic is chained through the subscription node and then this
+    /// managed residential exit instead of dialing the node directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub residential_proxy_id: Option<String>,
     pub enabled: bool,
     pub latency: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -136,6 +262,7 @@ impl Default for PortMapping {
             protocol: InboundProtocol::Mixed,
             profile_id: String::new(),
             node_name: String::new(),
+            residential_proxy_id: None,
             enabled: false,
             latency: None,
             description: None,
@@ -172,6 +299,18 @@ pub struct DirectEgressInfo {
     pub isp: Option<String>,
     pub latency_ms: Option<u32>,
     pub source: String,
+}
+
+/// Outcome of an isolated residential-chain connectivity test.
+///
+/// The probe runs a disposable Mihomo instance whose only listener routes every
+/// connection through the selected upstream node and then the saved residential
+/// exit, so a successful result proves the authenticated egress actually works.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResidentialProxyTestResult {
+    pub latency_ms: u64,
+    pub egress: DirectEgressInfo,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -372,6 +511,9 @@ pub struct AppConfig {
     pub tun_port: Option<u16>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub global_rules: Vec<PortRule>,
+    /// Managed authenticated HTTP/SOCKS5 residential exits available for per-port chaining.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub residential_proxies: Vec<ResidentialProxy>,
     #[serde(default = "default_true")]
     pub check_update_on_start: bool,
     /// Persisted intent of the UWP "exempt all" action: newly installed AppContainers
@@ -443,6 +585,7 @@ impl Default for AppConfig {
             tun_enabled: false,
             tun_port: None,
             global_rules: Vec::new(),
+            residential_proxies: Vec::new(),
             check_update_on_start: true,
             uwp_auto_exempt: false,
         }
@@ -598,5 +741,127 @@ mod tests {
 
         let deserialized: AppConfig = serde_json::from_str(&json).expect("should deserialize config");
         assert!(deserialized.uwp_auto_exempt);
+    }
+
+    fn sample_residential(id: &str) -> ResidentialProxy {
+        ResidentialProxy {
+            id: id.to_string(),
+            name: format!("Exit {id}"),
+            protocol: "HTTP".to_string(),
+            server: "exit.example.com".to_string(),
+            port: 8080,
+            username: "user".to_string(),
+            password: "secret-pass".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_residential_config_serde_compatibility() {
+        // Legacy config.json and ports.json without the new fields must keep loading with safe defaults.
+        let legacy_config = r#"{"controllerSecret":"sec","theme":"system","logLevel":"info"}"#;
+        let cfg: AppConfig = serde_json::from_str(legacy_config).expect("legacy config should deserialize");
+        assert!(cfg.residential_proxies.is_empty());
+
+        let legacy_mapping = r#"{"id":"m1","port":7891,"protocol":"mixed","profileId":"p1","nodeName":"n1","enabled":true,"latency":null,"bypassCn":true,"manualFallback":false}"#;
+        let mapping: PortMapping = serde_json::from_str(legacy_mapping).expect("legacy mapping should deserialize");
+        assert!(mapping.residential_proxy_id.is_none());
+
+        let cfg = AppConfig {
+            residential_proxies: vec![sample_residential("exit-1")],
+            ..AppConfig::default()
+        };
+        let json = serde_json::to_string(&cfg).expect("serialize config");
+        assert!(json.contains("\"residentialProxies\":["));
+        assert!(json.contains("\"protocol\":\"HTTP\""));
+        let round_trip: AppConfig = serde_json::from_str(&json).expect("deserialize config");
+        assert_eq!(round_trip.residential_proxies.len(), 1);
+        assert_eq!(round_trip.residential_proxies[0].id, "exit-1");
+
+        let mapping = PortMapping {
+            residential_proxy_id: Some("exit-1".to_string()),
+            ..PortMapping::default()
+        };
+        let json = serde_json::to_string(&mapping).expect("serialize mapping");
+        assert!(json.contains("\"residentialProxyId\":\"exit-1\""));
+
+        let no_chain = serde_json::to_string(&PortMapping::default()).expect("serialize mapping");
+        assert!(!no_chain.contains("residentialProxyId"));
+    }
+
+    #[test]
+    fn test_residential_validation_rejects_bad_fields_without_echoing_credentials() {
+        assert!(sample_residential("ok").validate().is_ok());
+        let secret = sample_residential("p").password;
+
+        let mut bad_protocol = sample_residential("p");
+        bad_protocol.protocol = "socks4".to_string();
+        let err = bad_protocol.validate().expect_err("unsupported protocol");
+        assert!(err.contains("协议无效"));
+        assert!(!err.contains(&secret));
+
+        let mut missing_server = sample_residential("p");
+        missing_server.server = "  ".to_string();
+        assert!(
+            missing_server
+                .validate()
+                .expect_err("empty server")
+                .contains("服务器地址不能为空")
+        );
+
+        let mut zero_port = sample_residential("p");
+        zero_port.port = 0;
+        assert!(zero_port.validate().expect_err("zero port").contains("端口"));
+
+        let mut half_auth = sample_residential("p");
+        half_auth.username = "".to_string();
+        let err = half_auth.validate().expect_err("half auth");
+        assert!(err.contains("用户名与密码必须同时填写"));
+        assert!(!err.contains(&secret));
+
+        let mut bad_address = sample_residential("p");
+        bad_address.server = "http://exit.example.com".to_string();
+        assert!(
+            bad_address
+                .validate()
+                .expect_err("scheme in server")
+                .contains("格式无效")
+        );
+
+        let mut duplicate = sample_residential("dup");
+        let other = sample_residential("dup");
+        assert!(
+            validate_residential_proxies(&[duplicate.clone(), other])
+                .expect_err("duplicate ids")
+                .contains("重复")
+        );
+        duplicate.id = "unique".to_string();
+        assert!(validate_residential_proxies(&[duplicate]).is_ok());
+    }
+
+    #[test]
+    fn test_residential_removal_respects_disabled_port_references() {
+        let exit = sample_residential("exit-1");
+        let mapping = PortMapping {
+            id: "m1".to_string(),
+            port: 7891,
+            residential_proxy_id: Some("exit-1".to_string()),
+            enabled: false,
+            ..PortMapping::default()
+        };
+
+        let err = validate_residential_proxy_removal(std::slice::from_ref(&exit), &[], std::slice::from_ref(&mapping))
+            .expect_err("referenced exit must not be deleted");
+        assert!(err.contains("端口 7891"));
+        assert!(!err.contains(&exit.password));
+
+        assert!(
+            validate_residential_proxy_removal(
+                std::slice::from_ref(&exit),
+                std::slice::from_ref(&exit),
+                std::slice::from_ref(&mapping)
+            )
+            .is_ok()
+        );
+        assert!(validate_residential_proxy_removal(&[exit], &[], &[]).is_ok());
     }
 }

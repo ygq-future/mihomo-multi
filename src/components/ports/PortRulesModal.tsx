@@ -432,6 +432,9 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
   }, [portMappings, mapping, isGlobal])
   const portOptions = useMemo<SelectOption<string>[]>(() => {
     const getPortLatency = (p: PortMapping) => {
+      if (p.residentialProxyId) {
+        return p.latency ?? null
+      }
       const isFbActive = p.manualFallback && Boolean(p.fallbackNodeName)
       const activeNodeName = isFbActive ? p.fallbackNodeName! : p.nodeName
       const activeProfileId = isFbActive
@@ -819,6 +822,12 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
   // 保存所有规则
   const handleSaveAll = async () => {
     if (!isGlobal && !mapping) return
+    if (!isGlobal && mapping?.residentialProxyId) {
+      toast.warning(
+        '住宅链路端口不支持网站分流规则，请先在端口设置中解除住宅出口绑定',
+      )
+      return
+    }
     setIsSaving(true)
     try {
       if (isGlobal) {
@@ -860,7 +869,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         }
         subtitle={
           isGlobal
-            ? `对所有代理监听端口生效 · 已配置 ${rules.length} 条全局规则`
+            ? `对普通代理端口生效 (住宅链路端口固定全量走出口) · 已配置 ${rules.length} 条全局规则`
             : `默认出口: ${mapping?.nodeName} · 已配置 ${rules.length} 条局部规则`
         }
         icon={<Split className="w-5 h-5 text-primary" />}
@@ -918,7 +927,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                 </div>
                 <div className="text-xs text-muted-foreground leading-relaxed">
                   {isGlobal ? (
-                    '配置全局网站分流后，所有代理端口在访问指定网站（如 Google Gemini、OpenAI、YouTube 等）时将统一走向指定出口；若某个端口单独配置了局部规则，局部规则将优先匹配生效。'
+                    '配置全局网站分流后，普通代理端口在访问指定网站（如 Google Gemini、OpenAI、YouTube 等）时将统一走向指定出口；若某个端口单独配置了局部规则，局部规则将优先匹配生效。住宅链路端口不受全局或局部规则影响，始终全量经住宅出口。'
                   ) : (
                     <>
                       默认所有流量均从{' '}
@@ -1283,6 +1292,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                 mapping={mapping}
                 portMappings={portMappings}
                 profiles={profiles}
+                residentialProxies={config?.residentialProxies}
                 latencies={latencies}
                 coreRunning={coreStatus?.running ?? true}
                 matchType={customMatchType}

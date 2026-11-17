@@ -13,6 +13,7 @@ pub mod latency_probe;
 pub mod port_probe;
 pub mod port_router;
 pub mod profile_manager;
+pub mod residential_probe;
 pub mod supervisor;
 pub mod sysproxy;
 pub mod update_egress;

@@ -40,6 +40,14 @@ async fn query_port_egress_ip(app: &AppHandle, mapping_id: &str) -> Result<Strin
     if !mapping.enabled || !state.engine.get_status().running {
         return Err("请先启动内核并启用监听端口，再复制出口 IP".into());
     }
+    if mapping.residential_proxy_id.is_some() {
+        // Chain ports route every destination through the generated per-port exit; probing the
+        // mapped listener with its real protocol is the only accurate egress check.
+        let info = crate::core::egress_probe::query_port_egress_info(mapping.port, mapping.protocol, None)
+            .await
+            .map_err(|e| format!("探测链式出口 IP 失败: {e}"))?;
+        return Ok(info.ip);
+    }
     let (node_name, profile_id) = if mapping
         .fallback_node_name
         .as_ref()
@@ -322,8 +330,15 @@ fn build_tray_menu_internal(
                 let is_fallback_active = runtime_info.map(|r| r.is_fallback_active).unwrap_or(m.manual_fallback);
                 let is_manual = runtime_info.map(|r| r.manual_fallback).unwrap_or(m.manual_fallback);
 
-                // 节点列：只展示当前活动的节点
-                let node = if has_fallback && is_fallback_active {
+                let node = if let Some(exit_id) = &m.residential_proxy_id {
+                    let config = state.config.read();
+                    let exit_name = config
+                        .residential_proxies
+                        .iter()
+                        .find(|proxy| proxy.id == *exit_id)
+                        .map_or("住宅出口失效", |proxy| proxy.name.as_str());
+                    format!("{} → {}", m.node_name, exit_name)
+                } else if has_fallback && is_fallback_active {
                     m.fallback_node_name.as_deref().unwrap_or(&m.node_name).to_string()
                 } else {
                     m.node_name.clone()
@@ -473,6 +488,24 @@ async fn query_runtime_infos(
     let engine = state.engine.clone();
 
     for m in mappings.into_iter().filter(|m| m.enabled) {
+        if m.residential_proxy_id.is_some() {
+            let target = crate::core::config_generator::chain_proxy_name(m.port);
+            let primary_latency = state
+                .latency_probe
+                .get_latency(&target)
+                .map(|latency| Some(latency.unwrap_or(0)))
+                .unwrap_or(m.latency);
+            runtime_infos.insert(
+                m.id,
+                PortRuntimeInfo {
+                    is_fallback_active: false,
+                    manual_fallback: false,
+                    primary_latency,
+                    fallback_latency: None,
+                },
+            );
+            continue;
+        }
         if let Some(status) = fallback_statuses.iter().find(|status| status.mapping_id == m.id) {
             runtime_infos.insert(
                 m.id,
@@ -544,8 +577,8 @@ fn compute_menu_fingerprint(
         let fb_active = r.map(|x| x.is_fallback_active).unwrap_or(m.manual_fallback);
         let manual = r.map(|x| x.manual_fallback).unwrap_or(m.manual_fallback);
         fp.push_str(&format!(
-            "{}:{}:{:?}:{:?}:{}:{};",
-            m.port, m.enabled, primary_lat, fallback_lat, fb_active, manual
+            "{}:{}:{}:{:?}:{:?}:{:?}:{}:{};",
+            m.port, m.enabled, m.node_name, m.residential_proxy_id, primary_lat, fallback_lat, fb_active, manual
         ));
     }
     fp
@@ -718,6 +751,12 @@ pub fn update_tray_menu_with_fallback_statuses(
             ) {
                 warn!("Failed to format tray fingerprint: {error}");
                 return;
+            }
+            for proxy in &config.residential_proxies {
+                if let Err(error) = write!(current_fp, "{}:{};", proxy.id, proxy.name) {
+                    warn!("Failed to format residential exit fingerprint: {error}");
+                    return;
+                }
             }
         }
 

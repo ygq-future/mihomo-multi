@@ -1,4 +1,5 @@
 import {
+  Building2,
   Check,
   Clock,
   Copy,
@@ -22,10 +23,12 @@ import { AddLocalModal } from '../profiles/AddLocalModal'
 import { AddRemoteModal } from '../profiles/AddRemoteModal'
 import { EditProfileModal } from '../profiles/EditProfileModal'
 import { ProfileNodesModal } from '../profiles/ProfileNodesModal'
+import { ResidentialProxyManager } from '../profiles/ResidentialProxyManager'
 
 export const ProfileListView: React.FC = () => {
   const {
     profiles,
+    config,
     fetchProfiles,
     addRemoteProfile,
     addLocalProfile,
@@ -39,6 +42,8 @@ export const ProfileListView: React.FC = () => {
 
   const [isRemoteModalOpen, setIsRemoteModalOpen] = useState(false)
   const [isLocalModalOpen, setIsLocalModalOpen] = useState(false)
+  const [isResidentialManagerOpen, setIsResidentialManagerOpen] =
+    useState(false)
   const [editingProfile, setEditingProfile] = useState<ProfileItem | null>(null)
   const [nodesModalProfile, setNodesModalProfile] =
     useState<ProfileItem | null>(null)
@@ -203,6 +208,19 @@ export const ProfileListView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsResidentialManagerOpen(true)}
+            title="管理供端口链路使用的认证型住宅代理出口"
+            icon={<Building2 className="w-3.5 h-3.5" />}
+          >
+            住宅出口
+            {(config?.residentialProxies?.length ?? 0) > 0
+              ? ` (${config?.residentialProxies?.length})`
+              : ''}
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -453,6 +471,11 @@ export const ProfileListView: React.FC = () => {
         profile={nodesModalProfile}
         isOpen={Boolean(nodesModalProfile)}
         onClose={() => setNodesModalProfile(null)}
+      />
+
+      <ResidentialProxyManager
+        isOpen={isResidentialManagerOpen}
+        onClose={() => setIsResidentialManagerOpen(false)}
       />
 
       {/* Delete Confirmation Modal */}

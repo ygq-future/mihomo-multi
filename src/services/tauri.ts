@@ -9,6 +9,7 @@ import type {
   ConnectionSnapshot,
   CoreStatus,
   KernelUpdateCheckResult,
+  InboundProtocol,
   KernelUpgradeResult,
   LanIpInfo,
   NodeLatencyResult,
@@ -17,6 +18,7 @@ import type {
   PortMapping,
   ProfileItem,
   ProxyNode,
+  ResidentialProxyTestResult,
   EnvProxyStatus,
   SystemProxyStatus,
   TunStatus,
@@ -42,6 +44,15 @@ import {
 
 function isTauriEnvironment(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+/**
+ * Some features (residential exit management, chain egress probing) require
+ * real backend persistence or kernel access and must not fake success in a
+ * plain browser preview.
+ */
+export function isDesktopEnvironment(): boolean {
+  return isTauriEnvironment()
 }
 
 export async function getAppStatus(): Promise<AppStatus> {
@@ -153,6 +164,7 @@ export async function getConfig(): Promise<AppConfig> {
       tunPort: null,
       globalRules: [],
       checkUpdateOnStart: true,
+      residentialProxies: [],
     }
   }
   return invoke<AppConfig>('get_config')
@@ -275,6 +287,26 @@ export async function queryDirectEgressInfo(
   })
 }
 
+/**
+ * Probe egress through a real local listener using the listener's own protocol.
+ * Required for chain ports and SOCKS5-only listeners, which cannot be reached
+ * through the HTTP-proxy based queryDirectEgressInfo.
+ */
+export async function queryPortEgressInfo(
+  port: number,
+  protocol: InboundProtocol,
+  timeoutMs?: number | null,
+): Promise<DirectEgressInfo> {
+  if (!isTauriEnvironment()) {
+    throw new Error('链路出口检测仅支持桌面应用环境')
+  }
+  return invoke<DirectEgressInfo>('query_port_egress_info', {
+    port,
+    protocol,
+    timeoutMs: timeoutMs ?? null,
+  })
+}
+
 export async function queryNodeEgressInfo(
   nodeName: string,
   profileId?: string | null,
@@ -294,6 +326,28 @@ export async function queryNodeEgressInfo(
     nodeName,
     profileId: profileId ?? null,
     timeoutMs: timeoutMs ?? null,
+  })
+}
+
+/**
+ * Test a saved residential exit through a real chain:
+ * selected upstream node -> authenticated residential exit -> target.
+ * The backend reads the stored credentials by exit id, so unsaved edits can
+ * never be tested. Browser preview has no kernel, so it must fail explicitly
+ * instead of returning a fabricated result.
+ */
+export async function testResidentialProxy(
+  residentialProxyId: string,
+  profileId: string,
+  nodeName: string,
+): Promise<ResidentialProxyTestResult> {
+  if (!isTauriEnvironment()) {
+    throw new Error('住宅出口测试需要桌面应用环境（需运行 Mihomo 内核）')
+  }
+  return invoke<ResidentialProxyTestResult>('test_residential_proxy', {
+    residentialProxyId,
+    profileId,
+    nodeName,
   })
 }
 
@@ -482,25 +536,25 @@ export async function getProfileNodes(profileId: string): Promise<ProxyNode[]> {
     if (profileId === 'mock-sub-1') {
       return [
         {
-          name: '🇭🇰 香港 IPLC 01',
+          name: '🇭 香港 IPLC 01',
           type: 'Shadowsocks',
           server: '1.1.1.1',
           port: 10001,
         },
         {
-          name: '🇭🇰 香港 IPLC 02',
+          name: '🇭 香港 IPLC 02',
           type: 'Shadowsocks',
           server: '1.1.1.2',
           port: 10002,
         },
         {
-          name: '🇭🇰 香港 BGP 01',
+          name: '🇭 香港 BGP 01',
           type: 'VMess',
           server: '1.1.1.3',
           port: 10003,
         },
         {
-          name: '🇭🇰 香港 IEPL 01',
+          name: '🇭 香港 IEPL 01',
           type: 'Trojan',
           server: '1.1.1.4',
           port: 10004,
@@ -510,20 +564,20 @@ export async function getProfileNodes(profileId: string): Promise<ProxyNode[]> {
     if (profileId === 'mock-sub-2') {
       return [
         {
-          name: '🇯🇵 日本 专线 01',
+          name: '🇯 日本 专线 01',
           type: 'Shadowsocks',
           server: '2.2.2.1',
           port: 20001,
         },
         {
-          name: '🇯🇵 日本 专线 02',
+          name: '🇯 日本 专线 02',
           type: 'Trojan',
           server: '2.2.2.2',
           port: 20002,
         },
-        { name: '🇸🇬 新加坡 01', type: 'VMess', server: '2.2.2.3', port: 20003 },
+        { name: '🇸 新加坡 01', type: 'VMess', server: '2.2.2.3', port: 20003 },
         {
-          name: '🇸🇬 新加坡 02',
+          name: '🇸 新加坡 02',
           type: 'Shadowsocks',
           server: '2.2.2.4',
           port: 20004,
@@ -533,19 +587,19 @@ export async function getProfileNodes(profileId: string): Promise<ProxyNode[]> {
     if (profileId === 'mock-sub-3') {
       return [
         {
-          name: '🇺🇸 美国 洛杉矶 01',
+          name: '🇺 美国 洛杉矶 01',
           type: 'Shadowsocks',
           server: '3.3.3.1',
           port: 30001,
         },
         {
-          name: '🇺🇸 美国 圣何塞 01',
+          name: '🇺 美国 圣何塞 01',
           type: 'Trojan',
           server: '3.3.3.2',
           port: 30002,
         },
         {
-          name: '🇩🇪 德国 法兰克福 01',
+          name: '🇩 德国 法兰克福 01',
           type: 'VMess',
           server: '3.3.3.3',
           port: 30003,

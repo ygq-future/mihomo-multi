@@ -367,6 +367,7 @@ pub struct KernelEngine {
     supervisor: Arc<CoreSupervisor>,
     adapter: Arc<dyn KernelControllerAdapter>,
     work_dir: PathBuf,
+    reload_pending: Arc<tokio::sync::Mutex<bool>>,
 }
 
 impl KernelEngine {
@@ -378,6 +379,7 @@ impl KernelEngine {
             supervisor,
             adapter,
             work_dir,
+            reload_pending: Arc::new(tokio::sync::Mutex::new(false)),
         }
     }
 
@@ -388,6 +390,7 @@ impl KernelEngine {
             supervisor,
             adapter,
             work_dir,
+            reload_pending: Arc::new(tokio::sync::Mutex::new(false)),
         }
     }
 
@@ -398,6 +401,7 @@ impl KernelEngine {
             supervisor,
             adapter,
             work_dir,
+            reload_pending: Arc::new(tokio::sync::Mutex::new(false)),
         }
     }
 
@@ -410,6 +414,7 @@ impl KernelEngine {
             supervisor,
             adapter,
             work_dir,
+            reload_pending: Arc::new(tokio::sync::Mutex::new(false)),
         }
     }
 
@@ -562,17 +567,18 @@ impl KernelEngine {
         raw_proxies: Vec<serde_yaml_ng::Value>,
         profile_names: &HashMap<String, String>,
     ) -> AppResult<PathBuf> {
+        let mut reload_pending = self.reload_pending.lock().await;
         let config = self.synthesize_config(params, mappings, raw_proxies, profile_names);
         let (runtime_path, changed) = self.write_runtime_config(&config)?;
 
         let core_status = self.get_status();
-        if changed && core_status.running && core_status.controller_port == params.controller_port {
-            let path_str = runtime_path.to_string_lossy().to_string();
-            if let Err(err) = self.adapter.reload_config(&path_str).await {
-                warn!("Hot-reloading Mihomo config after apply failed: {}", err);
-            } else {
-                info!("Mihomo configuration reloaded with updated port listeners and proxies");
-            }
+        if (changed || *reload_pending) && core_status.running && core_status.controller_port == params.controller_port
+        {
+            let path_str = runtime_path.to_string_lossy();
+            *reload_pending = true;
+            self.adapter.reload_config(&path_str).await?;
+            *reload_pending = false;
+            info!("Mihomo configuration reloaded with updated port listeners and proxies");
         } else if !changed {
             tracing::debug!("Runtime configuration unchanged; skipping Mihomo hot-reload");
         }
@@ -745,6 +751,7 @@ mod tests {
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
 
@@ -774,6 +781,7 @@ password: pass
             tun_port: None,
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
 
         let path = engine
@@ -807,7 +815,7 @@ password: pass
     }
 
     #[tokio::test]
-    async fn test_kernel_engine_apply_runtime_config_graceful_reload_failure() {
+    async fn test_kernel_engine_reports_failed_reload_and_applies_same_config_on_retry() {
         let temp_dir = std::env::temp_dir().join(format!("engine_test_fail_{}", uuid::Uuid::new_v4()));
         let fake_adapter = Arc::new(FakeControllerAdapter::new());
         let engine = KernelEngine::new_fake(temp_dir.clone(), fake_adapter.clone());
@@ -834,16 +842,23 @@ password: pass
             tun_port: None,
             global_rules: &[],
             egress_probe_port: None,
+            residential_proxies: &[],
         };
 
-        // Applying config should succeed (write to disk) even if controller hot-reload returns error
+        let error = engine
+            .apply_runtime_config(&params, &[], Vec::new(), &HashMap::new())
+            .await
+            .expect_err("controller rejection must reach the caller");
+        assert!(error.to_string().contains("Connection refused by controller"));
+        assert_eq!(fake_adapter.reload_count(), 0);
+
+        fake_adapter.set_reload_error(None);
         let path = engine
             .apply_runtime_config(&params, &[], Vec::new(), &HashMap::new())
             .await
-            .expect("Apply config succeeds gracefully despite reload failure");
-
+            .expect("an explicit retry must apply the unchanged on-disk config");
         assert!(path.exists());
-        assert_eq!(fake_adapter.reload_count(), 0); // Error occurred before recording reload
+        assert_eq!(fake_adapter.reload_count(), 1);
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

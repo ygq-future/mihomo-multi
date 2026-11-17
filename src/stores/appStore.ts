@@ -6,6 +6,7 @@ import type {
   AppUpdateCheckResult,
   CoreStatus,
   EnvProxyStatus,
+  ResidentialProxy,
   TunStatus,
 } from '../types'
 import { isVersionNewer, loadCachedAppUpdate } from '../utils/appUpdateCache'
@@ -41,6 +42,8 @@ export interface BaseAppState {
   restartCore: () => Promise<void>
   fetchConfig: () => Promise<void>
   saveConfig: (config: AppConfig) => Promise<void>
+  saveResidentialProxy: (proxy: ResidentialProxy) => Promise<void>
+  deleteResidentialProxy: (id: string) => Promise<void>
   setSystemProxy: (enabled: boolean, port?: number | null) => Promise<void>
   tunStatus: TunStatus | null
   fetchTunStatus: () => Promise<void>
@@ -265,6 +268,68 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
       set({
         error: err instanceof Error ? err.message : String(err),
       })
+      throw err
+    }
+  },
+
+  saveResidentialProxy: async (proxy) => {
+    if (!api.isDesktopEnvironment()) {
+      throw new Error('住宅出口管理仅支持桌面应用环境')
+    }
+    const current = get().config
+    if (!current) {
+      throw new Error('配置尚未加载，请稍后重试')
+    }
+    const list = current.residentialProxies ?? []
+    const exists = list.some((item) => item.id === proxy.id)
+    const nextList = exists
+      ? list.map((item) => (item.id === proxy.id ? proxy : item))
+      : [...list, proxy]
+    const nextConfig = { ...current, residentialProxies: nextList }
+    try {
+      await api.saveConfig(nextConfig)
+      set((state) => ({
+        config: nextConfig,
+        error: null,
+        portEgressIps: {},
+        portMappings: state.portMappings.map((mapping) =>
+          mapping.residentialProxyId === proxy.id
+            ? { ...mapping, latency: undefined }
+            : mapping,
+        ),
+      }))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ error: message })
+      throw err
+    }
+  },
+
+  deleteResidentialProxy: async (id) => {
+    if (!api.isDesktopEnvironment()) {
+      throw new Error('住宅出口管理仅支持桌面应用环境')
+    }
+    const current = get().config
+    if (!current) {
+      throw new Error('配置尚未加载，请稍后重试')
+    }
+    const referenced = get().portMappings.filter(
+      (mapping) => mapping.residentialProxyId === id,
+    )
+    if (referenced.length > 0) {
+      const ports = referenced.map((mapping) => mapping.port).join('、')
+      throw new Error(`该住宅出口正被端口 ${ports} 使用，请先解除绑定`)
+    }
+    const nextList = (current.residentialProxies ?? []).filter(
+      (item) => item.id !== id,
+    )
+    const nextConfig = { ...current, residentialProxies: nextList }
+    try {
+      await api.saveConfig(nextConfig)
+      set({ config: nextConfig, error: null, portEgressIps: {} })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ error: message })
       throw err
     }
   },

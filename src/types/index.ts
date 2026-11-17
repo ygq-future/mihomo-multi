@@ -48,7 +48,32 @@ export interface PortMapping {
   bypassCn: boolean
   manualFallback?: boolean
   rules?: PortRule[]
+  /**
+   * 住宅出口 ID。设置后该端口进入链路模式：
+   * 上游节点 (profileId + nodeName) -> 住宅出口 -> 目标站点，
+   * 绕过大陆、备用节点与网站分流规则全部失效。
+   */
+  residentialProxyId?: string | null
 }
+
+export type ResidentialProxyProtocol = 'http' | 'socks5'
+
+export interface ResidentialProxy {
+  id: string
+  name: string
+  protocol: ResidentialProxyProtocol
+  server: string
+  port: number
+  username: string
+  password: string
+}
+
+/** Probe result for a saved exit, measured through the selected upstream node. */
+export interface ResidentialProxyTestResult {
+  latencyMs: number
+  egress: DirectEgressInfo
+}
+
 export interface DirectEgressInfo {
   ip: string
   region: string
@@ -199,6 +224,7 @@ export interface AppConfig {
   globalRules?: PortRule[]
   checkUpdateOnStart?: boolean
   uwpAutoExempt?: boolean
+  residentialProxies?: ResidentialProxy[]
 }
 
 export interface SystemProxyStatus {

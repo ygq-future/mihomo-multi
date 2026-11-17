@@ -13,7 +13,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FIXED_DIRECT_PORT_ID } from '../../constants'
 import { createEventScope } from '../../services/events'
 import * as api from '../../services/tauri'
-import type { PortMapping, PortRuleMatchType, ProfileItem } from '../../types'
+import type {
+  PortMapping,
+  PortRuleMatchType,
+  ProfileItem,
+  ResidentialProxy,
+} from '../../types'
 import {
   type CapturedHostRecord,
   aggregateCapturedDomains,
@@ -33,12 +38,15 @@ import {
   toast,
 } from '../common'
 
+const EMPTY_RESIDENTIAL_PROXIES: ResidentialProxy[] = []
+
 interface TrafficSnifferPanelProps {
   isOpen: boolean
   isGlobal: boolean
   mapping: PortMapping | null
   portMappings: PortMapping[]
   profiles: ProfileItem[]
+  residentialProxies?: ResidentialProxy[]
   latencies: Record<string, number | null>
   coreRunning: boolean
   matchType: PortRuleMatchType
@@ -52,6 +60,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
   mapping,
   portMappings,
   profiles,
+  residentialProxies = EMPTY_RESIDENTIAL_PROXIES,
   latencies,
   coreRunning,
   matchType,
@@ -66,6 +75,13 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
   const getPortLatency = useCallback(
     (p: PortMapping): number | null => {
       if (p.id === FIXED_DIRECT_PORT_ID || p.nodeName === 'DIRECT') {
+        return p.latency ?? null
+      }
+      if (p.residentialProxyId) {
+        const chainKey = `chain-${p.port}`
+        if (chainKey in latencies && latencies[chainKey] !== undefined) {
+          return latencies[chainKey]
+        }
         return p.latency ?? null
       }
       const isFbActive = p.manualFallback && Boolean(p.fallbackNodeName)
@@ -116,12 +132,22 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
       const isDirect = m.id === FIXED_DIRECT_PORT_ID || m.nodeName === 'DIRECT'
       const isFbActive = m.manualFallback && Boolean(m.fallbackNodeName)
       const activeNodeName = isFbActive ? m.fallbackNodeName! : m.nodeName
+      const exitName = m.residentialProxyId
+        ? residentialProxies.find((proxy) => proxy.id === m.residentialProxyId)
+            ?.name
+        : null
       const lat = getPortLatency(m)
       const hasLat = lat !== undefined && lat !== null && lat > 0
 
       return {
         value: m.port,
-        label: `:${m.port} (${isDirect ? 'DIRECT 直连' : activeNodeName})`,
+        label: `:${m.port} (${
+          isDirect
+            ? 'DIRECT 直连'
+            : exitName
+              ? `${exitName} · 住宅出口`
+              : activeNodeName
+        })`,
         rightNode: hasLat ? (
           <span
             className={`font-mono text-[11px] font-medium ${getLatencyColor(
@@ -133,7 +159,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
         ) : null,
       }
     })
-  }, [sortedEnabledMappings, getPortLatency])
+  }, [sortedEnabledMappings, getPortLatency, residentialProxies])
 
   const defaultTestPort = useMemo<number | null>(() => {
     if (!isGlobal && mapping) return mapping.port
@@ -531,7 +557,13 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                   variant="outline"
                   className="text-[10px] py-0.5 px-2 font-mono text-muted-foreground truncate"
                 >
-                  隔离出口 :{mapping.port} ({mapping.nodeName})
+                  隔离出口 :{mapping.port} (
+                  {mapping.residentialProxyId
+                    ? (residentialProxies.find(
+                        (proxy) => proxy.id === mapping.residentialProxyId,
+                      )?.name ?? '住宅出口缺失')
+                    : mapping.nodeName}
+                  )
                 </Badge>
               ) : null}
             </div>

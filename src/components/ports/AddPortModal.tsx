@@ -1,6 +1,8 @@
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowRight,
+  Building2,
   Loader2,
   Network,
   Radio,
@@ -91,10 +93,12 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     portMappings,
     driftReports,
     fetchProfileNodes,
+    fetchConfig,
     savePortMapping,
     fetchStatus,
     setActiveTab,
     latencies,
+    config,
   } = useAppStore()
 
   const [port, setPort] = useState<string>('7891')
@@ -105,6 +109,12 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const [fallbackNodeName, setFallbackNodeName] = useState<string>('')
   const [description, setDescription] = useState<string>('')
   const [bypassCn, setBypassCn] = useState<boolean>(true)
+  const [selectedResidentialProxyId, setSelectedResidentialProxyId] =
+    useState<string>('')
+  const [residentialConfigError, setResidentialConfigError] = useState<
+    string | null
+  >(null)
+  const [configReloadToken, setConfigReloadToken] = useState(0)
   const [isCheckingPort, setIsCheckingPort] = useState(false)
   const [isPortAvailable, setIsPortAvailable] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -125,6 +135,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       setError(null)
       setSuccess(false)
       setSubmitting(false)
+      setResidentialConfigError(null)
 
       if (initialMapping) {
         setPort(String(initialMapping.port))
@@ -137,6 +148,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         setFallbackNodeName(initialMapping.fallbackNodeName || '')
         setDescription(initialMapping.description || '')
         setBypassCn(initialMapping.bypassCn ?? true)
+        setSelectedResidentialProxyId(initialMapping.residentialProxyId || '')
       } else {
         setSelectedProfileId(initialProfileId || '')
         setSelectedNodeName(initialNodeName || '')
@@ -156,6 +168,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         setProtocol('mixed')
         setDescription('')
         setBypassCn(true)
+        setSelectedResidentialProxyId('')
       }
     }
   }, [isOpen, initialProfileId, initialNodeName, initialMapping, profiles])
@@ -170,6 +183,33 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       }
     }
   }, [isOpen, profiles, profileNodes, fetchProfileNodes])
+
+  // Managed residential exits live in the app config.
+  useEffect(() => {
+    if (!isOpen || config) return
+    let cancelled = false
+    setResidentialConfigError(null)
+    fetchConfig()
+      .then(() => {
+        if (cancelled) return
+        const state = useAppStore.getState()
+        if (!state.config) {
+          setResidentialConfigError(
+            state.error || '住宅出口配置加载失败，请重试',
+          )
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setResidentialConfigError(
+            err instanceof Error ? err.message : String(err),
+          )
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, config, fetchConfig, configReloadToken])
 
   // Check port availability on debounced port change
   useEffect(() => {
@@ -269,12 +309,50 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     return extractRegion(selectedNodeName)
   }, [selectedNodeName])
 
+  const residentialProxies = useMemo(
+    () => config?.residentialProxies ?? [],
+    [config],
+  )
+  const selectedResidentialProxy = useMemo(
+    () =>
+      residentialProxies.find(
+        (proxy) => proxy.id === selectedResidentialProxyId,
+      ) ?? null,
+    [residentialProxies, selectedResidentialProxyId],
+  )
+  const isChainMode = selectedResidentialProxyId !== ''
+
+  const handleResidentialChange = (value: string) => {
+    setSelectedResidentialProxyId(value)
+    if (value) {
+      // Chain ports must send all traffic through the exit: bypass rules,
+      // fallback nodes and per-port rules are all bypassed by design.
+      setBypassCn(false)
+      setFallbackProfileId('')
+      setFallbackNodeName('')
+    } else {
+      setBypassCn(true)
+    }
+  }
+
   const boundNodeMap = useMemo(() => {
     const map = new Map<string, number>()
     for (const m of portMappings) {
-      if (!initialMapping || m.id !== initialMapping.id) {
-        map.set(`${m.profileId}:::${m.nodeName}`, m.port)
-      }
+      if (initialMapping && m.id === initialMapping.id) continue
+      // Chain ports only use the node as an upstream hop, so their node
+      // selection never blocks another chain port from sharing it.
+      if (m.residentialProxyId) continue
+      map.set(`${m.profileId}:::${m.nodeName}`, m.port)
+    }
+    return map
+  }, [portMappings, initialMapping])
+
+  const chainUpstreamMap = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const m of portMappings) {
+      if (initialMapping && m.id === initialMapping.id) continue
+      if (!m.residentialProxyId) continue
+      map.set(`${m.profileId}:::${m.nodeName}`, m.port)
     }
     return map
   }, [portMappings, initialMapping])
@@ -282,35 +360,52 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const sortedNodes = useMemo(() => {
     const list = [...allAvailableNodes]
     return list.sort((a, b) => {
-      const isBoundA = boundNodeMap.has(a.uniqueKey)
-      const isBoundB = boundNodeMap.has(b.uniqueKey)
+      const isBoundA = !isChainMode && boundNodeMap.has(a.uniqueKey)
+      const isBoundB = !isChainMode && boundNodeMap.has(b.uniqueKey)
 
       if (isBoundA !== isBoundB) {
         return isBoundA ? 1 : -1
       }
       return compareNodesByLatencyAndName(a, b, latencies)
     })
-  }, [allAvailableNodes, boundNodeMap, latencies])
+  }, [allAvailableNodes, boundNodeMap, latencies, isChainMode])
 
   const nodeOptions = useMemo(() => {
     return sortedNodes.map((n) => {
       const boundPort = boundNodeMap.get(n.uniqueKey)
+      const chainPort = chainUpstreamMap.get(n.uniqueKey)
       const latency = nodeKeyHasLatency(n.displayName, n.name, latencies)
       const latencyProps = getLatencyBadgeProps(latency, false)
       const region = extractRegion(n.name)
+      const protocolText = `${formatProtocolName(n.type)} 协议`
+      let description = `${protocolText} · ${region.name || region.code}`
+      if (boundPort && !isChainMode) {
+        description = `已绑定至端口 ${boundPort} · ${protocolText}`
+      } else if (chainPort) {
+        description = `已作为端口 ${chainPort} 的上游 · ${protocolText}`
+      } else if (boundPort && isChainMode) {
+        description = `端口 ${boundPort} 已绑定 · 可复用为上游 · ${protocolText}`
+      }
 
       return {
         value: n.uniqueKey,
         label: n.displayName,
         group: n.profileName,
         searchTarget: n.name,
-        description: boundPort
-          ? `已绑定至端口 ${boundPort} · ${formatProtocolName(n.type)} 协议`
-          : `${formatProtocolName(n.type)} 协议 · ${region.name || region.code}`,
+        description,
         icon: <RegionFlag code={region.code} size="sm" />,
-        disabled: Boolean(boundPort),
+        disabled: Boolean(boundPort) && !isChainMode,
         rightNode: (
           <div className="flex items-center gap-1.5">
+            {chainPort && (
+              <Badge
+                variant="secondary"
+                size="sm"
+                className="!text-[10px] !py-0.5 !px-1.5"
+              >
+                上游 :{chainPort}
+              </Badge>
+            )}
             {boundPort && (
               <Badge
                 variant="outline"
@@ -332,7 +427,39 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         ),
       }
     })
-  }, [sortedNodes, boundNodeMap, latencies])
+  }, [sortedNodes, boundNodeMap, chainUpstreamMap, latencies, isChainMode])
+
+  const residentialOptions = useMemo(() => {
+    const options: SelectOption<string>[] = [
+      {
+        value: '',
+        label: '不使用住宅出口',
+        description: '流量仅经所选上游节点单跳转发',
+      },
+    ]
+    for (const proxy of residentialProxies) {
+      options.push({
+        value: proxy.id,
+        label: proxy.name,
+        description: `${proxy.protocol.toUpperCase()} · ${proxy.server}:${proxy.port}`,
+        icon: <Building2 className="w-3.5 h-3.5 text-primary" />,
+      })
+    }
+    if (
+      selectedResidentialProxyId &&
+      !residentialProxies.some(
+        (proxy) => proxy.id === selectedResidentialProxyId,
+      )
+    ) {
+      options.push({
+        value: selectedResidentialProxyId,
+        label: '住宅出口配置缺失',
+        description: '该出口已从配置中删除，请重新选择或清除',
+        disabled: true,
+      })
+    }
+    return options
+  }, [residentialProxies, selectedResidentialProxyId])
 
   const fallbackNodeOptions = useMemo(() => {
     if (!selectedNodeRegion || !selectedNode) return []
@@ -403,7 +530,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     ? getProtocolBadgeProps(selectedFallbackNode.type)
     : null
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
     setError(null)
 
@@ -426,7 +553,12 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     }
 
     if (!selectedNodeName) {
-      setError('请选择绑定的代理节点')
+      setError(isChainMode ? '请选择链路的上游节点' : '请选择绑定的代理节点')
+      return
+    }
+
+    if (isChainMode && !selectedResidentialProxy) {
+      setError('所选住宅出口已从配置中删除，请重新选择或清除住宅出口')
       return
     }
 
@@ -438,11 +570,17 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         protocol,
         profileId: selectedProfileId,
         nodeName: selectedNodeName,
-        fallbackProfileId: fallbackNodeName.trim()
-          ? fallbackProfileId
-          : undefined,
-        fallbackNodeName: fallbackNodeName.trim() || undefined,
-        bypassCn,
+        residentialProxyId: isChainMode ? selectedResidentialProxyId : null,
+        fallbackProfileId: isChainMode
+          ? null
+          : fallbackNodeName.trim()
+            ? fallbackProfileId
+            : null,
+        fallbackNodeName: isChainMode ? null : fallbackNodeName.trim() || null,
+        bypassCn: isChainMode ? false : bypassCn,
+        manualFallback: isChainMode ? false : initialMapping?.manualFallback,
+        rules: isChainMode ? [] : initialMapping?.rules,
+        description: description.trim() || undefined,
         enabled: isEditing && initialMapping ? initialMapping.enabled : true,
       })
 
@@ -470,9 +608,13 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             : '添加端口映射'
       }
       subtitle={
-        isEditing
-          ? '修改入站监听端口及 1:1 绑定的代理节点'
-          : '分配独立本地入站监听端口并 1:1 绑定至指定代理节点'
+        isChainMode
+          ? isEditing
+            ? '修改入站端口、上游节点与住宅出口链路'
+            : '上游节点 → 住宅出口 → 目标，全量流量固定从住宅出口发出'
+          : isEditing
+            ? '修改入站监听端口及 1:1 绑定的代理节点'
+            : '分配独立本地入站监听端口并 1:1 绑定至指定代理节点'
       }
       icon={<Network className="w-4 h-4 text-primary" />}
       maxWidth="md"
@@ -498,7 +640,8 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
               success ||
               !selectedNodeName ||
               !port ||
-              isPortAvailable === false
+              isPortAvailable === false ||
+              (isChainMode && !selectedResidentialProxy)
             }
           >
             {isEditing ? '保存修改' : '确认创建'}
@@ -528,7 +671,11 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           <div className="p-3 text-xs bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-lg space-y-2">
             <div className="flex items-center gap-2 font-medium">
               <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
-              <span>检测到节点漂移/失效 (DIRECT 兜底生效中)</span>
+              <span>
+                {isChainMode
+                  ? '检测到上游节点或住宅出口失效 (链路端口将拒绝流量)'
+                  : '检测到节点漂移/失效 (DIRECT 兜底生效中)'}
+              </span>
             </div>
             <p className="text-[11px] text-muted-foreground leading-relaxed">
               {currentDrift.message}
@@ -640,7 +787,8 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             htmlFor="node-select"
             className="block text-xs font-medium text-foreground mb-1.5"
           >
-            绑定代理节点 <span className="text-destructive">*</span>
+            {isChainMode ? '上游节点 (链路前置跳板)' : '绑定代理节点'}{' '}
+            <span className="text-destructive">*</span>
           </label>
           <Select
             id="node-select"
@@ -675,18 +823,124 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             placeholder={
               allAvailableNodes.length === 0
                 ? '暂无可用代理节点，请先添加订阅'
-                : '搜索或选择要绑定的代理节点'
+                : isChainMode
+                  ? '搜索或选择链路的上游节点'
+                  : '搜索或选择要绑定的代理节点'
             }
             prefixIcon={<Radio className="w-3.5 h-3.5 text-primary" />}
           />
           <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">
-            单段输入直接匹配节点名称；支持空格两段式筛选（“订阅
-            节点”，两者均支持模糊匹配；输入“订阅 ”可直接列出该订阅全部节点）。
+            {isChainMode
+              ? '链路模式下上游节点仅作为前置跳板，可与其他端口复用；最终出口由下方住宅出口决定。'
+              : '单段输入直接匹配节点名称；支持空格两段式筛选（“订阅 节点”，两者均支持模糊匹配；输入“订阅 ”可直接列出该订阅全部节点）。'}
           </p>
         </div>
 
+        {/* Residential Exit Select */}
+        <div>
+          <label
+            htmlFor="residential-select"
+            className="block text-xs font-medium text-foreground mb-1.5"
+          >
+            住宅出口 (可选)
+          </label>
+          <Select
+            id="residential-select"
+            value={selectedResidentialProxyId}
+            onChange={(val) => handleResidentialChange(String(val))}
+            options={residentialOptions}
+            placeholder={
+              residentialProxies.length === 0
+                ? '尚未配置住宅出口'
+                : '选择住宅代理出口'
+            }
+            prefixIcon={<Building2 className="w-3.5 h-3.5 text-primary" />}
+            clearable={Boolean(selectedResidentialProxyId)}
+            onClear={() => handleResidentialChange('')}
+          />
+          <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
+            {residentialProxies.length === 0
+              ? '可在「订阅配置」页的「住宅出口」中集中管理认证型 HTTP / SOCKS5 住宅代理。'
+              : '选择后进入链路模式：全量流量经上游节点 → 住宅出口 → 目标，绕过大陆、备用节点、全局与局部网站分流规则强制失效。'}
+          </p>
+          {residentialConfigError && (
+            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-destructive">
+              <AlertCircle className="w-3 h-3 shrink-0" />
+              <span className="min-w-0">{residentialConfigError}</span>
+              <button
+                type="button"
+                onClick={() => setConfigReloadToken((value) => value + 1)}
+                className="shrink-0 underline underline-offset-2 hover:opacity-80"
+              >
+                重试
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Chain Overview Card */}
+        {isChainMode && selectedNode && (
+          <div className="p-3 rounded-lg border border-sky-500/30 bg-sky-500/5 space-y-2 text-xs">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Radio className="w-3.5 h-3.5 text-primary shrink-0" />
+              <span
+                className="font-medium text-foreground truncate"
+                title={selectedNode.name}
+              >
+                {selectedNode.name}
+              </span>
+              <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <Building2 className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+              <span
+                className={`font-semibold truncate ${
+                  selectedResidentialProxy
+                    ? 'text-foreground'
+                    : 'text-destructive'
+                }`}
+                title={
+                  selectedResidentialProxy
+                    ? selectedResidentialProxy.name
+                    : '住宅出口配置缺失'
+                }
+              >
+                {selectedResidentialProxy
+                  ? selectedResidentialProxy.name
+                  : '住宅出口配置缺失'}
+              </span>
+              <Badge
+                variant={selectedResidentialProxy ? 'primary' : 'danger'}
+                size="sm"
+                className="ml-auto shrink-0"
+              >
+                {selectedResidentialProxy
+                  ? `${selectedResidentialProxy.protocol.toUpperCase()} 住宅链路`
+                  : '链路将拒绝流量'}
+              </Badge>
+            </div>
+            <p className="text-[10px] leading-relaxed text-muted-foreground">
+              上游节点故障或住宅出口不可用时，端口直接拒绝连接，绝不回退 DIRECT
+              直连；该端口已有的备用节点与网站分流规则将被清除。
+            </p>
+            {initialMapping &&
+              ((initialMapping.rules?.length ?? 0) > 0 ||
+                Boolean(initialMapping.fallbackNodeName)) && (
+                <p className="text-[10px] leading-relaxed text-amber-600 dark:text-amber-400">
+                  保存后将清除
+                  {initialMapping.rules?.length
+                    ? ` ${initialMapping.rules.length} 条网站分流规则`
+                    : ''}
+                  {initialMapping.rules?.length &&
+                  initialMapping.fallbackNodeName
+                    ? '与'
+                    : ''}
+                  {initialMapping.fallbackNodeName ? ' 现有备用节点' : ''}。
+                </p>
+              )}
+          </div>
+        )}
+
         {/* Same-region Fallback Node Select - directly below main node select */}
-        {selectedNode && (
+        {selectedNode && !isChainMode && (
           <div className="pt-1">
             <div className="flex items-center justify-between mb-1.5">
               <label
@@ -754,9 +1008,9 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             {/* Main Node */}
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                {selectedFallbackNode && (
+                {(selectedFallbackNode || isChainMode) && (
                   <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-primary/10 text-primary font-medium shrink-0">
-                    主
+                    {isChainMode ? '上游' : '主'}
                   </span>
                 )}
                 <RegionFlag
@@ -825,17 +1079,27 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           </div>
         )}
         {/* Bypass CN Switch */}
-        <div className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-secondary/20">
-          <label
-            htmlFor="bypass-cn-switch"
-            className="text-xs font-medium text-foreground cursor-pointer"
-          >
-            智能绕过大陆网站 (直连)
-          </label>
+        <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-border bg-secondary/20">
+          <div className="min-w-0">
+            <label
+              htmlFor="bypass-cn-switch"
+              className={`text-xs font-medium text-foreground ${
+                isChainMode ? 'cursor-not-allowed' : 'cursor-pointer'
+              }`}
+            >
+              智能绕过大陆网站 (直连)
+            </label>
+            <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
+              {isChainMode
+                ? '链路模式已强制关闭：该端口全量流量固定从住宅出口发出'
+                : '开启后中国大陆域名与 IP 直连，不经过绑定节点'}
+            </p>
+          </div>
           <Switch
             id="bypass-cn-switch"
-            checked={bypassCn}
+            checked={isChainMode ? false : bypassCn}
             onChange={setBypassCn}
+            disabled={isChainMode}
             size="sm"
           />
         </div>

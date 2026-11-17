@@ -314,6 +314,8 @@ pub fn run() {
             get_port_fallback_statuses,
             query_direct_egress_info,
             query_node_egress_info,
+            test_residential_proxy,
+            query_port_egress_info,
             get_profiles,
             add_remote_profile,
             add_local_profile,

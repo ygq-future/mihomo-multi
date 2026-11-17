@@ -115,7 +115,11 @@ impl AutoUpdater {
 
                         // Perform node drift safety guard inspection
                         let mappings = app_state.port_router.get_port_mappings();
-                        let drift_reports = DriftGuard::check_all(&mappings, &app_state.profile_manager);
+                        let drift_reports = DriftGuard::check_all(
+                            &mappings,
+                            &app_state.profile_manager,
+                            &app_state.config.read().residential_proxies,
+                        );
 
                         let drifted_count = drift_reports
                             .iter()

@@ -310,6 +310,405 @@ impl Drop for JobObjectGuard {
     }
 }
 
+/// Short-lived, windowless Mihomo process used for isolated diagnostics such as the
+/// residential exit connectivity probe.
+///
+/// The child always runs against its own temporary work directory/config, so it can
+/// never touch the live runtime listeners. Dropping the handle kills and reaps the
+/// process, logging cleanup failures.
+///
+/// Parent-crash containment is mandatory and platform-specific:
+/// - Windows: kill-on-close Job Object.
+/// - Linux: `PR_SET_PDEATHSIG(SIGKILL)` plus a post-fork parent PID recheck.
+/// - macOS: a forked kqueue `NOTE_EXIT` watchdog that kills the probe if the app dies.
+/// - Other Unix targets are refused explicitly instead of running uncontained.
+pub struct IsolatedCoreProcess {
+    child: Child,
+    #[cfg(windows)]
+    _job_object: JobObjectGuard,
+    #[cfg(target_os = "macos")]
+    _watchdog_pid: libc::pid_t,
+}
+
+/// Kills/reaps an isolated child, distinguishing an already-exited process from real
+/// cleanup failures. Never panics on cleanup.
+fn terminate_isolated_child(child: &mut Child, context: &'static str) {
+    match child.try_wait() {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            if let Err(err) = child.kill() {
+                warn!(error = %err, context = context, "Failed to kill isolated Mihomo process");
+            }
+            if let Err(err) = child.wait() {
+                warn!(error = %err, context = context, "Failed to reap isolated Mihomo process");
+            }
+        }
+        Err(state_err) => {
+            warn!(
+                error = %state_err,
+                context = context,
+                "Failed to check isolated Mihomo process state during cleanup"
+            );
+            if let Err(err) = child.kill() {
+                warn!(error = %err, context = context, "Failed to kill isolated Mihomo process after state check failure");
+            }
+            if let Err(err) = child.wait() {
+                warn!(error = %err, context = context, "Failed to reap isolated Mihomo process after state check failure");
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn write_macos_watchdog_status(fd: libc::c_int, status: u8) {
+    let value = status;
+    loop {
+        let written = unsafe { libc::write(fd, &value as *const u8 as *const libc::c_void, 1) };
+        if written == 1 {
+            return;
+        }
+        if written < 0 && unsafe { *libc::__error() } == libc::EINTR {
+            continue;
+        }
+        return;
+    }
+}
+
+/// Closes fds inherited from the multi-threaded app in the forked watchdog so it cannot
+/// keep sockets, files, or terminal pipes alive after the main process dies.
+#[cfg(target_os = "macos")]
+fn close_inherited_fds(keep: libc::c_int) {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    let max_fd = unsafe {
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) == 0 {
+            limit.rlim_cur.min(65_536) as libc::c_int
+        } else {
+            1024
+        }
+    };
+    let mut fd = 0;
+    while fd < max_fd {
+        if fd != keep {
+            unsafe {
+                libc::close(fd);
+            }
+        }
+        fd += 1;
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn wait_for_process_exit_bounded(pid: libc::pid_t) {
+    let delay = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 10_000_000,
+    };
+    for _ in 0..100 {
+        if unsafe { libc::kill(pid, 0) } != 0 {
+            return;
+        }
+        unsafe {
+            libc::nanosleep(&delay, std::ptr::null_mut());
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn read_macos_watchdog_status(fd: libc::c_int, timeout_ms: libc::c_int) -> Option<u8> {
+    let mut poll_fd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let ready = loop {
+        let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+        if ready < 0 && unsafe { *libc::__error() } == libc::EINTR {
+            continue;
+        }
+        break ready;
+    };
+    if ready <= 0 {
+        return None;
+    }
+    let mut value: u8 = 0;
+    loop {
+        let read = unsafe { libc::read(fd, &mut value as *mut u8 as *mut libc::c_void, 1) };
+        if read == 1 {
+            return Some(value);
+        }
+        if read < 0 && unsafe { *libc::__error() } == libc::EINTR {
+            continue;
+        }
+        return None;
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_watchdog_setup_failed(probe_pid: libc::pid_t, write_fd: libc::c_int) -> ! {
+    unsafe {
+        libc::kill(probe_pid, libc::SIGKILL);
+        write_macos_watchdog_status(write_fd, 0);
+        libc::close(write_fd);
+        libc::_exit(1)
+    }
+}
+
+/// Forked watchdog body. Only async-signal-safe syscalls and stack state are used; it
+/// never returns into the Rust runtime and never allocates after `fork`.
+#[cfg(target_os = "macos")]
+fn macos_watchdog_main(
+    probe_pid: libc::pid_t,
+    parent_pid: libc::pid_t,
+    read_fd: libc::c_int,
+    write_fd: libc::c_int,
+) -> ! {
+    unsafe {
+        libc::close(read_fd);
+        let kq = libc::kqueue();
+        if kq < 0 {
+            macos_watchdog_setup_failed(probe_pid, write_fd);
+        }
+        let change = libc::kevent {
+            ident: parent_pid as libc::uintptr_t,
+            filter: libc::EVFILT_PROC,
+            flags: libc::EV_ADD | libc::EV_ENABLE,
+            fflags: libc::NOTE_EXIT,
+            data: 0,
+            udata: std::ptr::null_mut(),
+        };
+        let mut event: libc::kevent = std::mem::zeroed();
+        if libc::kevent(kq, &change, 1, std::ptr::null_mut(), 0, std::ptr::null()) < 0 {
+            libc::close(kq);
+            macos_watchdog_setup_failed(probe_pid, write_fd);
+        }
+
+        write_macos_watchdog_status(write_fd, 1);
+        libc::close(write_fd);
+        close_inherited_fds(kq);
+
+        loop {
+            let count = libc::kevent(kq, std::ptr::null(), 0, &mut event, 1, std::ptr::null());
+            if count < 0 {
+                if *libc::__error() == libc::EINTR {
+                    continue;
+                }
+                break;
+            }
+            if count > 0 {
+                break;
+            }
+        }
+
+        libc::kill(probe_pid, libc::SIGKILL);
+        wait_for_process_exit_bounded(probe_pid);
+        libc::_exit(0)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn terminate_macos_watchdog(watchdog_pid: libc::pid_t) {
+    if watchdog_pid <= 0 {
+        return;
+    }
+    unsafe {
+        if libc::kill(watchdog_pid, libc::SIGKILL) != 0 {
+            let errno = *libc::__error();
+            if errno != libc::ESRCH {
+                warn!(
+                    error = %std::io::Error::from_raw_os_error(errno),
+                    "Failed to kill macOS parent watchdog"
+                );
+            }
+        }
+        let mut status = 0;
+        loop {
+            let reaped = libc::waitpid(watchdog_pid, &mut status, 0);
+            if reaped == watchdog_pid {
+                break;
+            }
+            if reaped < 0 {
+                let errno = *libc::__error();
+                if errno == libc::EINTR {
+                    continue;
+                }
+                if errno != libc::ECHILD {
+                    warn!(
+                        error = %std::io::Error::from_raw_os_error(errno),
+                        "Failed to reap macOS parent watchdog"
+                    );
+                }
+                break;
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_macos_parent_watchdog(probe_pid: libc::pid_t) -> Result<libc::pid_t, AppError> {
+    let parent_pid = std::process::id() as libc::pid_t;
+    let mut fds: [libc::c_int; 2] = [0; 2];
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+        return Err(AppError::Supervisor(format!(
+            "无法创建 macOS 父进程监视管道: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    let read_fd = fds[0];
+    let write_fd = fds[1];
+
+    let watchdog_pid = unsafe { libc::fork() };
+    if watchdog_pid < 0 {
+        unsafe {
+            libc::close(read_fd);
+            libc::close(write_fd);
+        }
+        return Err(AppError::Supervisor(format!(
+            "无法创建 macOS 父进程监视子进程: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    if watchdog_pid == 0 {
+        macos_watchdog_main(probe_pid, parent_pid, read_fd, write_fd);
+    }
+
+    unsafe {
+        libc::close(write_fd);
+    }
+    let status = read_macos_watchdog_status(read_fd, 2_000);
+    unsafe {
+        libc::close(read_fd);
+    }
+    if status == Some(1) {
+        Ok(watchdog_pid)
+    } else {
+        terminate_macos_watchdog(watchdog_pid);
+        Err(AppError::Supervisor(
+            "macOS 父进程监视子进程未能建立，已终止住宅代理测试内核以避免孤儿进程".to_string(),
+        ))
+    }
+}
+
+impl IsolatedCoreProcess {
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    pub fn spawn(binary_path: &Path, work_dir: &Path, config_path: &Path) -> AppResult<Self> {
+        let mut cmd = Command::new(binary_path);
+        cmd.arg("-d")
+            .arg(work_dir)
+            .arg("-f")
+            .arg(config_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // CREATE_NO_WINDOW = 0x08000000
+            cmd.creation_flags(0x08000000);
+        }
+        // Linux: the kernel kills the probe when this process dies. The PID recheck closes
+        // the race where the parent died between fork and the prctl call.
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::process::CommandExt;
+            let parent_pid = std::process::id() as libc::pid_t;
+            unsafe {
+                cmd.pre_exec(move || {
+                    // SAFETY: runs once in the forked child before exec; only syscalls and
+                    // stack state are used, and failures never return into the runtime.
+                    if libc::prctl(
+                        libc::PR_SET_PDEATHSIG,
+                        libc::SIGKILL as libc::c_ulong,
+                        0 as libc::c_ulong,
+                        0 as libc::c_ulong,
+                        0 as libc::c_ulong,
+                    ) != 0
+                    {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if libc::getppid() != parent_pid {
+                        libc::_exit(1);
+                    }
+                    Ok(())
+                });
+            }
+        }
+
+        let child = cmd
+            .spawn()
+            .map_err(|err| AppError::SidecarExecution(format!("Failed to spawn isolated Mihomo process: {}", err)))?;
+        #[cfg(any(windows, target_os = "macos"))]
+        let mut child = child;
+
+        // A diagnostic process must never outlive the application, so Windows containment
+        // is mandatory: refuse to run uncontained rather than rely on best-effort cleanup.
+        #[cfg(windows)]
+        let job_object = match JobObjectGuard::new() {
+            Some(job) => {
+                if job.assign_process(&child) {
+                    job
+                } else {
+                    terminate_isolated_child(&mut child, "job-object-assign-failure");
+                    return Err(AppError::Supervisor(
+                        "无法将住宅代理测试内核加入 Windows Job Object，已终止测试进程以避免孤儿进程".to_string(),
+                    ));
+                }
+            }
+            None => {
+                terminate_isolated_child(&mut child, "job-object-create-failure");
+                return Err(AppError::Supervisor(
+                    "无法创建 Windows Job Object，已终止住宅代理测试内核以避免孤儿进程".to_string(),
+                ));
+            }
+        };
+
+        // macOS has no PDEATHSIG; a forked watchdog watches this process with kqueue
+        // NOTE_EXIT and SIGKILLs the probe if the app dies. Failure to establish the
+        // watchdog is fatal for the probe, never silently unguarded.
+        #[cfg(target_os = "macos")]
+        let watchdog_pid = match spawn_macos_parent_watchdog(child.id() as libc::pid_t) {
+            Ok(pid) => pid,
+            Err(err) => {
+                terminate_isolated_child(&mut child, "macos-watchdog-failure");
+                return Err(err);
+            }
+        };
+
+        Ok(Self {
+            child,
+            #[cfg(windows)]
+            _job_object: job_object,
+            #[cfg(target_os = "macos")]
+            _watchdog_pid: watchdog_pid,
+        })
+    }
+
+    /// Non-blocking liveness check, used while waiting for the diagnostic listener.
+    pub fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.child.try_wait()
+    }
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+impl IsolatedCoreProcess {
+    pub fn spawn(_binary_path: &Path, _work_dir: &Path, _config_path: &Path) -> AppResult<Self> {
+        Err(AppError::Supervisor(
+            "Isolated Mihomo parent-crash containment is not implemented on this platform; refusing to spawn"
+                .to_string(),
+        ))
+    }
+}
+
+impl Drop for IsolatedCoreProcess {
+    fn drop(&mut self) {
+        terminate_isolated_child(&mut self.child, "drop");
+        #[cfg(target_os = "macos")]
+        terminate_macos_watchdog(self._watchdog_pid);
+    }
+}
+
 pub type CrashCallback = Arc<dyn Fn(String) + Send + Sync>;
 
 struct SupervisorInner {

@@ -1,5 +1,5 @@
 use crate::core::profile_manager::ProfileManager;
-use crate::models::{DriftStatus, PortDriftReport, PortMapping};
+use crate::models::{DriftStatus, PortDriftReport, PortMapping, ResidentialProxy};
 use std::collections::HashSet;
 
 pub struct DriftGuard;
@@ -7,7 +7,11 @@ pub struct DriftGuard;
 impl DriftGuard {
     /// Inspects all port mappings and returns drift reports for each mapping.
     /// Eliminates redundant queries when multiple ports belong to the same subscription.
-    pub fn check_all(mappings: &[PortMapping], profile_manager: &ProfileManager) -> Vec<PortDriftReport> {
+    pub fn check_all(
+        mappings: &[PortMapping],
+        profile_manager: &ProfileManager,
+        residential_proxies: &[ResidentialProxy],
+    ) -> Vec<PortDriftReport> {
         let profiles = profile_manager.get_profiles();
         let profile_map: std::collections::HashMap<String, String> =
             profiles.into_iter().map(|p| (p.id, p.name)).collect();
@@ -29,12 +33,16 @@ impl DriftGuard {
 
         mappings
             .iter()
-            .map(|m| Self::check_single_internal(m, profile_manager, &profile_map, &node_cache))
+            .map(|m| Self::check_single_internal(m, profile_manager, &profile_map, &node_cache, residential_proxies))
             .collect()
     }
 
     /// Inspects a single port mapping and returns its drift report.
-    pub fn check_single(mapping: &PortMapping, profile_manager: &ProfileManager) -> PortDriftReport {
+    pub fn check_single(
+        mapping: &PortMapping,
+        profile_manager: &ProfileManager,
+        residential_proxies: &[ResidentialProxy],
+    ) -> PortDriftReport {
         let profile = profile_manager.get_profile_by_id(&mapping.profile_id);
         let mut profile_map = std::collections::HashMap::new();
         let mut node_cache = std::collections::HashMap::new();
@@ -48,7 +56,7 @@ impl DriftGuard {
             node_cache.insert(mapping.profile_id.clone(), nodes_res);
         }
 
-        Self::check_single_internal(mapping, profile_manager, &profile_map, &node_cache)
+        Self::check_single_internal(mapping, profile_manager, &profile_map, &node_cache, residential_proxies)
     }
 
     fn check_single_internal(
@@ -56,6 +64,7 @@ impl DriftGuard {
         profile_manager: &ProfileManager,
         profile_map: &std::collections::HashMap<String, String>,
         node_cache: &std::collections::HashMap<String, Result<Vec<String>, String>>,
+        residential_proxies: &[ResidentialProxy],
     ) -> PortDriftReport {
         if mapping.id == crate::models::FIXED_DIRECT_PORT_ID || mapping.node_name == "DIRECT" {
             return PortDriftReport {
@@ -72,6 +81,44 @@ impl DriftGuard {
             };
         }
 
+        let chain_exit_id = mapping
+            .residential_proxy_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        let is_chain = chain_exit_id.is_some();
+        if let Some(exit_id) = chain_exit_id {
+            let invalid_message = match residential_proxies.iter().find(|proxy| proxy.id.trim() == exit_id) {
+                None => Some(format!(
+                    "住宅代理出口 (ID: {}) 已不存在，链式端口不可用（不会回退直连）",
+                    exit_id
+                )),
+                Some(exit) => exit.validate().err().map(|err| {
+                    format!(
+                        "住宅代理出口「{}」配置无效（{}），链式端口不可用（不会回退直连）",
+                        exit.name, err
+                    )
+                }),
+            };
+            if let Some(message) = invalid_message {
+                return PortDriftReport {
+                    mapping_id: mapping.id.clone(),
+                    port: mapping.port,
+                    profile_id: mapping.profile_id.clone(),
+                    profile_name: profile_map
+                        .get(&mapping.profile_id)
+                        .cloned()
+                        .unwrap_or_else(|| "未知订阅".to_string()),
+                    node_name: mapping.node_name.clone(),
+                    enabled: mapping.enabled,
+                    status: DriftStatus::NodeMissing,
+                    message,
+                    fallback_action: "REJECT".to_string(),
+                    suggestions: Vec::new(),
+                };
+            }
+        }
+
         let profile_name = profile_map
             .get(&mapping.profile_id)
             .cloned()
@@ -79,6 +126,17 @@ impl DriftGuard {
 
         // 1. Check if profile exists
         if !profile_map.contains_key(&mapping.profile_id) {
+            let message = if is_chain {
+                format!(
+                    "关联的订阅配置 (ID: {}) 已被移除，住宅代理链不可用（不会回退直连）",
+                    mapping.profile_id
+                )
+            } else {
+                format!(
+                    "关联的订阅配置 (ID: {}) 已被移除，端口流量已安全直连 (DIRECT)",
+                    mapping.profile_id
+                )
+            };
             return PortDriftReport {
                 mapping_id: mapping.id.clone(),
                 port: mapping.port,
@@ -87,11 +145,12 @@ impl DriftGuard {
                 node_name: mapping.node_name.clone(),
                 enabled: mapping.enabled,
                 status: DriftStatus::ProfileMissing,
-                message: format!(
-                    "关联的订阅配置 (ID: {}) 已被移除，端口流量已安全直连 (DIRECT)",
-                    mapping.profile_id
-                ),
-                fallback_action: "DIRECT".to_string(),
+                message,
+                fallback_action: if is_chain {
+                    "REJECT".to_string()
+                } else {
+                    "DIRECT".to_string()
+                },
                 suggestions: Vec::new(),
             };
         }
@@ -100,6 +159,17 @@ impl DriftGuard {
         let candidate_names = match node_cache.get(&mapping.profile_id) {
             Some(Ok(names)) => names,
             Some(Err(err)) => {
+                let message = if is_chain {
+                    format!(
+                        "读取订阅「{}」节点失败 ({})，住宅代理链不可用（不会回退直连）",
+                        profile_name, err
+                    )
+                } else {
+                    format!(
+                        "读取订阅「{}」节点失败 ({})，端口流量已安全直连 (DIRECT)",
+                        profile_name, err
+                    )
+                };
                 return PortDriftReport {
                     mapping_id: mapping.id.clone(),
                     port: mapping.port,
@@ -108,15 +178,27 @@ impl DriftGuard {
                     node_name: mapping.node_name.clone(),
                     enabled: mapping.enabled,
                     status: DriftStatus::EmptyProfile,
-                    message: format!(
-                        "读取订阅「{}」节点失败 ({})，端口流量已安全直连 (DIRECT)",
-                        profile_name, err
-                    ),
-                    fallback_action: "DIRECT".to_string(),
+                    message,
+                    fallback_action: if is_chain {
+                        "REJECT".to_string()
+                    } else {
+                        "DIRECT".to_string()
+                    },
                     suggestions: Vec::new(),
                 };
             }
             None => {
+                let message = if is_chain {
+                    format!(
+                        "关联的订阅配置 (ID: {}) 已被移除，住宅代理链不可用（不会回退直连）",
+                        mapping.profile_id
+                    )
+                } else {
+                    format!(
+                        "关联的订阅配置 (ID: {}) 已被移除，端口流量已安全直连 (DIRECT)",
+                        mapping.profile_id
+                    )
+                };
                 return PortDriftReport {
                     mapping_id: mapping.id.clone(),
                     port: mapping.port,
@@ -125,17 +207,26 @@ impl DriftGuard {
                     node_name: mapping.node_name.clone(),
                     enabled: mapping.enabled,
                     status: DriftStatus::ProfileMissing,
-                    message: format!(
-                        "关联的订阅配置 (ID: {}) 已被移除，端口流量已安全直连 (DIRECT)",
-                        mapping.profile_id
-                    ),
-                    fallback_action: "DIRECT".to_string(),
+                    message,
+                    fallback_action: if is_chain {
+                        "REJECT".to_string()
+                    } else {
+                        "DIRECT".to_string()
+                    },
                     suggestions: Vec::new(),
                 };
             }
         };
 
         if candidate_names.is_empty() {
+            let message = if is_chain {
+                format!(
+                    "订阅「{}」中无可用代理节点，住宅代理链不可用（不会回退直连）",
+                    profile_name
+                )
+            } else {
+                format!("订阅「{}」中无可用代理节点，端口流量已安全直连 (DIRECT)", profile_name)
+            };
             return PortDriftReport {
                 mapping_id: mapping.id.clone(),
                 port: mapping.port,
@@ -144,8 +235,12 @@ impl DriftGuard {
                 node_name: mapping.node_name.clone(),
                 enabled: mapping.enabled,
                 status: DriftStatus::EmptyProfile,
-                message: format!("订阅「{}」中无可用代理节点，端口流量已安全直连 (DIRECT)", profile_name),
-                fallback_action: "DIRECT".to_string(),
+                message,
+                fallback_action: if is_chain {
+                    "REJECT".to_string()
+                } else {
+                    "DIRECT".to_string()
+                },
                 suggestions: Vec::new(),
             };
         }
@@ -165,7 +260,9 @@ impl DriftGuard {
             })
             .unwrap_or(false);
         if main_node_exists {
-            let message = if let Some(fb) = &mapping.fallback_node_name {
+            let message = if is_chain {
+                "节点正常绑定，住宅代理链已启用".to_string()
+            } else if let Some(fb) = &mapping.fallback_node_name {
                 if fallback_node_exists {
                     format!("节点正常绑定 (备用节点: {})", fb)
                 } else {
@@ -191,6 +288,24 @@ impl DriftGuard {
 
         // 4. Main node is missing / drifted -> calculate similarity suggestions
         let suggestions = Self::find_candidate_suggestions(&mapping.node_name, candidate_names);
+
+        if is_chain {
+            return PortDriftReport {
+                mapping_id: mapping.id.clone(),
+                port: mapping.port,
+                profile_id: mapping.profile_id.clone(),
+                profile_name: profile_name.clone(),
+                node_name: mapping.node_name.clone(),
+                enabled: mapping.enabled,
+                status: DriftStatus::NodeMissing,
+                message: format!(
+                    "上游节点「{}」在订阅「{}」中已失效或被重命名，住宅代理链不可用（不会回退直连）",
+                    mapping.node_name, profile_name
+                ),
+                fallback_action: "REJECT".to_string(),
+                suggestions,
+            };
+        }
 
         if let Some(fb) = &mapping.fallback_node_name
             && fallback_node_exists
@@ -342,6 +457,7 @@ proxies:
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         // 2. Drifted mapping (Node missing)
@@ -358,6 +474,7 @@ proxies:
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         // 3. Drifted mapping (Profile missing)
@@ -374,6 +491,7 @@ proxies:
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         let mappings = vec![
@@ -382,7 +500,7 @@ proxies:
             missing_profile_mapping.clone(),
         ];
 
-        let reports = DriftGuard::check_all(&mappings, &manager);
+        let reports = DriftGuard::check_all(&mappings, &manager, &[]);
         assert_eq!(reports.len(), 3);
 
         assert_eq!(reports[0].status, DriftStatus::Healthy);
@@ -421,9 +539,10 @@ proxies:
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
-        let single_report = DriftGuard::check_single(&empty_mapping, &manager);
+        let single_report = DriftGuard::check_single(&empty_mapping, &manager, &[]);
         assert_eq!(single_report.status, DriftStatus::EmptyProfile);
         assert_eq!(single_report.fallback_action, "DIRECT");
         assert_eq!(single_report.profile_name, "EmptyAirport");
@@ -471,6 +590,7 @@ proxies:
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
 
@@ -488,6 +608,7 @@ proxies:
             fallback_node_name: Some("Backup-Node".to_string()),
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         // 3. Port 3: Same profile, drifted without fallback
@@ -504,6 +625,7 @@ proxies:
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
         // 4. Port 4: Non-existent profile
@@ -520,11 +642,12 @@ proxies:
             fallback_node_name: None,
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
 
         let mappings = vec![port1.clone(), port2.clone(), port3.clone(), port4.clone()];
-        let reports = DriftGuard::check_all(&mappings, &manager);
+        let reports = DriftGuard::check_all(&mappings, &manager, &[]);
         assert_eq!(reports.len(), 4);
 
         assert_eq!(reports[0].status, DriftStatus::Healthy);
@@ -554,7 +677,7 @@ proxies:
             .expect("Update in-memory profile failed");
 
         // Port 1 previously healthy should now be drifted because HK-Shadowsocks-01 was removed
-        let report_after_update = DriftGuard::check_single(&port1, &manager);
+        let report_after_update = DriftGuard::check_single(&port1, &manager, &[]);
         assert_eq!(report_after_update.status, DriftStatus::NodeMissing);
         assert_eq!(report_after_update.fallback_action, "DIRECT");
     }
@@ -580,11 +703,54 @@ proxies:
             fallback_node_name: Some("HK-Backup".to_string()),
             bypass_cn: true,
             manual_fallback: false,
+            residential_proxy_id: None,
             rules: vec![],
         };
 
-        let report = DriftGuard::check_single(&mapping, &manager);
+        let report = DriftGuard::check_single(&mapping, &manager, &[]);
         assert_eq!(report.status, DriftStatus::NodeMissing);
         assert_eq!(report.fallback_action, "FALLBACK:HK-Backup");
+    }
+
+    #[test]
+    fn test_chain_drift_never_claims_direct_fallback() {
+        let manager = ProfileManager::new_in_memory();
+        let exit = ResidentialProxy {
+            id: "res-1".to_string(),
+            name: "Managed Exit".to_string(),
+            protocol: "http".to_string(),
+            server: "127.0.0.1".to_string(),
+            port: 55942,
+            username: "chain-user".to_string(),
+            password: "pw-1234".to_string(),
+        };
+        let mut mapping = PortMapping {
+            id: "chain-port".to_string(),
+            port: 7891,
+            protocol: InboundProtocol::Mixed,
+            profile_id: "missing-profile".to_string(),
+            node_name: "HK-01".to_string(),
+            residential_proxy_id: Some("res-1".to_string()),
+            enabled: true,
+            bypass_cn: false,
+            ..PortMapping::default()
+        };
+
+        let report = DriftGuard::check_single(&mapping, &manager, std::slice::from_ref(&exit));
+        assert_eq!(report.status, DriftStatus::ProfileMissing);
+        assert_eq!(report.fallback_action, "REJECT");
+        assert!(report.message.contains("不会回退直连"));
+        assert!(!report.message.contains("DIRECT"));
+
+        let report = DriftGuard::check_single(&mapping, &manager, &[]);
+        assert_eq!(report.status, DriftStatus::NodeMissing);
+        assert_eq!(report.fallback_action, "REJECT");
+        assert!(report.message.contains("住宅代理出口"));
+
+        // Non-chain mappings keep the existing DIRECT drift semantics.
+        mapping.residential_proxy_id = None;
+        let report = DriftGuard::check_single(&mapping, &manager, &[]);
+        assert_eq!(report.status, DriftStatus::ProfileMissing);
+        assert_eq!(report.fallback_action, "DIRECT");
     }
 }
