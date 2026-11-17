@@ -52,7 +52,6 @@ import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import type {
   AppUpdateProgressPayload,
-  KernelUpdateCheckResult,
   MrsRulesInfo,
   UwpLoopbackStats,
 } from '../../types'
@@ -265,9 +264,8 @@ export const SettingView: React.FC = () => {
   // Kernel Update State
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false)
   const [upgradingKernel, setUpgradingKernel] = useState<boolean>(false)
-  const [updateInfo, setUpdateInfo] = useState<KernelUpdateCheckResult | null>(
-    null,
-  )
+  const updateInfo = useAppStore((state) => state.kernelUpdateInfo)
+  const setUpdateInfo = useAppStore((state) => state.setKernelUpdateInfo)
 
   // System Proxy State
   const [newBypassInput, setNewBypassInput] = useState<string>('')

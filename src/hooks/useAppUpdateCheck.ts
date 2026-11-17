@@ -25,6 +25,7 @@ export function useAppUpdateCheck(): void {
   const config = useAppStore((state) => state.config)
   const configLoaded = config !== null && config !== undefined
   const setAppUpdateInfo = useAppStore((state) => state.setAppUpdateInfo)
+  const setKernelUpdateInfo = useAppStore((state) => state.setKernelUpdateInfo)
   const scrollToSettingSection = useAppStore(
     (state) => state.scrollToSettingSection,
   )
@@ -67,6 +68,7 @@ export function useAppUpdateCheck(): void {
         runAppCheck(),
         checkKernelUpdate()
           .then((res) => {
+            setKernelUpdateInfo(res)
             if (!res.hasUpdate) return
             toast.info(
               `发现 Mihomo 内核新版本 ${res.latestVersion}，可前往设置更新。`,
@@ -85,7 +87,7 @@ export function useAppUpdateCheck(): void {
     } finally {
       isCheckingRef.current = false
     }
-  }, [runAppCheck, scrollToSettingSection])
+  }, [runAppCheck, scrollToSettingSection, setKernelUpdateInfo])
 
   useEffect(() => {
     if (!configLoaded) return

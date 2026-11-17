@@ -5,6 +5,7 @@ import type {
   AppStatus,
   AppUpdateCheckResult,
   CoreStatus,
+  KernelUpdateCheckResult,
   EnvProxyStatus,
   ResidentialProxy,
   TunStatus,
@@ -55,6 +56,8 @@ export interface BaseAppState {
   appUpdateInfo: AppUpdateCheckResult | null
   hasNewVersion: boolean
   setAppUpdateInfo: (info: AppUpdateCheckResult | null) => void
+  kernelUpdateInfo: KernelUpdateCheckResult | null
+  setKernelUpdateInfo: (info: KernelUpdateCheckResult | null) => void
 }
 
 export type RootStore = BaseAppState & ProfileSlice & ProxySlice & PortSlice
@@ -95,6 +98,8 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
     )
     set({ appUpdateInfo: info, hasNewVersion: hasNew })
   },
+  kernelUpdateInfo: null,
+  setKernelUpdateInfo: (kernelUpdateInfo) => set({ kernelUpdateInfo }),
   tunStatus: null,
   error: null,
   targetSettingSection: null,
