@@ -161,7 +161,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
         ) : null,
       }
     })
-  }, [sortedEnabledMappings, getPortLatency, residentialProxies])
+  }, [sortedEnabledMappings, getPortLatency, residentialProxies, t])
 
   const defaultTestPort = useMemo<number | null>(() => {
     if (!isGlobal && mapping) return mapping.port
@@ -273,7 +273,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
     return () => {
       scope.dispose()
     }
-  }, [isOpen, snifferOpen, stopProbeSession])
+  }, [isOpen, snifferOpen, stopProbeSession, t])
   const pollSnifferConnections = useCallback(async () => {
     if (isPollingRef.current) return
     isPollingRef.current = true

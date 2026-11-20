@@ -110,6 +110,7 @@ export function MultiSelect<T extends string | number = string>({
     selectedOptions,
     options.length,
     resolvedPlaceholder,
+    t,
   ])
 
   const openDropdown = useCallback(() => {

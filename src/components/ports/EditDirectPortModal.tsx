@@ -43,7 +43,7 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
       setIsPortAvailable(true)
       setError(null)
     }
-  }, [isOpen, directMapping])
+  }, [isOpen, directMapping, t])
 
   // Port debounce check
   useEffect(() => {
