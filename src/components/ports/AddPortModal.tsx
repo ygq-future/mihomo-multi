@@ -11,7 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import type React from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import { useTranslation } from '../../i18n'
@@ -88,7 +88,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   initialNodeName,
   initialMapping,
 }) => {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const {
     profiles,
     profileNodes,
@@ -211,7 +211,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     return () => {
       cancelled = true
     }
-  }, [isOpen, config, fetchConfig, configReloadToken])
+  }, [isOpen, config, fetchConfig, configReloadToken, t])
 
   // Check port availability on debounced port change
   useEffect(() => {
@@ -311,6 +311,31 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     return extractRegion(selectedNodeName)
   }, [selectedNodeName])
 
+  const regionNames = useMemo(() => {
+    try {
+      return new Intl.DisplayNames([locale], { type: 'region' })
+    } catch {
+      return null
+    }
+  }, [locale])
+
+  const formatRegionName = useCallback(
+    (code: string, fallbackName?: string): string => {
+      if (!code || code === 'OTHER') {
+        return t('residentialI18n.test.otherRegion')
+      }
+      if (/^[A-Za-z]{2}$/.test(code) && regionNames) {
+        try {
+          return regionNames.of(code) || fallbackName || code
+        } catch {
+          // Invalid region code: fall through to a safe label.
+        }
+      }
+      return fallbackName || code
+    },
+    [regionNames, t],
+  )
+
   const residentialProxies = useMemo(
     () => config?.residentialProxies ?? [],
     [config],
@@ -382,7 +407,10 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       const protocolText = t('addPort.protocolText', {
         protocol: formatProtocolName(n.type),
       })
-      let description = `${protocolText} · ${region.name || region.code}`
+      let description = `${protocolText} · ${formatRegionName(
+        region.code,
+        region.name,
+      )}`
       if (boundPort && !isChainMode) {
         description = t('addPort.boundToPortDesc', {
           port: boundPort,
@@ -440,7 +468,15 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         ),
       }
     })
-  }, [sortedNodes, boundNodeMap, chainUpstreamMap, latencies, isChainMode])
+  }, [
+    sortedNodes,
+    boundNodeMap,
+    chainUpstreamMap,
+    latencies,
+    isChainMode,
+    t,
+    formatRegionName,
+  ])
 
   const residentialOptions = useMemo(() => {
     const options: SelectOption<string>[] = [
@@ -472,7 +508,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       })
     }
     return options
-  }, [residentialProxies, selectedResidentialProxyId])
+  }, [residentialProxies, selectedResidentialProxyId, t])
 
   const fallbackNodeOptions = useMemo(() => {
     if (!selectedNodeRegion || !selectedNode) return []
@@ -505,7 +541,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         searchTarget: n.name,
         description: t('addPort.fallbackOptionDesc', {
           protocol: formatProtocolName(n.type),
-          region: region.name || region.code,
+          region: formatRegionName(region.code, region.name),
         }),
         icon: <RegionFlag code={region.code} size="sm" />,
         rightNode: (
@@ -522,7 +558,14 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     }
 
     return options
-  }, [selectedNodeRegion, selectedNode, allAvailableNodes, latencies])
+  }, [
+    selectedNodeRegion,
+    selectedNode,
+    allAvailableNodes,
+    latencies,
+    t,
+    formatRegionName,
+  ])
 
   const mainLatency = selectedNode
     ? nodeKeyHasLatency(selectedNode.displayName, selectedNode.name, latencies)
@@ -982,7 +1025,10 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
                 <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                   <RegionFlag code={selectedNodeRegion.code} size="sm" />
                   {t('addPort.fallbackRegionLimit', {
-                    region: selectedNodeRegion.name || t('addPort.thisRegion'),
+                    region: formatRegionName(
+                      selectedNodeRegion.code,
+                      selectedNodeRegion.name,
+                    ),
                   })}
                 </span>
               )}
@@ -991,7 +1037,12 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             {fallbackNodeOptions.length <= 1 ? (
               <div className="p-2.5 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground bg-muted/20">
                 {t('addPort.noFallbackInRegion', {
-                  region: selectedNodeRegion?.name || t('addPort.thisRegion'),
+                  region: selectedNodeRegion
+                    ? formatRegionName(
+                        selectedNodeRegion.code,
+                        selectedNodeRegion.name,
+                      )
+                    : t('addPort.thisRegion'),
                 })}
               </div>
             ) : (

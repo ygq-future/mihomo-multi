@@ -50,7 +50,7 @@ import {
 } from '../../constants'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
-import { type Locale, useTranslation } from '../../i18n'
+import { type LocalePreference, useTranslation } from '../../i18n'
 import type {
   AppUpdateProgressPayload,
   MrsRulesInfo,
@@ -161,7 +161,7 @@ const testUrlOptions = [
 ]
 
 export const SettingView: React.FC = () => {
-  const { t, locale, setLocale } = useTranslation()
+  const { t, locale, localePreference, setLocale } = useTranslation()
   const themeOptions = useMemo(
     () => [
       {
@@ -2107,9 +2107,10 @@ export const SettingView: React.FC = () => {
               </p>
             </div>
             <Segmented
-              value={locale}
-              onChange={(val) => setLocale(val as Locale)}
+              value={localePreference}
+              onChange={(val) => setLocale(val as LocalePreference)}
               options={[
+                { value: 'system', label: t('settings.language.system') },
                 { value: 'zh-CN', label: t('settings.language.zhCN') },
                 { value: 'en-US', label: t('settings.language.enUS') },
               ]}

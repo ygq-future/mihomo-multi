@@ -535,6 +535,7 @@ export const zhCN = {
   // Settings - Language
   'settings.language.title': '界面语言',
   'settings.language.desc': '切换客户端显示语言',
+  'settings.language.system': '跟随系统',
   'settings.language.zhCN': '简体中文',
   'settings.language.enUS': 'English',
 

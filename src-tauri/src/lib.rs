@@ -17,6 +17,11 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 /// How often ports skipped as occupied are re-probed for availability.
 const OCCUPIED_PORT_RECHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// How long a silent lightweight startup keeps its hidden webview alive so the frontend can
+/// synchronize the tray locale before the webview is destroyed. If the frontend never calls
+/// `app_ready` (render error, stalled IPC), the window is released anyway.
+const SILENT_LIGHTWEIGHT_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
@@ -197,8 +202,29 @@ pub fn run() {
                 crate::tray::apply_window_bg_color(&main_win, &theme);
                 if is_silent {
                     if app_state.config.read().lightweight_mode {
-                        let _ = main_win.destroy();
-                        info!("Silent start mode with lightweight mode: main window destroyed");
+                        // Keep the webview alive but hidden until the frontend has pushed the
+                        // effective locale to the tray and reported readiness via `app_ready`.
+                        // Destroying it synchronously here would leave the tray in its default
+                        // language. The fallback still releases a webview whose frontend failed.
+                        let _ = main_win.hide();
+                        info!(
+                            "Silent start mode with lightweight mode: keeping hidden webview for tray locale sync"
+                        );
+                        let pending_win = main_win.clone();
+                        let pending_state = app_state.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(SILENT_LIGHTWEIGHT_READY_TIMEOUT).await;
+                            if crate::commands::destroy_hidden_silent_window(
+                                &pending_state,
+                                &pending_win,
+                                "startup fallback",
+                            ) {
+                                warn!(
+                                    "Frontend readiness timed out after {:?}; destroying hidden lightweight webview",
+                                    SILENT_LIGHTWEIGHT_READY_TIMEOUT
+                                );
+                            }
+                        });
                     } else {
                         let _ = main_win.hide();
                         info!("Silent start mode: main window minimized to tray on launch");
@@ -358,6 +384,7 @@ pub fn run() {
             hide_window,
             show_window,
             app_ready,
+            set_ui_locale,
             get_rules_info,
             update_rules,
             get_connections,

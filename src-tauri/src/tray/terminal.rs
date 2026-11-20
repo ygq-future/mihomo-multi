@@ -1,3 +1,4 @@
+use super::TrayLocale;
 use crate::models::InboundProtocol;
 
 /// Builds commands for the selected shell without changing this process or OS proxy state.
@@ -6,6 +7,7 @@ pub(super) fn build_command(
     port: u16,
     protocol: InboundProtocol,
     user_bypass: &[String],
+    locale: TrayLocale,
 ) -> Result<String, String> {
     let mut bypass = vec![
         "localhost".to_string(),
@@ -48,7 +50,7 @@ pub(super) fn build_command(
         "cmd" => {
             // CMD expands percent and delayed-expansion expressions even inside quotes.
             if no_proxy.contains(['%', '!', '"', '\r', '\n', '\0']) {
-                return Err("排除列表包含 CMD 无法安全引用的字符，请使用 PowerShell 或 Shell".into());
+                return Err(locale.text().cmd_unsafe_chars.into());
             }
             Ok(vars
                 .iter()
@@ -67,7 +69,7 @@ pub(super) fn build_command(
             })
             .collect::<Vec<_>>()
             .join("; ")),
-        _ => Err("不支持的终端类型".into()),
+        _ => Err(locale.text().unsupported_shell.into()),
     }
 }
 
@@ -82,6 +84,7 @@ mod tests {
             7891,
             InboundProtocol::Mixed,
             &[" LOCALHOST ".into(), "<local>".into(), "a'b$().example".into()],
+            TrayLocale::ZhCn,
         )?;
         assert_eq!(
             command,
@@ -92,7 +95,7 @@ mod tests {
 
     #[test]
     fn socks_only_command_clears_http_proxies() -> Result<(), String> {
-        let command = build_command("cmd", 7892, InboundProtocol::Socks5, &[])?;
+        let command = build_command("cmd", 7892, InboundProtocol::Socks5, &[], TrayLocale::ZhCn)?;
         assert_eq!(
             command,
             "set \"HTTP_PROXY=\" && set \"HTTPS_PROXY=\" && set \"ALL_PROXY=socks5h://127.0.0.1:7892\" && set \"NO_PROXY=localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16\""
@@ -102,7 +105,13 @@ mod tests {
 
     #[test]
     fn shell_quotes_bypass_and_sets_both_cases() -> Result<(), String> {
-        let command = build_command("shell", 7893, InboundProtocol::Http, &["a'b.example".into()])?;
+        let command = build_command(
+            "shell",
+            7893,
+            InboundProtocol::Http,
+            &["a'b.example".into()],
+            TrayLocale::ZhCn,
+        )?;
         assert!(
             command.contains("export http_proxy='http://127.0.0.1:7893'; export HTTP_PROXY='http://127.0.0.1:7893'")
         );
@@ -116,7 +125,7 @@ mod tests {
     #[test]
     fn cmd_rejects_expansion_and_quote_injection() {
         for item in ["%PATH%", "!PATH!", "a\" & calc", "a\nb"] {
-            assert!(build_command("cmd", 7891, InboundProtocol::Mixed, &[item.into()]).is_err());
+            assert!(build_command("cmd", 7891, InboundProtocol::Mixed, &[item.into()], TrayLocale::ZhCn).is_err());
         }
     }
 }

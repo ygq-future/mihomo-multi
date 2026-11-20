@@ -588,6 +588,7 @@ export const enUS: Record<TranslationKey, string> = {
   // Settings - Language
   'settings.language.title': 'Language',
   'settings.language.desc': 'Switch application display language',
+  'settings.language.system': 'System',
   'settings.language.zhCN': '简体中文',
   'settings.language.enUS': 'English',
 

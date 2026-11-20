@@ -1058,6 +1058,16 @@ export async function appReady(): Promise<void> {
   return invoke<void>('app_ready')
 }
 
+/**
+ * Pushes the effective application locale to the native backend so tray menu labels,
+ * tooltip text and tray error dialogs follow the UI language. The backend keeps the
+ * locale while lightweight mode has destroyed the webview.
+ */
+export async function setUiLocale(locale: 'zh-CN' | 'en-US'): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('set_ui_locale', { locale })
+}
+
 export async function getRulesInfo(): Promise<MrsRulesInfo> {
   if (!isTauriEnvironment()) {
     return {

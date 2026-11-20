@@ -7,6 +7,268 @@ use tracing::{error, info, warn};
 
 mod terminal;
 
+/// Locale used by the native tray surface. The frontend pushes the effective application locale
+/// through `set_ui_locale`; keeping it here (instead of on a window) preserves the language while
+/// lightweight mode has destroyed the webview.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum TrayLocale {
+    #[default]
+    ZhCn,
+    EnUs,
+}
+
+impl TrayLocale {
+    fn parse(tag: &str) -> Result<Self, String> {
+        match tag.trim() {
+            "zh-CN" | "zh_CN" => Ok(Self::ZhCn),
+            "en-US" | "en_US" => Ok(Self::EnUs),
+            other => Err(format!("Unsupported locale: {other}")),
+        }
+    }
+
+    fn tag(self) -> &'static str {
+        match self {
+            Self::ZhCn => "zh-CN",
+            Self::EnUs => "en-US",
+        }
+    }
+
+    fn text(self) -> &'static TrayText {
+        match self {
+            Self::ZhCn => &ZH_TRAY_TEXT,
+            Self::EnUs => &EN_TRAY_TEXT,
+        }
+    }
+
+    fn enabled_with_port(self, port: u16) -> String {
+        match self {
+            Self::ZhCn => format!("已开启 (:{port})"),
+            Self::EnUs => format!("On (:{port})"),
+        }
+    }
+
+    fn tooltip_ports(self, enabled: usize, total: usize) -> String {
+        match self {
+            Self::ZhCn => format!("监听端口: {enabled} 个已启用 (共 {total} 个)"),
+            Self::EnUs => format!("Ports: {enabled}/{total}"),
+        }
+    }
+
+    fn latency_summary(self, reachable: usize, failed: usize) -> String {
+        match self {
+            Self::ZhCn => format!("监听端口测速完成：{reachable} 个节点可用，{failed} 个节点超时或失败"),
+            Self::EnUs => {
+                format!("Port latency test finished: {reachable} reachable, {failed} timed out or failed.")
+            }
+        }
+    }
+
+    fn fallback_status(self, status: &str, primary: &str, fallback: &str) -> String {
+        match self {
+            Self::ZhCn => format!("{status} · 主 {primary} · 备 {fallback}"),
+            Self::EnUs => format!("{status} · Primary {primary} · Fallback {fallback}"),
+        }
+    }
+
+    fn tooltip(
+        self,
+        app_title: &str,
+        core: &str,
+        ports: &str,
+        system_proxy: &str,
+        env_proxy: &str,
+        tun: &str,
+    ) -> String {
+        match self {
+            Self::ZhCn => format!(
+                "{app_title}\n内核状态: {core}\n{ports}\n系统代理: {system_proxy}\n终端代理: {env_proxy}\nTUN: {tun}"
+            ),
+            Self::EnUs => format!(
+                "{app_title}\nCore: {core}\n{ports}\nSystem proxy: {system_proxy}\nTerminal proxy: {env_proxy}\nTUN: {tun}"
+            ),
+        }
+    }
+}
+
+struct TrayText {
+    error_title: &'static str,
+    clipboard_init_failed: &'static str,
+    mapping_missing: &'static str,
+    egress_requires_core: &'static str,
+    egress_chain_probe_failed: &'static str,
+    egress_node_read_failed: &'static str,
+    egress_node_pending: &'static str,
+    proxy_requires_core: &'static str,
+    dev_badge: &'static str,
+    show_dev_window: &'static str,
+    show_main_window: &'static str,
+    latency_test: &'static str,
+    latency_test_running: &'static str,
+    enable_tun: &'static str,
+    enable_system_proxy: &'static str,
+    no_ports: &'static str,
+    residential_exit_unavailable: &'static str,
+    status_disabled: &'static str,
+    status_not_running: &'static str,
+    status_timeout: &'static str,
+    status_ok: &'static str,
+    status_fallback_locked: &'static str,
+    status_fallback_auto: &'static str,
+    status_primary_ok: &'static str,
+    enable_listener: &'static str,
+    disable_tun_proxy: &'static str,
+    set_tun_proxy: &'static str,
+    disable_system_proxy: &'static str,
+    set_system_proxy: &'static str,
+    unbind_env_proxy: &'static str,
+    bind_env_proxy: &'static str,
+    copy_egress_ip: &'static str,
+    copy_env_powershell: &'static str,
+    copy_env_cmd: &'static str,
+    copy_env_shell: &'static str,
+    state_loading: &'static str,
+    restart_core: &'static str,
+    quit_app: &'static str,
+    enabled: &'static str,
+    disabled: &'static str,
+    core_running: &'static str,
+    core_stopped: &'static str,
+    probe_egress_ip: &'static str,
+    egress_ip_copied: &'static str,
+    terminal_proxy_requires_running: &'static str,
+    env_command_copied: &'static str,
+    cmd_unsafe_chars: &'static str,
+    unsupported_shell: &'static str,
+}
+
+static ZH_TRAY_TEXT: TrayText = TrayText {
+    error_title: "托盘操作失败",
+    clipboard_init_failed: "剪贴板初始化失败",
+    mapping_missing: "监听端口已删除，请重新打开菜单",
+    egress_requires_core: "请先启动内核并启用监听端口，再复制出口 IP",
+    egress_chain_probe_failed: "探测链式出口 IP 失败：",
+    egress_node_read_failed: "读取当前出口节点失败：",
+    egress_node_pending: "内核尚未选定出口节点，请稍后重试",
+    proxy_requires_core: "请先启动内核并启用监听端口，再启用代理",
+    dev_badge: "【开发调试实例 DEV】",
+    show_dev_window: "显示开发窗口",
+    show_main_window: "显示主窗口",
+    latency_test: "延迟测速",
+    latency_test_running: "延迟测速中…",
+    enable_tun: "启用 TUN",
+    enable_system_proxy: "启用系统代理",
+    no_ports: "暂无端口监听 (可在窗口中添加)",
+    residential_exit_unavailable: "住宅出口失效",
+    status_disabled: "已禁用",
+    status_not_running: "未运行",
+    status_timeout: "超时",
+    status_ok: "正常",
+    status_fallback_locked: "备(锁定)",
+    status_fallback_auto: "备(兜底)",
+    status_primary_ok: "正常(主)",
+    enable_listener: "启用监听",
+    disable_tun_proxy: "关闭 TUN 代理",
+    set_tun_proxy: "设为 TUN 代理",
+    disable_system_proxy: "关闭系统代理",
+    set_system_proxy: "设为系统代理",
+    unbind_env_proxy: "取消终端代理绑定",
+    bind_env_proxy: "绑定终端代理",
+    copy_egress_ip: "复制出口 IP",
+    copy_env_powershell: "复制环境变量（PowerShell）",
+    copy_env_cmd: "复制环境变量（CMD）",
+    copy_env_shell: "复制环境变量（Shell / Bash / Zsh）",
+    state_loading: "正在加载状态...",
+    restart_core: "重启内核",
+    quit_app: "退出程序",
+    enabled: "已开启",
+    disabled: "未开启",
+    core_running: "运行中",
+    core_stopped: "已停止",
+    probe_egress_ip: "正在探测出口 IP…",
+    egress_ip_copied: "出口 IP 已复制：",
+    terminal_proxy_requires_running: "终端代理绑定需要 Windows 上运行中的 HTTP 或 Mixed 监听端口",
+    env_command_copied: "环境变量命令已复制，可粘贴到终端执行",
+    cmd_unsafe_chars: "排除列表包含 CMD 无法安全引用的字符，请使用 PowerShell 或 Shell",
+    unsupported_shell: "不支持的终端类型",
+};
+
+static EN_TRAY_TEXT: TrayText = TrayText {
+    error_title: "Tray operation failed",
+    clipboard_init_failed: "Failed to initialize the clipboard",
+    mapping_missing: "This port mapping was removed. Reopen the tray menu.",
+    egress_requires_core: "Start the core and enable a port listener before copying the egress IP.",
+    egress_chain_probe_failed: "Failed to probe the chained egress IP: ",
+    egress_node_read_failed: "Failed to read the current egress node: ",
+    egress_node_pending: "The core has not selected an egress node yet. Try again later.",
+    proxy_requires_core: "Start the core and enable a port listener before enabling the proxy.",
+    dev_badge: "[Dev instance]",
+    show_dev_window: "Show dev window",
+    show_main_window: "Show main window",
+    latency_test: "Test latency",
+    latency_test_running: "Testing latency…",
+    enable_tun: "Enable TUN",
+    enable_system_proxy: "Enable system proxy",
+    no_ports: "No port listeners (add one in the window)",
+    residential_exit_unavailable: "Residential exit unavailable",
+    status_disabled: "Disabled",
+    status_not_running: "Not running",
+    status_timeout: "Timeout",
+    status_ok: "OK",
+    status_fallback_locked: "Fallback (locked)",
+    status_fallback_auto: "Fallback (auto)",
+    status_primary_ok: "OK (primary)",
+    enable_listener: "Enable listener",
+    disable_tun_proxy: "Disable TUN proxy",
+    set_tun_proxy: "Set as TUN proxy",
+    disable_system_proxy: "Disable system proxy",
+    set_system_proxy: "Set as system proxy",
+    unbind_env_proxy: "Unbind terminal proxy",
+    bind_env_proxy: "Bind terminal proxy",
+    copy_egress_ip: "Copy egress IP",
+    copy_env_powershell: "Copy env vars (PowerShell)",
+    copy_env_cmd: "Copy env vars (CMD)",
+    copy_env_shell: "Copy env vars (Shell / Bash / Zsh)",
+    state_loading: "Loading state...",
+    restart_core: "Restart core",
+    quit_app: "Quit",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    core_running: "Running",
+    core_stopped: "Stopped",
+    probe_egress_ip: "Probing egress IP…",
+    egress_ip_copied: "Egress IP copied: ",
+    terminal_proxy_requires_running: "Terminal proxy binding requires a running HTTP or Mixed listener on Windows.",
+    env_command_copied: "Environment variable commands copied. Paste them into a terminal.",
+    cmd_unsafe_chars: "The bypass list contains characters that CMD cannot quote safely. Use PowerShell or Shell.",
+    unsupported_shell: "Unsupported terminal type",
+};
+
+static TRAY_LOCALE: parking_lot::RwLock<TrayLocale> = parking_lot::RwLock::new(TrayLocale::ZhCn);
+
+fn current_locale() -> TrayLocale {
+    *TRAY_LOCALE.read()
+}
+
+/// Synchronizes the native tray language with the frontend's effective locale.
+/// Idempotent so React StrictMode's duplicate startup effect (or a recreated window) cannot
+/// restart or rebuild the tray when the language did not actually change.
+pub(crate) fn set_ui_locale(app: AppHandle, locale: String) -> Result<(), String> {
+    let parsed = TrayLocale::parse(&locale)?;
+    let changed = {
+        let mut current = TRAY_LOCALE.write();
+        if *current == parsed {
+            false
+        } else {
+            *current = parsed;
+            true
+        }
+    };
+    if changed {
+        update_tray_menu(&app);
+    }
+    Ok(())
+}
+
 #[derive(Default)]
 struct TrayClipboard(parking_lot::Mutex<Option<arboard::Clipboard>>);
 
@@ -18,7 +280,10 @@ struct TrayActions {
 
 fn show_tray_error(app: &AppHandle, message: &str) {
     error!("Tray action failed: {}", message);
-    app.dialog().message(message).title("托盘操作失败").show(|_| {});
+    app.dialog()
+        .message(message)
+        .title(current_locale().text().error_title)
+        .show(|_| {});
 }
 
 fn copy_tray_text(app: &AppHandle, text: String) -> Result<(), String> {
@@ -27,25 +292,29 @@ fn copy_tray_text(app: &AppHandle, text: String) -> Result<(), String> {
     if guard.is_none() {
         *guard = Some(arboard::Clipboard::new().map_err(|e| e.to_string())?);
     }
-    let clipboard = guard.as_mut().ok_or_else(|| "剪贴板初始化失败".to_string())?;
+    let clipboard = guard
+        .as_mut()
+        .ok_or_else(|| current_locale().text().clipboard_init_failed.to_string())?;
     clipboard.set_text(text).map_err(|e| e.to_string())
 }
 
 async fn query_port_egress_ip(app: &AppHandle, mapping_id: &str) -> Result<String, String> {
+    let locale = current_locale();
+    let text = locale.text();
     let state = app.state::<crate::state::AppState>();
     let mapping = state
         .port_router
         .get_port_mapping_by_id(mapping_id)
-        .ok_or_else(|| "监听端口已删除，请重新打开菜单".to_string())?;
+        .ok_or_else(|| text.mapping_missing.to_string())?;
     if !mapping.enabled || !state.engine.get_status().running {
-        return Err("请先启动内核并启用监听端口，再复制出口 IP".into());
+        return Err(text.egress_requires_core.to_string());
     }
     if mapping.residential_proxy_id.is_some() {
         // Chain ports route every destination through the generated per-port exit; probing the
         // mapped listener with its real protocol is the only accurate egress check.
         let info = crate::core::egress_probe::query_port_egress_info(mapping.port, mapping.protocol, None)
             .await
-            .map_err(|e| format!("探测链式出口 IP 失败: {e}"))?;
+            .map_err(|e| format!("{}{e}", text.egress_chain_probe_failed))?;
         return Ok(info.ip);
     }
     let (node_name, profile_id) = if mapping
@@ -58,11 +327,11 @@ async fn query_port_egress_ip(app: &AppHandle, mapping_id: &str) -> Result<Strin
             .engine
             .get_proxy_detail(&format!("fb-{}", mapping.port))
             .await
-            .map_err(|e| format!("读取当前出口节点失败: {e}"))?;
+            .map_err(|e| format!("{}{e}", text.egress_node_read_failed))?;
         let active = detail
             .now
             .filter(|name| !name.trim().is_empty())
-            .ok_or_else(|| "内核尚未选定出口节点，请稍后重试".to_string())?;
+            .ok_or_else(|| text.egress_node_pending.to_string())?;
         (active, None)
     } else {
         (mapping.node_name, Some(mapping.profile_id))
@@ -160,9 +429,9 @@ pub fn ensure_main_window_open(app: &AppHandle) {
     }
 }
 
-fn format_latency(latency: Option<u32>) -> String {
+fn format_latency(locale: TrayLocale, latency: Option<u32>) -> String {
     match latency {
-        Some(0) => "超时".to_string(),
+        Some(0) => locale.text().status_timeout.to_string(),
         Some(delay) => format!("{delay}ms"),
         None => "--ms".to_string(),
     }
@@ -198,6 +467,7 @@ async fn resolve_node_latency(
 }
 
 async fn switch_tray_egress(app: &AppHandle, action: &str) -> Result<(), String> {
+    let text = current_locale().text();
     let state = app.state::<crate::state::AppState>();
     let (tun_enabled, tun_port, system_proxy_enabled, system_proxy_port) = {
         let config = state.config.read();
@@ -213,7 +483,7 @@ async fn switch_tray_egress(app: &AppHandle, action: &str) -> Result<(), String>
         let mapping = mappings
             .iter()
             .find(|mapping| mapping.id == id)
-            .ok_or_else(|| "监听端口已删除，请重新打开菜单".to_string())?;
+            .ok_or_else(|| text.mapping_missing.to_string())?;
         let bound = if tun_enabled {
             tun_port == Some(mapping.port)
         } else {
@@ -243,7 +513,7 @@ async fn switch_tray_egress(app: &AppHandle, action: &str) -> Result<(), String>
                 .iter()
                 .any(|mapping| mapping.enabled && Some(mapping.port) == port))
     {
-        return Err("请先启动内核并启用监听端口，再启用代理".to_string());
+        return Err(text.proxy_requires_core.to_string());
     }
     if tun {
         crate::commands::set_tun(app.clone(), enabled, port, state).await?;
@@ -259,18 +529,20 @@ async fn switch_tray_egress(app: &AppHandle, action: &str) -> Result<(), String>
 fn build_tray_menu_internal(
     app: &AppHandle,
     runtime_infos: &std::collections::HashMap<String, PortRuntimeInfo>,
+    locale: TrayLocale,
 ) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::new(app)?;
+    let text = locale.text();
     let is_dev = is_dev_instance(app);
     if is_dev {
-        let dev_header = MenuItem::with_id(app, "dev_indicator", "【开发调试实例 DEV】", false, None::<&str>)?;
+        let dev_header = MenuItem::with_id(app, "dev_indicator", text.dev_badge, false, None::<&str>)?;
         menu.append(&dev_header)?;
         menu.append(&PredefinedMenuItem::separator(app)?)?;
     }
     let show_title = if is_dev {
-        "显示开发窗口"
+        text.show_dev_window
     } else {
-        "显示主窗口"
+        text.show_main_window
     };
     let show_item = MenuItem::with_id(app, "show_window", show_title, true, None::<&str>)?;
     menu.append(&show_item)?;
@@ -297,14 +569,18 @@ fn build_tray_menu_internal(
         menu.append(&MenuItem::with_id(
             app,
             "test_ports_delay",
-            if testing { "延迟测速中…" } else { "延迟测速" },
+            if testing {
+                text.latency_test_running
+            } else {
+                text.latency_test
+            },
             is_running && has_enabled_ports && !testing,
             None::<&str>,
         )?)?;
         menu.append(&CheckMenuItem::with_id(
             app,
             "toggle_tun",
-            "启用 TUN",
+            text.enable_tun,
             !switching && (tun_enabled || (is_running && has_enabled_ports)),
             tun_enabled,
             None::<&str>,
@@ -312,7 +588,7 @@ fn build_tray_menu_internal(
         menu.append(&CheckMenuItem::with_id(
             app,
             "toggle_system_proxy",
-            "启用系统代理",
+            text.enable_system_proxy,
             !switching && (system_proxy_enabled || (is_running && has_enabled_ports)),
             system_proxy_enabled,
             None::<&str>,
@@ -320,7 +596,7 @@ fn build_tray_menu_internal(
         menu.append(&PredefinedMenuItem::separator(app)?)?;
 
         if mappings.is_empty() {
-            let empty_item = MenuItem::with_id(app, "no_ports", "暂无端口监听 (可在窗口中添加)", false, None::<&str>)?;
+            let empty_item = MenuItem::with_id(app, "no_ports", text.no_ports, false, None::<&str>)?;
             menu.append(&empty_item)?;
         } else {
             for m in mappings {
@@ -336,7 +612,7 @@ fn build_tray_menu_internal(
                         .residential_proxies
                         .iter()
                         .find(|proxy| proxy.id == *exit_id)
-                        .map_or("住宅出口失效", |proxy| proxy.name.as_str());
+                        .map_or(text.residential_exit_unavailable, |proxy| proxy.name.as_str());
                     format!("{} → {}", m.node_name, exit_name)
                 } else if has_fallback && is_fallback_active {
                     m.fallback_node_name.as_deref().unwrap_or(&m.node_name).to_string()
@@ -353,27 +629,31 @@ fn build_tray_menu_internal(
                     primary_latency
                 };
                 let status = if !m.enabled {
-                    "已禁用"
+                    text.status_disabled
                 } else if !is_running {
-                    "未运行"
+                    text.status_not_running
                 } else if has_fallback {
                     if is_fallback_active {
-                        if is_manual { "备(锁定)" } else { "备(兜底)" }
+                        if is_manual {
+                            text.status_fallback_locked
+                        } else {
+                            text.status_fallback_auto
+                        }
                     } else {
-                        "正常(主)"
+                        text.status_primary_ok
                     }
                 } else if lat == Some(0) {
-                    "超时"
+                    text.status_timeout
                 } else {
-                    "正常"
+                    text.status_ok
                 };
 
-                let delay = format_latency(lat);
+                let delay = format_latency(locale, lat);
                 let status_title = if has_fallback {
-                    format!(
-                        "{status} · 主 {} · 备 {}",
-                        format_latency(primary_latency),
-                        format_latency(fallback_latency),
+                    locale.fallback_status(
+                        status,
+                        &format_latency(locale, primary_latency),
+                        &format_latency(locale, fallback_latency),
                     )
                 } else {
                     format!("{status} · {delay}")
@@ -393,7 +673,7 @@ fn build_tray_menu_internal(
                 submenu.append(&CheckMenuItem::with_id(
                     app,
                     format!("port_toggle:{}", m.id),
-                    "启用监听",
+                    text.enable_listener,
                     true,
                     m.enabled,
                     None::<&str>,
@@ -407,10 +687,10 @@ fn build_tray_menu_internal(
                     app,
                     format!("port_egress:{}", m.id),
                     match (tun_enabled, is_bound) {
-                        (true, true) => "关闭 TUN 代理",
-                        (true, false) => "设为 TUN 代理",
-                        (false, true) => "关闭系统代理",
-                        (false, false) => "设为系统代理",
+                        (true, true) => text.disable_tun_proxy,
+                        (true, false) => text.set_tun_proxy,
+                        (false, true) => text.disable_system_proxy,
+                        (false, false) => text.set_system_proxy,
                     },
                     !switching && (is_bound || (m.enabled && is_running)),
                     is_bound,
@@ -423,9 +703,9 @@ fn build_tray_menu_internal(
                     app,
                     format!("port_env:{}", m.id),
                     if is_env_proxy {
-                        "取消终端代理绑定"
+                        text.unbind_env_proxy
                     } else {
-                        "绑定终端代理"
+                        text.bind_env_proxy
                     },
                     is_env_proxy || can_bind,
                     is_env_proxy,
@@ -435,14 +715,14 @@ fn build_tray_menu_internal(
                 submenu.append(&MenuItem::with_id(
                     app,
                     format!("port_egress_ip:{}", m.id),
-                    "复制出口 IP",
+                    text.copy_egress_ip,
                     m.enabled && is_running,
                     None::<&str>,
                 )?)?;
                 for (shell, label) in [
-                    ("powershell", "复制环境变量（PowerShell）"),
-                    ("cmd", "复制环境变量（CMD）"),
-                    ("shell", "复制环境变量（Shell / Bash / Zsh）"),
+                    ("powershell", text.copy_env_powershell),
+                    ("cmd", text.copy_env_cmd),
+                    ("shell", text.copy_env_shell),
                 ] {
                     submenu.append(&MenuItem::with_id(
                         app,
@@ -456,13 +736,13 @@ fn build_tray_menu_internal(
             }
         }
     } else {
-        let loading_item = MenuItem::with_id(app, "state_loading", "正在加载状态...", false, None::<&str>)?;
+        let loading_item = MenuItem::with_id(app, "state_loading", text.state_loading, false, None::<&str>)?;
         menu.append(&loading_item)?;
     }
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    let restart_item = MenuItem::with_id(app, "restart_core", "重启内核", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, "quit_app", "退出程序", true, None::<&str>)?;
+    let restart_item = MenuItem::with_id(app, "restart_core", text.restart_core, true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit_app", text.quit_app, true, None::<&str>)?;
     menu.append(&restart_item)?;
     menu.append(&quit_item)?;
 
@@ -567,8 +847,11 @@ fn compute_menu_fingerprint(
     mappings: &[crate::models::PortMapping],
     runtime_infos: &std::collections::HashMap<String, PortRuntimeInfo>,
     is_running: bool,
+    locale: TrayLocale,
 ) -> String {
     let mut fp = String::new();
+    fp.push_str(locale.tag());
+    fp.push(';');
     fp.push_str(if is_running { "RUN;" } else { "STOP;" });
     for m in mappings {
         let r = runtime_infos.get(&m.id);
@@ -586,6 +869,176 @@ fn compute_menu_fingerprint(
 
 static LAST_TRAY_FINGERPRINT: parking_lot::Mutex<Option<String>> = parking_lot::Mutex::new(None);
 static LAST_TRAY_CLICK_TIME: parking_lot::Mutex<Option<std::time::Instant>> = parking_lot::Mutex::new(None);
+
+/// Newest refresh request. A request that arrives while the worker is busy only replaces this
+/// snapshot, so updates are coalesced and stale snapshots are dropped instead of racing each
+/// other on the tray.
+struct TrayRefreshRequest {
+    seq: u64,
+    fallback_statuses: Vec<crate::models::PortFallbackStatus>,
+}
+
+static TRAY_REFRESH_REQUEST: parking_lot::Mutex<TrayRefreshRequest> = parking_lot::Mutex::new(TrayRefreshRequest {
+    seq: 0,
+    fallback_statuses: Vec::new(),
+});
+
+/// True while a refresh worker owns the tray update. At most one worker exists at a time.
+static TRAY_REFRESH_WORKER_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn current_tray_refresh_seq() -> u64 {
+    TRAY_REFRESH_REQUEST.lock().seq
+}
+
+/// Applies the snapshot captured for `seq`. Returns `false` when the snapshot became obsolete
+/// (a newer request arrived or a native menu is open) before it could be applied, so the worker
+/// retries with the newest state instead of overwriting it.
+async fn apply_tray_refresh(
+    app: &AppHandle,
+    seq: u64,
+    fallback_statuses: &[crate::models::PortFallbackStatus],
+) -> bool {
+    if seq != current_tray_refresh_seq() {
+        return false;
+    }
+    let Some(tray) = app.tray_by_id(get_tray_id(app)) else {
+        return true; // tray is gone, nothing left to update
+    };
+    let Some(state) = app.try_state::<crate::state::AppState>() else {
+        return true;
+    };
+
+    // Windows dismisses an open popup menu if `set_menu` runs while it is visible, so defer the
+    // whole update until the menu closes. A newer request abandons the wait immediately.
+    while is_tray_menu_active() {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        if seq != current_tray_refresh_seq() {
+            return false;
+        }
+    }
+
+    let is_running = state.engine.get_status().running;
+    let mut mappings = state.port_router.get_port_mappings();
+    mappings.sort_by_key(|m| m.port);
+
+    let runtime_infos = query_runtime_infos(app, fallback_statuses).await;
+    // The runtime queries are slow; a language or state change that arrived meanwhile owns the
+    // tray now, so never apply this stale snapshot.
+    if seq != current_tray_refresh_seq() {
+        return false;
+    }
+    let locale = current_locale();
+
+    let mut current_fp = compute_menu_fingerprint(&mappings, &runtime_infos, is_running, locale);
+    {
+        use std::fmt::Write;
+        let config = state.config.read();
+        let actions = app.state::<TrayActions>();
+        if let Err(error) = write!(
+            current_fp,
+            "{:?}:{}:{:?}:{}:{:?}:{}:{}:{};",
+            config.system_proxy_port,
+            config.system_proxy_enabled,
+            config.tun_port,
+            config.tun_enabled,
+            config.env_proxy_port,
+            config.env_proxy_enabled,
+            actions.latency_test.try_lock().is_err(),
+            actions.egress.try_lock().is_err(),
+        ) {
+            warn!("Failed to format tray fingerprint: {error}");
+            return true;
+        }
+        for proxy in &config.residential_proxies {
+            if let Err(error) = write!(current_fp, "{}:{};", proxy.id, proxy.name) {
+                warn!("Failed to format residential exit fingerprint: {error}");
+                return true;
+            }
+        }
+    }
+
+    let tooltip = format_tray_tooltip_for(app, locale);
+
+    // Re-check as late as possible: the popup may have opened or a newer request may have
+    // arrived while querying. Only the newest snapshot is allowed to touch the tooltip.
+    if seq != current_tray_refresh_seq() || is_tray_menu_active() {
+        return false;
+    }
+    // The tooltip must refresh even when the menu content is unchanged (it may currently show a
+    // transient message), but only from the newest snapshot/language.
+    if let Err(error) = tray.set_tooltip(Some(tooltip)) {
+        warn!("Failed to set updated tray tooltip: {}", error);
+    }
+
+    if LAST_TRAY_FINGERPRINT.lock().as_deref() == Some(current_fp.as_str()) {
+        // Content has not changed: avoid calling set_menu to prevent closing open context menus!
+        return true;
+    }
+
+    let menu = match build_tray_menu_internal(app, &runtime_infos, locale) {
+        Ok(menu) => menu,
+        Err(error) => {
+            warn!("Failed to build updated tray menu: {}", error);
+            return true;
+        }
+    };
+
+    if seq != current_tray_refresh_seq() || is_tray_menu_active() {
+        return false;
+    }
+    if let Err(error) = tray.set_menu(Some(menu)) {
+        // Deliberately keep the old fingerprint so the next request retries this menu.
+        warn!("Failed to set updated tray menu: {}", error);
+        return true;
+    }
+    *LAST_TRAY_FINGERPRINT.lock() = Some(current_fp);
+    true
+}
+
+fn request_tray_refresh(app: &AppHandle, fallback_statuses: Vec<crate::models::PortFallbackStatus>) {
+    use std::sync::atomic::Ordering;
+    {
+        let mut request = TRAY_REFRESH_REQUEST.lock();
+        request.seq = request.seq.wrapping_add(1);
+        request.fallback_statuses = fallback_statuses;
+    }
+    // Publish the request before spawning: a worker that is already running observes the new
+    // sequence on its next iteration.
+    if TRAY_REFRESH_WORKER_ACTIVE.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let (seq, fallback_statuses) = {
+                let request = TRAY_REFRESH_REQUEST.lock();
+                (request.seq, request.fallback_statuses.clone())
+            };
+
+            let applied = apply_tray_refresh(&app_handle, seq, &fallback_statuses).await;
+            if !applied || seq != current_tray_refresh_seq() {
+                continue;
+            }
+
+            // Idle: release ownership so the next request spawns a fresh worker.
+            if TRAY_REFRESH_WORKER_ACTIVE
+                .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+            {
+                return; // another worker took over
+            }
+            if seq == current_tray_refresh_seq() {
+                return;
+            }
+            // A request raced with the release above and assumed this worker would handle it:
+            // reclaim ownership, or leave it to the worker that request already spawned.
+            if TRAY_REFRESH_WORKER_ACTIVE.swap(true, Ordering::SeqCst) {
+                return;
+            }
+        }
+    });
+}
 
 fn handle_tray_left_click(app: &AppHandle) {
     let now = std::time::Instant::now();
@@ -651,9 +1104,18 @@ fn tray_app_title(is_dev: bool) -> String {
 }
 
 pub fn format_tray_tooltip(app: &AppHandle) -> String {
+    format_tray_tooltip_for(app, current_locale())
+}
+
+fn format_tray_tooltip_for(app: &AppHandle, locale: TrayLocale) -> String {
     let app_title = tray_app_title(is_dev_instance(app));
     let Some(state) = app.try_state::<crate::state::AppState>() else {
         return app_title;
+    };
+    let text = locale.text();
+    let (enabled, disabled) = match locale {
+        TrayLocale::ZhCn => (text.enabled, text.disabled),
+        TrayLocale::EnUs => ("On", "Off"),
     };
 
     let mappings = state.port_router.get_port_mappings();
@@ -662,40 +1124,44 @@ pub fn format_tray_tooltip(app: &AppHandle) -> String {
 
     let config = state.config.read();
     let sys_proxy_str = if config.system_proxy_enabled {
-        if let Some(port) = config.system_proxy_port {
-            format!("已开启 (:{port})")
-        } else {
-            "已开启".to_string()
+        match config.system_proxy_port {
+            Some(port) => locale.enabled_with_port(port),
+            None => enabled.to_string(),
         }
     } else {
-        "未开启".to_string()
+        disabled.to_string()
     };
     let env_proxy_str = if config.env_proxy_enabled {
-        if let Some(port) = config.env_proxy_port {
-            format!("已开启 (:{port})")
-        } else {
-            "已开启".to_string()
+        match config.env_proxy_port {
+            Some(port) => locale.enabled_with_port(port),
+            None => enabled.to_string(),
         }
     } else {
-        "未开启".to_string()
+        disabled.to_string()
     };
 
     let tun_str = if config.tun_enabled {
         match config.tun_port {
-            Some(port) => format!("已开启 (:{port})"),
-            None => "已开启".to_string(),
+            Some(port) => locale.enabled_with_port(port),
+            None => enabled.to_string(),
         }
     } else {
-        "未开启".to_string()
+        disabled.to_string()
     };
     let core_status = if state.engine.get_status().running {
-        "运行中"
+        text.core_running
     } else {
-        "已停止"
+        text.core_stopped
     };
+    let ports = locale.tooltip_ports(enabled_ports, total_ports);
 
-    format!(
-        "{app_title}\n内核状态: {core_status}\n监听端口: {enabled_ports} 个已启用 (共 {total_ports} 个)\n系统代理: {sys_proxy_str}\n终端代理: {env_proxy_str}\nTUN: {tun_str}"
+    locale.tooltip(
+        &app_title,
+        core_status,
+        &ports,
+        &sys_proxy_str,
+        &env_proxy_str,
+        &tun_str,
     )
 }
 
@@ -707,89 +1173,18 @@ pub fn update_tray_menu_with_fallback_statuses(
     app: &AppHandle,
     fallback_statuses: Vec<crate::models::PortFallbackStatus>,
 ) {
-    let app_handle = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let tray_id = get_tray_id(&app_handle);
-        let Some(tray) = app_handle.tray_by_id(tray_id) else {
-            return;
-        };
-        let Some(state) = app_handle.try_state::<crate::state::AppState>() else {
-            return;
-        };
-        let tooltip = format_tray_tooltip(&app_handle);
-        if let Err(e) = tray.set_tooltip(Some(tooltip)) {
-            warn!("Failed to set updated tray tooltip: {}", e);
-        }
-
-        // If a popup menu is currently open on screen, never call set_menu!
-        // Calling set_menu while a menu is open forces Windows to immediately dismiss it.
-        if is_tray_menu_active() {
-            return;
-        }
-
-        let is_running = state.engine.get_status().running;
-        let mut mappings = state.port_router.get_port_mappings();
-        mappings.sort_by_key(|m| m.port);
-
-        let runtime_infos = query_runtime_infos(&app_handle, &fallback_statuses).await;
-        let mut current_fp = compute_menu_fingerprint(&mappings, &runtime_infos, is_running);
-        {
-            use std::fmt::Write;
-            let config = state.config.read();
-            let actions = app_handle.state::<TrayActions>();
-            if let Err(error) = write!(
-                current_fp,
-                "{:?}:{}:{:?}:{}:{:?}:{}:{}:{};",
-                config.system_proxy_port,
-                config.system_proxy_enabled,
-                config.tun_port,
-                config.tun_enabled,
-                config.env_proxy_port,
-                config.env_proxy_enabled,
-                actions.latency_test.try_lock().is_err(),
-                actions.egress.try_lock().is_err(),
-            ) {
-                warn!("Failed to format tray fingerprint: {error}");
-                return;
-            }
-            for proxy in &config.residential_proxies {
-                if let Err(error) = write!(current_fp, "{}:{};", proxy.id, proxy.name) {
-                    warn!("Failed to format residential exit fingerprint: {error}");
-                    return;
-                }
-            }
-        }
-
-        {
-            let mut guard = LAST_TRAY_FINGERPRINT.lock();
-            if let Some(last_fp) = &*guard
-                && last_fp == &current_fp
-            {
-                // Content has not changed: avoid calling set_menu to prevent closing open context menus!
-                return;
-            }
-            *guard = Some(current_fp);
-        }
-
-        match build_tray_menu_internal(&app_handle, &runtime_infos) {
-            Ok(menu) => {
-                if let Err(e) = tray.set_menu(Some(menu)) {
-                    warn!("Failed to set updated tray menu: {}", e);
-                }
-            }
-            Err(e) => {
-                warn!("Failed to build updated tray menu: {}", e);
-            }
-        }
-    });
+    // Requests are coalesced into a single worker; the newest request (state + language) wins and
+    // stale snapshots are never applied to the tray.
+    request_tray_refresh(app, fallback_statuses);
 }
 
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let initial_runtime_infos = std::collections::HashMap::new();
     app.manage(TrayClipboard::default());
     app.manage(TrayActions::default());
-    let menu = build_tray_menu_internal(app, &initial_runtime_infos)?;
-    let initial_tooltip = format_tray_tooltip(app);
+    let locale = current_locale();
+    let menu = build_tray_menu_internal(app, &initial_runtime_infos, locale)?;
+    let initial_tooltip = format_tray_tooltip_for(app, locale);
 
     let tray_id = get_tray_id(app);
     let tray_builder = TrayIconBuilder::with_id(tray_id)
@@ -802,15 +1197,17 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 let mapping_id = mapping_id.to_string();
                 let app_handle = app.clone();
                 if let Some(tray) = app.tray_by_id(get_tray_id(app))
-                    && let Err(error) = tray.set_tooltip(Some("正在探测出口 IP…"))
+                    && let Err(error) =
+                        tray.set_tooltip(Some(current_locale().text().probe_egress_ip))
                 {
                     show_tray_error(app, &error.to_string());
                     return;
                 }
                 tauri::async_runtime::spawn(async move {
                     let result = async {
+                        let text = current_locale().text();
                         let ip = query_port_egress_ip(&app_handle, &mapping_id).await?;
-                        let message = format!("出口 IP 已复制：{ip}");
+                        let message = format!("{}{ip}", text.egress_ip_copied);
                         copy_tray_text(&app_handle, ip)?;
                         if let Some(tray) = app_handle.tray_by_id(get_tray_id(&app_handle)) {
                             tray.set_tooltip(Some(message)).map_err(|e| e.to_string())?;
@@ -850,12 +1247,11 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                                 .filter(|result| result.latency.is_some_and(|delay| delay > 0))
                                 .count();
                             let failed = results.len() - reachable;
+                            let locale = current_locale();
                             app_handle
                                 .dialog()
-                                .message(format!(
-                                    "监听端口测速完成：{reachable} 个节点可用，{failed} 个节点超时或失败"
-                                ))
-                                .title("延迟测速")
+                                .message(locale.latency_summary(reachable, failed))
+                                .title(locale.text().latency_test)
                                 .show(|_| {});
                         }
                         Err(error) => show_tray_error(&app_handle, &error),
@@ -888,11 +1284,13 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 && (action == "port_env" || action.starts_with("port_copy_"))
             {
                 let result = (|| -> Result<(), String> {
+                    let locale = current_locale();
+                    let text = locale.text();
                     let state = app.state::<crate::state::AppState>();
                     let mapping = state
                         .port_router
                         .get_port_mapping_by_id(mapping_id)
-                        .ok_or_else(|| "监听端口已删除，请重新打开菜单".to_string())?;
+                        .ok_or_else(|| text.mapping_missing.to_string())?;
                     if action == "port_env" {
                         let bound = {
                             let config = state.config.read();
@@ -903,7 +1301,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                                 || !state.engine.get_status().running
                                 || mapping.protocol == crate::models::InboundProtocol::Socks5)
                         {
-                            return Err("终端代理绑定需要 Windows 上运行中的 HTTP 或 Mixed 监听端口".into());
+                            return Err(text.terminal_proxy_requires_running.into());
                         }
                         state.apply_env_proxy_transition(!bound, Some(mapping.port))?;
                         app.emit("port-mappings-changed", ()).map_err(|e| e.to_string())?;
@@ -915,10 +1313,11 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                             mapping.port,
                             mapping.protocol,
                             &config.system_proxy_bypass_user,
+                            locale,
                         )?;
                         copy_tray_text(app, command)?;
                         if let Some(tray) = app.tray_by_id(get_tray_id(app)) {
-                            tray.set_tooltip(Some("环境变量命令已复制，可粘贴到终端执行"))
+                            tray.set_tooltip(Some(text.env_command_copied))
                                 .map_err(|e| e.to_string())?;
                         }
                     }

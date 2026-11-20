@@ -1537,11 +1537,71 @@ pub async fn show_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Releases the hidden webview of a silent lightweight startup once the frontend has
+/// synchronized the tray locale and reported readiness. The window must stay invisible so
+/// silent startup never flashes on screen; a visible window means the user reopened it from
+/// the tray (or it was displayed concurrently), so it is kept alive instead.
+pub(crate) fn destroy_hidden_silent_window(
+    state: &AppState,
+    window: &tauri::WebviewWindow,
+    source: &str,
+) -> bool {
+    if !state.config.read().lightweight_mode {
+        return false;
+    }
+    if state.initial_window_shown.load(std::sync::atomic::Ordering::SeqCst) {
+        tracing::debug!("{}: main window was already displayed; skipping teardown", source);
+        return false;
+    }
+    match window.is_visible() {
+        Ok(false) => {
+            if let Err(err) = window.destroy() {
+                tracing::debug!("{}: hidden main window was already gone: {}", source, err);
+                return false;
+            }
+            tracing::info!("{}: hidden lightweight webview destroyed after tray locale sync", source);
+            true
+        }
+        Ok(true) => {
+            // The frontend of a recreated window calls `app_ready` too. Mark it as shown so
+            // the startup fallback timer cannot tear down the window the user just opened.
+            state
+                .initial_window_shown
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            tracing::info!("{}: main window is visible (reopened); keeping it alive", source);
+            false
+        }
+        Err(err) => {
+            tracing::debug!("{}: main window no longer exists: {}", source, err);
+            false
+        }
+    }
+}
+
+/// Wrapper around [`crate::tray::set_ui_locale`] that keeps synchronization failures
+/// observable in backend logs: in lightweight mode the hidden webview can be gone before
+/// the UI error toast has a chance to be seen.
+#[tauri::command]
+pub fn set_ui_locale(app: AppHandle, locale: String) -> Result<(), String> {
+    crate::tray::set_ui_locale(app, locale).map_err(|err| {
+        tracing::warn!("Failed to synchronize the tray locale: {}", err);
+        err
+    })
+}
+
 #[tauri::command]
 pub async fn app_ready(app: AppHandle) -> Result<(), String> {
     if let Some(state) = app.try_state::<AppState>() {
         if state.is_silent_start.load(std::sync::atomic::Ordering::SeqCst) {
-            tracing::info!("Frontend app_ready received in silent start mode; keeping window hidden");
+            if state.config.read().lightweight_mode {
+                // The frontend syncs the tray locale before calling `app_ready`, so the
+                // hidden webview has fulfilled its only startup purpose now.
+                if let Some(window) = app.get_webview_window("main") {
+                    destroy_hidden_silent_window(state.inner(), &window, "app_ready");
+                }
+            } else {
+                tracing::info!("Frontend app_ready received in silent start mode; keeping window hidden");
+            }
             return Ok(());
         }
         if !state

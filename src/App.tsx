@@ -1,13 +1,13 @@
 import type React from 'react'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { ToastContainer, toast } from './components/common'
 import { Shell } from './components/layout/Shell'
 import { useAppUpdateCheck } from './hooks/useAppUpdateCheck'
 import { useAppStore } from './stores/appStore'
-import { appReady } from './services/tauri'
+import { appReady, setUiLocale } from './services/tauri'
 import { createEventScope } from './services/events'
 import { useWindowVisibility } from './services/useWindowVisibility'
-import { t } from './i18n'
+import { t, useI18nStore } from './i18n'
 import type {
   AutoUpdateEventPayload,
   KernelCrashedPayload,
@@ -32,7 +32,26 @@ export const App: React.FC = () => {
   )
   const setDriftReports = useAppStore((state) => state.setDriftReports)
   const isWindowVisible = useWindowVisibility()
+  const locale = useI18nStore((state) => state.locale)
+  // The backend destroys the hidden webview of a silent lightweight startup on `app_ready`.
+  // Gate that call on the tray locale sync so the tray never closes on its default language.
+  const localeSync = useRef<Promise<void>>(Promise.resolve())
   useAppUpdateCheck()
+
+  useEffect(() => {
+    let cancelled = false
+    localeSync.current = setUiLocale(locale).catch((error: unknown) => {
+      if (cancelled) return
+      console.error('[i18n] Failed to sync the tray language:', error)
+      toast.error(
+        error instanceof Error ? error.message : String(error),
+        t('settings.language.title'),
+      )
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [locale])
 
   useEffect(() => {
     fetchConfig()
@@ -42,11 +61,16 @@ export const App: React.FC = () => {
     const revealWindow = () => {
       if (isRevealed) return
       isRevealed = true
-      requestAnimationFrame(() => {
+      const notifyReady = () => {
         requestAnimationFrame(() => {
-          appReady().catch(() => {})
+          requestAnimationFrame(() => {
+            appReady().catch(() => {})
+          })
         })
-      })
+      }
+      // Both success and failure settle the gate: a failing locale sync must not leave the
+      // hidden lightweight webview alive until the backend fallback timer fires.
+      localeSync.current.catch(() => {}).then(notifyReady)
     }
 
     // Safety timeout to avoid stalling window presentation
