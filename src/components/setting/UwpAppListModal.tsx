@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { t as translate, useTranslation } from '../../i18n'
 import { getUwpAppList } from '../../services/tauri'
 import { toast } from '../../stores/toastStore'
 import type { UwpAppInfo } from '../../types'
@@ -26,6 +27,7 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
   isOpen,
   onClose,
 }) => {
+  const { t } = useTranslation()
   const [apps, setApps] = useState<UwpAppInfo[]>([])
   const [loading, setLoading] = useState<boolean>(false)
   const [refreshing, setRefreshing] = useState<boolean>(false)
@@ -49,12 +51,12 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
           setTimeout(resolve, 350 - elapsed)
           await promise
         }
-        toast.success('已刷新 UWP 应用列表')
+        toast.success(translate('settingsUwp.refreshed'))
       }
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : String(err),
-        '获取 UWP 应用列表失败',
+        translate('settingsUwp.loadFailed'),
       )
     } finally {
       if (isInitial) {
@@ -101,10 +103,10 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
     navigator.clipboard
       .writeText(sid)
       .then(() => {
-        toast.success(sid, '已复制 SID 到剪贴板')
+        toast.success(sid, t('settingsUwp.copySidToast'))
       })
       .catch(() => {
-        toast.error('复制失败')
+        toast.error(t('settingsUwp.copyFailed'))
       })
   }
 
@@ -112,8 +114,12 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="UWP 应用列表与回环豁免状态"
-      subtitle={`已检测到 ${stats.total} 个 UWP 应用容器，其中 ${stats.exempted} 个已开启豁免，${stats.unexempted} 个未开启`}
+      title={t('settingsUwp.title')}
+      subtitle={t('settingsUwp.subtitle', {
+        total: stats.total,
+        exempted: stats.exempted,
+        unexempted: stats.unexempted,
+      })}
       icon={<AppWindow className="w-4 h-4 text-primary" />}
       maxWidth="2xl"
       noPadding
@@ -121,10 +127,13 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
       footer={
         <div className="w-full flex items-center justify-between text-xs text-muted-foreground">
           <span>
-            展示 {filteredApps.length} / 共 {stats.total} 个应用
+            {t('settingsUwp.footerCount', {
+              shown: filteredApps.length,
+              total: stats.total,
+            })}
           </span>
           <Button variant="outline" size="sm" onClick={onClose}>
-            关闭
+            {t('settingsUwp.close')}
           </Button>
         </div>
       }
@@ -134,7 +143,7 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
         <div className="relative flex-1 min-w-0">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <Input
-            placeholder="搜索应用名称、包名标识或 SID..."
+            placeholder={t('settingsUwp.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-8 text-xs py-1.5 h-8 w-full"
@@ -152,7 +161,7 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              全部 ({stats.total})
+              {t('settingsUwp.filterAll', { count: stats.total })}
             </button>
             <button
               type="button"
@@ -164,7 +173,7 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
               }`}
             >
               <CheckCircle2 className="w-3 h-3" />
-              已开启 ({stats.exempted})
+              {t('settingsUwp.filterExempted', { count: stats.exempted })}
             </button>
             <button
               type="button"
@@ -176,7 +185,7 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
               }`}
             >
               <XCircle className="w-3 h-3" />
-              未开启 ({stats.unexempted})
+              {t('settingsUwp.filterUnexempted', { count: stats.unexempted })}
             </button>
           </div>
 
@@ -191,7 +200,7 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
                 className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`}
               />
             }
-            title="重新获取列表"
+            title={t('settingsUwp.refreshTitle')}
           />
         </div>
       </div>
@@ -202,15 +211,15 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
         {loading && apps.length === 0 ? (
           <div className="py-20 flex flex-col items-center justify-center text-center space-y-2 text-muted-foreground">
             <Loader2 className="w-6 h-6 animate-spin text-primary" />
-            <span className="text-xs">正在读取系统 UWP 应用及豁免状态...</span>
+            <span className="text-xs">{t('settingsUwp.loading')}</span>
           </div>
         ) : filteredApps.length === 0 ? (
           <div className="py-16 text-center text-xs text-muted-foreground space-y-2">
             <FolderLock className="w-8 h-8 mx-auto text-muted-foreground/40" />
             <div>
               {apps.length === 0
-                ? '未发现任何 UWP 应用容器注册表记录'
-                : '没有找到匹配的 UWP 应用'}
+                ? t('settingsUwp.emptyNoApps')
+                : t('settingsUwp.emptyNoMatch')}
             </div>
           </div>
         ) : (
@@ -245,7 +254,7 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
                       type="button"
                       onClick={() => handleCopySid(app.sid)}
                       className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded shrink-0"
-                      title="复制 SID"
+                      title={t('settingsUwp.copySidTitle')}
                     >
                       <Copy className="w-3 h-3" />
                     </button>
@@ -255,11 +264,11 @@ export const UwpAppListModal: React.FC<UwpAppListModalProps> = ({
                 <div className="shrink-0 flex items-center">
                   {app.exempted ? (
                     <Badge variant="success" size="sm" dot>
-                      已开启
+                      {t('settingsUwp.statusExempted')}
                     </Badge>
                   ) : (
                     <Badge variant="secondary" size="sm">
-                      未开启
+                      {t('settingsUwp.statusUnexempted')}
                     </Badge>
                   )}
                 </div>

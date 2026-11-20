@@ -141,14 +141,6 @@ function isValidBypassRule(value: string): boolean {
   return false
 }
 
-const logLevelOptions = [
-  { value: 'info', label: 'Info (标准信息)' },
-  { value: 'warning', label: 'Warning (警告)' },
-  { value: 'error', label: 'Error (仅错误)' },
-  { value: 'debug', label: 'Debug (详细调试)' },
-  { value: 'silent', label: 'Silent (静默)' },
-]
-
 const testUrlOptions = [
   {
     value: 'http://cp.cloudflare.com/generate_204',
@@ -167,11 +159,6 @@ const testUrlOptions = [
     label: 'Microsoft Connect Test',
   },
 ]
-
-function formatLastCheckTime(ts: number | null): string {
-  if (!ts) return '未检查'
-  return new Date(ts).toLocaleString()
-}
 
 export const SettingView: React.FC = () => {
   const { t, locale, setLocale } = useTranslation()
@@ -195,6 +182,20 @@ export const SettingView: React.FC = () => {
     ],
     [t],
   )
+  const logLevelOptions = useMemo(
+    () => [
+      { value: 'info', label: t('settingsPage.core.logLevel.info') },
+      { value: 'warning', label: t('settingsPage.core.logLevel.warning') },
+      { value: 'error', label: t('settingsPage.core.logLevel.error') },
+      { value: 'debug', label: t('settingsPage.core.logLevel.debug') },
+      { value: 'silent', label: t('settingsPage.core.logLevel.silent') },
+    ],
+    [t],
+  )
+  const formatLastCheckTime = (ts: number | null): string => {
+    if (!ts) return t('settingsPage.about.notChecked')
+    return new Date(ts).toLocaleString(locale)
+  }
   const {
     appStatus,
     coreStatus,
@@ -393,25 +394,29 @@ export const SettingView: React.FC = () => {
           : defaultProxyPort
 
       if (!targetPort) {
-        toast.error('当前无可用且已启用的监听端口，请先在端口管理中启用端口')
+        toast.error(t('settingsPage.toast.noPort'))
         return
       }
 
       try {
         await setSystemProxy(true, targetPort)
-        toast.success(`已将端口 ${targetPort} 设为系统代理`)
+        toast.success(t('settingsPage.toast.sysProxyEnabled', { port: targetPort }))
       } catch (err) {
         toast.error(
-          `开启系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('settingsPage.toast.sysProxyEnableFail', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
         )
       }
     } else {
       try {
         await setSystemProxy(false)
-        toast.success('已关闭系统代理')
+        toast.success(t('settingsPage.toast.sysProxyDisabled'))
       } catch (err) {
         toast.error(
-          `关闭系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('settingsPage.toast.sysProxyDisableFail', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
         )
       }
     }
@@ -426,25 +431,29 @@ export const SettingView: React.FC = () => {
           : defaultProxyPort
 
       if (!targetPort) {
-        toast.error('当前无可用且已启用的监听端口，请先在端口管理中启用端口')
+        toast.error(t('settingsPage.toast.noPort'))
         return
       }
 
       try {
         await setEnvProxy(true, targetPort)
-        toast.success(`已开启终端环境变量代理 (端口 ${targetPort})`)
+        toast.success(t('settingsPage.toast.envProxyEnabled', { port: targetPort }))
       } catch (err) {
         toast.error(
-          `开启终端代理失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('settingsPage.toast.envProxyEnableFail', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
         )
       }
     } else {
       try {
         await setEnvProxy(false)
-        toast.success('已关闭终端环境变量代理并清除环境变量')
+        toast.success(t('settingsPage.toast.envProxyDisabled'))
       } catch (err) {
         toast.error(
-          `关闭终端代理失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('settingsPage.toast.envProxyDisableFail', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
         )
       }
     }
@@ -457,17 +466,19 @@ export const SettingView: React.FC = () => {
     try {
       if (config.envProxyEnabled) {
         await setEnvProxy(true, port)
-        toast.success(`已切换终端代理端口至 ${port}`)
+        toast.success(t('settingsPage.toast.envPortSwitched', { port }))
       } else {
         await saveConfig({
           ...config,
           envProxyPort: port,
         })
-        toast.success(`已设置终端代理预选端口为 ${port}`)
+        toast.success(t('settingsPage.toast.envPortPreset', { port }))
       }
     } catch (err) {
       toast.error(
-        `更新终端代理端口失败: ${err instanceof Error ? err.message : String(err)}`,
+        t('settingsPage.toast.envPortFail', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     }
   }
@@ -479,21 +490,23 @@ export const SettingView: React.FC = () => {
     try {
       if (config.systemProxyEnabled) {
         await setSystemProxy(true, port)
-        toast.success(`已切换系统代理端口至 ${port}`)
+        toast.success(t('settingsPage.toast.sysProxyPortSwitched', { port }))
       } else if (config.tunEnabled) {
         await setTun(true, port)
-        toast.success(`已切换 TUN 出口端口至 ${port}`)
+        toast.success(t('settingsPage.toast.tunPortSwitched', { port }))
       } else {
         await saveConfig({
           ...config,
           systemProxyPort: port,
           tunPort: port,
         })
-        toast.success(`已设置出站预选端口为 ${port}`)
+        toast.success(t('settingsPage.toast.outboundPortPreset', { port }))
       }
     } catch (err) {
       toast.error(
-        `更新出站端口失败: ${err instanceof Error ? err.message : String(err)}`,
+        t('settingsPage.toast.outboundPortFail', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     }
   }
@@ -509,16 +522,16 @@ export const SettingView: React.FC = () => {
 
     if (checked) {
       if (!targetPort) {
-        toast.error('当前无可用且已启用的监听端口，请先在端口管理中启用端口')
+        toast.error(t('settingsPage.toast.noPort'))
         return
       }
       setTunLoading(true)
       try {
         const status = await setTun(true, targetPort)
         if (status.pendingElevation) {
-          toast.info('TUN 模式需要管理员权限，应用正在以管理员身份重启…')
+          toast.info(t('settingsPage.toast.tunAdminRestart'))
         } else {
-          toast.success(`TUN 模式已启用，全局出口跟随端口 ${targetPort}`)
+          toast.success(t('settingsPage.toast.tunEnabled', { port: targetPort }))
         }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err))
@@ -530,7 +543,7 @@ export const SettingView: React.FC = () => {
       try {
         const currentPort = targetPort ?? defaultProxyPort
         await setTun(false, currentPort)
-        toast.success('已关闭 TUN 模式')
+        toast.success(t('settingsPage.toast.tunDisabled'))
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err))
       } finally {
@@ -552,26 +565,24 @@ export const SettingView: React.FC = () => {
     if (!config) return
 
     if (trimmed.toLowerCase() === '<local>') {
-      toast.warning('「<local>」为操作系统内置排除标记，无需重复添加')
+      toast.warning(t('settingsPage.toast.localMarker'))
       return
     }
 
     if (!isValidBypassRule(trimmed)) {
-      toast.error(
-        '排除项格式无效：支持具体域名 (如 sheepyu.top)、通配符域名 (如 *.sheepyu.top)、IP (如 119.29.106.76) 或网段 (如 10.0.0.0/8)，不允许填单字或全域通配符 *',
-      )
+      toast.error(t('settingsPage.toast.bypassInvalid'))
       return
     }
 
     const lower = trimmed.toLowerCase()
     const currentList = config.systemProxyBypassUser || []
     if (currentList.some((d) => d.toLowerCase() === lower)) {
-      toast.warning(`排除项「${trimmed}」已在自定义排除列表中`)
+      toast.warning(t('settingsPage.toast.bypassDuplicateCustom', { item: trimmed }))
       return
     }
 
     if (defaultBypassList.some((d) => d.toLowerCase() === lower)) {
-      toast.warning(`排除项「${trimmed}」已存在于系统内置排除项中`)
+      toast.warning(t('settingsPage.toast.bypassDuplicateDefault', { item: trimmed }))
       return
     }
 
@@ -579,10 +590,12 @@ export const SettingView: React.FC = () => {
     try {
       await saveConfig({ ...config, systemProxyBypassUser: updated })
       setNewBypassInput('')
-      toast.success(`已添加排除域名/IP: ${trimmed}`)
+      toast.success(t('settingsPage.toast.bypassAdded', { item: trimmed }))
     } catch (err) {
       toast.error(
-        `添加失败: ${err instanceof Error ? err.message : String(err)}`,
+        t('settingsPage.toast.bypassAddFail', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     }
   }
@@ -593,10 +606,12 @@ export const SettingView: React.FC = () => {
     const updated = currentList.filter((d) => d !== item)
     try {
       await saveConfig({ ...config, systemProxyBypassUser: updated })
-      toast.success(`已移除排除项: ${item}`)
+      toast.success(t('settingsPage.toast.bypassRemoved', { item }))
     } catch (err) {
       toast.error(
-        `移除失败: ${err instanceof Error ? err.message : String(err)}`,
+        t('settingsPage.toast.bypassRemoveFail', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     }
   }
@@ -615,19 +630,31 @@ export const SettingView: React.FC = () => {
       }
       const parts: string[] = []
       if (stats.newlyExemptedCount && stats.newlyExemptedCount > 0) {
-        parts.push(`为 ${stats.newlyExemptedCount} 个新应用自动开启豁免`)
+        parts.push(
+          t('settingsPage.toast.uwpNewExempted', {
+            count: stats.newlyExemptedCount,
+          }),
+        )
       }
       if (stats.cleanedCount && stats.cleanedCount > 0) {
-        parts.push(`清理了 ${stats.cleanedCount} 个已卸载应用的残留豁免`)
+        parts.push(
+          t('settingsPage.toast.uwpCleaned', { count: stats.cleanedCount }),
+        )
       }
       if (parts.length > 0) {
-        toast.success(`已刷新状态，${parts.join('，')}`)
+        toast.success(
+          t('settingsPage.toast.uwpRefreshedDetails', {
+            details: parts.join(t('settingsPage.common.listSeparator')),
+          }),
+        )
       } else {
-        toast.success('已刷新 UWP 应用及豁免状态')
+        toast.success(t('settingsPage.toast.uwpRefreshed'))
       }
     } catch (err) {
       toast.error(
-        `刷新 UWP 豁免状态失败: ${err instanceof Error ? err.message : String(err)}`,
+        t('settingsPage.toast.uwpRefreshFail', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     } finally {
       setUwpLoading(false)
@@ -641,11 +668,13 @@ export const SettingView: React.FC = () => {
       setUwpStats(stats)
       await fetchConfig()
       toast.success(
-        `已为全部 ${stats.totalCount} 个 UWP 应用解除回环隔离，后续新安装应用将自动豁免`,
+        t('settingsPage.toast.uwpExemptAll', { count: stats.totalCount }),
       )
     } catch (err) {
       toast.error(
-        `UWP 回环豁免失败: ${err instanceof Error ? err.message : String(err)}`,
+        t('settingsPage.toast.uwpExemptFail', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     } finally {
       setUwpLoading(false)
@@ -658,10 +687,12 @@ export const SettingView: React.FC = () => {
       const stats = await api.clearAllUwpLoopback()
       setUwpStats(stats)
       await fetchConfig()
-      toast.success('已清除所有 UWP 应用回环豁免，并停止新应用自动豁免')
+      toast.success(t('settingsPage.toast.uwpCleared'))
     } catch (err) {
       toast.error(
-        `清除 UWP 回环豁免失败: ${err instanceof Error ? err.message : String(err)}`,
+        t('settingsPage.toast.uwpClearFail', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     } finally {
       setUwpLoading(false)
@@ -674,9 +705,9 @@ export const SettingView: React.FC = () => {
       const res = await api.checkKernelUpdate()
       setUpdateInfo(res)
       if (res.hasUpdate) {
-        toast.info(`检测到新版本 Mihomo 内核：${res.latestVersion}`)
+        toast.info(t('settingsPage.toast.kernelUpdateFound', { version: res.latestVersion }))
       } else {
-        toast.success(`当前已是最新内核版本 (${res.currentVersion})`)
+        toast.success(t('settingsPage.toast.kernelLatest', { version: res.currentVersion }))
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
@@ -688,9 +719,9 @@ export const SettingView: React.FC = () => {
   const handleUpgradeKernel = async () => {
     setUpgradingKernel(true)
     try {
-      toast.info('正在下载并校验新内核，请稍候...')
+      toast.info(t('settingsPage.toast.kernelDownloading'))
       const res = await api.upgradeKernel()
-      toast.success(`内核升级成功！已平滑切换至 ${res.currentVersion}`)
+      toast.success(t('settingsPage.toast.kernelUpgraded', { version: res.currentVersion }))
       await fetchStatus()
       const refreshed = await api.checkKernelUpdate().catch(() => null)
       if (refreshed) setUpdateInfo(refreshed)
@@ -705,10 +736,10 @@ export const SettingView: React.FC = () => {
     if (updatingRules) return
     setUpdatingRules(true)
     try {
-      toast.info('正在请求官方最新 MRS 规则集，请稍候...')
+      toast.info(t('settingsPage.toast.rulesDownloading'))
       const res = await api.updateRules()
       setRulesInfo(res)
-      toast.success('国内分流规则库已成功更新为最新版本！')
+      toast.success(t('settingsPage.toast.rulesUpdated'))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
@@ -730,13 +761,15 @@ export const SettingView: React.FC = () => {
         setSelectedAssetUrl(res.availableAssets[0].downloadUrl)
       }
       if (res.hasUpdate) {
-        toast.info(`检测到软件新版本：v${res.latestVersion}`)
+        toast.info(t('settingsPage.toast.appUpdateFound', { version: res.latestVersion }))
       } else {
-        toast.success(`当前已是最新版本 (v${res.currentVersion})`)
+        toast.success(t('settingsPage.toast.appLatest', { version: res.currentVersion }))
       }
     } catch (err) {
       toast.error(
-        `检查软件更新失败: ${err instanceof Error ? err.message : String(err)}`,
+        t('settingsPage.toast.appCheckFail', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     } finally {
       setCheckingAppUpdate(false)
@@ -751,7 +784,7 @@ export const SettingView: React.FC = () => {
       ) || appUpdateInfo.asset
 
     if (!asset) {
-      toast.error('未找到适配当前平台的更新文件')
+      toast.error(t('settingsPage.toast.assetNotFound'))
       return
     }
 
@@ -763,13 +796,15 @@ export const SettingView: React.FC = () => {
         asset.packageType,
       )
       if (asset.packageType === 'installer') {
-        toast.success(res.message || '安装程序已启动，正在关闭旧程序...')
+        toast.success(res.message || t('settingsPage.toast.installerStarted'))
       } else {
-        toast.success(res.message || '便携包下载完成')
+        toast.success(res.message || t('settingsPage.toast.portableReady'))
       }
     } catch (err) {
       toast.error(
-        `更新失败: ${err instanceof Error ? err.message : String(err)}`,
+        t('settingsPage.toast.appUpdateFail', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     } finally {
       setDownloadingAppUpdate(false)
@@ -845,7 +880,9 @@ export const SettingView: React.FC = () => {
       ...config,
       allowLan: checked,
     })
-    toast.success(checked ? '已开启局域网连接' : '已恢复为仅监听本机回环')
+    toast.success(
+      t(checked ? 'settingsPage.toast.lanEnabled' : 'settingsPage.toast.lanDisabled'),
+    )
   }
 
   const handleThemeChange = async (newTheme: string) => {
@@ -891,7 +928,7 @@ export const SettingView: React.FC = () => {
     if (!config) return
     try {
       await saveConfig({ ...config, testUrl: url })
-      toast.success('测活与测速目标地址已更新')
+      toast.success(t('settingsPage.toast.testUrlUpdated'))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     }
@@ -903,7 +940,10 @@ export const SettingView: React.FC = () => {
     const ms = isPureInteger ? Number.parseInt(trimmed, 10) : 0
     if (!isPureInteger || !ms || ms < MIN_TIMEOUT_MS || ms > MAX_TIMEOUT_MS) {
       toast.error(
-        `超时时间必须为整数且在 ${MIN_TIMEOUT_MS} ~ ${MAX_TIMEOUT_MS} ms 范围内`,
+        t('settingsPage.toast.timeoutRange', {
+          min: MIN_TIMEOUT_MS,
+          max: MAX_TIMEOUT_MS,
+        }),
       )
       setTimeoutMsInput(String(config?.timeoutMs ?? DEFAULT_TIMEOUT_MS))
       return
@@ -911,7 +951,7 @@ export const SettingView: React.FC = () => {
     if (config && config.timeoutMs !== ms) {
       try {
         await saveConfig({ ...config, timeoutMs: ms })
-        toast.success(`测速与故障判定超时已更新为 ${ms} ms`)
+        toast.success(t('settingsPage.toast.timeoutUpdated', { ms }))
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err))
       }
@@ -929,7 +969,10 @@ export const SettingView: React.FC = () => {
       sec > MAX_FALLBACK_INTERVAL
     ) {
       toast.error(
-        `检测间隔必须为整数且在 ${MIN_FALLBACK_INTERVAL} ~ ${MAX_FALLBACK_INTERVAL} 秒范围内`,
+        t('settingsPage.toast.fallbackRange', {
+          min: MIN_FALLBACK_INTERVAL,
+          max: MAX_FALLBACK_INTERVAL,
+        }),
       )
       setFallbackIntervalInput(
         String(config?.fallbackInterval ?? DEFAULT_FALLBACK_INTERVAL),
@@ -939,7 +982,7 @@ export const SettingView: React.FC = () => {
     if (config && config.fallbackInterval !== sec) {
       try {
         await saveConfig({ ...config, fallbackInterval: sec })
-        toast.success(`Fallback 探测周期已更新为 ${sec} 秒`)
+        toast.success(t('settingsPage.toast.fallbackUpdated', { sec }))
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err))
       }
@@ -951,7 +994,9 @@ export const SettingView: React.FC = () => {
     if (!config) return
     try {
       await saveConfig({ ...config, fallbackLazy: checked })
-      toast.success(checked ? '已开启惰性健康检测' : '已恢复持续主动健康检测')
+      toast.success(
+        t(checked ? 'settingsPage.toast.lazyOn' : 'settingsPage.toast.lazyOff'),
+      )
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     }
@@ -962,7 +1007,7 @@ export const SettingView: React.FC = () => {
     if (!file) return
 
     if (!file.type.startsWith('image/')) {
-      toast.error('请选择有效的图片格式文件 (PNG, JPG, WebP 等)')
+      toast.error(t('settingsPage.toast.invalidImage'))
       return
     }
 
@@ -975,7 +1020,7 @@ export const SettingView: React.FC = () => {
           ...config,
           backgroundImage: dataUrl,
         })
-        toast.success('背景壁纸已成功应用')
+        toast.success(t('settingsPage.toast.bgApplied'))
       }
     }
     reader.readAsDataURL(file)
@@ -991,7 +1036,7 @@ export const SettingView: React.FC = () => {
       ...config,
       backgroundImage: '',
     })
-    toast.info('背景壁纸已清除')
+    toast.info(t('settingsPage.toast.bgCleared'))
   }
 
   const handleBgOpacityChange = (val: number) => {
@@ -1017,7 +1062,13 @@ export const SettingView: React.FC = () => {
       ...config,
       autoLaunch: checked,
     })
-    toast.success(checked ? '已开启开机自启动' : '已关闭开机自启动')
+    toast.success(
+      t(
+        checked
+          ? 'settingsPage.toast.autoLaunchOn'
+          : 'settingsPage.toast.autoLaunchOff',
+      ),
+    )
   }
 
   const handleSilentStartToggle = async (checked: boolean) => {
@@ -1035,7 +1086,13 @@ export const SettingView: React.FC = () => {
       ...config,
       lightweightMode: checked,
     })
-    toast.success(checked ? '已开启轻量模式' : '已关闭轻量模式')
+    toast.success(
+      t(
+        checked
+          ? 'settingsPage.toast.lightweightOn'
+          : 'settingsPage.toast.lightweightOff',
+      ),
+    )
   }
   const handleCheckUpdateOnStartToggle = async (checked: boolean) => {
     setCheckUpdateOnStart(checked)
@@ -1044,16 +1101,24 @@ export const SettingView: React.FC = () => {
       ...config,
       checkUpdateOnStart: checked,
     })
-    toast.success(checked ? '已开启自动检查更新' : '已关闭自动检查更新')
+    toast.success(
+      t(
+        checked
+          ? 'settingsPage.toast.autoCheckOn'
+          : 'settingsPage.toast.autoCheckOff',
+      ),
+    )
   }
 
   const handleResetWindowSize = async () => {
     try {
       await api.resetWindowSize()
-      toast.success('窗口尺寸已恢复默认')
+      toast.success(t('settingsPage.toast.windowReset'))
     } catch (err) {
       toast.error(
-        `重置窗口尺寸失败: ${err instanceof Error ? err.message : String(err)}`,
+        t('settingsPage.toast.windowResetFail', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     }
   }
@@ -1071,7 +1136,7 @@ export const SettingView: React.FC = () => {
       if (config) {
         setControllerPortInput(String(config.controllerPort))
       }
-      setPortError('端口号必须为整数且在 1024 ~ 65535 范围内')
+      setPortError(t('settingsPage.core.portRangeError'))
       setTimeout(() => setPortError(null), 3500)
       return
     }
@@ -1116,10 +1181,10 @@ export const SettingView: React.FC = () => {
             <Cpu className="w-5 h-5 text-primary" />
             <div>
               <h3 className="text-sm font-semibold text-foreground">
-                Mihomo 内核与网络
+                {t('settingsPage.core.title')}
               </h3>
               <p className="text-xs text-muted-foreground">
-                伴生子进程生命周期守护与网络监听通信配置
+                {t('settingsPage.core.desc')}
               </p>
             </div>
           </div>
@@ -1134,7 +1199,7 @@ export const SettingView: React.FC = () => {
                 className="text-rose-500 hover:bg-rose-500/10 border-rose-500/20"
                 icon={<Square className="w-3.5 h-3.5 fill-current" />}
               >
-                停止内核
+                {t('settingsPage.core.stop')}
               </Button>
             ) : (
               <Button
@@ -1145,7 +1210,7 @@ export const SettingView: React.FC = () => {
                 className="bg-emerald-600 hover:bg-emerald-500 text-white"
                 icon={<Play className="w-3.5 h-3.5 fill-current" />}
               >
-                启动内核
+                {t('settingsPage.core.start')}
               </Button>
             )}
 
@@ -1160,7 +1225,7 @@ export const SettingView: React.FC = () => {
                 />
               }
             >
-              重启
+              {t('settingsPage.core.restart')}
             </Button>
           </div>
         </div>
@@ -1168,7 +1233,9 @@ export const SettingView: React.FC = () => {
         {/* Core Status Metrics Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
-            <span className="text-muted-foreground">运行状态</span>
+            <span className="text-muted-foreground">
+              {t('settingsPage.core.statusLabel')}
+            </span>
             <div className="flex items-center gap-2 font-medium">
               <span
                 className={`w-2 h-2 rounded-full ${
@@ -1178,27 +1245,35 @@ export const SettingView: React.FC = () => {
               <span
                 className={isRunning ? 'text-emerald-500' : 'text-rose-500'}
               >
-                {isRunning ? '正在运行 (Active)' : '已停止 (Stopped)'}
+                {isRunning
+                  ? t('settingsPage.core.runningActive')
+                  : t('settingsPage.core.stopped')}
               </span>
             </div>
           </div>
 
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
-            <span className="text-muted-foreground">进程 PID</span>
+            <span className="text-muted-foreground">
+              {t('settingsPage.core.pid')}
+            </span>
             <div className="font-mono font-medium text-foreground">
-              {coreStatus?.pid ?? '无'}
+              {coreStatus?.pid ?? t('settingsPage.core.none')}
             </div>
           </div>
 
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
-            <span className="text-muted-foreground">外部控制器 (REST API)</span>
+            <span className="text-muted-foreground">
+              {t('settingsPage.core.restApi')}
+            </span>
             <div className="font-mono font-medium text-foreground">
               127.0.0.1:{coreStatus?.controllerPort ?? DEFAULT_CONTROLLER_PORT}
             </div>
           </div>
 
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
-            <span className="text-muted-foreground">运行时间 (Uptime)</span>
+            <span className="text-muted-foreground">
+              {t('settingsPage.core.uptime')}
+            </span>
             <LiveUptimeDisplay
               isRunning={isRunning}
               uptimeSeconds={coreStatus?.uptimeSeconds}
@@ -1209,10 +1284,10 @@ export const SettingView: React.FC = () => {
         {/* Core Version, Path & Online Update Section */}
         <div className="p-4 rounded-xl bg-background/60 border border-border space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="space-y-1">
+            <div className="min-w-0 flex-1 space-y-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-foreground">
-                  Mihomo 核心版本
+                  {t('settingsPage.core.versionLabel')}
                 </span>
                 {updateInfo && (
                   <Badge
@@ -1224,17 +1299,17 @@ export const SettingView: React.FC = () => {
                     size="sm"
                   >
                     {updateInfo.installMode === 'portable'
-                      ? '便携模式 (.portable)'
+                      ? t('settingsPage.core.installModePortable')
                       : updateInfo.installMode === 'dev'
-                        ? '开发模式 (当前运行内核)'
-                        : '安装模式 (AppData)'}
+                        ? t('settingsPage.core.installModeDev')
+                        : t('settingsPage.core.installModeInstall')}
                   </Badge>
                 )}
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
                 <Terminal className="w-3.5 h-3.5 shrink-0 text-primary" />
                 <span className="truncate">
-                  {coreStatus?.version || 'Mihomo Core (未知版本)'}
+                  {coreStatus?.version || t('settingsPage.core.unknownVersion')}
                 </span>
               </div>
               {coreStatus?.sidecarPath && (
@@ -1259,7 +1334,9 @@ export const SettingView: React.FC = () => {
                   />
                 }
               >
-                {checkingUpdate ? '检查中...' : '检查内核更新'}
+                {checkingUpdate
+                  ? t('settingsPage.core.checkingUpdate')
+                  : t('settingsPage.core.checkUpdate')}
               </Button>
             </div>
           </div>
@@ -1270,14 +1347,20 @@ export const SettingView: React.FC = () => {
               <div className="space-y-0.5">
                 <div className="flex items-center gap-1.5 font-medium text-primary">
                   <Sparkles className="w-4 h-4 shrink-0" />
-                  <span>发现新版本：{updateInfo.latestVersion}</span>
+                  <span>
+                    {t('settingsPage.core.updateFound', {
+                      version: updateInfo.latestVersion,
+                    })}
+                  </span>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  下载并替换内核文件，完成后自动重载生效。
+                  {t('settingsPage.core.updateDesc')}
                 </p>
                 {updateInfo.targetPath && (
                   <p className="text-[10px] text-muted-foreground/70 font-mono truncate max-w-md">
-                    目标落盘路径：{updateInfo.targetPath}
+                    {t('settingsPage.core.targetPath', {
+                      path: updateInfo.targetPath,
+                    })}
                   </p>
                 )}
               </div>
@@ -1290,7 +1373,7 @@ export const SettingView: React.FC = () => {
                     onClick={() => window.open(updateInfo.releaseUrl, '_blank')}
                     icon={<ExternalLink className="w-3.5 h-3.5" />}
                   >
-                    更新说明
+                    {t('settingsPage.core.releaseNotes')}
                   </Button>
                 )}
                 <Button
@@ -1307,7 +1390,9 @@ export const SettingView: React.FC = () => {
                     )
                   }
                 >
-                  {upgradingKernel ? '正在更新...' : '立即更新内核'}
+                  {upgradingKernel
+                    ? t('settingsPage.core.updating')
+                    : t('settingsPage.core.updateNow')}
                 </Button>
               </div>
             </div>
@@ -1318,34 +1403,38 @@ export const SettingView: React.FC = () => {
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-foreground">
-                  国内分流规则库 (MRS 二进制)
+                  {t('settingsPage.core.mrsTitle')}
                 </span>
                 {rulesInfo?.all_present ? (
                   <Badge variant="success" size="sm">
-                    已就绪 (4/4)
+                    {t('settingsPage.core.mrsReady')}
                   </Badge>
                 ) : (
                   <Badge variant="warning" size="sm">
-                    缺少 {rulesInfo?.missing.length ?? 0} 个文件
+                    {t('settingsPage.core.mrsMissing', {
+                      count: rulesInfo?.missing.length ?? 0,
+                    })}
                   </Badge>
                 )}
               </div>
               <p className="text-[11px] text-muted-foreground">
-                包含 111,004 条中国域名及完整中国 IP CIDR。采用紧凑 Meta
-                规则集格式，极速匹配且仅占极小内存
+                {t('settingsPage.core.mrsDesc')}
               </p>
               <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground/80 font-mono">
                 <span>
-                  最后更新：
-                  {rulesInfo?.last_updated_at
-                    ? new Date(
-                        rulesInfo.last_updated_at * 1000,
-                      ).toLocaleString()
-                    : '跟随安装包内置'}
+                  {t('settingsPage.core.mrsLastUpdated', {
+                    time: rulesInfo?.last_updated_at
+                      ? new Date(
+                          rulesInfo.last_updated_at * 1000,
+                        ).toLocaleString(locale)
+                      : t('settingsPage.core.mrsBundled'),
+                  })}
                 </span>
                 {rulesInfo?.total_size ? (
                   <span>
-                    库体积：{(rulesInfo.total_size / 1024).toFixed(1)} KB
+                    {t('settingsPage.core.mrsSize', {
+                      size: (rulesInfo.total_size / 1024).toFixed(1),
+                    })}
                   </span>
                 ) : null}
               </div>
@@ -1364,7 +1453,9 @@ export const SettingView: React.FC = () => {
                   )
                 }
               >
-                {updatingRules ? '正在更新规则...' : '立即更新规则库'}
+                {updatingRules
+                  ? t('settingsPage.core.updatingRules')
+                  : t('settingsPage.core.updateRules')}
               </Button>
             </div>
           </div>
@@ -1378,11 +1469,12 @@ export const SettingView: React.FC = () => {
                 htmlFor="controller-port-input"
                 className="text-xs font-medium text-foreground"
               >
-                外部控制器端口
+                {t('settingsPage.core.portLabel')}
               </label>
               <p className="text-[11px] text-muted-foreground">
-                Mihomo 本地 RESTful 控制接口端口，用于热重载与测速（默认{' '}
-                {DEFAULT_CONTROLLER_PORT}）
+                {t('settingsPage.core.portDesc', {
+                  port: DEFAULT_CONTROLLER_PORT,
+                })}
               </p>
               {portError && (
                 <p className="text-[11px] text-destructive flex items-center gap-1 font-medium pt-0.5 animate-in fade-in duration-150">
@@ -1393,7 +1485,9 @@ export const SettingView: React.FC = () => {
               {portNeedsRestart && !portError && (
                 <p className="text-[11px] text-amber-500 flex items-center gap-1 font-medium pt-0.5">
                   <AlertTriangle className="w-3 h-3 shrink-0" />
-                  端口配置已更新为 {config?.controllerPort}，重启内核后生效
+                  {t('settingsPage.core.portNeedsRestart', {
+                    port: config?.controllerPort ?? '',
+                  })}
                 </p>
               )}
             </div>
@@ -1421,10 +1515,10 @@ export const SettingView: React.FC = () => {
                 htmlFor="log-level-select"
                 className="text-xs font-medium text-foreground"
               >
-                内核日志级别
+                {t('settingsPage.core.logLevelLabel')}
               </label>
               <p className="text-[11px] text-muted-foreground">
-                Mihomo 运行时的日志输出详细程度（修改后即时热重载生效）
+                {t('settingsPage.core.logLevelDesc')}
               </p>
             </div>
             <div className="w-36 shrink-0">
@@ -1441,12 +1535,10 @@ export const SettingView: React.FC = () => {
             <div className="space-y-0.5 min-w-0 flex-1">
               <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
                 <Network className="w-3.5 h-3.5 text-primary" />
-                允许局域网连接
+                {t('settingsPage.core.allowLanLabel')}
               </span>
               <p className="text-[11px] text-muted-foreground">
-                开启后端口映射将监听所有网卡接口
-                (0.0.0.0)，允许局域网或虚拟机设备连接；关闭时仅监听本机回环地址
-                (127.0.0.1)
+                {t('settingsPage.core.allowLanDesc')}
               </p>
             </div>
             <Switch
@@ -1461,7 +1553,7 @@ export const SettingView: React.FC = () => {
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-500" />
               <h4 className="text-xs font-semibold text-foreground">
-                节点探测与 Fallback 容灾策略
+                {t('settingsPage.core.probeTitle')}
               </h4>
             </div>
 
@@ -1472,10 +1564,10 @@ export const SettingView: React.FC = () => {
                   htmlFor="probe-url-select"
                   className="text-xs font-medium text-foreground"
                 >
-                  探测与测速目标地址
+                  {t('settingsPage.core.testUrlLabel')}
                 </label>
                 <p className="text-[11px] text-muted-foreground">
-                  全局测速、单端口测速与 Fallback 策略组测活所使用的网络端点
+                  {t('settingsPage.core.testUrlDesc')}
                 </p>
               </div>
               <div className="w-64 shrink-0">
@@ -1495,11 +1587,10 @@ export const SettingView: React.FC = () => {
                   htmlFor="probe-timeout-input"
                   className="text-xs font-medium text-foreground"
                 >
-                  节点测速与故障判定超时
+                  {t('settingsPage.core.timeoutLabel')}
                 </label>
                 <p className="text-[11px] text-muted-foreground">
-                  统一控制手动测速超时时间，以及 Fallback
-                  主节点被判定故障的阈值（毫秒）
+                  {t('settingsPage.core.timeoutDesc')}
                 </p>
               </div>
               <div className="w-28 shrink-0">
@@ -1531,11 +1622,10 @@ export const SettingView: React.FC = () => {
                   htmlFor="fallback-interval-input"
                   className="text-xs font-medium text-foreground"
                 >
-                  Fallback 健康检查周期
+                  {t('settingsPage.core.fallbackIntervalLabel')}
                 </label>
                 <p className="text-[11px] text-muted-foreground">
-                  Mihomo
-                  内核在底层向探针测活的间隔秒数；主节点恢复后内核自动切回
+                  {t('settingsPage.core.fallbackIntervalDesc')}
                 </p>
               </div>
               <div className="w-28 shrink-0">
@@ -1552,7 +1642,7 @@ export const SettingView: React.FC = () => {
                   onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                   suffixIcon={
                     <span className="text-[10px] text-muted-foreground pr-1">
-                      秒
+                      {t('settingsPage.core.secondsShort')}
                     </span>
                   }
                   className="text-center font-mono"
@@ -1564,11 +1654,10 @@ export const SettingView: React.FC = () => {
             <div className="flex items-center justify-between gap-6">
               <div className="space-y-0.5 min-w-0 flex-1">
                 <span className="text-xs font-medium text-foreground">
-                  惰性健康检查
+                  {t('settingsPage.core.lazyLabel')}
                 </span>
                 <p className="text-[11px] text-muted-foreground">
-                  仅对已配置备用节点 (Fallback)
-                  的端口生效。关闭时内核持续主动测活；开启后仅在该端口有流量经过时发起检测
+                  {t('settingsPage.core.lazyDesc')}
                 </p>
               </div>
               <Switch
@@ -1591,11 +1680,10 @@ export const SettingView: React.FC = () => {
             <Globe className="w-5 h-5 text-primary" />
             <div>
               <h3 className="text-sm font-semibold text-foreground">
-                系统代理设置
+                {t('settingsPage.proxy.title')}
               </h3>
               <p className="text-xs text-muted-foreground">
-                接管操作系统 WinInet
-                全局网络代理，多监听端口单选互斥，针对桌面浏览器与系统应用生效
+                {t('settingsPage.proxy.desc')}
               </p>
             </div>
           </div>
@@ -1606,10 +1694,10 @@ export const SettingView: React.FC = () => {
           <div className="flex items-center justify-between gap-6">
             <div className="space-y-0.5 min-w-0 flex-1">
               <label className="text-xs font-medium text-foreground">
-                启用系统代理
+                {t('settingsPage.proxy.enableLabel')}
               </label>
               <p className="text-[11px] text-muted-foreground">
-                将选定监听端口设为系统全局代理。内核停止或应用退出时将自动清理，防止系统断网
+                {t('settingsPage.proxy.enableDesc')}
               </p>
             </div>
             <Switch
@@ -1623,17 +1711,16 @@ export const SettingView: React.FC = () => {
           <div className="pt-3 border-t border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="space-y-0.5">
               <label className="text-xs font-medium text-foreground">
-                出站绑定的监听端口
+                {t('settingsPage.proxy.portLabel')}
               </label>
               <p className="text-[11px] text-muted-foreground">
-                从已启用的监听端口中选择作为全局出站出口（系统代理与 TUN
-                模式共享此端口）
+                {t('settingsPage.proxy.portDesc')}
               </p>
             </div>
             <div className="w-full sm:w-80">
               {proxyEnabledPorts.length === 0 ? (
                 <span className="text-xs text-rose-500 font-medium">
-                  暂无可用代理节点端口，请先在端口管理中启用代理端口
+                  {t('settingsPage.proxy.noPort')}
                 </span>
               ) : (
                 <Select
@@ -1643,9 +1730,11 @@ export const SettingView: React.FC = () => {
                   onChange={(val) => handlePortSelectChange(String(val))}
                   options={proxyEnabledPorts.map((m) => ({
                     value: String(m.port),
-                    label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName}${
-                      m.description ? ` · ${m.description}` : ''
-                    })`,
+                    label: `${t('settingsPage.proxy.portOption', {
+                      port: m.port,
+                      protocol: m.protocol.toUpperCase(),
+                      node: m.nodeName,
+                    })}${m.description ? ` · ${m.description}` : ''}`,
                   }))}
                 />
               )}
@@ -1656,11 +1745,10 @@ export const SettingView: React.FC = () => {
           <div className="pt-3 border-t border-border/70 space-y-3">
             <div>
               <label className="text-xs font-medium text-foreground">
-                排除域名与 IP
+                {t('settingsPage.proxy.bypassLabel')}
               </label>
               <p className="text-[11px] text-muted-foreground">
-                匹配列表中的网络请求将不经过系统代理直连访问，若开启环境变量同步将同时注入到系统的
-                no_proxy 环境变量中
+                {t('settingsPage.proxy.bypassDesc')}
               </p>
             </div>
 
@@ -1675,7 +1763,7 @@ export const SettingView: React.FC = () => {
                     handleAddBypass()
                   }
                 }}
-                placeholder="输入排除域名或 IP (如 sheepyu.top, *.sheepyu.top, 119.29.106.76)..."
+                placeholder={t('settingsPage.proxy.bypassPlaceholder')}
               />
               <Button
                 variant="outline"
@@ -1683,7 +1771,7 @@ export const SettingView: React.FC = () => {
                 onClick={handleAddBypass}
                 icon={<Plus className="w-3.5 h-3.5" />}
               >
-                添加
+                {t('settingsPage.proxy.add')}
               </Button>
             </div>
 
@@ -1692,7 +1780,9 @@ export const SettingView: React.FC = () => {
               config.systemProxyBypassUser.length > 0 && (
                 <div className="space-y-1.5">
                   <span className="text-[11px] font-medium text-muted-foreground">
-                    自定义排除项 ({config.systemProxyBypassUser.length})：
+                    {t('settingsPage.proxy.customBypassCount', {
+                      count: config.systemProxyBypassUser.length,
+                    })}
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {sortedCustomBypass.map((domain) => (
@@ -1707,7 +1797,7 @@ export const SettingView: React.FC = () => {
                           type="button"
                           onClick={() => handleRemoveBypass(domain)}
                           className="text-muted-foreground hover:text-destructive transition-colors ml-0.5"
-                          title="移除此排除项"
+                          title={t('settingsPage.proxy.removeBypass')}
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -1720,7 +1810,7 @@ export const SettingView: React.FC = () => {
             {/* Default Bypass Tags (Preview) */}
             <div className="space-y-1.5 pt-1">
               <span className="text-[11px] font-medium text-muted-foreground">
-                系统内置排除项 (局域网与本地回环)：
+                {t('settingsPage.proxy.defaultBypass')}
               </span>
               <div className="flex flex-wrap gap-1">
                 {sortedDefaultBypass.map((item) => (
@@ -1741,35 +1831,36 @@ export const SettingView: React.FC = () => {
           {uwpStats?.supported && (
             <div className="pt-3 border-t border-border/70 space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <div className="flex flex-wrap items-center gap-2">
                     <label className="text-xs font-medium text-foreground">
-                      UWP 应用回环代理豁免 (Windows AppContainer)
+                      {t('settingsPage.proxy.uwpLabel')}
                     </label>
                     <Badge
                       variant={
                         uwpStats.exemptedCount > 0 ? 'success' : 'secondary'
                       }
                       size="sm"
-                      className="text-[10px] py-0 px-1.5"
+                      className="whitespace-nowrap text-[10px] py-0 px-1.5"
                     >
-                      已豁免 {uwpStats.exemptedCount} / 共 {uwpStats.totalCount}{' '}
-                      个应用
+                      {t('settingsPage.proxy.uwpBadge', {
+                        exempted: uwpStats.exemptedCount,
+                        total: uwpStats.totalCount,
+                      })}
                     </Badge>
                     {uwpStats.autoExempt && (
                       <Badge
                         variant="primary"
                         size="sm"
-                        className="text-[10px] py-0 px-1.5"
-                        title="已开启「一键豁免」，后续新安装的 UWP 应用会自动加入豁免；点击「一键清除」可停止"
+                        className="whitespace-nowrap text-[10px] py-0 px-1.5"
+                        title={t('settingsPage.proxy.uwpAutoTitle')}
                       >
-                        新应用自动豁免
+                        {t('settingsPage.proxy.uwpAutoBadge')}
                       </Badge>
                     )}
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    解除 Windows 沙箱对本地代理端口的隔离，使微软商店、UWP
-                    应用可正常连入系统代理
+                    {t('settingsPage.proxy.uwpDesc')}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -1780,7 +1871,7 @@ export const SettingView: React.FC = () => {
                     disabled={uwpLoading || uwpStats.exemptedCount === 0}
                     icon={<Trash2 className="w-3.5 h-3.5" />}
                   >
-                    一键清除
+                    {t('settingsPage.proxy.uwpClear')}
                   </Button>
                   <Button
                     variant="primary"
@@ -1789,7 +1880,7 @@ export const SettingView: React.FC = () => {
                     disabled={uwpLoading}
                     icon={<ShieldCheck className="w-3.5 h-3.5" />}
                   >
-                    一键豁免
+                    {t('settingsPage.proxy.uwpExempt')}
                   </Button>
                   <Button
                     variant="outline"
@@ -1797,7 +1888,7 @@ export const SettingView: React.FC = () => {
                     className="px-2"
                     onClick={() => setShowUwpModal(true)}
                     icon={<Eye className="w-3.5 h-3.5" />}
-                    title="查看 UWP 应用列表"
+                    title={t('settingsPage.proxy.uwpViewTitle')}
                   />
                   <Button
                     variant="outline"
@@ -1812,7 +1903,7 @@ export const SettingView: React.FC = () => {
                         }`}
                       />
                     }
-                    title="刷新豁免状态"
+                    title={t('settingsPage.proxy.uwpRefreshTitle')}
                   />
                 </div>
               </div>
@@ -1831,12 +1922,10 @@ export const SettingView: React.FC = () => {
             <Terminal className="w-5 h-5 text-primary" />
             <div>
               <h3 className="text-sm font-semibold text-foreground">
-                终端环境变量代理设置
+                {t('settingsPage.env.title')}
               </h3>
               <p className="text-xs text-muted-foreground">
-                独立将指定端口注入 Windows 用户环境变量 (http_proxy,
-                https_proxy, all_proxy,
-                no_proxy)，供命令行及开发工具使用。与系统代理完全解耦，可独立切换不同节点端口
+                {t('settingsPage.env.desc')}
               </p>
             </div>
           </div>
@@ -1847,11 +1936,10 @@ export const SettingView: React.FC = () => {
           <div className="flex items-center justify-between gap-6">
             <div className="space-y-0.5 min-w-0 flex-1">
               <label className="text-xs font-medium text-foreground">
-                启用终端环境变量代理 (Windows HKCU)
+                {t('settingsPage.env.enableLabel')}
               </label>
               <p className="text-[11px] text-muted-foreground">
-                修改系统用户级环境变量，自动广播给新打开的 CMD、PowerShell、Git
-                Bash 与开发工具。退出应用或端口停用时将自动清理，防止残留断网
+                {t('settingsPage.env.enableDesc')}
               </p>
             </div>
             <Switch
@@ -1865,16 +1953,16 @@ export const SettingView: React.FC = () => {
           <div className="pt-3 border-t border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="space-y-0.5">
               <label className="text-xs font-medium text-foreground">
-                终端代理绑定的监听端口
+                {t('settingsPage.env.portLabel')}
               </label>
               <p className="text-[11px] text-muted-foreground">
-                独立指定终端请求出口节点，无需与系统代理保持一致
+                {t('settingsPage.env.portDesc')}
               </p>
             </div>
             <div className="w-full sm:w-80">
               {proxyEnabledPorts.length === 0 ? (
                 <span className="text-xs text-rose-500 font-medium">
-                  暂无可用代理节点端口，请先在端口管理中启用代理端口
+                  {t('settingsPage.proxy.noPort')}
                 </span>
               ) : (
                 <Select
@@ -1887,9 +1975,11 @@ export const SettingView: React.FC = () => {
                   onChange={(val) => handleEnvPortSelectChange(String(val))}
                   options={proxyEnabledPorts.map((m) => ({
                     value: String(m.port),
-                    label: `端口 ${m.port} (${m.protocol.toUpperCase()} - ${m.nodeName}${
-                      m.description ? ` · ${m.description}` : ''
-                    })`,
+                    label: `${t('settingsPage.proxy.portOption', {
+                      port: m.port,
+                      protocol: m.protocol.toUpperCase(),
+                      node: m.nodeName,
+                    })}${m.description ? ` · ${m.description}` : ''}`,
                   }))}
                 />
               )}
@@ -1900,11 +1990,10 @@ export const SettingView: React.FC = () => {
           <div className="pt-3 border-t border-border/70 flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <label className="text-xs font-medium text-foreground">
-                环境变量异常急救与重置
+                {t('settingsPage.env.resetLabel')}
               </label>
               <p className="text-[11px] text-muted-foreground">
-                如遇终端代理残留或网络异常，可一键主动清除 Windows
-                用户环境变量中的 proxy 设置
+                {t('settingsPage.env.resetDesc')}
               </p>
             </div>
             <Button
@@ -1913,14 +2002,16 @@ export const SettingView: React.FC = () => {
               onClick={async () => {
                 try {
                   await setEnvProxy(false)
-                  toast.success('已清空用户环境变量中的代理配置')
+                  toast.success(t('settingsPage.toast.envCleared'))
                 } catch (e) {
-                  toast.error(`清除失败: ${e}`)
+                  toast.error(
+                    t('settingsPage.toast.envClearFail', { error: String(e) }),
+                  )
                 }
               }}
               className="shrink-0 text-xs"
             >
-              清除终端代理变量
+              {t('settingsPage.env.clearButton')}
             </Button>
           </div>
         </div>
@@ -1936,10 +2027,10 @@ export const SettingView: React.FC = () => {
             <Network className="w-5 h-5 text-primary" />
             <div>
               <h3 className="text-sm font-semibold text-foreground">
-                TUN 模式
+                {t('settingsPage.tun.title')}
               </h3>
               <p className="text-xs text-muted-foreground">
-                通过虚拟网卡接管系统全局流量，出口跟随所选监听端口的节点与国内直连策略
+                {t('settingsPage.tun.desc')}
               </p>
             </div>
           </div>
@@ -1949,10 +2040,10 @@ export const SettingView: React.FC = () => {
           <div className="flex items-center justify-between gap-6">
             <div className="space-y-0.5 min-w-0 flex-1">
               <label className="text-xs font-medium text-foreground">
-                启用 TUN 模式
+                {t('settingsPage.tun.enableLabel')}
               </label>
               <p className="text-[11px] text-muted-foreground">
-                需要管理员权限；与系统代理互斥，开启时自动清理系统代理并复用当前出站端口
+                {t('settingsPage.tun.enableDesc')}
               </p>
             </div>
             <Switch
@@ -1966,10 +2057,10 @@ export const SettingView: React.FC = () => {
             <div className="pt-3 border-t border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="space-y-0.5">
                 <label className="text-xs font-medium text-amber-500">
-                  TUN 未生效：需要管理员权限
+                  {t('settingsPage.tun.pendingTitle')}
                 </label>
                 <p className="text-[11px] text-muted-foreground">
-                  当前以普通用户运行，未创建虚拟网卡。点击右侧按钮以管理员身份重启后自动生效
+                  {t('settingsPage.tun.pendingDesc')}
                 </p>
               </div>
               <Button
@@ -1978,7 +2069,7 @@ export const SettingView: React.FC = () => {
                 onClick={handleRestartAsAdmin}
                 icon={<ShieldCheck className="w-3.5 h-3.5" />}
               >
-                以管理员身份重启
+                {t('settingsPage.tun.restartAdmin')}
               </Button>
             </div>
           )}
@@ -2049,10 +2140,10 @@ export const SettingView: React.FC = () => {
             <div className="space-y-0.5 min-w-0 flex-1">
               <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                磨砂亚克力玻璃质感
+                {t('settingsPage.appearance.acrylicLabel')}
               </span>
               <p className="text-[11px] text-muted-foreground">
-                为所有面板与侧边栏开启半透明毛玻璃透光与模糊效果
+                {t('settingsPage.appearance.acrylicDesc')}
               </p>
             </div>
             <Switch
@@ -2069,10 +2160,12 @@ export const SettingView: React.FC = () => {
                 <div className="space-y-0.5">
                   <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
                     <Sliders className="w-3.5 h-3.5 text-muted-foreground" />
-                    玻璃模糊度
+                    {t('settingsPage.appearance.blurLabel')}
                   </span>
                   <p className="text-[11px] text-muted-foreground">
-                    调节背部背景的毛玻璃模糊程度 ({acrylicBlur}px)
+                    {t('settingsPage.appearance.blurDesc', {
+                      value: acrylicBlur,
+                    })}
                   </p>
                 </div>
                 <div className="w-48 flex items-center gap-3">
@@ -2094,10 +2187,12 @@ export const SettingView: React.FC = () => {
                 <div className="space-y-0.5">
                   <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
                     <Sliders className="w-3.5 h-3.5 text-muted-foreground" />
-                    面板透明度
+                    {t('settingsPage.appearance.opacityLabel')}
                   </span>
                   <p className="text-[11px] text-muted-foreground">
-                    调节卡片底色的透光不透明度 ({acrylicOpacity}%)
+                    {t('settingsPage.appearance.opacityDesc', {
+                      value: acrylicOpacity,
+                    })}
                   </p>
                 </div>
                 <div className="w-48 flex items-center gap-3">
@@ -2131,10 +2226,10 @@ export const SettingView: React.FC = () => {
               <div className="space-y-0.5">
                 <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
                   <ImageIcon className="w-3.5 h-3.5 text-primary" />
-                  自定义背景壁纸
+                  {t('settingsPage.appearance.bgLabel')}
                 </span>
                 <p className="text-[11px] text-muted-foreground">
-                  从本地电脑选择一张图片作为客户端全景底图
+                  {t('settingsPage.appearance.bgDesc')}
                 </p>
               </div>
 
@@ -2145,7 +2240,9 @@ export const SettingView: React.FC = () => {
                   onClick={() => fileInputRef.current?.click()}
                   icon={<Upload className="w-3.5 h-3.5" />}
                 >
-                  {bgImage ? '更换壁纸' : '选择本地图片'}
+                  {bgImage
+                    ? t('settingsPage.appearance.changeWallpaper')
+                    : t('settingsPage.appearance.chooseImage')}
                 </Button>
 
                 {bgImage && (
@@ -2156,7 +2253,7 @@ export const SettingView: React.FC = () => {
                     className="text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
                     icon={<Trash2 className="w-3.5 h-3.5" />}
                   >
-                    清除壁纸
+                    {t('settingsPage.appearance.clearWallpaper')}
                   </Button>
                 )}
               </div>
@@ -2168,10 +2265,12 @@ export const SettingView: React.FC = () => {
                 <div className="space-y-0.5">
                   <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
                     <Sliders className="w-3.5 h-3.5 text-muted-foreground" />
-                    壁纸不透明度
+                    {t('settingsPage.appearance.bgOpacityLabel')}
                   </span>
                   <p className="text-[11px] text-muted-foreground">
-                    调节底层壁纸本身的显隐明暗程度 ({bgOpacity}%)
+                    {t('settingsPage.appearance.bgOpacityDesc', {
+                      value: bgOpacity,
+                    })}
                   </p>
                 </div>
                 <div className="w-48 flex items-center gap-3">
@@ -2203,10 +2302,10 @@ export const SettingView: React.FC = () => {
             <Power className="w-5 h-5 text-primary" />
             <div>
               <h3 className="text-sm font-semibold text-foreground">
-                窗口与系统启动
+                {t('settingsPage.system.title')}
               </h3>
               <p className="text-xs text-muted-foreground">
-                管理系统托盘常驻模式与开机自启动行为
+                {t('settingsPage.system.desc')}
               </p>
             </div>
           </div>
@@ -2216,10 +2315,10 @@ export const SettingView: React.FC = () => {
           <div className="flex items-center justify-between gap-6">
             <div className="space-y-0.5 min-w-0 flex-1">
               <span className="text-xs font-medium text-foreground">
-                关闭窗口时最小化到系统托盘
+                {t('settingsPage.system.closeToTrayLabel')}
               </span>
               <p className="text-[11px] text-muted-foreground">
-                点击窗口关闭按钮 (X) 时隐藏窗口并保持后台代理运行，不退出程序
+                {t('settingsPage.system.closeToTrayDesc')}
               </p>
             </div>
             <Switch
@@ -2232,10 +2331,10 @@ export const SettingView: React.FC = () => {
           <div className="flex items-center justify-between gap-6">
             <div className="space-y-0.5 min-w-0 flex-1">
               <span className="text-xs font-medium text-foreground">
-                开机自动启动
+                {t('settingsPage.system.autoLaunchLabel')}
               </span>
               <p className="text-[11px] text-muted-foreground">
-                操作系统启动后自动拉起 Mihomo Multi 客户端
+                {t('settingsPage.system.autoLaunchDesc', { app: APP_NAME })}
               </p>
             </div>
             <Switch
@@ -2248,10 +2347,10 @@ export const SettingView: React.FC = () => {
           <div className="flex items-center justify-between gap-6">
             <div className="space-y-0.5 min-w-0 flex-1">
               <span className="text-xs font-medium text-foreground">
-                静默启动模式
+                {t('settingsPage.system.silentStartLabel')}
               </span>
               <p className="text-[11px] text-muted-foreground">
-                程序启动时自动最小化至系统托盘，不主动弹出主窗口
+                {t('settingsPage.system.silentStartDesc')}
               </p>
             </div>
             <Switch
@@ -2263,10 +2362,10 @@ export const SettingView: React.FC = () => {
           <div className="flex items-center justify-between gap-6">
             <div className="space-y-0.5 min-w-0 flex-1">
               <span className="text-xs font-medium text-foreground">
-                轻量模式
+                {t('settingsPage.system.lightweightLabel')}
               </span>
               <p className="text-[11px] text-muted-foreground">
-                关闭窗口时销毁前端界面以降低内存占用，点击托盘时重新加载
+                {t('settingsPage.system.lightweightDesc')}
               </p>
             </div>
             <Switch
@@ -2278,10 +2377,10 @@ export const SettingView: React.FC = () => {
           <div className="flex items-center justify-between pt-3 border-t border-border/70">
             <div className="space-y-0.5">
               <span className="text-xs font-medium text-foreground">
-                重置窗口尺寸
+                {t('settingsPage.system.resetSizeLabel')}
               </span>
               <p className="text-[11px] text-muted-foreground">
-                将窗口尺寸与位置恢复为默认大小并清除记忆缓存
+                {t('settingsPage.system.resetSizeDesc')}
               </p>
             </div>
             <Button
@@ -2290,7 +2389,7 @@ export const SettingView: React.FC = () => {
               onClick={handleResetWindowSize}
               icon={<RotateCcw className="w-3.5 h-3.5" />}
             >
-              恢复默认大小
+              {t('settingsPage.system.resetSizeButton')}
             </Button>
           </div>
         </div>
@@ -2306,10 +2405,10 @@ export const SettingView: React.FC = () => {
             <FolderOpen className="w-5 h-5 text-primary" />
             <div>
               <h3 className="text-sm font-semibold text-foreground">
-                应用数据与订阅存储路径
+                {t('settingsPage.storage.title')}
               </h3>
               <p className="text-xs text-muted-foreground">
-                所有订阅 YAML 文件、运行配置与内核日志均保存在本地独立目录中
+                {t('settingsPage.storage.desc')}
               </p>
             </div>
           </div>
@@ -2320,16 +2419,16 @@ export const SettingView: React.FC = () => {
             onClick={() => openAppDataDir()}
             icon={<FolderOpen className="w-3.5 h-3.5" />}
           >
-            在资源管理器中打开
+            {t('settingsPage.storage.openFolder')}
           </Button>
         </div>
 
         <div className="p-3 rounded-lg bg-background/50 border border-border text-xs space-y-1">
           <span className="text-muted-foreground">
-            当前运行数据目录 (app_local_data_dir)
+            {t('settingsPage.storage.currentDir')}
           </span>
           <div className="font-mono text-foreground break-all select-all">
-            {appDataDir || '正在读取...'}
+            {appDataDir || t('settingsPage.storage.reading')}
           </div>
         </div>
       </div>
@@ -2345,15 +2444,14 @@ export const SettingView: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold text-foreground">
-                  软件关于与更新
+                  {t('settingsPage.about.title')}
                 </h3>
                 <Badge variant="primary" size="sm" className="font-mono">
                   v{currentAppVersion}
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground">
-                {APP_NAME} 桌面客户端，支持一键检测并从 GitHub
-                下载适配安装包或便携包
+                {t('settingsPage.about.desc', { app: APP_NAME })}
               </p>
             </div>
           </div>
@@ -2370,7 +2468,7 @@ export const SettingView: React.FC = () => {
                 size="sm"
                 icon={<ExternalLink className="w-3.5 h-3.5" />}
               >
-                GitHub 仓库
+                {t('settingsPage.about.github')}
               </Button>
             </a>
             <Button
@@ -2386,7 +2484,9 @@ export const SettingView: React.FC = () => {
                 />
               }
             >
-              {checkingAppUpdate ? '检查中...' : '检查软件更新'}
+              {checkingAppUpdate
+                ? t('settingsPage.core.checkingUpdate')
+                : t('settingsPage.about.checkUpdate')}
             </Button>
           </div>
         </div>
@@ -2394,46 +2494,56 @@ export const SettingView: React.FC = () => {
         {/* Status / Overview */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
-            <span className="text-muted-foreground">当前运行版本</span>
+            <span className="text-muted-foreground">
+              {t('settingsPage.about.currentVersion')}
+            </span>
             <div className="font-mono font-medium text-foreground">
               v{currentAppVersion}
             </div>
           </div>
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
-            <span className="text-muted-foreground">部署形态</span>
+            <span className="text-muted-foreground">
+              {t('settingsPage.about.deployType')}
+            </span>
             <div className="font-medium text-foreground">
               {isInstalled ? (
                 <Badge variant="secondary" size="sm">
-                  安装版 (Installer)
+                  {t('settingsPage.about.installer')}
                 </Badge>
               ) : (
                 <Badge variant="outline" size="sm">
-                  便携版 (Portable)
+                  {t('settingsPage.about.portable')}
                 </Badge>
               )}
             </div>
           </div>
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
-            <span className="text-muted-foreground">最新发行版本</span>
+            <span className="text-muted-foreground">
+              {t('settingsPage.about.latestVersion')}
+            </span>
             <div className="font-mono font-medium text-foreground">
-              {appUpdateInfo ? `v${appUpdateInfo.latestVersion}` : '未检查'}
+              {appUpdateInfo
+                ? `v${appUpdateInfo.latestVersion}`
+                : t('settingsPage.about.notChecked')}
             </div>
           </div>
           <div className="p-3 rounded-lg bg-background/50 border border-border space-y-1">
-            <span className="text-muted-foreground">更新状态</span>
+            <span className="text-muted-foreground">
+              {t('settingsPage.about.updateStatus')}
+            </span>
             <div className="font-medium text-foreground">
               {appUpdateInfo ? (
                 effectiveHasUpdate ? (
                   <Badge variant="warning" size="sm">
-                    有新版本可用
+                    {t('settingsPage.about.hasUpdate')}
                   </Badge>
                 ) : (
                   <Badge variant="success" size="sm">
-                    已是最新版本
+                    {t('settingsPage.about.latest')}
                   </Badge>
                 )
               ) : (
-                '待检查'
+                t('settingsPage.about.pending')
               )}
             </div>
           </div>
@@ -2443,10 +2553,10 @@ export const SettingView: React.FC = () => {
         <div className="flex items-center justify-between p-3.5 rounded-lg bg-background/50 border border-border gap-6 text-xs">
           <div className="space-y-0.5 min-w-0 flex-1">
             <span className="text-xs font-medium text-foreground">
-              启动时及每日自动检查更新
+              {t('settingsPage.about.autoCheckLabel')}
             </span>
             <p className="text-[11px] text-muted-foreground">
-              程序启动时及运行期间每天在后台静默检测一次新版本；检查与下载会自动依次尝试已启用的监听端口，最后回退直连
+              {t('settingsPage.about.autoCheckDesc')}
             </p>
           </div>
           <Switch
@@ -2461,13 +2571,15 @@ export const SettingView: React.FC = () => {
           <div className="flex items-center gap-1.5 font-mono">
             <Clock className="w-3.5 h-3.5 text-muted-foreground/70 shrink-0" />
             <span>
-              上次检查更新时间：
+              {t('settingsPage.about.lastCheckedLabel')}
               {lastCheckTime ? (
                 <span className="text-foreground font-medium">
                   {formatLastCheckTime(lastCheckTime)}
                 </span>
               ) : (
-                <span className="text-muted-foreground">从未检查</span>
+                <span className="text-muted-foreground">
+                  {t('settingsPage.about.never')}
+                </span>
               )}
             </span>
           </div>
@@ -2481,7 +2593,9 @@ export const SettingView: React.FC = () => {
                 <div className="flex items-center gap-2 font-medium text-primary">
                   <Sparkles className="w-4 h-4 shrink-0" />
                   <span className="text-sm font-semibold">
-                    发现新版本：v{appUpdateInfo.latestVersion}
+                    {t('settingsPage.about.newVersion', {
+                      version: appUpdateInfo.latestVersion,
+                    })}
                   </span>
                   {appUpdateInfo.releaseName && (
                     <span className="text-xs text-muted-foreground">
@@ -2491,8 +2605,11 @@ export const SettingView: React.FC = () => {
                 </div>
                 {appUpdateInfo.publishedAt && (
                   <p className="text-[11px] text-muted-foreground">
-                    发布时间：
-                    {new Date(appUpdateInfo.publishedAt).toLocaleString()}
+                    {t('settingsPage.about.publishedAt', {
+                      time: new Date(
+                        appUpdateInfo.publishedAt,
+                      ).toLocaleString(locale),
+                    })}
                   </p>
                 )}
               </div>
@@ -2509,7 +2626,7 @@ export const SettingView: React.FC = () => {
                     size="sm"
                     icon={<ExternalLink className="w-3.5 h-3.5" />}
                   >
-                    查看 Release 说明
+                    {t('settingsPage.about.releaseNotesLink')}
                   </Button>
                 </a>
               )}
@@ -2519,7 +2636,7 @@ export const SettingView: React.FC = () => {
             {appUpdateInfo.availableAssets.length > 1 && (
               <div className="space-y-1.5 pt-1 border-t border-primary/15">
                 <label className="text-xs font-medium text-foreground">
-                  选择下载资产格式：
+                  {t('settingsPage.about.selectAsset')}
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {appUpdateInfo.availableAssets.map((asset) => (
@@ -2539,8 +2656,8 @@ export const SettingView: React.FC = () => {
                         </div>
                         <div className="text-[10px] text-muted-foreground">
                           {asset.packageType === 'installer'
-                            ? '安装包（自动运行并关闭旧进程）'
-                            : '便携包（下载至根目录供解压）'}
+                            ? t('settingsPage.about.assetInstaller')
+                            : t('settingsPage.about.assetPortable')}
                         </div>
                       </div>
                       <Badge
@@ -2566,8 +2683,8 @@ export const SettingView: React.FC = () => {
                     </div>
                     <div className="text-[11px] text-muted-foreground">
                       {appUpdateInfo.asset.packageType === 'installer'
-                        ? '安装程序包：下载后自动启动安装并退出旧进程'
-                        : '便携压缩包：下载后保存至软件根目录并打开文件夹'}
+                        ? t('settingsPage.about.singleInstaller')
+                        : t('settingsPage.about.singlePortable')}
                     </div>
                   </div>
                   <Badge variant="secondary" size="sm" className="font-mono">
@@ -2580,7 +2697,7 @@ export const SettingView: React.FC = () => {
             {appUpdateInfo.releaseNotes && (
               <div className="space-y-1 pt-1 border-t border-primary/15">
                 <span className="text-[11px] font-medium text-muted-foreground">
-                  更新说明 (Release Notes)：
+                  {t('settingsPage.about.releaseNotes')}
                 </span>
                 <div className="p-3 rounded-lg bg-background/70 border border-border max-h-36 overflow-y-auto font-mono text-[11px] text-foreground/90 whitespace-pre-wrap leading-relaxed select-text">
                   {appUpdateInfo.releaseNotes}
@@ -2594,13 +2711,13 @@ export const SettingView: React.FC = () => {
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-medium text-primary">
                     {appUpdateProgress?.stage === 'ready'
-                      ? '下载完成，正在处理中...'
-                      : '正在下载更新包...'}
+                      ? t('settingsPage.about.stageReady')
+                      : t('settingsPage.about.stageDownloading')}
                   </span>
                   <span className="font-mono text-muted-foreground">
                     {appUpdateProgress
                       ? `${(appUpdateProgress.downloadedBytes / 1024 / 1024).toFixed(1)} MB / ${(appUpdateProgress.totalBytes / 1024 / 1024).toFixed(1)} MB (${appUpdateProgress.percentage}%)`
-                      : '准备中...'}
+                      : t('settingsPage.about.preparing')}
                   </span>
                 </div>
                 <div className="w-full bg-background/80 rounded-full h-2 overflow-hidden border border-border">
@@ -2620,7 +2737,7 @@ export const SettingView: React.FC = () => {
                   onClick={handleInstallAppUpdate}
                   icon={<Download className="w-4 h-4" />}
                 >
-                  立即下载并更新
+                  {t('settingsPage.about.downloadNow')}
                 </Button>
               </div>
             )}

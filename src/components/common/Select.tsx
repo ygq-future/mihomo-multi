@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from '../../i18n'
 
 export interface SelectOption<T = string | number> {
   value: T
@@ -83,7 +84,7 @@ export function Select<T extends string | number = string | number>({
   value,
   onChange,
   options,
-  placeholder = '请选择',
+  placeholder: placeholderProp,
   disabled = false,
   size = 'md',
   className = '',
@@ -92,9 +93,12 @@ export function Select<T extends string | number = string | number>({
   filterable = true,
   clearable = false,
   onClear,
-  noDataText = '无匹配选项',
+  noDataText: noDataTextProp,
   ariaLabel,
 }: SelectProps<T>) {
+  const { t } = useTranslation()
+  const placeholder = placeholderProp ?? t('multiSelect.placeholder')
+  const noDataText = noDataTextProp ?? t('multiSelect.noData')
   const [isOpen, setIsOpen] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -544,7 +548,7 @@ export function Select<T extends string | number = string | number>({
           {clearable && value && !disabled && (
             <button
               type="button"
-              aria-label="清空选项"
+              aria-label={t('multiSelect.clearAll')}
               onClick={(e) => {
                 e.stopPropagation()
                 setSearchQuery('')

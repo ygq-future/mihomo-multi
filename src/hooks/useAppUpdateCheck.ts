@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { toast } from '../components/common'
 import { APP_VERSION } from '../constants'
+import { t } from '../i18n'
 import {
   checkAppUpdate,
   checkKernelUpdate,
@@ -45,11 +46,11 @@ export function useAppUpdateCheck(): void {
       if (!isVersionNewer(currentVersion, res.latestVersion)) return
 
       toast.info(
-        `发现新版本 v${res.latestVersion}，前往「设置 -> 软件关于与更新」即可查看并下载更新。`,
-        '发现新版本',
+        t('settingsUpdate.appAvailable', { version: res.latestVersion }),
+        t('settingsUpdate.appTitle'),
         8000,
         {
-          label: '立即前往',
+          label: t('settingsUpdate.goNow'),
           onClick: () => {
             scrollToSettingSection('setting-section-about')
           },
@@ -71,11 +72,11 @@ export function useAppUpdateCheck(): void {
             setKernelUpdateInfo(res)
             if (!res.hasUpdate) return
             toast.info(
-              `发现 Mihomo 内核新版本 ${res.latestVersion}，可前往设置更新。`,
-              '发现内核新版本',
+              t('settingsUpdate.kernelAvailable', { version: res.latestVersion }),
+              t('settingsUpdate.kernelTitle'),
               8000,
               {
-                label: '立即前往',
+                label: t('settingsUpdate.goNow'),
                 onClick: () => scrollToSettingSection('setting-section-core'),
               },
             )
