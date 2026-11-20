@@ -393,24 +393,50 @@ pub fn apply_window_bg_color(window: &tauri::WebviewWindow, theme: &str) {
     let _ = window.set_background_color(Some(bg));
 }
 
+/// 主窗口尺寸的唯一来源：`tauri.conf.json` 中 `label = "main"` 的窗口定义。
+pub struct MainWindowSizes {
+    pub width: f64,
+    pub height: f64,
+    pub min_width: f64,
+    pub min_height: f64,
+}
+
+pub fn main_window_sizes(app: &AppHandle) -> MainWindowSizes {
+    let windows = &app.config().app.windows;
+    let window = windows
+        .iter()
+        .find(|window| window.label == "main")
+        .or_else(|| windows.first());
+    match window {
+        Some(window) => MainWindowSizes {
+            width: window.width,
+            height: window.height,
+            min_width: window.min_width.unwrap_or(window.width),
+            min_height: window.min_height.unwrap_or(window.height),
+        },
+        // 配置缺失时回退到 Tauri 自身的 WindowConfig 默认尺寸。
+        None => MainWindowSizes {
+            width: 800.0,
+            height: 600.0,
+            min_width: 800.0,
+            min_height: 600.0,
+        },
+    }
+}
+
 pub fn ensure_main_window_open(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         activate_window(&window);
     } else {
+        let sizes = main_window_sizes(app);
         let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
             .title(if is_dev_instance(app) {
                 "Mihomo Multi [Dev]"
             } else {
                 "Mihomo Multi"
             })
-            .inner_size(
-                crate::constants::DEFAULT_WINDOW_WIDTH,
-                crate::constants::DEFAULT_WINDOW_HEIGHT,
-            )
-            .min_inner_size(
-                crate::constants::DEFAULT_WINDOW_WIDTH,
-                crate::constants::DEFAULT_WINDOW_HEIGHT,
-            )
+            .inner_size(sizes.width, sizes.height)
+            .min_inner_size(sizes.min_width, sizes.min_height)
             .resizable(true)
             .fullscreen(false)
             .visible(false);

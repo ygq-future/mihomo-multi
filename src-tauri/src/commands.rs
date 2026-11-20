@@ -1618,10 +1618,8 @@ pub async fn install_app_update(
 #[tauri::command]
 pub async fn reset_window_size(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_size(tauri::LogicalSize::new(
-            crate::constants::DEFAULT_WINDOW_WIDTH,
-            crate::constants::DEFAULT_WINDOW_HEIGHT,
-        ));
+        let sizes = crate::tray::main_window_sizes(&app);
+        let _ = window.set_size(tauri::LogicalSize::new(sizes.width, sizes.height));
         let _ = window.center();
     }
     if let Ok(config_dir) = app.path().app_config_dir() {
