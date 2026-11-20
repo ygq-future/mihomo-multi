@@ -1,3 +1,4 @@
+import { useTranslation } from '../../i18n'
 import { Globe, Loader2, Lock, Power, Shield } from 'lucide-react'
 import { toast } from '../../stores/toastStore'
 import {
@@ -32,11 +33,6 @@ export interface HoverStepSliderProps {
   mode?: HoverStepSliderMode
   popoverAlign?: HoverStepSliderAlign
 }
-const defaultSteps: StepItem[] = [
-  { value: 0, label: '禁用' },
-  { value: 1, label: '监听' },
-  { value: 2, label: '系统代理' },
-]
 
 let activeDraggingSliderId: string | null = null
 
@@ -95,15 +91,20 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   popoverAlign,
 }) => {
   const instanceId = useId()
+  const { t } = useTranslation()
   const steps =
     customSteps ||
     (mode === 'egress'
       ? [
-          { value: 0, label: '关闭' },
-          { value: 1, label: '系统代理' },
+          { value: 0, label: t('stepSlider.off') },
+          { value: 1, label: t('stepSlider.systemProxy') },
           { value: 2, label: 'TUN' },
         ]
-      : defaultSteps)
+      : [
+          { value: 0, label: t('stepSlider.disabled') },
+          { value: 1, label: t('stepSlider.listening') },
+          { value: 2, label: t('stepSlider.systemProxy') },
+        ])
   const [isOpen, setIsOpen] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [coords, setCoords] = useState<Coords | null>(null)
@@ -387,9 +388,7 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
       lockedSteps?.includes(stepVal) ||
       (maxAllowedStep !== undefined && stepVal > maxAllowedStep)
     if (isLocked) {
-      toast.warning(
-        lockedTooltip || '直连监听不支持设为系统代理，仅供应用/插件定向直通',
-      )
+      toast.warning(lockedTooltip || t('ports.directNoSysProxy'))
       return
     }
     setContinuousValue(stepVal)
@@ -454,7 +453,16 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
             ? 'opacity-50 cursor-not-allowed'
             : 'hover:brightness-105 active:scale-95'
         }`}
-        title={`当前状态: ${currentStep.label} (悬停展开滑块自由调节)`}
+        title={t('stepSlider.currentStateTitle', {
+          label: currentStep.label.startsWith('stepSlider.')
+            ? t(
+                currentStep.label as
+                  | 'stepSlider.disabled'
+                  | 'stepSlider.listening'
+                  | 'stepSlider.systemProxy',
+              )
+            : currentStep.label,
+        })}
       >
         {loading ? (
           <span className="w-full flex items-center justify-center">
@@ -504,7 +512,10 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
               {/* Header: Micro status badge */}
               <div className="flex items-center justify-between px-0.5">
                 <span className="text-muted-foreground font-medium text-[10px]">
-                  {headerTitle || (mode === 'egress' ? '接管模式' : '监听状态')}
+                  {headerTitle ||
+                    (mode === 'egress'
+                      ? t('ports.takeoverMode')
+                      : t('stepSlider.listenState'))}
                 </span>
                 <span
                   className="font-bold text-[10px] px-1 py-0.2 rounded leading-tight transition-colors duration-75"
@@ -565,7 +576,7 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
                       onClick={() => handleSelectStep(step.value)}
                       title={
                         isLocked
-                          ? lockedTooltip || '直连监听不支持设为系统代理'
+                          ? lockedTooltip || t('stepSlider.lockedDefault')
                           : undefined
                       }
                       className={`transition-all py-0.5 px-1 rounded font-medium leading-none flex items-center gap-0.5 ${

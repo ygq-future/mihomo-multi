@@ -1,3 +1,4 @@
+import { useTranslation } from '../../i18n'
 import { ChevronDown, Copy, Loader2, Terminal } from 'lucide-react'
 import type React from 'react'
 import {
@@ -36,6 +37,7 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
+  const { t } = useTranslation()
   const [menuPos, setMenuPos] = useState<{
     top: number
     left: number
@@ -179,41 +181,39 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
 
   const copyOptions = [
     {
-      label: isWin
-        ? '终端环境变量命令 (PowerShell)'
-        : '终端环境变量命令 (Shell export)',
+      label: isWin ? t('quickCopy.envCmdPs') : t('quickCopy.envCmdShell'),
       value: envCommand,
       desc: isWin
         ? '$env:HTTP_PROXY="http://..."'
-        : 'export http_proxy=... (全大小写兼容)',
+        : t('quickCopy.envDescShell'),
       icon: <Terminal className="w-3 h-3 text-primary" />,
     },
     {
-      label: '纯地址 (Host:Port)',
+      label: t('quickCopy.hostPortLabel'),
       value: `${host}:${port}`,
       desc: `${host}:${port}`,
     },
     {
-      label: 'HTTP 代理 URL',
+      label: t('quickCopy.httpUrlLabel'),
       value: `http://${host}:${port}`,
       desc: `http://${host}:${port}`,
     },
     {
-      label: 'SOCKS5 代理 URL',
+      label: t('quickCopy.socks5UrlLabel'),
       value: `socks5://${host}:${port}`,
       desc: `socks5://${host}:${port}`,
     },
     {
-      label: 'cURL 出口 IP 探测命令',
+      label: t('quickCopy.curlLabel'),
       value: `curl -x ${protocol === 'socks5' ? 'socks5' : 'http'}://${host}:${port} -s https://api.ip.sb/geoip`,
-      desc: '一键在终端测试该端口出口 IP',
+      desc: t('quickCopy.curlDesc'),
       icon: <Terminal className="w-3 h-3 text-muted-foreground" />,
     },
   ]
 
   const handleCopy = (val: string, label: string) => {
     navigator.clipboard.writeText(val).catch(() => {})
-    onCopySuccess(`已复制 ${label}: ${val}`)
+    onCopySuccess(t('quickCopy.copiedToast', { label, val }))
     closeMenu()
   }
 
@@ -245,10 +245,10 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
         }`}
         title={
           disabled
-            ? '端口已禁用，无法复制或配置代理'
+            ? t('quickCopy.disabledTitle')
             : isEnvProxy
-              ? '当前已设为全局终端代理出口 (点击管理/快捷复制)'
-              : '终端代理与快捷复制'
+              ? t('quickCopy.envActiveTitle')
+              : t('quickCopy.defaultTitle')
         }
       >
         <Terminal className="w-3 h-3" />
@@ -283,7 +283,7 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
             }`}
           >
             <div className="px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground border-b border-border/50 flex items-center justify-between">
-              <span>快捷复制代理格式</span>
+              <span>{t('quickCopy.menuHeader')}</span>
               <span className="font-mono text-[10px] text-primary font-normal">
                 {host}
               </span>
@@ -298,15 +298,17 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
                   />
                   <div className="min-w-0">
                     <div className="text-[11px] font-semibold text-foreground leading-tight flex items-center gap-1">
-                      <span>终端环境变量</span>
+                      <span>{t('quickCopy.envSection')}</span>
                       {isEnvProxy && (
                         <span className="text-[9px] px-1 py-0.2 rounded bg-primary/20 text-primary font-mono font-normal">
-                          当前出口
+                          {t('quickCopy.currentExit')}
                         </span>
                       )}
                     </div>
                     <div className="text-[10px] text-muted-foreground truncate">
-                      {isEnvProxy ? '新开终端已生效' : '注入系统环境变量'}
+                      {isEnvProxy
+                        ? t('quickCopy.envActiveDesc')
+                        : t('quickCopy.envInactiveDesc')}
                     </div>
                   </div>
                 </div>
@@ -326,9 +328,9 @@ export const QuickCopyMenu: React.FC<QuickCopyMenuProps> = ({
                   {isEnvProxyLoading ? (
                     <Loader2 className="w-2.5 h-2.5 animate-spin" />
                   ) : isEnvProxy ? (
-                    '解绑'
+                    t('quickCopy.unbind')
                   ) : (
-                    '绑定'
+                    t('quickCopy.bind')
                   )}
                 </button>
               </div>

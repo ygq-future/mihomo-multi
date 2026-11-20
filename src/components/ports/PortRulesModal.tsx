@@ -1,3 +1,4 @@
+import { useTranslation } from '../../i18n'
 import {
   ArrowLeft,
   AtSign,
@@ -226,6 +227,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
 
   const isGlobal = mode === 'global'
 
+  const { t } = useTranslation()
   // 视图切换：'list' 列表视图 | 'add' 添加规则视图 | 'edit' 编辑规则视图
   const [view, setView] = useState<'list' | 'add' | 'edit'>('list')
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
@@ -328,7 +330,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         if (!customName.trim() && suggestedRuleName) {
           setCustomName(suggestedRuleName)
         }
-        toast.success(`已追加 ${added.length} 个关联域名到匹配项列表`)
+        toast.success(t('rules.appendedDomains', { count: added.length }))
       }
     },
     [customDomains, customName],
@@ -403,8 +405,10 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
       return {
         value: `${n.profileId}:::${n.name}`,
         label: n.name,
-        description: n.profileName ? `来自订阅: ${n.profileName}` : undefined,
-        group: n.profileName || '默认订阅',
+        description: n.profileName
+          ? t('rules.fromProfile', { name: n.profileName })
+          : undefined,
+        group: n.profileName || t('rules.defaultProfile'),
         searchTarget: `${n.profileName} ${n.name}`,
         rightNode: hasLat ? (
           <span
@@ -489,10 +493,14 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
 
       return {
         value: p.port.toString(),
-        label: `端口 ${p.port} (出口: ${formattedNode})`,
-        description: `入站: ${p.protocol.toUpperCase()}${
-          hasFallback ? ' · 含主备自动容灾' : ''
-        }`,
+        label: t('rules.portOptionLabel', {
+          port: p.port,
+          node: formattedNode,
+        }),
+        description: t('rules.portOptionDesc', {
+          protocol: p.protocol.toUpperCase(),
+          fallback: hasFallback ? t('rules.portOptionFallback') : '',
+        }),
         searchTarget: `${p.port} ${formattedNode}`,
         rightNode: hasLat ? (
           <span
@@ -546,7 +554,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           </div>
         ),
         description: `${s.domains.slice(0, 3).join(', ')}${
-          s.domains.length > 3 ? ' 等' : ''
+          s.domains.length > 3 ? t('rules.etcShort') : ''
         }`,
         rightNode: (
           <div className="flex items-center gap-1.5 shrink-0">
@@ -555,7 +563,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                 variant="secondary"
                 className="text-[10px] font-normal py-0 px-1 text-muted-foreground"
               >
-                已添加
+                {t('rules.addedBadge')}
               </Badge>
             )}
             <Badge
@@ -640,7 +648,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
       }
     } catch {
       // 超时/失败直接就地展示对称状态，不触发侵入式 Toast 报错
-      setTestResult({ success: false, errorMsg: '访问超时' })
+      setTestResult({ success: false, errorMsg: t('rules.testTimeout') })
     } finally {
       setTestingTarget(false)
     }
@@ -648,7 +656,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
   // 添加规则
   const handleAddRule = () => {
     if (!targetValue) {
-      toast.warning('请选择目标出口')
+      toast.warning(t('rules.warnSelectTarget'))
       return
     }
 
@@ -657,12 +665,14 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
 
     if (activeTab === 'preset') {
       if (!selectedPreset) {
-        toast.warning('请选择要添加的常用网站')
+        toast.warning(t('rules.warnSelectPreset'))
         return
       }
       const duplicatePreset = rules.find((r) => r.name === selectedPreset.name)
       if (duplicatePreset) {
-        toast.warning(`已存在【${selectedPreset.name}】规则`)
+        toast.warning(
+          t('rules.warnPresetExists', { name: selectedPreset.name }),
+        )
         return
       }
       newRule = {
@@ -682,7 +692,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         .map((s) => s.trim())
         .filter(Boolean)
       if (rawLines.length === 0) {
-        toast.warning('请输入至少一个域名或规则匹配项')
+        toast.warning(t('rules.warnEnterPayload'))
         return
       }
       const targetRuleName = customName.trim() || rawLines[0]
@@ -693,7 +703,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         return existingName === targetRuleName.toLowerCase()
       })
       if (duplicateCustom) {
-        toast.warning(`已存在名称为【${targetRuleName}】的规则`)
+        toast.warning(t('rules.warnNameExists', { name: targetRuleName }))
         return
       }
       newRule = {
@@ -710,7 +720,9 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     }
     setRules((prev) => [newRule, ...prev])
     handleBackToList()
-    toast.success(`已添加规则: ${newRule.name || '新规则'}`)
+    toast.success(
+      t('rules.ruleAdded', { name: newRule.name || t('rules.newRuleDefault') }),
+    )
   }
 
   // 开启编辑规则
@@ -753,7 +765,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
   const handleUpdateRule = () => {
     if (!editingRuleId) return
     if (!targetValue) {
-      toast.warning('请选择目标出口')
+      toast.warning(t('rules.warnSelectTarget'))
       return
     }
 
@@ -776,7 +788,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         .map((s) => s.trim())
         .filter(Boolean)
       if (rawLines.length === 0) {
-        toast.warning('请输入至少一个域名或规则匹配项')
+        toast.warning(t('rules.warnEnterPayload'))
         return
       }
       const targetRuleName = customName.trim() || rawLines[0]
@@ -788,7 +800,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         return existingName === targetRuleName.toLowerCase()
       })
       if (duplicateCustom) {
-        toast.warning(`已存在名称为【${targetRuleName}】的规则`)
+        toast.warning(t('rules.warnNameExists', { name: targetRuleName }))
         return
       }
       updatedRule = {
@@ -806,7 +818,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
       prev.map((r) => (r.id === editingRuleId ? updatedRule : r)),
     )
     handleBackToList()
-    toast.success(`已更新规则: ${updatedRule.name || '分流规则'}`)
+    toast.success(
+      t('rules.ruleUpdated', {
+        name: updatedRule.name || t('rules.ruleDefault'),
+      }),
+    )
   }
 
   // 删除规则
@@ -823,9 +839,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
   const handleSaveAll = async () => {
     if (!isGlobal && !mapping) return
     if (!isGlobal && mapping?.residentialProxyId) {
-      toast.warning(
-        '住宅链路端口不支持网站分流规则，请先在端口设置中解除住宅出口绑定',
-      )
+      toast.warning(t('rules.chainUnsupported'))
       return
     }
     setIsSaving(true)
@@ -836,17 +850,17 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           ...config,
           globalRules: rules,
         })
-        toast.success('全局网站分流规则已保存并热加载生效')
+        toast.success(t('rules.globalSaved'))
       } else if (mapping) {
         await savePortMapping({
           ...mapping,
           rules,
         })
-        toast.success('网站分流规则已保存并热加载生效')
+        toast.success(t('rules.localSaved'))
       }
       onClose()
     } catch (err) {
-      toast.error(`保存失败: ${err}`)
+      toast.error(t('rules.saveFailed', { err: String(err) }))
     } finally {
       setIsSaving(false)
     }
@@ -865,12 +879,17 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         isOpen={isOpen}
         onClose={onClose}
         title={
-          isGlobal ? '全局网站分流规则' : `端口 ${mapping?.port} 网站分流规则`
+          isGlobal
+            ? t('rules.globalTitle')
+            : t('rules.localTitle', { port: mapping?.port ?? '' })
         }
         subtitle={
           isGlobal
-            ? `对普通代理端口生效 (住宅链路端口固定全量走出口) · 已配置 ${rules.length} 条全局规则`
-            : `默认出口: ${mapping?.nodeName} · 已配置 ${rules.length} 条局部规则`
+            ? t('rules.globalSubtitle', { count: rules.length })
+            : t('rules.localSubtitle', {
+                node: mapping?.nodeName ?? '',
+                count: rules.length,
+              })
         }
         icon={<Split className="w-5 h-5 text-primary" />}
         maxWidth="xl"
@@ -892,21 +911,21 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                 className="gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" />
-                添加分流规则
+                {t('rules.addRuleBtn')}
               </Button>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="ghost" onClick={onClose} disabled={isSaving}>
-                取消
+                {t('common.cancel')}
               </Button>
               <Button onClick={handleSaveAll} disabled={isSaving}>
                 {isSaving ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                    保存中...
+                    {t('common.saving')}
                   </>
                 ) : (
-                  '保存并生效'
+                  t('rules.saveAndApply')
                 )}
               </Button>
             </div>
@@ -922,22 +941,16 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
               <div className="space-y-1.5 max-w-sm mx-auto">
                 <div className="text-sm font-semibold text-foreground">
                   {isGlobal
-                    ? '暂无全局网站分流规则'
-                    : '暂无端口局部网站分流规则'}
+                    ? t('rules.emptyGlobalTitle')
+                    : t('rules.emptyLocalTitle')}
                 </div>
                 <div className="text-xs text-muted-foreground leading-relaxed">
-                  {isGlobal ? (
-                    '配置全局网站分流后，普通代理端口在访问指定网站（如 Google Gemini、OpenAI、YouTube 等）时将统一走向指定出口；若某个端口单独配置了局部规则，局部规则将优先匹配生效。住宅链路端口不受全局或局部规则影响，始终全量经住宅出口。'
-                  ) : (
-                    <>
-                      默认所有流量均从{' '}
-                      <span className="font-mono text-foreground font-medium">
-                        {mapping?.nodeName}
-                      </span>{' '}
-                      发出（或继承已启用的 {activeGlobalRulesCount}{' '}
-                      条全局分流规则）。添加局部规则后，该端口将优先按局部规则转发指定网站。
-                    </>
-                  )}
+                  {isGlobal
+                    ? t('rules.emptyGlobalDesc')
+                    : t('rules.emptyLocalDesc', {
+                        node: mapping?.nodeName ?? '',
+                        count: activeGlobalRulesCount,
+                      })}
                 </div>
               </div>
               <Button
@@ -953,7 +966,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                 className="gap-1.5 shadow-sm"
               >
                 <Plus className="w-4 h-4" />
-                立即添加网站分流
+                {t('rules.addFirstRuleBtn')}
               </Button>
             </div>
           ) : (
@@ -961,12 +974,12 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
               {rules.map((rule) => {
                 let egressText = ''
                 if (rule.targetType === 'direct') {
-                  egressText = '直连 DIRECT'
+                  egressText = t('rules.directEgressText')
                 } else if (rule.targetType === 'port') {
                   const matchedPort = portMappings.find(
                     (p) => p.port.toString() === rule.targetValue,
                   )
-                  egressText = `端口 ${rule.targetValue}${
+                  egressText = `${t('rules.portEgressText', { port: rule.targetValue })}${
                     matchedPort ? ` (${matchedPort.nodeName})` : ''
                   }`
                 } else {
@@ -996,7 +1009,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                           </span>
                         </div>
                         <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
-                          <span>走向:</span>
+                          <span>{t('rules.targetPrefix')}</span>
                           <Badge
                             variant="outline"
                             className="text-[10px] font-mono py-0 px-1.5"
@@ -1005,9 +1018,13 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                           </Badge>
                           <span className="text-muted-foreground/40">·</span>
                           <span className="text-[10px]">
-                            {rule.payloads.length} 项 ·{' '}
+                            {t('rules.itemsCount', {
+                              count: rule.payloads.length,
+                            })}
                             {rule.payloads.slice(0, 2).join(', ')}
-                            {rule.payloads.length > 2 ? ' 等' : ''}
+                            {rule.payloads.length > 2
+                              ? t('rules.etcShort')
+                              : ''}
                           </span>
                         </div>
                       </div>
@@ -1018,7 +1035,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                         type="button"
                         onClick={() => handleStartEditRule(rule)}
                         className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                        title="修改规则"
+                        title={t('rules.editRuleTitle')}
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
@@ -1033,7 +1050,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                         type="button"
                         onClick={() => handleDeleteRule(rule.id)}
                         className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                        title="删除规则"
+                        title={t('rules.deleteRuleTitle')}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -1057,18 +1074,18 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
       title={
         isEditing
           ? isGlobal
-            ? '修改全局网站分流规则'
-            : `修改端口 ${mapping?.port} 网站分流规则`
+            ? t('rules.editGlobalTitle')
+            : t('rules.editLocalTitle', { port: mapping?.port ?? '' })
           : isGlobal
-            ? '添加全局网站分流规则'
-            : `为端口 ${mapping?.port} 添加网站分流`
+            ? t('rules.addGlobalTitle')
+            : t('rules.addLocalTitle', { port: mapping?.port ?? '' })
       }
       subtitle={
         isEditing
-          ? '调整该规则的配置与目标出口'
+          ? t('rules.editSubtitle')
           : isGlobal
-            ? '为全局流量配置目标网站的分流出口'
-            : `为端口 ${mapping?.port} 配置目标网站的分流出口`
+            ? t('rules.addGlobalSubtitle')
+            : t('rules.addLocalSubtitle', { port: mapping?.port ?? '' })
       }
       icon={<Split className="w-5 h-5 text-primary" />}
       maxWidth="lg"
@@ -1080,11 +1097,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
             className="gap-1.5"
           >
             <ArrowLeft className="w-4 h-4" />
-            返回列表
+            {t('rules.backToList')}
           </Button>
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={handleBackToList}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={isEditing ? handleUpdateRule : handleAddRule}
@@ -1094,7 +1111,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                 (activeTab === 'custom' && !customDomains.trim())
               }
             >
-              {isEditing ? '保存修改' : '确认添加此规则'}
+              {isEditing ? t('addPort.saveChanges') : t('rules.confirmAddRule')}
             </Button>
           </div>
         </div>
@@ -1116,7 +1133,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                   : 'text-muted-foreground hover:text-foreground font-normal'
               }`}
             >
-              常用网站预置
+              {t('rules.tabPreset')}
               {activeTab === 'preset' && (
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
               )}
@@ -1133,7 +1150,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                   : 'text-muted-foreground hover:text-foreground font-normal'
               }`}
             >
-              自定义规则
+              {t('rules.tabCustom')}
               {activeTab === 'custom' && (
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
               )}
@@ -1141,9 +1158,13 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           </div>
         ) : (
           <div className="flex items-center gap-2 pb-2 border-b border-border/60 text-xs">
-            <span className="text-muted-foreground">规则类型:</span>
+            <span className="text-muted-foreground">
+              {t('rules.ruleTypeLabel')}
+            </span>
             <Badge variant="outline" className="font-normal text-xs py-0.5">
-              {activeTab === 'preset' ? '常用网站' : '自定义规则'}
+              {activeTab === 'preset'
+                ? t('rules.tabPreset')
+                : t('rules.tabCustom')}
             </Badge>
           </div>
         )}
@@ -1155,7 +1176,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
               htmlFor="preset-service-select"
               className="text-xs font-medium text-foreground block"
             >
-              预置网站 / 服务
+              {t('rules.presetServiceLabel')}
             </label>
             {isEditing ? (
               <div className="p-3 rounded-xl bg-muted/40 border border-border/60 text-xs space-y-2">
@@ -1167,7 +1188,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                         className="w-3.5 h-3.5"
                       />
                     </div>
-                    {selectedPreset?.name || '预置服务'}
+                    {selectedPreset?.name || t('rules.presetServiceFallback')}
                   </span>
                 </div>
                 {selectedPreset && (
@@ -1190,7 +1211,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                   value={selectedPresetId}
                   onChange={(val) => setSelectedPresetId(val)}
                   options={presetSelectOptions}
-                  placeholder="搜索或点选服务 (支持按名称、域名或分类模糊匹配)"
+                  placeholder={t('rules.presetSearchPlaceholder')}
                   filterable
                   clearable
                   onClear={() => setSelectedPresetId('')}
@@ -1206,8 +1227,10 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                           iconKey={selectedPreset.iconKey}
                           className="w-3.5 h-3.5 text-primary"
                         />
-                        {selectedPreset.name} 包含的规则域名 (
-                        {selectedPreset.domains.length} 个):
+                        {t('rules.presetDomainsLabel', {
+                          name: selectedPreset.name,
+                          count: selectedPreset.domains.length,
+                        })}
                       </span>
                       <span>{selectedPreset.description}</span>
                     </div>
@@ -1234,11 +1257,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                   htmlFor="custom-rule-name-input"
                   className="text-xs font-medium text-foreground block mb-1.5"
                 >
-                  规则名称
+                  {t('rules.customNameLabel')}
                 </label>
                 <Input
                   id="custom-rule-name-input"
-                  placeholder="例如: 个人博客 / 公司内网 API"
+                  placeholder={t('rules.customNamePlaceholder')}
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
                   className="h-9 text-xs"
@@ -1249,7 +1272,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                   htmlFor="custom-match-type-select"
                   className="text-xs font-medium text-foreground block mb-1.5"
                 >
-                  匹配模式
+                  {t('rules.matchTypeLabel')}
                 </label>
                 <Select
                   id="custom-match-type-select"
@@ -1260,21 +1283,21 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                   options={[
                     {
                       value: 'domain-suffix',
-                      label: '域名后缀 DOMAIN-SUFFIX',
+                      label: t('rules.matchDomainSuffix'),
                     },
                     {
                       value: 'domain',
-                      label: '完整域名 DOMAIN',
+                      label: t('rules.matchDomain'),
                     },
                     {
                       value: 'domain-regex',
-                      label: '正则表达式 DOMAIN-REGEX',
+                      label: t('rules.matchDomainRegex'),
                     },
                     {
                       value: 'domain-keyword',
-                      label: '域名关键词 DOMAIN-KEYWORD',
+                      label: t('rules.matchDomainKeyword'),
                     },
-                    { value: 'ip-cidr', label: 'IP 网段 IP-CIDR' },
+                    { value: 'ip-cidr', label: t('rules.matchIpCidr') },
                   ]}
                   className="h-9 text-xs"
                 />
@@ -1316,7 +1339,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           {/* 第 1 行：左侧标题，右侧模式微胶囊并排 */}
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-semibold text-foreground shrink-0">
-              为该规则绑定目标出口:
+              {t('rules.bindTargetLabel')}
             </span>
 
             {/* 出口模式微胶囊切换 */}
@@ -1330,7 +1353,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                指定代理节点
+                {t('rules.targetNode')}
               </button>
               {otherPorts.length > 0 && (
                 <button
@@ -1342,7 +1365,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
-                  关联其他端口
+                  {t('rules.targetPort')}
                 </button>
               )}
               <button
@@ -1354,7 +1377,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                直连 DIRECT
+                {t('rules.targetDirect')}
               </button>
             </div>
           </div>
@@ -1376,7 +1399,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                     setTestResult(null)
                   }}
                   options={nodeOptions}
-                  placeholder="选择代理节点"
+                  placeholder={t('rules.selectNodePlaceholder')}
                   filterable
                   className="h-9 text-xs w-full"
                 />
@@ -1390,7 +1413,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                     setTestResult(null)
                   }}
                   options={portOptions}
-                  placeholder="选择关联端口"
+                  placeholder={t('rules.selectPortPlaceholder')}
                   filterable
                   className="h-9 text-xs w-full"
                 />
@@ -1398,7 +1421,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
 
               {targetType === 'direct' && (
                 <div className="h-9 px-3 rounded-lg bg-muted/40 border border-border/50 flex items-center text-xs text-muted-foreground font-mono">
-                  DIRECT 直连公网
+                  {t('rules.directPublicLabel')}
                 </div>
               )}
             </div>
@@ -1413,8 +1436,8 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                 disabled={!canTestDelay || testingTarget}
                 title={
                   !currentTestUrl
-                    ? '请先在上方选择或输入目标网站'
-                    : `测试当前出口访问 ${currentTargetSiteName} 的实际网络握手延迟`
+                    ? t('rules.testBtnSelectSiteFirst')
+                    : t('rules.testBtnTitle', { site: currentTargetSiteName })
                 }
                 className="h-9 shrink-0 gap-1.5 text-xs px-3"
               >
@@ -1423,7 +1446,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                     testingTarget ? 'animate-spin' : ''
                   }`}
                 />
-                {testingTarget ? '测速中...' : '测速网站'}
+                {testingTarget ? t('rules.testingBtn') : t('rules.testBtn')}
               </Button>
             )}
           </div>
@@ -1438,13 +1461,15 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                     <span className="text-foreground font-medium">
                       {currentTargetSiteName}
                     </span>
-                    <span>访问延迟:</span>
+                    <span>{t('rules.testLatencyLabel')}</span>
                     <span className="font-mono font-semibold text-emerald-500">
                       {testResult.latency} ms
                     </span>
                     {targetPortActiveNode && (
                       <span className="text-muted-foreground/80 truncate">
-                        (出口: {targetPortActiveNode.runtimeName})
+                        {t('rules.testExitSuffix', {
+                          node: targetPortActiveNode.runtimeName,
+                        })}
                       </span>
                     )}
                   </div>
@@ -1455,23 +1480,26 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                       {currentTargetSiteName}
                     </span>
                     <span className="font-medium">
-                      {testResult.errorMsg || '访问超时'}
+                      {testResult.errorMsg || t('rules.testTimeout')}
                     </span>
                     {targetPortActiveNode && (
                       <span className="text-muted-foreground/80 truncate">
-                        (出口: {targetPortActiveNode.runtimeName})
+                        {t('rules.testExitSuffix', {
+                          node: targetPortActiveNode.runtimeName,
+                        })}
                       </span>
                     )}
                   </div>
                 )
               ) : !canTestDelay ? (
                 <span className="text-muted-foreground/60">
-                  需在上方选定目标网站方可进行访问测速
+                  {t('rules.testHintNoSite')}
                 </span>
               ) : (
                 <span className="text-muted-foreground/60">
-                  点击测速按钮可探测当前出口访问该网站的实际延迟 (超时上限{' '}
-                  {config?.timeoutMs || 3000}ms)
+                  {t('rules.testHintReady', {
+                    timeout: config?.timeoutMs || 3000,
+                  })}
                 </span>
               )}
             </div>

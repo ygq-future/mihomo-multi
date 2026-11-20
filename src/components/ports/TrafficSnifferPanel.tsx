@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FIXED_DIRECT_PORT_ID } from '../../constants'
 import { createEventScope } from '../../services/events'
 import * as api from '../../services/tauri'
+import { useTranslation } from '../../i18n'
 import type {
   PortMapping,
   PortRuleMatchType,
@@ -67,6 +68,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
   customDomains,
   onAppendDomains,
 }) => {
+  const { t } = useTranslation()
   const [snifferOpen, setSnifferOpen] = useState(false)
   const [isSniffing, setIsSniffing] = useState(false)
   const [probeUrlInput, setProbeUrlInput] = useState('')
@@ -143,9 +145,9 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
         value: m.port,
         label: `:${m.port} (${
           isDirect
-            ? 'DIRECT 直连'
+            ? t('ports.egressDirectLabel')
             : exitName
-              ? `${exitName} · 住宅出口`
+              ? t('sniffer.residentialSuffix', { name: exitName })
               : activeNodeName
         })`,
         rightNode: hasLat ? (
@@ -265,7 +267,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
     void scope.listen('sniffer-window-closed', () => {
       if (isSandboxActiveRef.current) {
         stopProbeSession(false, true)
-        toast.success('沙盒窗口已关闭，已锁定本次捕获的关联域名')
+        toast.success(t('sniffer.sandboxClosedToast'))
       }
     })
     return () => {
@@ -360,17 +362,17 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
 
   const handleFinishAndCloseSandbox = () => {
     stopProbeSession(true, true)
-    toast.success('已关闭沙盒并完成链路域名采集')
+    toast.success(t('sniffer.sandboxDoneToast'))
   }
 
   const handleLaunchAndSniff = async () => {
     const parsed = normalizeProbeUrl(probeUrlInput)
     if (!parsed) {
-      toast.warning('请输入有效的目标网址或域名，例如 ip.skk.moe')
+      toast.warning(t('sniffer.invalidUrlWarning'))
       return
     }
     if (!coreRunning) {
-      toast.warning('请先启动 Mihomo 内核后再进行流量链路嗅探')
+      toast.warning(t('sniffer.coreStoppedWarning'))
       return
     }
     const preferredPort = !isGlobal && mapping ? mapping.port : selectedTestPort
@@ -394,7 +396,10 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
       setCapturedRecordsMap(nextRecords)
       setIsSniffing(true)
       toast.info(
-        `已弹出内置沙盒加载 ${parsed.hostname} (出口 :${boundPort})，确认页面加载完成后关闭沙盒窗口即可`,
+        t('sniffer.sandboxLaunched', {
+          host: parsed.hostname,
+          port: boundPort,
+        }),
       )
     } catch (err) {
       isSandboxActiveRef.current = false
@@ -433,7 +438,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
           htmlFor="custom-domains-textarea"
           className="text-xs font-medium text-foreground block"
         >
-          匹配项列表 (一行一个域名、正则或 IP 网段)
+          {t('sniffer.payloadsLabel')}
         </label>
         <button
           type="button"
@@ -450,8 +455,10 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
             className={`w-3.5 h-3.5 ${isSniffing ? 'animate-spin' : ''}`}
           />
           {isSniffing
-            ? `正在嗅探链路 (${aggregatedSniffDomains.length})`
-            : '智能链路嗅探采集'}
+            ? t('sniffer.sniffingCount', {
+                count: aggregatedSniffDomains.length,
+              })
+            : t('sniffer.title')}
         </button>
       </div>
 
@@ -461,7 +468,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
           <div className="flex items-center gap-2">
             <div className="flex-1 min-w-0">
               <Input
-                placeholder="输入目标网址弹出内置沙盒嗅探全链路 (如 https://chatgpt.com)..."
+                placeholder={t('sniffer.urlPlaceholder')}
                 value={probeUrlInput}
                 onChange={(e) => setProbeUrlInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -483,19 +490,19 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                   }`}
                   title={
                     pageLoaded
-                      ? '沙盒页面 DOM 与静态资源已加载完成，可随时关闭沙盒'
-                      : '沙盒浏览器正在加载网页资源与接口...'
+                      ? t('sniffer.pageReadyTitle')
+                      : t('sniffer.pageLoadingTitle')
                   }
                 >
                   {pageLoaded ? (
                     <>
                       <Check className="w-3.5 h-3.5" />
-                      <span>页面加载完成</span>
+                      <span>{t('sniffer.pageReady')}</span>
                     </>
                   ) : (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>网页加载中...</span>
+                      <span>{t('sniffer.pageLoading')}</span>
                     </>
                   )}
                 </span>
@@ -505,10 +512,10 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                   variant="danger"
                   onClick={handleFinishAndCloseSandbox}
                   className="h-8 px-2.5 text-[11px] gap-1 shrink-0"
-                  title="关闭内置沙盒窗口并锁定当前捕获到的所有域名"
+                  title={t('sniffer.closeSandboxTitle')}
                 >
                   <XCircle className="w-3.5 h-3.5" />
-                  完成并关闭
+                  {t('sniffer.closeSandboxBtn')}
                 </Button>
               </div>
             ) : (
@@ -519,10 +526,10 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                 disabled={!probeUrlInput.trim()}
                 onClick={() => void handleLaunchAndSniff()}
                 className="h-8 px-3 text-[11px] gap-1.5 shrink-0"
-                title="弹出内置无痕 WebView 沙盒并通过指定测试端口访问该网址"
+                title={t('sniffer.openSandboxTitle')}
               >
                 <ExternalLink className="w-3.5 h-3.5" />
-                打开沙盒嗅探
+                {t('sniffer.openSandboxBtn')}
               </Button>
             )}
           </div>
@@ -535,8 +542,8 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                 value={sniffMode}
                 onChange={setSniffMode}
                 options={[
-                  { value: 'root', label: '主域名收敛' },
-                  { value: 'full', label: '完整子域名' },
+                  { value: 'root', label: t('sniffer.modeRoot') },
+                  { value: 'full', label: t('sniffer.modeFull') },
                 ]}
               />
 
@@ -548,7 +555,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                   onChange={(val) => setSelectedTestPort(val)}
                   disabled={isSniffing || testPortOptions.length === 0}
                   options={testPortOptions}
-                  placeholder="无可用启用端口"
+                  placeholder={t('sniffer.noEnabledPortPlaceholder')}
                   width="flex-1 min-w-[200px]"
                   className="h-[30px] text-[11px]"
                 />
@@ -557,11 +564,11 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                   variant="outline"
                   className="text-[10px] py-0.5 px-2 font-mono text-muted-foreground truncate"
                 >
-                  隔离出口 :{mapping.port} (
+                  {t('sniffer.isolatedExitPrefix', { port: mapping.port })}
                   {mapping.residentialProxyId
                     ? (residentialProxies.find(
                         (proxy) => proxy.id === mapping.residentialProxyId,
-                      )?.name ?? '住宅出口缺失')
+                      )?.name ?? t('ports.chainExitMissingShort'))
                     : mapping.nodeName}
                   )
                 </Badge>
@@ -573,10 +580,10 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                 type="button"
                 onClick={handleClearRecords}
                 className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                title="清空已捕获记录"
+                title={t('sniffer.clearTitle')}
               >
                 <RotateCcw className="w-3 h-3" />
-                清空
+                {t('sniffer.clearBtn')}
               </button>
             )}
           </div>
@@ -586,12 +593,10 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
               {isSniffing ? (
                 <span className="inline-flex items-center gap-1.5 text-foreground/80">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                  沙盒窗口运行中，正在实时捕获请求链路，网页加载完成后关闭沙盒窗口即可...
+                  {t('sniffer.runningHint')}
                 </span>
               ) : (
-                <span>
-                  上方输入目标网址点「打开沙盒嗅探」，在弹出的内置无痕沙盒窗口中查看网页，加载完成后关闭沙盒即可完整提取关联域名
-                </span>
+                <span>{t('sniffer.idleHint')}</span>
               )}
             </div>
           ) : (
@@ -639,7 +644,9 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                           >
                             ({item.subdomains[0]}
                             {extraSubCount > 1
-                              ? ` 等 ${item.subdomains.length} 个子域`
+                              ? t('sniffer.subdomainsCount', {
+                                  count: item.subdomains.length,
+                                })
                               : ''}
                             )
                           </span>
@@ -651,11 +658,15 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                             variant="outline"
                             className="text-[10px] py-0 px-1.5 text-emerald-500 border-emerald-500/30"
                           >
-                            已在列表中
+                            {t('sniffer.alreadyInList')}
                           </Badge>
                         ) : (
                           <>
-                            <span title={`当前命中规则: ${item.rule}`}>
+                            <span
+                              title={t('sniffer.matchedRuleTitle', {
+                                rule: item.rule,
+                              })}
+                            >
                               <Badge
                                 variant="outline"
                                 className="text-[10px] font-mono py-0 px-1.5 max-w-28 truncate"
@@ -678,18 +689,18 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
               <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/50 text-[11px]">
                 <div className="flex items-center gap-2 text-muted-foreground flex-wrap">
                   <span>
-                    共捕获{' '}
+                    {t('sniffer.capturedPrefix')}
                     <strong className="text-foreground font-mono">
                       {aggregatedSniffDomains.length}
                     </strong>{' '}
-                    个域名
+                    {t('sniffer.capturedSuffix')}
                   </span>
                   {isSniffing && pageLoaded && (
                     <Badge
                       variant="outline"
                       className="text-[10px] py-0 px-1.5 text-emerald-500 border-emerald-500/30"
                     >
-                      页面已就绪，可关闭沙盒
+                      {t('sniffer.readyToClose')}
                     </Badge>
                   )}
                   {sandboxFinished && !isSniffing && (
@@ -697,7 +708,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                       variant="outline"
                       className="text-[10px] py-0 px-1.5 text-emerald-500 border-emerald-500/30"
                     >
-                      已完成沙盒采集
+                      {t('sniffer.captureDone')}
                     </Badge>
                   )}
                   <span>·</span>
@@ -706,7 +717,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                     onClick={() => setUnselectedDomains(new Set())}
                     className="text-primary hover:underline"
                   >
-                    全选
+                    {t('sniffer.selectAll')}
                   </button>
                   <button
                     type="button"
@@ -717,7 +728,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                     }
                     className="text-muted-foreground hover:text-foreground hover:underline"
                   >
-                    全不选
+                    {t('sniffer.deselectAll')}
                   </button>
                 </div>
                 <Button
@@ -728,7 +739,9 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
                   className="h-7 px-2.5 text-[11px] gap-1"
                 >
                   <Plus className="w-3 h-3" />
-                  追加选中域名 ({selectedSniffDomains.length})
+                  {t('sniffer.appendSelected', {
+                    count: selectedSniffDomains.length,
+                  })}
                 </Button>
               </div>
             </div>

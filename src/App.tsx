@@ -7,6 +7,7 @@ import { useAppStore } from './stores/appStore'
 import { appReady } from './services/tauri'
 import { createEventScope } from './services/events'
 import { useWindowVisibility } from './services/useWindowVisibility'
+import { t } from './i18n'
 import type {
   AutoUpdateEventPayload,
   KernelCrashedPayload,
@@ -75,13 +76,19 @@ export const App: React.FC = () => {
 
         if (payload.driftedPortsCount > 0) {
           toast.warning(
-            `订阅「${payload.profileName}」已更新（${payload.newNodeCount} 个节点），检测到 ${payload.driftedPortsCount} 个端口发生节点漂移并已自动启用 DIRECT 兜底。`,
-            '订阅更新与节点漂移防护',
+            t('app.profileUpdatedWithDrift', {
+              name: payload.profileName,
+              count: payload.newNodeCount,
+              drifted: payload.driftedPortsCount,
+            }),
+            t('app.profileUpdatedWithDriftTitle'),
           )
         } else {
           toast.success(
-            `订阅「${payload.profileName}」已更新，现有 ${payload.newNodeCount} 个可用节点。`,
-            '后台自动更新成功',
+            t('app.profileUpdated', {
+              name: payload.profileName,
+              count: payload.newNodeCount,
+            }),
           )
         }
       })

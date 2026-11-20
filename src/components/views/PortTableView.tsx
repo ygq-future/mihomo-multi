@@ -19,6 +19,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
+import { useTranslation } from '../../i18n'
 import type {
   DirectEgressInfo,
   InboundProtocol,
@@ -73,6 +74,7 @@ function saveCachedDirectEgress(info: DirectEgressInfo) {
 }
 
 export const PortTableView: React.FC = () => {
+  const { t } = useTranslation()
   const {
     coreStatus,
     config,
@@ -145,13 +147,17 @@ export const PortTableView: React.FC = () => {
         setDirectEgressInfo(info)
         saveCachedDirectEgress(info)
         if (isManual) {
-          toast.success(`出口检测完成: ${info.ip} (${info.region})`)
+          toast.success(
+            t('ports.egressDetectDone', { ip: info.ip, region: info.region }),
+          )
         }
         return info
       } catch (err) {
         if (isManual) {
           toast.error(
-            `出口检测失败: ${err instanceof Error ? err.message : String(err)}`,
+            t('ports.egressDetectFail', {
+              err: err instanceof Error ? err.message : String(err),
+            }),
           )
         }
         return null
@@ -159,7 +165,7 @@ export const PortTableView: React.FC = () => {
         setIsProbingDirect(false)
       }
     },
-    [],
+    [t],
   )
 
   const handleCopyNodeEgressIp = useCallback(
@@ -167,7 +173,7 @@ export const PortTableView: React.FC = () => {
       nodeName: string,
       profileId?: string | null,
       runtimeKey?: string,
-      label = '节点',
+      label = t('ports.nodeLabel'),
       forceRefresh = false,
     ) => {
       const cacheKey =
@@ -198,7 +204,7 @@ export const PortTableView: React.FC = () => {
         )
       }
     },
-    [nodeEgressIps, probeNodeEgressIp],
+    [nodeEgressIps, probeNodeEgressIp, t],
   )
 
   const handleCopyDirectEgressIp = useCallback(
@@ -344,7 +350,7 @@ export const PortTableView: React.FC = () => {
         ...config,
         selectedLanIp: newIp,
       })
-      toast.success(`已设置快捷复制 IP 为: ${val}`)
+      toast.success(t('ports.quickCopyIpSet', { ip: val }))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     }
@@ -354,7 +360,7 @@ export const PortTableView: React.FC = () => {
     const options = [
       {
         value: '127.0.0.1',
-        label: '127.0.0.1 (本机回环)',
+        label: t('ports.loopbackOption'),
       },
     ]
     for (const item of lanIps) {
@@ -364,7 +370,7 @@ export const PortTableView: React.FC = () => {
       })
     }
     return options
-  }, [lanIps])
+  }, [lanIps, t])
 
   // Load nodes for all profiles involved in port mappings
   useEffect(() => {
@@ -450,7 +456,7 @@ export const PortTableView: React.FC = () => {
     return [
       {
         value: 'off',
-        label: '关闭',
+        label: t('ports.takeoverOff'),
       },
       ...proxyEnabledPorts.map((m) => {
         const exit = getResidentialProxy(m)
@@ -466,7 +472,7 @@ export const PortTableView: React.FC = () => {
         }
       }),
     ]
-  }, [proxyEnabledPorts, getResidentialProxy])
+  }, [proxyEnabledPorts, getResidentialProxy, t])
 
   const handleToggleEnvProxyForPort = useCallback(
     async (targetPort: number) => {
@@ -474,22 +480,25 @@ export const PortTableView: React.FC = () => {
       try {
         if (isEnvProxyEnabled && activeEnvProxyPort === targetPort) {
           await setEnvProxy(false)
-          toast.success(`已解除端口 ${targetPort} 的终端环境变量代理`)
+          toast.success(t('ports.envProxyUnbound', { port: targetPort }))
         } else {
           await setEnvProxy(true, targetPort)
-          toast.success(`已将端口 ${targetPort} 绑定为全局终端环境变量代理`)
+          toast.success(t('ports.envProxyBound', { port: targetPort }))
         }
         await fetchConfig()
         fetchStatus().catch(() => {})
       } catch (err) {
         toast.error(
-          `设置终端代理失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('ports.envProxyFail', {
+            err: err instanceof Error ? err.message : String(err),
+          }),
         )
       } finally {
         setIsEnvProxyLoading(false)
       }
     },
     [
+      t,
       isEnvProxyEnabled,
       activeEnvProxyPort,
       setEnvProxy,
@@ -509,7 +518,7 @@ export const PortTableView: React.FC = () => {
       const isDirectCard =
         m.id === FIXED_DIRECT_PORT_ID || m.nodeName === 'DIRECT'
       if (isDirectCard && newState === 'systemProxy') {
-        toast.warning('直连监听不支持设为系统代理，仅供应用/插件定向直通')
+        toast.warning(t('ports.directNoSysProxy'))
         return
       }
 
@@ -526,19 +535,17 @@ export const PortTableView: React.FC = () => {
         await fetchConfig()
         fetchStatus().catch(() => {})
         if (isSysProxy) {
-          toast.success(
-            `端口 ${m.port} 已停用，已同步解除系统代理并清除环境变量`,
-          )
+          toast.success(t('ports.portDisabledWithSysProxy', { port: m.port }))
         } else {
-          toast.success(`端口 ${m.port} 已停用`)
+          toast.success(t('ports.portDisabled', { port: m.port }))
         }
       } else if (newState === 'enabled') {
         if (isSysProxy) {
           await setSystemProxy(false)
-          toast.success(`端口 ${m.port} 已解除系统代理并保留监听`)
+          toast.success(t('ports.portSysProxyUnbound', { port: m.port }))
         } else if (!m.enabled) {
           await togglePortMapping(m.id, true)
-          toast.success(`端口 ${m.port} 已启用监听`)
+          toast.success(t('ports.portEnabled', { port: m.port }))
           if (isDirectCard) {
             void handleProbeDirectEgress(m.port, false)
           }
@@ -553,9 +560,9 @@ export const PortTableView: React.FC = () => {
         await fetchConfig()
         fetchStatus().catch(() => {})
         if (config?.systemProxySyncEnv ?? true) {
-          toast.success(`已将端口 ${m.port} 设为系统代理并同步环境变量`)
+          toast.success(t('ports.portSysProxySetWithEnv', { port: m.port }))
         } else {
-          toast.success(`已将端口 ${m.port} 设为系统代理`)
+          toast.success(t('ports.portSysProxySet', { port: m.port }))
         }
       }
     } catch (err) {
@@ -583,9 +590,11 @@ export const PortTableView: React.FC = () => {
       await fetchConfig()
       fetchStatus().catch(() => {})
       if (isSysProxy) {
-        toast.success(`端口 ${deletingMapping.port} 已删除，已同步解除系统代理`)
+        toast.success(
+          t('ports.portDeletedWithSysProxy', { port: deletingMapping.port }),
+        )
       } else {
-        toast.success(`端口 ${deletingMapping.port} 映射已删除`)
+        toast.success(t('ports.portDeleted', { port: deletingMapping.port }))
       }
       setDeletingMapping(null)
     } catch {
@@ -598,14 +607,14 @@ export const PortTableView: React.FC = () => {
   const handleSingleDelayTest = async (id: string, port: number) => {
     const latency = await testPortDelay(id)
     if (latency !== null && latency !== undefined) {
-      toast.success(`端口 ${port} 测速完成: ${latency} ms`)
+      toast.success(t('ports.latencyDone', { port, latency }))
     }
   }
 
   const handleSingleFallbackDelayTest = async (id: string, port: number) => {
     const latency = await testPortFallbackDelay(id)
     if (latency !== null && latency !== undefined) {
-      toast.success(`端口 ${port} 备用节点测速完成: ${latency} ms`)
+      toast.success(t('ports.fallbackLatencyDone', { port, latency }))
     }
   }
 
@@ -617,18 +626,20 @@ export const PortTableView: React.FC = () => {
       const nextManual = !currentManual
       await toggleManualFallback(id, nextManual)
       if (nextManual) {
-        toast.success('已主动启用备用节点')
+        toast.success(t('ports.manualFallbackOn'))
       } else {
-        toast.info('已恢复自动兜底模式')
+        toast.info(t('ports.manualFallbackOff'))
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '切换备用模式失败')
+      toast.error(
+        err instanceof Error ? err.message : t('ports.manualFallbackFail'),
+      )
     }
   }
 
   const handleBatchDelayTest = async () => {
     await testAllPortsDelay()
-    toast.success('全部已启用端口测速完成')
+    toast.success(t('ports.allLatencyDone'))
   }
   const isTun = config?.tunEnabled ?? false
   const isSysProxy = config?.systemProxyEnabled ?? false
@@ -663,60 +674,66 @@ export const PortTableView: React.FC = () => {
         if (config?.tunEnabled) {
           const currentPort = config.tunPort ?? activeEgressPort
           await setTun(false, currentPort)
-          toast.success('已关闭 TUN 模式')
+          toast.success(t('ports.tunDisabled'))
         }
         if (config?.systemProxyEnabled) {
           const currentPort = config.systemProxyPort ?? activeEgressPort
           await setSystemProxy(false, currentPort)
           if (config?.systemProxySyncEnv ?? true) {
-            toast.success('已关闭系统代理并清除环境变量')
+            toast.success(t('ports.sysProxyDisabledWithEnv'))
           } else {
-            toast.success('已关闭系统代理')
+            toast.success(t('ports.sysProxyDisabled'))
           }
         }
       } catch (err) {
         toast.error(
-          `关闭接管模式失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('ports.takeoverDisableFail', {
+            err: err instanceof Error ? err.message : String(err),
+          }),
         )
       } finally {
         setIsEgressLoading(false)
       }
     } else if (level === 1) {
       if (!targetPort) {
-        toast.error('当前无可用且已启用的监听端口，请先启用端口')
+        toast.error(t('ports.noEnabledPort'))
         return
       }
       setIsEgressLoading(true)
       try {
         await setSystemProxy(true, targetPort)
         if (config?.systemProxySyncEnv ?? true) {
-          toast.success(`已将端口 ${targetPort} 设为系统代理并同步环境变量`)
+          toast.success(t('ports.portSysProxySetWithEnv', { port: targetPort }))
         } else {
-          toast.success(`已将端口 ${targetPort} 设为系统代理`)
+          toast.success(t('ports.portSysProxySet', { port: targetPort }))
         }
       } catch (err) {
         toast.error(
-          `开启系统代理失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('ports.sysProxyEnableFail', {
+            err: err instanceof Error ? err.message : String(err),
+          }),
         )
       } finally {
         setIsEgressLoading(false)
       }
     } else if (level === 2) {
       if (!targetPort) {
-        toast.error('当前无可用且已启用的监听端口，请先启用端口')
+        toast.error(t('ports.noEnabledPort'))
         return
       }
       setIsEgressLoading(true)
       try {
         const status = await setTun(true, targetPort)
         if (status.pendingElevation) {
-          toast.info('TUN 模式需要管理员权限，应用正在以管理员身份重启…')
+          toast.info(t('ports.tunAdminRestart'))
         } else {
-          toast.success(`TUN 模式已启用，全局出口跟随端口 ${targetPort}`)
+          toast.success(t('ports.tunEnabled', { port: targetPort }))
         }
       } catch (err) {
         toast.error(
-          `开启 TUN 模式失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('ports.tunEnableFail', {
+            err: err instanceof Error ? err.message : String(err),
+          }),
         )
       } finally {
         setIsEgressLoading(false)
@@ -731,21 +748,23 @@ export const PortTableView: React.FC = () => {
     try {
       if (config?.tunEnabled) {
         await setTun(true, port)
-        toast.success(`已将 TUN 出口切换至端口 ${port}`)
+        toast.success(t('ports.tunPortSwitched', { port }))
       } else if (config?.systemProxyEnabled) {
         await setSystemProxy(true, port)
-        toast.success(`已切换系统代理端口至 ${port}`)
+        toast.success(t('ports.sysProxyPortSwitched', { port }))
       } else if (config) {
         await saveConfig({
           ...config,
           systemProxyPort: port,
           tunPort: port,
         })
-        toast.success(`已设置预选出口端口为 ${port}`)
+        toast.success(t('ports.preselectedPortSet', { port }))
       }
     } catch (err) {
       toast.error(
-        `更新出口端口失败: ${err instanceof Error ? err.message : String(err)}`,
+        t('ports.updateExitPortFail', {
+          err: err instanceof Error ? err.message : String(err),
+        }),
       )
     } finally {
       setIsEgressLoading(false)
@@ -784,10 +803,10 @@ export const PortTableView: React.FC = () => {
               }
             >
               {egressSliderValue === 2
-                ? 'TUN 模式'
+                ? t('ports.tunMode')
                 : egressSliderValue === 1
-                  ? '系统代理'
-                  : '接管关闭'}
+                  ? t('ports.systemProxy')
+                  : t('ports.takeoverDisabled')}
             </span>
           </div>
 
@@ -797,13 +816,13 @@ export const PortTableView: React.FC = () => {
             mode="egress"
             loading={isEgressLoading}
             disabled={!isRunning || enabledPorts.length === 0}
-            headerTitle="接管模式"
+            headerTitle={t('ports.takeoverMode')}
           />
 
           <div className="w-36 lg:w-40 min-w-[125px] max-w-[165px] shrink-0">
             {proxyEnabledPorts.length === 0 ? (
               <span className="text-[11px] text-muted-foreground font-medium">
-                无可用代理端口
+                {t('ports.noProxyPortAvailable')}
               </span>
             ) : (
               <Select
@@ -838,9 +857,9 @@ export const PortTableView: React.FC = () => {
               onClick={handleRestartAsAdmin}
               icon={<ShieldCheck className="w-3 h-3 text-amber-500" />}
               className="text-[11px] h-7 px-2 text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20"
-              title="TUN 模式需要管理员权限才能创建虚拟网卡，点击以管理员身份重启应用"
+              title={t('ports.needElevationTitle')}
             >
-              需要提权
+              {t('ports.needElevation')}
             </Button>
           )}
           {/* Terminal Env Proxy Select */}
@@ -856,13 +875,13 @@ export const PortTableView: React.FC = () => {
                 if (v === 'off') {
                   if (isEnvProxyEnabled) {
                     await setEnvProxy(false)
-                    toast.success('已关闭终端环境变量代理')
+                    toast.success(t('ports.envProxyClosed'))
                     await fetchConfig()
                   }
                 } else {
                   const port = Number(v)
                   await setEnvProxy(true, port)
-                  toast.success(`终端代理已切换至端口 ${port}`)
+                  toast.success(t('ports.envProxySwitched', { port }))
                   await fetchConfig()
                 }
               }}
@@ -900,7 +919,9 @@ export const PortTableView: React.FC = () => {
               onClick={handleBatchDelayTest}
               loading={isTestingAllPorts}
               icon={<Zap className="w-3.5 h-3.5 text-amber-500" />}
-              title={isTestingAllPorts ? '正在批量测速...' : '一键测速所有端口'}
+              title={
+                isTestingAllPorts ? t('ports.testingAll') : t('ports.testAll')
+              }
               className="w-8 h-8 p-0 shrink-0"
             />
           )}
@@ -914,11 +935,16 @@ export const PortTableView: React.FC = () => {
               setIsRulesModalOpen(true)
             }}
             icon={<Split className="w-3.5 h-3.5 text-primary" />}
-            title={`管理全局网站分流规则${
-              (config?.globalRules || []).filter((r) => r.enabled).length > 0
-                ? ` (已生效 ${(config?.globalRules || []).filter((r) => r.enabled).length} 条)`
-                : ''
-            }`}
+            title={t('ports.globalRulesTitle', {
+              extra:
+                (config?.globalRules || []).filter((r) => r.enabled).length > 0
+                  ? t('ports.globalRulesActive', {
+                      count: (config?.globalRules || []).filter(
+                        (r) => r.enabled,
+                      ).length,
+                    })
+                  : '',
+            })}
             className="w-8 h-8 p-0 shrink-0 relative"
           >
             {(config?.globalRules || []).filter((r) => r.enabled).length >
@@ -938,7 +964,7 @@ export const PortTableView: React.FC = () => {
             icon={<Plus className="w-3.5 h-3.5" />}
             className="px-2.5"
           >
-            添加端口
+            {t('ports.addPort')}
           </Button>
         </div>
       </div>
@@ -953,11 +979,10 @@ export const PortTableView: React.FC = () => {
             </div>
             <div className="space-y-1 max-w-sm">
               <h3 className="text-sm font-semibold text-foreground">
-                暂无端口映射规则
+                {t('ports.emptyTitle')}
               </h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                点击上方按钮，分配独立本地入站端口（如
-                7891、7892）并精确绑定至指定的订阅代理节点；也可叠加认证型住宅出口形成固定链路。
+                {t('ports.emptyDesc')}
               </p>
             </div>
 
@@ -971,7 +996,7 @@ export const PortTableView: React.FC = () => {
                 }}
                 icon={<Plus className="w-3.5 h-3.5" />}
               >
-                添加第一个端口映射
+                {t('ports.addFirstPort')}
               </Button>
             </div>
           </div>
@@ -983,7 +1008,8 @@ export const PortTableView: React.FC = () => {
                 m.id === FIXED_DIRECT_PORT_ID || m.nodeName === 'DIRECT'
               const residentialProxy = getResidentialProxy(m)
               const isChainPort = Boolean(m.residentialProxyId)
-              const profileName = profileMap[m.profileId] || '未知订阅'
+              const profileName =
+                profileMap[m.profileId] || t('ports.unknownProfile')
               const drift = driftMap[m.id]
               const isDrifted = drift && drift.status !== 'healthy'
               const nodeKey = profileName
@@ -1141,28 +1167,28 @@ export const PortTableView: React.FC = () => {
                       {isStoppedWarning ? (
                         <span
                           className="inline-flex shrink-0 cursor-help"
-                          title="Mihomo 内核已停止，该端口当前未在监听"
+                          title={t('ports.statusCoreStopped')}
                         >
                           <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
                         </span>
                       ) : isOccupiedWarning ? (
                         <span
                           className="inline-flex shrink-0 cursor-help"
-                          title={`本地端口 ${m.port} 已被其他应用程序占用，已自动跳过监听`}
+                          title={t('ports.statusOccupied', { port: m.port })}
                         >
                           <AlertTriangle className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
                         </span>
                       ) : isFallbackWarning ? (
                         <span
                           className="inline-flex shrink-0 cursor-help"
-                          title="主节点连接异常，当前正由同地区备用节点兜底监听中"
+                          title={t('ports.statusFallbackActive')}
                         >
                           <ShieldCheck className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
                         </span>
                       ) : isEffectiveEnabled && isRunning ? (
                         <span
                           className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0 cursor-help"
-                          title="正常监听中"
+                          title={t('ports.statusListening')}
                         />
                       ) : null}
 
@@ -1183,10 +1209,10 @@ export const PortTableView: React.FC = () => {
                           variant="outline"
                           size="sm"
                           className="!text-[10px] !py-0.5 !px-1.5 font-medium text-sky-500/90 border-sky-500/30 bg-sky-500/5 shrink-0 flex items-center gap-1"
-                          title="此端口流量全量直通公网，不走任何代理"
+                          title={t('ports.directBadgeTitle')}
                         >
                           <Zap className="w-2.5 h-2.5 text-sky-500" />
-                          直通
+                          {t('ports.directBadge')}
                         </Badge>
                       ) : isChainPort ? (
                         <Badge
@@ -1195,30 +1221,33 @@ export const PortTableView: React.FC = () => {
                           className="!text-[10px] !py-0.5 !px-1.5 font-medium text-sky-500 border-sky-500/30 bg-sky-500/5 shrink-0 flex items-center gap-1"
                           title={
                             residentialProxy
-                              ? `全量流量经上游 ${m.nodeName} → 住宅出口 ${residentialProxy.name}；绕过大陆、备用节点与分流规则均不生效`
-                              : '住宅出口配置缺失，该端口将拒绝流量'
+                              ? t('ports.chainBadgeTitle', {
+                                  node: m.nodeName,
+                                  exit: residentialProxy.name,
+                                })
+                              : t('ports.chainMissingTitle')
                           }
                         >
                           <Building2 className="w-2.5 h-2.5 text-sky-500" />
-                          住宅链路
+                          {t('ports.chainBadge')}
                         </Badge>
                       ) : m.bypassCn !== false ? (
                         <Badge
                           variant="secondary"
                           size="sm"
                           className="!text-[10px] !py-0.5 !px-1.5 font-medium text-muted-foreground border-border/70 shrink-0"
-                          title="中国大陆域名与 IP 走直连 (DIRECT)"
+                          title={t('ports.bypassCnTitle')}
                         >
-                          绕过大陆
+                          {t('ports.bypassCn')}
                         </Badge>
                       ) : (
                         <Badge
                           variant="outline"
                           size="sm"
                           className="!text-[10px] !py-0.5 !px-1.5 font-medium text-amber-500/90 border-amber-500/30 bg-amber-500/5 shrink-0"
-                          title="所有网络流量全局走绑定的代理节点"
+                          title={t('ports.globalProxyTitle')}
                         >
-                          全局代理
+                          {t('ports.globalProxy')}
                         </Badge>
                       )}
                       {isEffectiveTun && (
@@ -1226,10 +1255,10 @@ export const PortTableView: React.FC = () => {
                           variant="outline"
                           size="sm"
                           className="!text-[10px] !py-0.5 !px-1.5 font-medium text-purple-500 border-purple-500/30 bg-purple-500/5 shrink-0 flex items-center gap-1"
-                          title="当前端口作为全局 TUN 模式出口"
+                          title={t('ports.tunExitTitle')}
                         >
                           <Shield className="w-2.5 h-2.5 text-purple-500" />
-                          TUN 出口
+                          {t('ports.tunExit')}
                         </Badge>
                       )}
                       {config?.envProxyEnabled &&
@@ -1238,10 +1267,10 @@ export const PortTableView: React.FC = () => {
                             variant="outline"
                             size="sm"
                             className="!text-[10px] !py-0.5 !px-1.5 font-medium text-blue-500 border-blue-500/30 bg-blue-500/5 shrink-0 flex items-center gap-1"
-                            title="当前端口作为全局终端环境变量代理出口 (http_proxy / all_proxy)"
+                            title={t('ports.envExitTitle')}
                           >
                             <Terminal className="w-2.5 h-2.5 text-blue-500" />
-                            ENV代理
+                            {t('ports.envExit')}
                           </Badge>
                         )}
                       {!isChainPort && m.rules && m.rules.length > 0 && (
@@ -1253,15 +1282,17 @@ export const PortTableView: React.FC = () => {
                             setIsRulesModalOpen(true)
                           }}
                           className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium text-primary bg-primary/10 border border-primary/20 shrink-0 hover:bg-primary/20 transition-colors"
-                          title={`已配置 ${m.rules.length} 条特定网站规则，点击管理`}
+                          title={t('ports.rulesBadgeTitle', {
+                            count: m.rules.length,
+                          })}
                         >
                           <Split className="w-2.5 h-2.5" />
-                          {m.rules.length} 网站分流
+                          {t('ports.rulesBadge', { count: m.rules.length })}
                         </button>
                       )}
                       {isStoppedWarning ? (
                         <span className="text-[10px] text-amber-500 font-medium shrink-0">
-                          (监听已停止)
+                          {t('ports.listeningStopped')}
                         </span>
                       ) : null}
                     </div>
@@ -1282,9 +1313,7 @@ export const PortTableView: React.FC = () => {
                       lockedSteps={isDirectCard ? [2] : undefined}
                       maxAllowedStep={isDirectCard ? 1 : undefined}
                       lockedTooltip={
-                        isDirectCard
-                          ? '直连监听不支持设为系统代理，仅供应用/插件定向直通'
-                          : undefined
+                        isDirectCard ? t('ports.directNoSysProxy') : undefined
                       }
                     />
                   </div>
@@ -1308,27 +1337,29 @@ export const PortTableView: React.FC = () => {
                                 )
                               }}
                               className="truncate font-mono font-semibold text-xs text-foreground hover:text-primary transition-colors cursor-pointer text-left"
-                              title={`点击复制直连出口 IP: ${directEgressInfo.ip}`}
+                              title={t('ports.clickCopyDirectIp', {
+                                ip: directEgressInfo.ip,
+                              })}
                             >
                               {directEgressInfo.ip}
                             </button>
                           ) : (
                             <span
                               className="truncate font-mono font-semibold text-xs text-foreground"
-                              title="正在检测或尚未获取公网 IP"
+                              title={t('ports.detectingOrNoIp')}
                             >
                               {isProbingDirect
-                                ? '正在探测 IP...'
+                                ? t('ports.probingIp')
                                 : m.enabled
-                                  ? '点击测速检测 IP'
-                                  : '未开启监听'}
+                                  ? t('ports.clickToDetectIp')
+                                  : t('ports.notListening')}
                             </span>
                           )}
                           <span
                             className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 shrink-0 select-none"
-                            title="流量出口: 本地 DIRECT 直连"
+                            title={t('ports.egressDirectTitle')}
                           >
-                            DIRECT 直连
+                            {t('ports.egressDirectLabel')}
                           </span>
                         </div>
                       </div>
@@ -1343,7 +1374,7 @@ export const PortTableView: React.FC = () => {
                                     ? ` · ${directEgressInfo.isp}`
                                     : ''
                                 }`
-                              : '直通流量 · 不走任何代理节点'
+                              : t('ports.directTrafficDesc')
                           }
                         >
                           {directEgressInfo
@@ -1352,11 +1383,11 @@ export const PortTableView: React.FC = () => {
                                   ? ` · ${directEgressInfo.isp}`
                                   : ''
                               }`
-                            : '直通流量 · 不走任何代理节点'}
+                            : t('ports.directTrafficDesc')}
                         </span>
                         {!m.enabled && (
                           <span className="text-[10px] text-muted-foreground/60 shrink-0">
-                            (未开启)
+                            {t('ports.notEnabledParen')}
                           </span>
                         )}
                       </div>
@@ -1385,12 +1416,12 @@ export const PortTableView: React.FC = () => {
                               title={
                                 residentialProxy
                                   ? `${residentialProxy.name} (${residentialProxy.protocol.toUpperCase()} ${residentialProxy.server}:${residentialProxy.port})`
-                                  : '住宅出口配置缺失，该端口将拒绝流量'
+                                  : t('ports.chainMissingTitle')
                               }
                             >
                               {residentialProxy
                                 ? residentialProxy.name
-                                : '住宅出口缺失'}
+                                : t('ports.chainExitMissingShort')}
                             </span>
                             <button
                               type="button"
@@ -1410,34 +1441,39 @@ export const PortTableView: React.FC = () => {
                               }`}
                               title={
                                 isProbingChain
-                                  ? '正在经本地映射端口探测链路出口 IP...'
+                                  ? t('ports.probingChainIp')
                                   : !m.enabled
-                                    ? '端口未开启监听，无法检测链路出口'
+                                    ? t('ports.portDisabledNoChainProbe')
                                     : !residentialProxy
-                                      ? '住宅出口配置缺失'
+                                      ? t('ports.chainExitMissingShort')
                                       : chainEgressInfo
-                                        ? `点击复制链路出口 IP: ${chainEgressInfo.ip}${chainEgressInfo.region ? ` (${chainEgressInfo.region})` : ''}`
-                                        : '点击经本地映射端口探测并复制最终出口 IP'
+                                        ? t('ports.clickCopyChainIp', {
+                                            ip: chainEgressInfo.ip,
+                                            region: chainEgressInfo.region
+                                              ? ` (${chainEgressInfo.region})`
+                                              : '',
+                                          })
+                                        : t('ports.clickProbeChainIp')
                               }
                             >
                               {isProbingChain ? (
                                 <>
                                   <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                  <span>探测中</span>
+                                  <span>{t('ports.probingShort')}</span>
                                 </>
                               ) : (
                                 <>
                                   <Copy className="w-2.5 h-2.5" />
-                                  <span>出口IP</span>
+                                  <span>{t('ports.egressIpShort')}</span>
                                 </>
                               )}
                             </button>
                           </div>
                           <span
                             className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 shrink-0 select-none"
-                            title="最终出口: 认证型住宅代理"
+                            title={t('ports.finalExitResidentialTitle')}
                           >
-                            住宅出口
+                            {t('ports.residentialExitLabel')}
                           </span>
                         </div>
                       </div>
@@ -1445,12 +1481,14 @@ export const PortTableView: React.FC = () => {
                       <div className="flex items-center justify-between gap-2 min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0 flex-1 text-[11px] text-muted-foreground">
                           <span className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none">
-                            上游
+                            {t('ports.upstreamLabel')}
                           </span>
                           {profileName && (
                             <span
                               className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
-                              title={`所属订阅: ${profileName}`}
+                              title={t('ports.belongsToProfile', {
+                                name: profileName,
+                              })}
                             >
                               {profileName}
                             </span>
@@ -1477,14 +1515,14 @@ export const PortTableView: React.FC = () => {
                               className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
                               title={
                                 drift?.message ||
-                                '上游节点在订阅中不存在，链路端口将拒绝流量'
+                                t('ports.upstreamMissingTitle')
                               }
                             >
                               {drift?.status === 'profile_missing'
-                                ? '订阅已删 (链路拒绝)'
+                                ? t('ports.profileDeletedReject')
                                 : drift?.status === 'empty_profile'
-                                  ? '订阅无节点 (链路拒绝)'
-                                  : '链路失效 (链路拒绝)'}
+                                  ? t('ports.profileEmptyReject')
+                                  : t('ports.chainInvalidReject')}
                             </Badge>
                           )}
                           {!residentialProxy && (
@@ -1493,9 +1531,9 @@ export const PortTableView: React.FC = () => {
                               size="sm"
                               dot
                               className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
-                              title="住宅出口已从配置中删除，该端口将拒绝流量"
+                              title={t('ports.exitDeletedTitle')}
                             >
-                              出口缺失 (链路拒绝)
+                              {t('ports.exitMissingReject')}
                             </Badge>
                           )}
                         </div>
@@ -1512,17 +1550,17 @@ export const PortTableView: React.FC = () => {
                           className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
                           title={
                             latency === undefined
-                              ? '尚未测速，点击底部延迟徽章测试完整链路'
+                              ? t('ports.chainUntestedTitle')
                               : isPrimaryTimeout
-                                ? '端口链路超时或住宅出口不可用，链路端口将拒绝流量'
-                                : '端口链路 (上游节点 → 住宅出口) 正常'
+                                ? t('ports.chainTimeoutTitle')
+                                : t('ports.chainHealthyTitle')
                           }
                         >
                           {latency === undefined
-                            ? '待测速'
+                            ? t('ports.untested')
                             : isPrimaryTimeout
-                              ? '链路异常'
-                              : '链路正常'}
+                              ? t('ports.chainAbnormal')
+                              : t('ports.chainHealthy')}
                         </Badge>
                       </div>
 
@@ -1532,7 +1570,7 @@ export const PortTableView: React.FC = () => {
                           title={
                             chainEgressInfo
                               ? `${chainEgressInfo.ip}${chainEgressInfo.region ? ` · ${chainEgressInfo.region}` : ''}`
-                              : '通过本地映射端口探测最终出口 IP'
+                              : t('ports.probeFinalIpDesc')
                           }
                         >
                           {chainEgressInfo
@@ -1542,8 +1580,8 @@ export const PortTableView: React.FC = () => {
                                   : ''
                               }`
                             : m.enabled
-                              ? '点击探测链路最终出口 IP'
-                              : '端口未开启监听'}
+                              ? t('ports.clickProbeFinalIp')
+                              : t('ports.portNotListening')}
                         </span>
                         {residentialProxy && (
                           <span
@@ -1576,7 +1614,9 @@ export const PortTableView: React.FC = () => {
                           {profileName && (
                             <span
                               className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
-                              title={`所属订阅: ${profileName}`}
+                              title={t('ports.belongsToProfile', {
+                                name: profileName,
+                              })}
                             >
                               {profileName}
                             </span>
@@ -1601,7 +1641,9 @@ export const PortTableView: React.FC = () => {
                                   m.nodeName,
                                   m.profileId,
                                   nodeKey,
-                                  hasFallback ? '主节点' : '节点',
+                                  hasFallback
+                                    ? t('ports.primaryNodeLabel')
+                                    : t('ports.nodeLabel'),
                                   false,
                                 )
                               }}
@@ -1612,21 +1654,26 @@ export const PortTableView: React.FC = () => {
                               }`}
                               title={
                                 isProbingPrimary
-                                  ? '正在探测出口 IP...'
+                                  ? t('ports.probingEgressIp')
                                   : primaryEgressInfo
-                                    ? `点击复制出口 IP: ${primaryEgressInfo.ip}${primaryEgressInfo.region ? ` (${primaryEgressInfo.region})` : ''}`
-                                    : '点击探测并复制该节点出口 IP'
+                                    ? t('ports.clickCopyNodeIp', {
+                                        ip: primaryEgressInfo.ip,
+                                        region: primaryEgressInfo.region
+                                          ? ` (${primaryEgressInfo.region})`
+                                          : '',
+                                      })
+                                    : t('ports.clickProbeNodeIp')
                               }
                             >
                               {isProbingPrimary ? (
                                 <>
                                   <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                  <span>探测中</span>
+                                  <span>{t('ports.probingShort')}</span>
                                 </>
                               ) : (
                                 <>
                                   <Copy className="w-2.5 h-2.5" />
-                                  <span>复制IP</span>
+                                  <span>{t('ports.copyIpShort')}</span>
                                 </>
                               )}
                             </button>
@@ -1643,14 +1690,14 @@ export const PortTableView: React.FC = () => {
                               className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
                               title={
                                 drift?.message ||
-                                '节点在订阅中不存在，流量已直连 (DIRECT)'
+                                t('ports.nodeMissingDirectTitle')
                               }
                             >
                               {drift?.status === 'profile_missing'
-                                ? '订阅已删 (DIRECT)'
+                                ? t('ports.profileDeletedDirect')
                                 : drift?.status === 'empty_profile'
-                                  ? '订阅无节点 (DIRECT)'
-                                  : '节点漂移 (DIRECT)'}
+                                  ? t('ports.profileEmptyDirect')
+                                  : t('ports.nodeDriftDirect')}
                             </Badge>
                           )}
                         </div>
@@ -1663,11 +1710,13 @@ export const PortTableView: React.FC = () => {
                           className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
                           title={
                             isPrimaryTimeout
-                              ? '主节点连接超时或网络异常'
-                              : '主节点状态正常'
+                              ? t('ports.primaryTimeoutTitle')
+                              : t('ports.primaryHealthyTitle')
                           }
                         >
-                          {isPrimaryTimeout ? '异常' : '正常'}
+                          {isPrimaryTimeout
+                            ? t('ports.abnormal')
+                            : t('ports.normal')}
                         </Badge>
                       </div>
 
@@ -1692,12 +1741,12 @@ export const PortTableView: React.FC = () => {
                           }`}
                           title={
                             !m.enabled
-                              ? '端口已停用，无法切换备用节点'
+                              ? t('ports.fallbackDisabledTitle')
                               : isManualFallback
-                                ? '当前已主动启用备用节点（点击取消并恢复自动兜底模式）'
+                                ? t('ports.fallbackManualTitle')
                                 : isAutoFallbackActive
-                                  ? '主节点连接超时，系统已自动切换至备用节点兜底（主节点故障时无需手动指定）'
-                                  : '点击主动启用备用节点（锁定流量至备用节点，测速超时也不切回）'
+                                  ? t('ports.fallbackAutoTitle')
+                                  : t('ports.fallbackStandbyTitle')
                           }
                         >
                           <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
@@ -1713,7 +1762,9 @@ export const PortTableView: React.FC = () => {
                             {fbProfileName && (
                               <span
                                 className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
-                                title={`所属订阅: ${fbProfileName}`}
+                                title={t('ports.belongsToProfile', {
+                                  name: fbProfileName,
+                                })}
                               >
                                 {fbProfileName}
                               </span>
@@ -1747,7 +1798,7 @@ export const PortTableView: React.FC = () => {
                                     m.fallbackNodeName,
                                     m.fallbackProfileId || m.profileId,
                                     fbNodeKey,
-                                    '备用节点',
+                                    t('ports.fallbackNodeLabel'),
                                     false,
                                   )
                                 }}
@@ -1764,7 +1815,7 @@ export const PortTableView: React.FC = () => {
                                       m.fallbackNodeName,
                                       m.fallbackProfileId || m.profileId,
                                       fbNodeKey,
-                                      '备用节点',
+                                      t('ports.fallbackNodeLabel'),
                                       false,
                                     )
                                   }
@@ -1776,21 +1827,26 @@ export const PortTableView: React.FC = () => {
                                 }`}
                                 title={
                                   isProbingFallback
-                                    ? '正在探测备用节点出口 IP...'
+                                    ? t('ports.probingFallbackIp')
                                     : fallbackEgressInfo
-                                      ? `点击复制备用节点出口 IP: ${fallbackEgressInfo.ip}${fallbackEgressInfo.region ? ` (${fallbackEgressInfo.region})` : ''}`
-                                      : '点击探测并复制备用节点出口 IP'
+                                      ? t('ports.clickCopyFallbackIp', {
+                                          ip: fallbackEgressInfo.ip,
+                                          region: fallbackEgressInfo.region
+                                            ? ` (${fallbackEgressInfo.region})`
+                                            : '',
+                                        })
+                                      : t('ports.clickProbeFallbackIp')
                                 }
                               >
                                 {isProbingFallback ? (
                                   <>
                                     <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                    <span>探测中</span>
+                                    <span>{t('ports.probingShort')}</span>
                                   </>
                                 ) : (
                                   <>
                                     <Copy className="w-2.5 h-2.5" />
-                                    <span>复制IP</span>
+                                    <span>{t('ports.copyIpShort')}</span>
                                   </>
                                 )}
                               </span>
@@ -1805,10 +1861,10 @@ export const PortTableView: React.FC = () => {
                               className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-primary/20 text-primary border-primary/40 font-medium animate-pulse group-hover/fb:bg-primary/30"
                             >
                               <span className="group-hover/fb:hidden">
-                                已主动锁定
+                                {t('ports.manualLocked')}
                               </span>
                               <span className="hidden group-hover/fb:inline">
-                                点击恢复自动
+                                {t('ports.clickRestoreAuto')}
                               </span>
                             </Badge>
                           ) : isAutoFallbackActive ? (
@@ -1817,17 +1873,17 @@ export const PortTableView: React.FC = () => {
                               size="sm"
                               dot
                               className="!text-[9px] !py-0 !px-1.5 shrink-0 animate-pulse"
-                              title="主节点超时，系统已自动切换至备用节点兜底"
+                              title={t('ports.autoFallbackActiveTitle')}
                             >
-                              自动兜底中
+                              {t('ports.autoFallbackActive')}
                             </Badge>
                           ) : (
                             <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0 bg-secondary/80 px-1.5 py-0.5 rounded transition-colors group-hover/fb:text-primary group-hover/fb:bg-primary/10">
                               <span className="group-hover/fb:hidden">
-                                待命
+                                {t('ports.standby')}
                               </span>
                               <span className="hidden group-hover/fb:inline">
-                                点击主动启用
+                                {t('ports.clickEnableManual')}
                               </span>
                             </span>
                           )}
@@ -1860,7 +1916,7 @@ export const PortTableView: React.FC = () => {
                           }
                           disabled={isProbingDirect}
                           className="focus:outline-none flex items-center shrink-0"
-                          title="点击检测直连出口 IP、归属地与延迟"
+                          title={t('ports.detectDirectEgressTitle')}
                         >
                           <Badge
                             variant={
@@ -1882,7 +1938,7 @@ export const PortTableView: React.FC = () => {
                               directEgressInfo?.latencyMs !== null ? (
                               `${directEgressInfo.latencyMs}`
                             ) : (
-                              '检测出口'
+                              t('ports.detectEgress')
                             )}
                           </Badge>
                         </button>
@@ -1895,10 +1951,10 @@ export const PortTableView: React.FC = () => {
                             className="focus:outline-none flex items-center shrink-0"
                             title={
                               isChainPort
-                                ? '点击端口链路测速 (上游节点 → 住宅出口 → 目标)'
+                                ? t('ports.testChainLatencyTitle')
                                 : hasFallback
-                                  ? '点击单端口测速 (同时测速主节点与备用节点)'
-                                  : '点击单端口测速'
+                                  ? t('ports.testPortAndFallbackTitle')
+                                  : t('ports.testPortTitle')
                             }
                           >
                             <Badge
@@ -1928,7 +1984,10 @@ export const PortTableView: React.FC = () => {
                               }
                               disabled={!m.enabled || isTestingFb}
                               className="focus:outline-none flex items-center shrink-0"
-                              title={`备用节点 (${m.fallbackNodeName}) 延迟: ${fbLatencyProps.label} (点击测速)`}
+                              title={t('ports.fallbackLatencyTitle', {
+                                node: m.fallbackNodeName ?? '',
+                                label: fbLatencyProps.label,
+                              })}
                             >
                               <Badge
                                 variant={fbLatencyProps.variant}
@@ -1978,7 +2037,7 @@ export const PortTableView: React.FC = () => {
                             setIsEditDirectModalOpen(true)
                           }}
                           className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                          title="修改直连监听端口"
+                          title={t('ports.editDirectPortTitle')}
                         >
                           <Edit2 className="w-3 h-3" />
                         </button>
@@ -1994,8 +2053,8 @@ export const PortTableView: React.FC = () => {
                               className="p-1 rounded text-amber-500 hover:bg-amber-500/10 transition-colors"
                               title={
                                 isChainPort
-                                  ? '修复失效的上游节点绑定'
-                                  : '修复漂移/失效的节点绑定'
+                                  ? t('ports.fixUpstreamTitle')
+                                  : t('ports.fixNodeTitle')
                               }
                             >
                               <Wrench className="w-3 h-3" />
@@ -2016,8 +2075,10 @@ export const PortTableView: React.FC = () => {
                               }`}
                               title={
                                 m.rules && m.rules.length > 0
-                                  ? `管理网站分流规则 (已配置 ${m.rules.length} 条)`
-                                  : '配置特定网站分流规则'
+                                  ? t('ports.manageRulesTitle', {
+                                      count: m.rules.length,
+                                    })
+                                  : t('ports.configureRulesTitle')
                               }
                             >
                               <Split className="w-3 h-3" />
@@ -2035,7 +2096,7 @@ export const PortTableView: React.FC = () => {
                               setIsAddModalOpen(true)
                             }}
                             className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                            title="编辑端口映射"
+                            title={t('ports.editPortTitle')}
                           >
                             <Edit2 className="w-3 h-3" />
                           </button>
@@ -2044,7 +2105,7 @@ export const PortTableView: React.FC = () => {
                             type="button"
                             onClick={() => setDeletingMapping(m)}
                             className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                            title="删除端口映射"
+                            title={t('ports.deletePortTitle')}
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>
@@ -2096,8 +2157,10 @@ export const PortTableView: React.FC = () => {
         <Modal
           isOpen={Boolean(deletingMapping)}
           onClose={() => setDeletingMapping(null)}
-          title="删除端口映射规则"
-          subtitle={`确定要删除本地监听端口 ${deletingMapping.port} 吗？`}
+          title={t('ports.deleteModalTitle')}
+          subtitle={t('ports.deleteModalSubtitle', {
+            port: deletingMapping.port,
+          })}
           icon={<Trash2 className="w-4 h-4 text-destructive" />}
           maxWidth="sm"
           footer={
@@ -2108,7 +2171,7 @@ export const PortTableView: React.FC = () => {
                 onClick={() => setDeletingMapping(null)}
                 disabled={isDeleting}
               >
-                取消
+                {t('common.cancel')}
               </Button>
               <Button
                 variant="danger"
@@ -2116,17 +2179,17 @@ export const PortTableView: React.FC = () => {
                 loading={isDeleting}
                 onClick={handleDeleteConfirm}
               >
-                确认删除
+                {t('ports.confirmDelete')}
               </Button>
             </>
           }
         >
           <p className="text-xs text-muted-foreground leading-relaxed">
-            删除后，Mihomo 将立即释放端口{' '}
-            <b className="text-foreground font-mono">{deletingMapping.port}</b>
             {deletingMapping.residentialProxyId
-              ? '，该端口的「上游节点 → 住宅出口」链路将立即失效。'
-              : '，绑定的代理节点将不再接收该端口的流量。'}
+              ? t('ports.deleteModalDescChain', { port: deletingMapping.port })
+              : t('ports.deleteModalDescNormal', {
+                  port: deletingMapping.port,
+                })}
           </p>
         </Modal>
       )}

@@ -50,6 +50,7 @@ import {
 } from '../../constants'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
+import { type Locale, useTranslation } from '../../i18n'
 import type {
   AppUpdateProgressPayload,
   MrsRulesInfo,
@@ -172,21 +173,29 @@ function formatLastCheckTime(ts: number | null): string {
   return new Date(ts).toLocaleString()
 }
 
-const themeOptions = [
-  { value: 'dark', label: '暗黑模式', icon: <Moon className="w-3.5 h-3.5" /> },
-  {
-    value: 'light',
-    label: '明亮模式',
-    icon: <Sun className="w-3.5 h-3.5" />,
-  },
-  {
-    value: 'system',
-    label: '跟随系统',
-    icon: <Monitor className="w-3.5 h-3.5" />,
-  },
-]
 
 export const SettingView: React.FC = () => {
+  const { t, locale, setLocale } = useTranslation()
+  const themeOptions = useMemo(
+    () => [
+      {
+        value: 'dark',
+        label: t('settings.theme.dark'),
+        icon: <Moon className="w-3.5 h-3.5" />,
+      },
+      {
+        value: 'light',
+        label: t('settings.theme.light'),
+        icon: <Sun className="w-3.5 h-3.5" />,
+      },
+      {
+        value: 'system',
+        label: t('settings.theme.system'),
+        icon: <Monitor className="w-3.5 h-3.5" />,
+      },
+    ],
+    [t],
+  )
   const {
     appStatus,
     coreStatus,
@@ -1987,24 +1996,45 @@ export const SettingView: React.FC = () => {
             <Palette className="w-5 h-5 text-primary" />
             <div>
               <h3 className="text-sm font-semibold text-foreground">
-                外观与个性化
+                {t('settings.appearance.title')}
               </h3>
               <p className="text-xs text-muted-foreground">
-                自定义应用界面主题、磨砂亚克力玻璃质感与背景壁纸
+                {t('settings.appearance.desc')}
               </p>
             </div>
           </div>
         </div>
 
         <div className="space-y-4">
+          {/* Language Selector */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <span className="text-xs font-medium text-foreground">
+                {t('settings.language.title')}
+              </span>
+              <p className="text-[11px] text-muted-foreground">
+                {t('settings.language.desc')}
+              </p>
+            </div>
+            <Segmented
+              value={locale}
+              onChange={(val) => setLocale(val as Locale)}
+              options={[
+                { value: 'zh-CN', label: t('settings.language.zhCN') },
+                { value: 'en-US', label: t('settings.language.enUS') },
+              ]}
+              size="md"
+            />
+          </div>
+
           {/* Theme Selector */}
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <span className="text-xs font-medium text-foreground">
-                界面主题
+                {t('settings.theme.title')}
               </span>
               <p className="text-[11px] text-muted-foreground">
-                选择客户端明亮、暗黑或跟随操作系统自动切换
+                {t('settings.theme.desc')}
               </p>
             </div>
             <Segmented

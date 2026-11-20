@@ -1,3 +1,4 @@
+import { useTranslation } from '../../i18n'
 import { Loader2, Network, ShieldCheck, X, Zap } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
@@ -21,11 +22,12 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
 }) => {
   const { fetchPortMappings, fetchStatus } = useAppStore()
   const [port, setPort] = useState<string>(String(directMapping.port))
+  const { t } = useTranslation()
   const [protocol, setProtocol] = useState<InboundProtocol>(
     directMapping.protocol || 'mixed',
   )
   const [description, setDescription] = useState<string>(
-    directMapping.description || '直连监听 (流量直通不走代理)',
+    directMapping.description || t('directPort.defaultDesc'),
   )
 
   const [isCheckingPort, setIsCheckingPort] = useState(false)
@@ -37,7 +39,7 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
     if (isOpen) {
       setPort(String(directMapping.port))
       setProtocol(directMapping.protocol || 'mixed')
-      setDescription(directMapping.description || '直连监听 (流量直通不走代理)')
+      setDescription(directMapping.description || t('directPort.defaultDesc'))
       setIsPortAvailable(true)
       setError(null)
     }
@@ -78,12 +80,12 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
     e.preventDefault()
     const portNum = Number.parseInt(port, 10)
     if (Number.isNaN(portNum) || portNum < 1024 || portNum > 65535) {
-      setError('端口号必须在 1024 ~ 65535 之间')
+      setError(t('addPort.errPortRange'))
       return
     }
 
     if (isPortAvailable === false) {
-      setError(`本地端口 ${portNum} 已被占用，请换用其他端口`)
+      setError(t('addPort.errPortOccupied', { port: portNum }))
       return
     }
 
@@ -95,19 +97,19 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
         ...directMapping,
         port: portNum,
         protocol,
-        description: description.trim() || '直连监听 (流量直通不走代理)',
+        description: description.trim() || t('directPort.defaultDesc'),
       }
 
       await api.savePortMapping(updatedMapping)
       await fetchPortMappings()
       fetchStatus().catch(() => {})
-      toast.success(`直连监听端口已更新为 ${portNum}`)
+      toast.success(t('directPort.updatedToast', { port: portNum }))
       onSuccess?.()
       onClose()
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setError(msg)
-      toast.error(`保存失败: ${msg}`)
+      toast.error(t('rules.saveFailed', { err: msg }))
     } finally {
       setIsSaving(false)
     }
@@ -117,8 +119,8 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="修改直连监听端口"
-      subtitle="自定义本地直连监听端口与入站协议"
+      title={t('directPort.title')}
+      subtitle={t('directPort.subtitle')}
       icon={<Zap className="w-4 h-4 text-primary" />}
       maxWidth="md"
       footer={
@@ -130,7 +132,7 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
             onClick={onClose}
             disabled={isSaving}
           >
-            取消
+            {t('common.cancel')}
           </Button>
           <Button
             type="submit"
@@ -146,7 +148,7 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
               Number(port) > 65535
             }
           >
-            保存配置
+            {t('directPort.saveConfig')}
           </Button>
         </>
       }
@@ -159,10 +161,11 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
         <div className="p-3 text-xs bg-primary/5 border border-primary/20 text-foreground rounded-lg flex items-start gap-2">
           <Zap className="w-4 h-4 text-primary shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <span className="font-semibold text-primary">直连监听说明</span>
+            <span className="font-semibold text-primary">
+              {t('directPort.infoTitle')}
+            </span>
             <p className="text-muted-foreground text-[11px] leading-relaxed">
-              此端口流量直接直通互联网（不经过任何节点）。常用于在开启系统代理时，将浏览器插件（如
-              SwitchyOmega）代理设为此端口以临时直连。
+              {t('directPort.infoDesc')}
             </p>
           </div>
         </div>
@@ -180,7 +183,8 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
               htmlFor="direct-port-input"
               className="block text-xs font-medium text-foreground mb-1.5"
             >
-              本地监听端口 <span className="text-destructive">*</span>
+              {t('addPort.localPortLabel')}{' '}
+              <span className="text-destructive">*</span>
             </label>
             <div className="relative">
               <Input
@@ -202,24 +206,24 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
                 ) : isPortAvailable === true ? (
                   <span
                     className="text-[11px] text-emerald-500 flex items-center gap-0.5"
-                    title="端口可用"
+                    title={t('addPort.portAvailableTitle')}
                   >
                     <ShieldCheck className="w-3.5 h-3.5" />
-                    可用
+                    {t('addPort.portAvailable')}
                   </span>
                 ) : isPortAvailable === false ? (
                   <span
                     className="text-[11px] text-rose-500 flex items-center gap-0.5"
-                    title="端口已被占用"
+                    title={t('addPort.portOccupiedTitle')}
                   >
                     <X className="w-3.5 h-3.5" />
-                    已占用
+                    {t('addPort.portOccupied')}
                   </span>
                 ) : null}
               </div>
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              默认建议: 7878 (范围 1024 ~ 65535)
+              {t('directPort.portHint')}
             </p>
           </div>
 
@@ -228,7 +232,7 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
               htmlFor="direct-protocol-select"
               className="block text-xs font-medium text-foreground mb-1.5"
             >
-              入站协议
+              {t('addPort.protocolLabel')}
             </label>
             <Select
               id="direct-protocol-select"
@@ -236,12 +240,12 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
               onChange={(val) => setProtocol(val as InboundProtocol)}
               options={[
                 { value: 'mixed', label: 'Mixed (HTTP + SOCKS5)' },
-                { value: 'http', label: 'HTTP 代理' },
-                { value: 'socks5', label: 'SOCKS5 代理' },
+                { value: 'http', label: t('addPort.protocolHttp') },
+                { value: 'socks5', label: t('addPort.protocolSocks5') },
               ]}
             />
             <p className="text-[10px] text-muted-foreground mt-1">
-              推荐 Mixed 兼顾 HTTP/SOCKS5
+              {t('directPort.protocolHint')}
             </p>
           </div>
         </div>
@@ -252,13 +256,13 @@ export const EditDirectPortModal: React.FC<EditDirectPortModalProps> = ({
             htmlFor="direct-description-input"
             className="block text-xs font-medium text-foreground mb-1.5"
           >
-            卡片备注说明
+            {t('directPort.descLabel')}
           </label>
           <Input
             id="direct-description-input"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="直连监听 (流量直通不走代理)"
+            placeholder={t('directPort.defaultDesc')}
           />
         </div>
       </form>

@@ -20,61 +20,72 @@ import { Button } from '../common'
 import { TrafficWidget } from './TrafficWidget'
 import { DEFAULT_CONTROLLER_PORT } from '../../constants'
 import { scrollToSettingCard } from '../../utils/scroll'
+import { type TranslationKey, useTranslation } from '../../i18n'
 
-const navItems: { id: TabType; label: string; icon: React.ElementType }[] = [
-  { id: 'ports', label: '端口映射', icon: Network },
-  { id: 'proxies', label: '代理节点', icon: Compass },
-  { id: 'profiles', label: '配置订阅', icon: Layers },
-  { id: 'connections', label: '实时连接', icon: Activity },
-  { id: 'settings', label: '设置', icon: Settings },
+const navItems: {
+  id: TabType
+  labelKey: TranslationKey
+  icon: React.ElementType
+}[] = [
+  { id: 'ports', labelKey: 'nav.ports', icon: Network },
+  { id: 'proxies', labelKey: 'nav.proxies', icon: Compass },
+  { id: 'profiles', labelKey: 'nav.profiles', icon: Layers },
+  { id: 'connections', labelKey: 'nav.connections', icon: Activity },
+  { id: 'settings', labelKey: 'nav.settings', icon: Settings },
 ]
 
-const settingSections = [
+const settingSections: {
+  id: string
+  labelKey: TranslationKey
+  icon: React.ElementType
+  color: string
+}[] = [
   {
     id: 'setting-section-core',
-    label: '内核与网络',
+    labelKey: 'nav.settingCore',
     icon: Cpu,
     color: 'hover:text-blue-500 hover:bg-blue-500/10',
   },
   {
     id: 'setting-section-proxy',
-    label: '系统代理',
+    labelKey: 'nav.settingProxy',
     icon: Globe,
     color: 'hover:text-emerald-500 hover:bg-emerald-500/10',
   },
   {
     id: 'setting-section-tun',
-    label: 'TUN 模式',
+    labelKey: 'nav.settingTun',
     icon: Network,
     color: 'hover:text-cyan-500 hover:bg-cyan-500/10',
   },
   {
     id: 'setting-section-appearance',
-    label: '外观个性化',
+    labelKey: 'nav.settingAppearance',
     icon: Palette,
     color: 'hover:text-purple-500 hover:bg-purple-500/10',
   },
   {
     id: 'setting-section-system',
-    label: '窗口与系统',
+    labelKey: 'nav.settingSystem',
     icon: Power,
     color: 'hover:text-amber-500 hover:bg-amber-500/10',
   },
   {
     id: 'setting-section-storage',
-    label: '存储目录',
+    labelKey: 'nav.settingStorage',
     icon: FolderOpen,
     color: 'hover:text-indigo-500 hover:bg-indigo-500/10',
   },
   {
     id: 'setting-section-about',
-    label: '关于与更新',
+    labelKey: 'nav.settingAbout',
     icon: Sparkles,
     color: 'hover:text-rose-500 hover:bg-rose-500/10',
   },
 ]
 
 export const Sidebar: React.FC = () => {
+  const { t } = useTranslation()
   const activeTab = useAppStore((state) => state.activeTab)
   const setActiveTab = useAppStore((state) => state.setActiveTab)
   const scrollToSettingSection = useAppStore(
@@ -135,7 +146,7 @@ export const Sidebar: React.FC = () => {
               type="button"
               onClick={toggleSidebar}
               className="rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40 hover:opacity-80 transition-opacity"
-              title="点击展开侧边栏"
+              title={t('nav.expand')}
             >
               <img
                 src={appLogo}
@@ -149,7 +160,7 @@ export const Sidebar: React.FC = () => {
                 type="button"
                 onClick={toggleSidebar}
                 className="shrink-0 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40 hover:opacity-80 transition-opacity"
-                title="点击收起侧边栏"
+                title={t('nav.collapse')}
               >
                 <img
                   src={appLogo}
@@ -169,7 +180,7 @@ export const Sidebar: React.FC = () => {
                   )}
                 </div>
                 <span className="text-[10px] text-muted-foreground truncate block mt-1">
-                  多端口代理
+                  {t('nav.appSubtitle')}
                 </span>
               </div>
             </div>
@@ -200,7 +211,7 @@ export const Sidebar: React.FC = () => {
                 key={item.id}
                 type="button"
                 onClick={() => setActiveTab(item.id)}
-                title={sidebarCollapsed ? item.label : undefined}
+                title={sidebarCollapsed ? t(item.labelKey) : undefined}
                 className={`relative z-10 w-full h-9 flex items-center ${
                   sidebarCollapsed ? 'justify-center px-0' : 'gap-2.5 px-3'
                 } rounded-lg text-xs font-medium transition-colors duration-150 ${
@@ -218,7 +229,7 @@ export const Sidebar: React.FC = () => {
                 {!sidebarCollapsed && (
                   <>
                     <span className="truncate flex-1 text-left">
-                      {item.label}
+                      {t(item.labelKey)}
                     </span>
                     {isSettingsItem && hasNewVersion && (
                       <span className="ml-auto px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0 leading-none">
@@ -264,7 +275,7 @@ export const Sidebar: React.FC = () => {
                           key={section.id}
                           type="button"
                           onClick={(e) => handleSectionClick(e, section.id)}
-                          title={section.label}
+                          title={t(section.labelKey)}
                           style={{
                             transitionDelay: isSettingsHovered
                               ? `${idx * 20}ms`
@@ -305,13 +316,14 @@ export const Sidebar: React.FC = () => {
           <div className="p-2 mx-2 mb-2 rounded-xl border border-border bg-background/50 flex flex-col items-center gap-2">
             <div
               className="flex items-center justify-center cursor-default py-1"
-              title={`Mihomo 内核: ${isRunning ? '运行中' : '已停止'}${
-                isRunning
-                  ? `\nPID: ${coreStatus?.pid ?? '-'}\n控制端口: ${
+              title={t('nav.coreTooltip', {
+                status: isRunning ? t('nav.running') : t('nav.stopped'),
+                extra: isRunning
+                  ? `\nPID: ${coreStatus?.pid ?? '-'}\n${t('nav.controlPort')}: ${
                       coreStatus?.controllerPort ?? DEFAULT_CONTROLLER_PORT
                     }`
-                  : ''
-              }`}
+                  : '',
+              })}
             >
               <span
                 className={`w-2.5 h-2.5 rounded-full ${
@@ -325,7 +337,7 @@ export const Sidebar: React.FC = () => {
               size="sm"
               disabled={coreLoading}
               onClick={() => restartCore()}
-              title="重启内核"
+              title={t('header.restartCore')}
               className="p-1.5 h-auto text-muted-foreground hover:text-foreground hover:bg-accent"
               icon={
                 <RefreshCw
@@ -338,7 +350,7 @@ export const Sidebar: React.FC = () => {
           <div className="p-3 mx-2.5 mb-2.5 rounded-xl border border-border bg-background/50 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium text-muted-foreground truncate">
-                Mihomo 内核
+                {t('nav.mihomoCore')}
               </span>
               <div className="flex items-center gap-1.5 shrink-0">
                 <span
@@ -351,7 +363,7 @@ export const Sidebar: React.FC = () => {
                     isRunning ? 'text-emerald-500' : 'text-rose-500'
                   }`}
                 >
-                  {isRunning ? '运行中' : '已停止'}
+                  {isRunning ? t('nav.running') : t('nav.stopped')}
                 </span>
               </div>
             </div>
@@ -360,7 +372,7 @@ export const Sidebar: React.FC = () => {
               <div className="text-[10px] text-muted-foreground space-y-0.5 font-mono truncate">
                 <div>PID: {coreStatus?.pid ?? '-'}</div>
                 <div>
-                  控制端口:{' '}
+                  {t('nav.controlPort')}:{' '}
                   {coreStatus?.controllerPort ?? DEFAULT_CONTROLLER_PORT}
                 </div>
               </div>
@@ -378,7 +390,7 @@ export const Sidebar: React.FC = () => {
                 />
               }
             >
-              重启内核
+              {t('header.restartCore')}
             </Button>
           </div>
         )}

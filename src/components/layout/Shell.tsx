@@ -5,6 +5,7 @@ import type React from 'react'
 import { useEffect, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
+import { useTranslation } from '../../i18n'
 import { Button, Modal } from '../common'
 import { ConnectionListView } from '../views/ConnectionListView'
 import { PortTableView } from '../views/PortTableView'
@@ -36,6 +37,7 @@ function resolveImageSrc(src: string): string {
 }
 
 export const Shell: React.FC = () => {
+  const { t } = useTranslation()
   const activeTab = useAppStore((state) => state.activeTab)
   const config = useAppStore((state) => state.config)
   const saveConfig = useAppStore((state) => state.saveConfig)
@@ -199,8 +201,8 @@ export const Shell: React.FC = () => {
         <Modal
           isOpen={showExitModal}
           onClose={() => setShowExitModal(false)}
-          title="退出程序"
-          subtitle="确定要完全退出应用吗？"
+          title={t('shell.exitTitle')}
+          subtitle={t('shell.exitSubtitle')}
           maxWidth="sm"
           icon={<LogOut className="w-4 h-4 text-primary" />}
           footer={
@@ -210,14 +212,16 @@ export const Shell: React.FC = () => {
                 size="sm"
                 onClick={() => setShowExitModal(false)}
               >
-                取消
+                {t('common.cancel')}
               </Button>
               <Button
                 variant={closeToTrayChecked ? 'primary' : 'danger'}
                 size="sm"
                 onClick={handleConfirmExit}
               >
-                {closeToTrayChecked ? '最小化到托盘' : '退出程序'}
+                {closeToTrayChecked
+                  ? t('shell.minimizeToTray')
+                  : t('shell.exitApp')}
               </Button>
             </>
           }
@@ -225,8 +229,8 @@ export const Shell: React.FC = () => {
           <div className="space-y-4">
             <p className="text-xs text-muted-foreground leading-relaxed">
               {closeToTrayChecked
-                ? '已开启最小化到托盘，主窗口将隐藏至系统托盘，后台代理与端口监听持续运行。'
-                : '退出后将停止 Mihomo 后台内核并中断所有端口的代理转发。'}
+                ? t('shell.minimizeDesc')
+                : t('shell.exitDesc')}
             </p>
 
             <label className="flex items-center gap-2.5 p-3 rounded-lg border border-border/80 bg-secondary/20 hover:bg-secondary/40 select-none cursor-pointer transition-colors group">
@@ -240,7 +244,7 @@ export const Shell: React.FC = () => {
                 {closeToTrayChecked && <Check className="w-3 h-3 stroke-[3]" />}
               </span>
               <span className="text-xs font-medium text-foreground/90">
-                最小化到系统托盘（保持后台运行并记住选择）
+                {t('shell.rememberMinimize')}
               </span>
               <input
                 type="checkbox"
