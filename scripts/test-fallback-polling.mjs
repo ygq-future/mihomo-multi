@@ -356,3 +356,89 @@ test('swapPortFallback rolls back optimistic state when backend rejects', async 
   assert.equal(store.get().fallbackStatuses['port-1']?.primaryNode, 'primary')
   assert.match(store.get().portError, /DuplicateNodeBinding/)
 })
+
+test('fetchPortMappings commits portMappings before slow drift and fallback probes resolve', async () => {
+  let resolveDrift
+  let resolveFallback
+  const mappings = [
+    { id: 'port-2', enabled: true, profileId: 'profile-1', nodeName: 'node-a' },
+  ]
+  const store = createStore({
+    getPortMappings: async () => mappings,
+    getOccupiedPorts: async () => [7891],
+    getDriftReports: () =>
+      new Promise((resolve) => {
+        resolveDrift = resolve
+      }),
+    getPortFallbackStatuses: () =>
+      new Promise((resolve) => {
+        resolveFallback = resolve
+      }),
+  })
+  store.set({ portMappings: [] })
+
+  assert.equal(store.get().portInitialized, false)
+  await store.get().fetchPortMappings()
+
+  assert.equal(store.get().portInitialized, true)
+  assert.equal(store.get().portLoading, false)
+  assert.deepEqual(store.get().portMappings, mappings)
+  assert.deepEqual(store.get().occupiedPorts, [7891])
+  assert.equal(store.get().driftReports.length, 0)
+  assert.equal(Object.keys(store.get().fallbackStatuses).length, 0)
+
+  resolveDrift([{ mappingId: 'port-2', status: 'healthy' }])
+  resolveFallback([status])
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(store.get().driftReports.length, 1)
+  assert.equal(store.get().fallbackStatuses['port-1']?.primaryNode, 'primary')
+})
+
+test('fetchPortMappings discards stale background drift and fallback results when superseded', async () => {
+  let resolveFirstDrift
+  let resolveFirstFallback
+  let callCount = 0
+  const store = createStore({
+    getPortMappings: async () => {
+      callCount += 1
+      return [
+        {
+          id: `port-${callCount}`,
+          enabled: true,
+          profileId: 'profile-1',
+          nodeName: 'node-a',
+        },
+      ]
+    },
+    getOccupiedPorts: async () => [],
+    getDriftReports: () => {
+      if (callCount === 0) {
+        return new Promise((resolve) => {
+          resolveFirstDrift = resolve
+        })
+      }
+      return Promise.resolve([{ mappingId: 'fresh', status: 'healthy' }])
+    },
+    getPortFallbackStatuses: () => {
+      if (callCount === 0) {
+        return new Promise((resolve) => {
+          resolveFirstFallback = resolve
+        })
+      }
+      return Promise.resolve([])
+    },
+  })
+
+  await store.get().fetchPortMappings()
+  await store.get().fetchPortMappings()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(store.get().driftReports[0]?.mappingId, 'fresh')
+
+  resolveFirstDrift([{ mappingId: 'stale', status: 'node_missing' }])
+  resolveFirstFallback([status])
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(store.get().driftReports[0]?.mappingId, 'fresh')
+  assert.equal(Object.keys(store.get().fallbackStatuses).length, 0)
+})

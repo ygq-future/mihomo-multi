@@ -11,6 +11,7 @@ import {
   Network,
   Plus,
   Power,
+  RefreshCw,
   Shield,
   ShieldCheck,
   Split,
@@ -122,6 +123,9 @@ export const PortTableView: React.FC = () => {
     portMappings,
     occupiedPorts,
     driftReports,
+    portLoading,
+    portInitialized,
+    portError,
     testingPortIds,
     isTestingAllPorts,
     fetchPortMappings,
@@ -1363,8 +1367,81 @@ export const PortTableView: React.FC = () => {
 
       {/* Scrollable Port Cards Grid Area */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden pr-1 pb-4">
-        {totalPorts === 0 ? (
-          /* Empty State Card */
+        {totalPorts === 0 && (portLoading || !portInitialized) ? (
+          /* Loading Skeleton Grid */
+          <div className="space-y-3">
+            <output className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
+              <span>{t('ports.loadingList')}</span>
+            </output>
+            <div
+              aria-hidden="true"
+              className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3"
+            >
+              {[0, 1, 2, 3].map((idx) => (
+                <div
+                  key={idx}
+                  className="min-w-0 p-3.5 rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between space-y-2.5 animate-pulse motion-reduce:animate-none"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-muted shrink-0" />
+                      <span className="h-4 w-12 rounded bg-muted" />
+                      <span className="h-4 w-12 rounded-full bg-muted/80" />
+                    </div>
+                    <span className="h-6 w-20 rounded-full bg-muted/80" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <span className="w-4 h-4 rounded-sm bg-muted shrink-0" />
+                        <span className="h-3.5 w-28 rounded bg-muted" />
+                      </div>
+                      <span className="h-4 w-10 rounded bg-muted/70 shrink-0" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="h-3 w-16 rounded bg-muted/60" />
+                      <span className="h-3 w-12 rounded bg-muted/60" />
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-border/50 flex items-center justify-between gap-1.5">
+                    <span className="h-5 w-14 rounded-md bg-muted/80" />
+                    <div className="flex items-center gap-1">
+                      <span className="w-5 h-5 rounded bg-muted/70" />
+                      <span className="w-5 h-5 rounded bg-muted/70" />
+                      <span className="w-5 h-5 rounded bg-muted/70" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : totalPorts === 0 && portError ? (
+          /* Load Error State Card */
+          <div className="border border-destructive/30 rounded-xl p-10 flex flex-col items-center justify-center text-center space-y-3 bg-destructive/5">
+            <div className="w-11 h-11 rounded-full bg-destructive/10 text-destructive flex items-center justify-center">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div className="space-y-1 max-w-sm">
+              <h3 className="text-sm font-semibold text-foreground">
+                {t('ports.loadFailTitle')}
+              </h3>
+              <p className="text-xs text-muted-foreground leading-relaxed break-words">
+                {portError}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void fetchPortMappings()
+              }}
+              icon={<RefreshCw className="w-3.5 h-3.5" />}
+            >
+              {t('common.retry')}
+            </Button>
+          </div>
+        ) : totalPorts === 0 ? (
           <div className="border border-dashed border-border rounded-xl p-12 flex flex-col items-center justify-center text-center space-y-4 bg-card/30">
             <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center">
               <Network className="w-6 h-6" />

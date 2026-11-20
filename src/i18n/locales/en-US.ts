@@ -161,6 +161,8 @@ export const enUS: Record<TranslationKey, string> = {
   'ports.globalRulesTitle': 'Manage global website routing rules{extra}',
   'ports.globalRulesActive': ' ({count} active)',
   'ports.addPort': 'Add Port',
+  'ports.loadingList': 'Loading port mappings...',
+  'ports.loadFailTitle': 'Failed to load port mappings',
   'ports.emptyTitle': 'No port mappings yet',
   'ports.emptyDesc':
     'Click the button above to assign a local inbound port (e.g. 7891, 7892) and bind it 1:1 to a proxy node, or chain it with an authenticated residential exit.',

@@ -145,6 +145,8 @@ export const zhCN = {
   'ports.globalRulesTitle': '管理全局网站分流规则{extra}',
   'ports.globalRulesActive': ' (已生效 {count} 条)',
   'ports.addPort': '添加端口',
+  'ports.loadingList': '正在加载端口映射...',
+  'ports.loadFailTitle': '端口映射加载失败',
   'ports.emptyTitle': '暂无端口映射规则',
   'ports.emptyDesc':
     '点击上方按钮，分配独立本地入站端口（如 7891、7892）并精确绑定至指定的订阅代理节点；也可叠加认证型住宅出口形成固定链路。',

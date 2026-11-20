@@ -7,6 +7,7 @@ import type {
   PortMapping,
 } from '../types'
 import type { ProxySlice } from './proxySlice'
+let fetchPortMappingsSeq = 0
 
 export interface PortSlice {
   portMappings: PortMapping[]
@@ -14,6 +15,7 @@ export interface PortSlice {
   driftReports: PortDriftReport[]
   fallbackStatuses: Record<string, PortFallbackStatus>
   portLoading: boolean
+  portInitialized: boolean
   testingPortIds: Record<string, boolean>
   testingFbPortIds: Record<string, boolean>
   isTestingAllPorts: boolean
@@ -63,6 +65,7 @@ export const createPortSlice: StateCreator<
   driftReports: [],
   fallbackStatuses: {},
   portLoading: false,
+  portInitialized: false,
   testingPortIds: {},
   testingFbPortIds: {},
   isTestingAllPorts: false,
@@ -70,36 +73,58 @@ export const createPortSlice: StateCreator<
   editingPortMapping: null,
   isPortModalOpen: false,
   fetchPortMappings: async () => {
+    const seq = ++fetchPortMappingsSeq
     set({ portLoading: true })
+    const driftPromise = api.getDriftReports()
+    const fallbackPromise = api.getPortFallbackStatuses()
     try {
-      const [portMappings, driftReports, occupiedPorts, fallbackList] =
-        await Promise.all([
-          api.getPortMappings(),
-          api.getDriftReports(),
-          api.getOccupiedPorts(),
-          api.getPortFallbackStatuses().catch(() => []),
-        ])
-      const fallbackStatuses: Record<string, PortFallbackStatus> = {}
-      for (const s of fallbackList) {
-        fallbackStatuses[s.mappingId] = s
+      const [portMappings, occupiedPorts] = await Promise.all([
+        api.getPortMappings(),
+        api.getOccupiedPorts(),
+      ])
+      if (seq !== fetchPortMappingsSeq) {
+        driftPromise.catch(() => {})
+        fallbackPromise.catch(() => {})
+        return
       }
       set({
         portMappings,
         portEgressIps: {},
-        driftReports,
         occupiedPorts,
-        fallbackStatuses,
         portLoading: false,
+        portInitialized: true,
         portError: null,
       })
+
+      void driftPromise
+        .then((driftReports) => {
+          if (seq === fetchPortMappingsSeq) {
+            set({ driftReports })
+          }
+        })
+        .catch(() => {})
+
+      void fallbackPromise
+        .then((fallbackList) => {
+          if (seq !== fetchPortMappingsSeq) return
+          const fallbackStatuses: Record<string, PortFallbackStatus> = {}
+          for (const s of fallbackList) {
+            fallbackStatuses[s.mappingId] = s
+          }
+          set({ fallbackStatuses })
+        })
+        .catch(() => {})
     } catch (err) {
+      driftPromise.catch(() => {})
+      fallbackPromise.catch(() => {})
+      if (seq !== fetchPortMappingsSeq) return
       set({
         portLoading: false,
+        portInitialized: true,
         portError: err instanceof Error ? err.message : String(err),
       })
     }
   },
-
   fetchDriftReports: async () => {
     try {
       const driftReports = await api.getDriftReports()
@@ -190,6 +215,7 @@ export const createPortSlice: StateCreator<
   setDriftReports: (driftReports) => set({ driftReports }),
 
   savePortMapping: async (mapping) => {
+    fetchPortMappingsSeq += 1
     set({ portLoading: true, portError: null })
     try {
       const saved = await api.savePortMapping(mapping)
@@ -230,6 +256,7 @@ export const createPortSlice: StateCreator<
   },
 
   deletePortMapping: async (id) => {
+    fetchPortMappingsSeq += 1
     set({ portLoading: true, portError: null })
     const targetPort = get().portMappings.find((p) => p.id === id)?.port
     try {
