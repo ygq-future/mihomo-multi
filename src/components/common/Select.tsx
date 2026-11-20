@@ -41,6 +41,11 @@ export interface SelectProps<T = string | number> {
   noDataText?: string
   /** Accessible name for the inner search input when no external label is attached. */
   ariaLabel?: string
+  renderOptionAction?: (option: SelectOption<T>) => React.ReactNode
+  renderAppend?: (
+    options: SelectOption<T>[],
+    focusSearch: () => void,
+  ) => React.ReactNode
 }
 
 interface DropdownPosition {
@@ -95,6 +100,8 @@ export function Select<T extends string | number = string | number>({
   onClear,
   noDataText: noDataTextProp,
   ariaLabel,
+  renderOptionAction,
+  renderAppend,
 }: SelectProps<T>) {
   const { t } = useTranslation()
   const placeholder = placeholderProp ?? t('multiSelect.placeholder')
@@ -104,6 +111,7 @@ export function Select<T extends string | number = string | number>({
   const [searchQuery, setSearchQuery] = useState('')
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
   const [position, setPosition] = useState<DropdownPosition | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -389,7 +397,7 @@ export function Select<T extends string | number = string | number>({
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node
       if (
-        triggerRef.current?.contains(target) ||
+        containerRef.current?.contains(target) ||
         dropdownRef.current?.contains(target)
       ) {
         return
@@ -488,13 +496,16 @@ export function Select<T extends string | number = string | number>({
   const dropdownZIndex = isInsideDialog ? 1050 : 60
 
   return (
-    <div className={`relative ${width} ${className}`}>
+    <div
+      ref={containerRef}
+      className={`relative ${renderAppend ? 'flex items-stretch gap-1' : ''} ${width} ${className}`}
+    >
       {/* Trigger Container with in-place Filterable Input */}
       <div
         ref={triggerRef}
         id={id}
         onClick={handleContainerClick}
-        className={`w-full h-full flex items-center justify-between gap-2 rounded-lg bg-background border text-xs text-foreground hover:border-primary/50 transition-colors duration-150 select-none ${
+        className={`w-full ${renderAppend ? 'min-w-0 flex-1' : ''} h-full flex items-center justify-between gap-2 rounded-lg bg-background border text-xs text-foreground hover:border-primary/50 transition-colors duration-150 select-none ${
           size === 'sm' ? 'px-2.5 py-1' : 'px-3 py-2'
         } ${
           disabled
@@ -542,9 +553,15 @@ export function Select<T extends string | number = string | number>({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {(!isOpen || !searchQuery) && selectedOption?.rightNode && (
-            <div className="mr-0.5">{selectedOption.rightNode}</div>
-          )}
+          {(!isOpen || !searchQuery) &&
+            selectedOption &&
+            (renderOptionAction || selectedOption.rightNode) && (
+              <div className={`mr-0.5 ${renderOptionAction ? '-my-1' : ''}`}>
+                {renderOptionAction
+                  ? renderOptionAction(selectedOption)
+                  : selectedOption.rightNode}
+              </div>
+            )}
           {clearable && value && !disabled && (
             <button
               type="button"
@@ -570,6 +587,9 @@ export function Select<T extends string | number = string | number>({
           />
         </div>
       </div>
+      {renderAppend?.(filteredOptions, () => {
+        if (isOpen && !isClosing) inputRef.current?.focus()
+      })}
 
       {/* Portal Dropdown Menu Panel */}
       {(isOpen || isClosing) &&
@@ -604,54 +624,57 @@ export function Select<T extends string | number = string | number>({
                   const isHighlighted = !isDisabled && highlightedIndex === idx
 
                   return (
-                    <button
-                      key={String(opt.value)}
-                      data-option-index={idx}
-                      type="button"
-                      disabled={isDisabled}
-                      onClick={() => {
-                        if (!isDisabled) {
-                          onChange(opt.value)
-                          closeDropdown()
-                          setSearchQuery('')
-                        }
-                      }}
-                      onMouseEnter={() => {
-                        if (!isDisabled) {
-                          setHighlightedIndex(idx)
-                        }
-                      }}
-                      className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors text-left ${
-                        isDisabled
-                          ? 'opacity-40 cursor-not-allowed text-muted-foreground select-none'
-                          : isSelected
-                            ? isHighlighted
-                              ? 'bg-primary/20 text-primary font-medium ring-1 ring-primary/40'
-                              : 'bg-primary/10 text-primary font-medium'
-                            : isHighlighted
-                              ? 'bg-accent text-accent-foreground font-medium'
-                              : 'text-foreground hover:bg-accent/50 hover:text-accent-foreground'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate min-w-0 flex-1">
-                        {opt.icon}
-                        <div className="truncate flex-1">
-                          <div className="truncate">{opt.label}</div>
-                          {opt.description && (
-                            <div className="text-[10px] text-muted-foreground truncate">
-                              {opt.description}
-                            </div>
-                          )}
+                    <div key={String(opt.value)} className="flex items-center">
+                      <button
+                        data-option-index={idx}
+                        type="button"
+                        disabled={isDisabled}
+                        onClick={() => {
+                          if (!isDisabled) {
+                            onChange(opt.value)
+                            closeDropdown()
+                            setSearchQuery('')
+                          }
+                        }}
+                        onMouseEnter={() => {
+                          if (!isDisabled) {
+                            setHighlightedIndex(idx)
+                          }
+                        }}
+                        className={`w-full min-w-0 flex-1 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors text-left ${
+                          isDisabled
+                            ? 'opacity-40 cursor-not-allowed text-muted-foreground select-none'
+                            : isSelected
+                              ? isHighlighted
+                                ? 'bg-primary/20 text-primary font-medium ring-1 ring-primary/40'
+                                : 'bg-primary/10 text-primary font-medium'
+                              : isHighlighted
+                                ? 'bg-accent text-accent-foreground font-medium'
+                                : 'text-foreground hover:bg-accent/50 hover:text-accent-foreground'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate min-w-0 flex-1">
+                          {opt.icon}
+                          <div className="truncate flex-1">
+                            <div className="truncate">{opt.label}</div>
+                            {opt.description && (
+                              <div className="text-[10px] text-muted-foreground truncate">
+                                {opt.description}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="flex items-center gap-1 shrink-0">
-                        {opt.rightNode}
-                        {isSelected && !opt.rightNode && (
-                          <Check className="w-3.5 h-3.5 text-primary shrink-0" />
-                        )}
-                      </div>
-                    </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {!renderOptionAction && opt.rightNode}
+                          {isSelected &&
+                            (renderOptionAction || !opt.rightNode) && (
+                              <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                            )}
+                        </div>
+                      </button>
+                      {renderOptionAction?.(opt)}
+                    </div>
                   )
                 })
               ) : (

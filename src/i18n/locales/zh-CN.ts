@@ -565,6 +565,7 @@ export const zhCN = {
   'proxies.sortNameAsc': '名称 (A-Z)',
   'proxies.testingAll': '正在并发测速...',
   'proxies.testAll': '全量并发测速',
+  'proxies.testVisible': '测试当前列表',
   'proxies.regionLabel': '地区:',
   'proxies.allCount': '全部 ({count})',
   'proxies.protocolLabel': '协议:',

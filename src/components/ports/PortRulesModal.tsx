@@ -42,14 +42,13 @@ import {
   Zap,
 } from 'lucide-react'
 import type React from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   PRESET_SERVICES,
   type PresetService,
   presetServiceI18nKey,
   SERVICE_CATEGORIES,
 } from '../../constants/presetServices'
-import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import type {
   PortMapping,
@@ -69,6 +68,7 @@ import {
   toast,
 } from '../common'
 import { getLatencyColor } from '../../utils/proxy'
+import { SpeedSelect } from './SpeedSelect'
 import { TrafficSnifferPanel } from './TrafficSnifferPanel'
 
 interface PortRulesModalProps {
@@ -212,6 +212,23 @@ function findPresetForRule(rule: PortRule): PresetService | undefined {
   return PRESET_SERVICES.find((service) => service.name === rule.name)
 }
 
+/** 同步下拉选项的单行测速状态（按 option.value 标记/清除） */
+function updateTestingValue(
+  setter: React.Dispatch<React.SetStateAction<Record<string, boolean>>>,
+  value: string,
+  active: boolean,
+) {
+  setter((prev) => {
+    const next = { ...prev }
+    if (active) {
+      next[value] = true
+    } else {
+      delete next[value]
+    }
+    return next
+  })
+}
+
 export const PortRulesModal: React.FC<PortRulesModalProps> = ({
   isOpen,
   onClose,
@@ -228,6 +245,9 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     saveConfig,
     latencies,
     coreStatus,
+    testNodeDelay,
+    testAllNodesDelay,
+    testPortDelay,
   } = useAppStore()
 
   const isGlobal = mode === 'global'
@@ -286,6 +306,22 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
 
   // 测速状态
   const [testingTarget, setTestingTarget] = useState(false)
+  const [testingNodeValues, setTestingNodeValues] = useState<
+    Record<string, boolean>
+  >({})
+  const [testingPortValues, setTestingPortValues] = useState<
+    Record<string, boolean>
+  >({})
+  const [isBatchTestingNodes, setIsBatchTestingNodes] = useState(false)
+  const [isBatchTestingPorts, setIsBatchTestingPorts] = useState(false)
+  // 同步防重入：批量探测尚未渲染出禁用态时再次点击也不会重复发起
+  const nodeBatchRunningRef = useRef(false)
+  const portBatchRunningRef = useRef(false)
+  // 下拉内任意测速进行中时，批量按钮一并禁用
+  const isNodeTesting =
+    isBatchTestingNodes || Object.keys(testingNodeValues).length > 0
+  const isPortTesting =
+    isBatchTestingPorts || Object.keys(testingPortValues).length > 0
   const [testResult, setTestResult] = useState<{
     success: boolean
     latency?: number
@@ -315,13 +351,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
       .map((s) => s.trim())
       .filter(Boolean)[0]
     return customName.trim() || first || ''
-  }, [
-    activeTab,
-    selectedPreset,
-    customName,
-    customDomains,
-    presetDisplayName,
-  ])
+  }, [activeTab, selectedPreset, customName, customDomains, presetDisplayName])
 
   // 是否满足测速条件：必须有目标网站 URL，且目标出口已选择，且非直连
   const canTestDelay = Boolean(
@@ -403,6 +433,14 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     return list
   }, [profiles, profileNodes])
 
+  // 节点在 Mihomo 内核中的真实运行时名称（测速与延迟缓存均以此为准）
+  const nodeRuntimeName = useCallback(
+    (node: { name: string; profileName?: string; runtimeName?: string }) =>
+      node.runtimeName ||
+      (node.profileName ? `[${node.profileName}] ${node.name}` : node.name),
+    [],
+  )
+
   // 节点下拉选项（按真实延迟升序排序：低延迟置顶）
   const nodeOptions = useMemo<SelectOption<string>[]>(() => {
     const getNodeLatency = (node: {
@@ -411,9 +449,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
       runtimeName?: string
       latency?: number | null
     }) => {
-      const runtimeKey =
-        node.runtimeName ||
-        (node.profileName ? `[${node.profileName}] ${node.name}` : node.name)
+      const runtimeKey = nodeRuntimeName(node)
       if (runtimeKey in latencies && latencies[runtimeKey] !== undefined) {
         return latencies[runtimeKey]
       }
@@ -462,7 +498,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         ) : null,
       }
     })
-  }, [allAvailableNodes, latencies, t])
+  }, [allAvailableNodes, latencies, t, nodeRuntimeName])
 
   // 其他可用端口（全局模式包含所有非直连已启用端口，单端口模式排除自身和固定直连端口）
   const otherPorts = useMemo(() => {
@@ -477,8 +513,12 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
   }, [portMappings, mapping, isGlobal])
   const portOptions = useMemo<SelectOption<string>[]>(() => {
     const getPortLatency = (p: PortMapping) => {
+      // 经真实监听端口测得的链路延迟优先展示（住宅链路仅此来源）
+      if (p.latency !== undefined && p.latency !== null && p.latency > 0) {
+        return p.latency
+      }
       if (p.residentialProxyId) {
-        return p.latency ?? null
+        return null
       }
       const isFbActive = p.manualFallback && Boolean(p.fallbackNodeName)
       const activeNodeName = isFbActive ? p.fallbackNodeName! : p.nodeName
@@ -486,9 +526,14 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         ? p.fallbackProfileId || p.profileId
         : p.profileId
       const prof = profiles.find((pr) => pr.id === activeProfileId)
-      const runtimeKey = prof
-        ? `[${prof.name}] ${activeNodeName}`
-        : activeNodeName
+      const activeNode = profileNodes[activeProfileId]?.find(
+        (n) => n.name === activeNodeName,
+      )
+      const runtimeKey = activeNode
+        ? nodeRuntimeName(activeNode)
+        : prof
+          ? `[${prof.name}] ${activeNodeName}`
+          : activeNodeName
 
       if (runtimeKey in latencies && latencies[runtimeKey] !== undefined) {
         return latencies[runtimeKey]
@@ -519,16 +564,26 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     })
 
     return sortedPorts.map((p) => {
-      const isFbActive = p.manualFallback && Boolean(p.fallbackNodeName)
+      const residential = p.residentialProxyId
+        ? (config?.residentialProxies?.find(
+            (proxy) => proxy.id === p.residentialProxyId,
+          ) ?? null)
+        : null
+      const isFbActive =
+        !residential && p.manualFallback && Boolean(p.fallbackNodeName)
       const activeNodeName = isFbActive ? p.fallbackNodeName! : p.nodeName
       const activeProfileId = isFbActive
         ? p.fallbackProfileId || p.profileId
         : p.profileId
       const prof = profiles.find((pr) => pr.id === activeProfileId)
-      const formattedNode = prof
-        ? `[${prof.name}] ${activeNodeName}`
-        : activeNodeName
-      const hasFallback = Boolean(p.fallbackNodeName && !p.manualFallback)
+      const formattedNode = residential
+        ? residential.name
+        : prof
+          ? `[${prof.name}] ${activeNodeName}`
+          : activeNodeName
+      const hasFallback = Boolean(
+        !residential && p.fallbackNodeName && !p.manualFallback,
+      )
       const lat = getPortLatency(p)
       const hasLat = lat !== undefined && lat !== null && lat > 0
 
@@ -554,14 +609,30 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         ) : null,
       }
     })
-  }, [otherPorts, profiles, latencies, t])
-  // 获取目标端口当前活跃生效的出口节点名称
-  const targetPortActiveNode = useMemo(() => {
+  }, [
+    otherPorts,
+    profiles,
+    profileNodes,
+    latencies,
+    config?.residentialProxies,
+    t,
+    nodeRuntimeName,
+  ])
+  // 获取目标端口当前活跃生效的出口名称
+  const targetPortExitName = useMemo(() => {
     if (targetType !== 'port') return null
     const targetPort = otherPorts.find((p) => p.port.toString() === targetValue)
     if (!targetPort) return null
+    // 住宅链路真实出口为住宅代理，而非上游节点
+    const residential = targetPort.residentialProxyId
+      ? (config?.residentialProxies?.find(
+          (proxy) => proxy.id === targetPort.residentialProxyId,
+        ) ?? null)
+      : null
     const isFbActive =
-      targetPort.manualFallback && Boolean(targetPort.fallbackNodeName)
+      !residential &&
+      targetPort.manualFallback &&
+      Boolean(targetPort.fallbackNodeName)
     const activeNodeName = isFbActive
       ? targetPort.fallbackNodeName!
       : targetPort.nodeName
@@ -569,15 +640,196 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
       ? targetPort.fallbackProfileId || targetPort.profileId
       : targetPort.profileId
     const prof = profiles.find((pr) => pr.id === activeProfileId)
-    const runtimeName = prof
-      ? `[${prof.name}] ${activeNodeName}`
-      : activeNodeName
-    return {
-      activeNodeName,
-      runtimeName,
-      portNumber: targetPort.port,
-    }
-  }, [targetType, targetValue, otherPorts, profiles])
+    const activeNode = profileNodes[activeProfileId]?.find(
+      (n) => n.name === activeNodeName,
+    )
+    return residential
+      ? residential.name
+      : activeNode
+        ? nodeRuntimeName(activeNode)
+        : prof
+          ? `[${prof.name}] ${activeNodeName}`
+          : activeNodeName
+  }, [
+    targetType,
+    targetValue,
+    otherPorts,
+    profiles,
+    profileNodes,
+    config?.residentialProxies,
+    nodeRuntimeName,
+  ])
+
+  // 目标网站访问测速的超时上限（严格遵从全局配置）
+  const testTimeoutMs = config?.timeoutMs || 3000
+
+  // 单项测速：节点按运行时名称直达内核，端口按真实监听端口测完整链路
+  const handleTestNodeOption = useCallback(
+    async (option: SelectOption<string>) => {
+      if (
+        isBatchTestingNodes ||
+        nodeBatchRunningRef.current ||
+        testingNodeValues[option.value]
+      )
+        return
+      const node = allAvailableNodes.find(
+        (n) => `${n.profileId}:::${n.name}` === option.value,
+      )
+      if (!node) return
+      updateTestingValue(setTestingNodeValues, option.value, true)
+      try {
+        const latency = await testNodeDelay(
+          nodeRuntimeName(node),
+          currentTestUrl,
+          testTimeoutMs,
+        )
+        if (latency === null) toast.error(t('rules.testTimeout'))
+      } finally {
+        updateTestingValue(setTestingNodeValues, option.value, false)
+      }
+    },
+    [
+      allAvailableNodes,
+      currentTestUrl,
+      testTimeoutMs,
+      testNodeDelay,
+      nodeRuntimeName,
+      isBatchTestingNodes,
+      testingNodeValues,
+      t,
+    ],
+  )
+
+  // 批量测速：仅测试当前过滤结果中真实存在的节点，去重后交给 store 并发探测
+  const handleTestNodeOptions = useCallback(
+    async (options: SelectOption<string>[]) => {
+      const testable = options.flatMap((option) => {
+        const node = allAvailableNodes.find(
+          (n) => `${n.profileId}:::${n.name}` === option.value,
+        )
+        return node ? [{ option, node }] : []
+      })
+      if (testable.length === 0 || isNodeTesting || nodeBatchRunningRef.current)
+        return
+      nodeBatchRunningRef.current = true
+      setIsBatchTestingNodes(true)
+      for (const entry of testable) {
+        updateTestingValue(setTestingNodeValues, entry.option.value, true)
+      }
+      try {
+        const results = await testAllNodesDelay(
+          [...new Set(testable.map((entry) => nodeRuntimeName(entry.node)))],
+          currentTestUrl,
+          testTimeoutMs,
+        )
+        if (
+          results.length > 0 &&
+          results.every(
+            (result) => result.latency === null || result.latency === undefined,
+          )
+        ) {
+          toast.error(t('rules.testTimeout'))
+        }
+      } finally {
+        nodeBatchRunningRef.current = false
+        setIsBatchTestingNodes(false)
+        for (const entry of testable) {
+          updateTestingValue(setTestingNodeValues, entry.option.value, false)
+        }
+      }
+    },
+    [
+      allAvailableNodes,
+      currentTestUrl,
+      testTimeoutMs,
+      testAllNodesDelay,
+      nodeRuntimeName,
+      isNodeTesting,
+      t,
+    ],
+  )
+
+  // 单项测速：走真实监听端口，住宅链路因此包含「上游 → 住宅出口」全链路
+  const handleTestPortOption = useCallback(
+    async (option: SelectOption<string>) => {
+      if (
+        isBatchTestingPorts ||
+        portBatchRunningRef.current ||
+        testingPortValues[option.value]
+      )
+        return
+      const targetPort = otherPorts.find(
+        (p) => p.port.toString() === option.value,
+      )
+      if (!targetPort) return
+      updateTestingValue(setTestingPortValues, option.value, true)
+      try {
+        const latency = await testPortDelay(
+          targetPort.id,
+          currentTestUrl,
+          testTimeoutMs,
+        )
+        if (latency === null) toast.error(t('rules.testTimeout'))
+      } finally {
+        updateTestingValue(setTestingPortValues, option.value, false)
+      }
+    },
+    [
+      otherPorts,
+      currentTestUrl,
+      testTimeoutMs,
+      testPortDelay,
+      isBatchTestingPorts,
+      testingPortValues,
+      t,
+    ],
+  )
+
+  // 批量测速：逐个通过真实监听端口探测，过滤结果中不存在的端口直接跳过
+  const handleTestPortOptions = useCallback(
+    async (options: SelectOption<string>[]) => {
+      const testable = options.flatMap((option) => {
+        const targetPort = otherPorts.find(
+          (p) => p.port.toString() === option.value,
+        )
+        return targetPort ? [{ option, targetPort }] : []
+      })
+      if (testable.length === 0 || isPortTesting || portBatchRunningRef.current)
+        return
+      portBatchRunningRef.current = true
+      setIsBatchTestingPorts(true)
+      for (const entry of testable) {
+        updateTestingValue(setTestingPortValues, entry.option.value, true)
+      }
+      try {
+        const results = await Promise.all(
+          testable.map((entry) =>
+            testPortDelay(entry.targetPort.id, currentTestUrl, testTimeoutMs),
+          ),
+        )
+        if (
+          results.length > 0 &&
+          results.every((latency) => latency === null)
+        ) {
+          toast.error(t('rules.testTimeout'))
+        }
+      } finally {
+        portBatchRunningRef.current = false
+        setIsBatchTestingPorts(false)
+        for (const entry of testable) {
+          updateTestingValue(setTestingPortValues, entry.option.value, false)
+        }
+      }
+    },
+    [
+      otherPorts,
+      currentTestUrl,
+      testTimeoutMs,
+      testPortDelay,
+      isPortTesting,
+      t,
+    ],
+  )
 
   // 将 PRESET_SERVICES 转换为强大的 SelectOption（展示文案随语言切换）
   const presetSelectOptions = useMemo<SelectOption<string>[]>(() => {
@@ -662,29 +914,37 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     if (!canTestDelay || !currentTestUrl || testingTarget) return
     setTestingTarget(true)
     setTestResult(null)
-    const timeout = config?.timeoutMs || 3000
     try {
+      let latency: number | null = null
       if (targetType === 'node') {
         const selectedNode = allAvailableNodes.find(
           (n) =>
             n.name === targetValue &&
             (!targetProfileId || n.profileId === targetProfileId),
         )
-        const nodeNameToTest = selectedNode?.runtimeName || targetValue
-        const latency = await api.testNodeDelay(
-          nodeNameToTest,
-          currentTestUrl,
-          timeout,
-          true,
+        if (selectedNode) {
+          latency = await testNodeDelay(
+            nodeRuntimeName(selectedNode),
+            currentTestUrl,
+            testTimeoutMs,
+          )
+        }
+      } else if (targetType === 'port') {
+        const targetPort = otherPorts.find(
+          (p) => p.port.toString() === targetValue,
         )
-        setTestResult({ success: true, latency })
-      } else if (targetType === 'port' && targetPortActiveNode) {
-        const latency = await api.testNodeDelay(
-          targetPortActiveNode.runtimeName,
-          currentTestUrl,
-          timeout,
-          true,
-        )
+        // 端口出口必须经真实监听端口测速，住宅链路才能覆盖完整出口路径
+        if (targetPort) {
+          latency = await testPortDelay(
+            targetPort.id,
+            currentTestUrl,
+            testTimeoutMs,
+          )
+        }
+      }
+      if (latency === null) {
+        setTestResult({ success: false, errorMsg: t('rules.testTimeout') })
+      } else {
         setTestResult({ success: true, latency })
       }
     } catch {
@@ -1439,7 +1699,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           <div className="flex items-center gap-2">
             <div className="flex-1 min-w-0">
               {targetType === 'node' && (
-                <Select
+                <SpeedSelect
                   value={
                     targetValue
                       ? `${targetProfileId}:::${targetValue}`
@@ -1455,11 +1715,15 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                   placeholder={t('rules.selectNodePlaceholder')}
                   filterable
                   className="h-9 text-xs w-full"
+                  testOption={handleTestNodeOption}
+                  testOptions={handleTestNodeOptions}
+                  isTesting={isNodeTesting}
+                  testingValues={testingNodeValues}
                 />
               )}
 
               {targetType === 'port' && (
-                <Select
+                <SpeedSelect
                   value={targetValue}
                   onChange={(val) => {
                     setTargetValue(val)
@@ -1469,6 +1733,10 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                   placeholder={t('rules.selectPortPlaceholder')}
                   filterable
                   className="h-9 text-xs w-full"
+                  testOption={handleTestPortOption}
+                  testOptions={handleTestPortOptions}
+                  isTesting={isPortTesting}
+                  testingValues={testingPortValues}
                 />
               )}
 
@@ -1518,10 +1786,10 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                     <span className="font-mono font-semibold text-emerald-500">
                       {testResult.latency} ms
                     </span>
-                    {targetPortActiveNode && (
+                    {targetPortExitName && (
                       <span className="text-muted-foreground/80 truncate">
                         {t('rules.testExitSuffix', {
-                          node: targetPortActiveNode.runtimeName,
+                          node: targetPortExitName,
                         })}
                       </span>
                     )}
@@ -1535,10 +1803,10 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                     <span className="font-medium">
                       {testResult.errorMsg || t('rules.testTimeout')}
                     </span>
-                    {targetPortActiveNode && (
+                    {targetPortExitName && (
                       <span className="text-muted-foreground/80 truncate">
                         {t('rules.testExitSuffix', {
-                          node: targetPortActiveNode.runtimeName,
+                          node: targetPortExitName,
                         })}
                       </span>
                     )}

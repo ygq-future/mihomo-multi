@@ -618,6 +618,7 @@ export const enUS: Record<TranslationKey, string> = {
   'proxies.sortNameAsc': 'Name (A-Z)',
   'proxies.testingAll': 'Testing all...',
   'proxies.testAll': 'Test All',
+  'proxies.testVisible': 'Test visible items',
   'proxies.regionLabel': 'Region:',
   'proxies.allCount': 'All ({count})',
   'proxies.protocolLabel': 'Protocol:',

@@ -20,6 +20,7 @@ import {
   extractRegion,
   formatProtocolName,
   getLatencyBadgeProps,
+  getLatencyColor,
   getProtocolBadgeProps,
 } from '../../utils/proxy'
 import {
@@ -32,6 +33,7 @@ import {
   type SelectOption,
   Switch,
 } from '../common'
+import { SpeedSelect } from './SpeedSelect'
 
 export interface AddPortModalProps {
   isOpen: boolean
@@ -40,6 +42,10 @@ export interface AddPortModalProps {
   initialNodeName?: string
   initialMapping?: PortMapping | null
 }
+
+type ResidentialTestState =
+  | { status: 'success'; latency: number; ip: string; region: string }
+  | { status: 'error'; error: string }
 
 function nodeKeyHasLatency(
   key: string,
@@ -103,6 +109,10 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     setActiveTab,
     latencies,
     config,
+    testingNodeNames,
+    isTestingAll,
+    testNodeDelay,
+    testAllNodesDelay,
   } = useAppStore()
 
   const [port, setPort] = useState<string>('7891')
@@ -116,6 +126,17 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const [selectedResidentialProxyId, setSelectedResidentialProxyId] =
     useState<string>('')
   const [residentialConfigError, setResidentialConfigError] = useState<
+    string | null
+  >(null)
+  const [residentialTestResults, setResidentialTestResults] = useState<
+    Record<string, ResidentialTestState>
+  >({})
+  const [residentialTesting, setResidentialTesting] = useState<
+    Record<string, boolean>
+  >({})
+  const [residentialBatchTesting, setResidentialBatchTesting] =
+    useState<boolean>(false)
+  const [residentialTestError, setResidentialTestError] = useState<
     string | null
   >(null)
   const [configReloadToken, setConfigReloadToken] = useState(0)
@@ -172,6 +193,10 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       setSuccess(false)
       setSubmitting(false)
       setResidentialConfigError(null)
+      setResidentialTestResults({})
+      setResidentialTesting({})
+      setResidentialBatchTesting(false)
+      setResidentialTestError(null)
 
       if (initialMapping) {
         setPort(String(initialMapping.port))
@@ -302,6 +327,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       type: string
       server: string
       port: number
+      runtimeName?: string
       profileId: string
       profileName: string
       uniqueKey: string
@@ -471,34 +497,11 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         icon: <RegionFlag code={region.code} size="sm" />,
         disabled: Boolean(boundPort) && !isChainMode,
         rightNode: (
-          <div className="flex items-center gap-1.5">
-            {chainPort && (
-              <Badge
-                variant="secondary"
-                size="sm"
-                className="!text-[10px] !py-0.5 !px-1.5"
-              >
-                {t('addPort.upstreamTag', { port: chainPort })}
-              </Badge>
-            )}
-            {boundPort && (
-              <Badge
-                variant="outline"
-                size="sm"
-                className="!text-[10px] !py-0.5 !px-1.5"
-              >
-                {t('addPort.occupiedTag', { port: boundPort })}
-              </Badge>
-            )}
-            <Badge
-              variant={latencyProps.variant}
-              size="sm"
-              dot={latencyProps.dot}
-              className="!text-[10px] !py-0.5 !px-1.5 font-mono"
-            >
-              {latencyProps.label}
-            </Badge>
-          </div>
+          <span
+            className={`font-mono text-[11px] font-medium ${getLatencyColor(latency)}`}
+          >
+            {latencyProps.label}
+          </span>
         ),
       }
     })
@@ -510,6 +513,264 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     isChainMode,
     t,
     formatRegionName,
+  ])
+
+  const nodeTestingValues = useMemo(() => {
+    const testing: Record<string, boolean> = {}
+    for (const node of allAvailableNodes) {
+      const runtimeName = node.runtimeName || node.displayName
+      if (testingNodeNames[runtimeName] || testingNodeNames[node.name]) {
+        testing[node.uniqueKey] = true
+      }
+    }
+    return testing
+  }, [allAvailableNodes, testingNodeNames])
+
+  const handleTestNodeOption = useCallback(
+    async (option: SelectOption<string>) => {
+      const node = allAvailableNodes.find(
+        (candidate) => candidate.uniqueKey === option.value,
+      )
+      if (!node) return
+      await testNodeDelay(node.runtimeName || node.displayName)
+    },
+    [allAvailableNodes, testNodeDelay],
+  )
+
+  const handleTestNodeOptions = useCallback(
+    async (options: SelectOption<string>[]) => {
+      const names = Array.from(
+        new Set(
+          options.flatMap((option) => {
+            if (!option.value) return []
+            const node = allAvailableNodes.find(
+              (candidate) => candidate.uniqueKey === option.value,
+            )
+            return node ? [node.runtimeName || node.displayName] : []
+          }),
+        ),
+      )
+      if (names.length === 0) return
+      await testAllNodesDelay(names)
+    },
+    [allAvailableNodes, testAllNodesDelay],
+  )
+
+  const selectedUpstreamKey =
+    selectedNode && selectedProfileId
+      ? `${selectedProfileId}:::${selectedNode.name}`
+      : ''
+  const residentialUpstreamRef = useRef('')
+  const residentialGenerationRef = useRef(0)
+  const residentialRequestIdRef = useRef(0)
+  const residentialTestTokensRef = useRef<Record<string, number>>({})
+  const residentialBatchRef = useRef(0)
+  const residentialBatchTestingRef = useRef(false)
+
+  // Invalidate in-flight probes as soon as the upstream changes, before effects flush.
+  if (residentialUpstreamRef.current !== selectedUpstreamKey) {
+    residentialUpstreamRef.current = selectedUpstreamKey
+    residentialGenerationRef.current += 1
+  }
+
+  useEffect(() => {
+    residentialTestTokensRef.current = {}
+    residentialBatchRef.current += 1
+    residentialBatchTestingRef.current = false
+    setResidentialTestResults({})
+    setResidentialTesting({})
+    setResidentialBatchTesting(false)
+    setResidentialTestError(null)
+  }, [selectedUpstreamKey])
+
+  useEffect(() => {
+    residentialBatchTestingRef.current = false
+    setResidentialBatchTesting(false)
+    if (!isOpen) return
+    residentialGenerationRef.current += 1
+    residentialBatchRef.current += 1
+    residentialTestTokensRef.current = {}
+  }, [isOpen])
+
+  const testResidentialExit = useCallback(
+    async (proxyId: string, batchId?: number): Promise<string | null> => {
+      if (!proxyId) return null
+      if (!residentialProxies.some((proxy) => proxy.id === proxyId)) return null
+      if (!selectedNode || !selectedProfileId) {
+        const message = t('residentialI18n.test.selectFirst')
+        setResidentialTestError(message)
+        return message
+      }
+
+      const upstreamKey = `${selectedProfileId}:::${selectedNode.name}`
+      const generation = residentialGenerationRef.current
+      const isStale = () =>
+        generation !== residentialGenerationRef.current ||
+        residentialUpstreamRef.current !== upstreamKey ||
+        (batchId !== undefined && batchId !== residentialBatchRef.current)
+
+      if (isStale()) return null
+      // Single tests must not start while a batch owns the exits.
+      if (batchId === undefined && residentialBatchTestingRef.current)
+        return null
+
+      const requestId = ++residentialRequestIdRef.current
+      residentialTestTokensRef.current[proxyId] = requestId
+      const isCurrentRequest = () =>
+        !isStale() && residentialTestTokensRef.current[proxyId] === requestId
+      setResidentialTestError(null)
+      setResidentialTesting((previous) => ({ ...previous, [proxyId]: true }))
+      try {
+        const result = await api.testResidentialProxy(
+          proxyId,
+          selectedProfileId,
+          selectedNode.name,
+        )
+        if (!isCurrentRequest()) return null
+        setResidentialTestResults((previous) => ({
+          ...previous,
+          [proxyId]: {
+            status: 'success',
+            latency: result.latencyMs,
+            ip: result.egress.ip,
+            region: result.egress.region,
+          },
+        }))
+        return null
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        if (!isCurrentRequest()) return null
+        setResidentialTestResults((previous) => ({
+          ...previous,
+          [proxyId]: { status: 'error', error: message },
+        }))
+        setResidentialTestError(
+          t('residentialI18n.test.liveFailed', { err: message }),
+        )
+        return message
+      } finally {
+        // Only the request that still owns this exit may clear its loading state.
+        if (residentialTestTokensRef.current[proxyId] === requestId) {
+          delete residentialTestTokensRef.current[proxyId]
+          setResidentialTesting((previous) => {
+            if (!previous[proxyId]) return previous
+            const next = { ...previous }
+            delete next[proxyId]
+            return next
+          })
+        }
+      }
+    },
+    [selectedNode, selectedProfileId, residentialProxies, t],
+  )
+
+  const handleTestResidentialOption = useCallback(
+    async (option: SelectOption<string>) => {
+      await testResidentialExit(option.value)
+    },
+    [testResidentialExit],
+  )
+
+  const handleTestResidentialOptions = useCallback(
+    async (options: SelectOption<string>[]) => {
+      if (residentialBatchTestingRef.current) return
+      if (Object.keys(residentialTestTokensRef.current).length > 0) return
+      if (!selectedNode || !selectedProfileId) {
+        setResidentialTestError(t('residentialI18n.test.selectFirst'))
+        return
+      }
+
+      const upstreamKey = `${selectedProfileId}:::${selectedNode.name}`
+      if (residentialUpstreamRef.current !== upstreamKey) return
+      const generation = residentialGenerationRef.current
+      const batchId = ++residentialBatchRef.current
+      const isStale = () =>
+        generation !== residentialGenerationRef.current ||
+        batchId !== residentialBatchRef.current ||
+        residentialUpstreamRef.current !== upstreamKey
+
+      residentialBatchTestingRef.current = true
+      setResidentialBatchTesting(true)
+      setResidentialTestError(null)
+      let lastError: string | null = null
+      try {
+        for (const option of options) {
+          if (!option.value) continue
+          if (isStale()) return
+          const error = await testResidentialExit(option.value, batchId)
+          if (isStale()) return
+          if (error) lastError = error
+        }
+        if (!isStale()) {
+          setResidentialTestError(
+            lastError
+              ? t('residentialI18n.test.liveFailed', { err: lastError })
+              : null,
+          )
+        }
+      } finally {
+        if (batchId === residentialBatchRef.current) {
+          residentialBatchTestingRef.current = false
+          setResidentialBatchTesting(false)
+        }
+      }
+    },
+    [selectedNode, selectedProfileId, testResidentialExit, t],
+  )
+
+  const renderResidentialTestState = useCallback(
+    (proxyId: string) => {
+      if (residentialTesting[proxyId]) {
+        return (
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+        )
+      }
+      const result = residentialTestResults[proxyId]
+      if (!result) return null
+      if (result.status === 'success') {
+        const latencyProps = getLatencyBadgeProps(result.latency, false)
+        return (
+          <span
+            title={t('residentialI18n.test.livePassed', {
+              ip: result.ip,
+              region: result.region,
+              latency: result.latency,
+            })}
+          >
+            <Badge
+              variant={latencyProps.variant}
+              size="sm"
+              dot={latencyProps.dot}
+              className="!text-[10px] !py-0.5 !px-1.5 font-mono"
+            >
+              {latencyProps.label}
+            </Badge>
+          </span>
+        )
+      }
+      return (
+        <span
+          title={t('residentialI18n.test.liveFailed', { err: result.error })}
+          className="inline-flex text-destructive"
+        >
+          <AlertCircle className="w-3.5 h-3.5" />
+        </span>
+      )
+    },
+    [residentialTesting, residentialTestResults, t],
+  )
+
+  const residentialSelectTestingValues = useMemo(() => {
+    if (!residentialBatchTesting) return residentialTesting
+    const testing: Record<string, boolean> = {}
+    for (const proxy of residentialProxies) testing[proxy.id] = true
+    if (selectedResidentialProxyId) testing[selectedResidentialProxyId] = true
+    return testing
+  }, [
+    residentialBatchTesting,
+    residentialTesting,
+    residentialProxies,
+    selectedResidentialProxyId,
   ])
 
   const residentialOptions = useMemo(() => {
@@ -526,6 +787,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         label: proxy.name,
         description: `${proxy.protocol.toUpperCase()} · ${proxy.server}:${proxy.port}`,
         icon: <Building2 className="w-3.5 h-3.5 text-primary" />,
+        rightNode: renderResidentialTestState(proxy.id),
       })
     }
     if (
@@ -542,7 +804,12 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       })
     }
     return options
-  }, [residentialProxies, selectedResidentialProxyId, t])
+  }, [
+    residentialProxies,
+    selectedResidentialProxyId,
+    t,
+    renderResidentialTestState,
+  ])
 
   const fallbackNodeOptions = useMemo(() => {
     if (!selectedNodeRegion || !selectedNode) return []
@@ -579,14 +846,11 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         }),
         icon: <RegionFlag code={region.code} size="sm" />,
         rightNode: (
-          <Badge
-            variant={latencyProps.variant}
-            size="sm"
-            dot={latencyProps.dot}
-            className="!text-[10px] !py-0.5 !px-1.5 font-mono"
+          <span
+            className={`font-mono text-[11px] font-medium ${getLatencyColor(latency)}`}
           >
             {latencyProps.label}
-          </Badge>
+          </span>
         ),
       })
     }
@@ -891,7 +1155,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
               : t('addPort.bindNodeLabel')}{' '}
             <span className="text-destructive">*</span>
           </label>
-          <Select
+          <SpeedSelect
             id="node-select"
             value={selectedNode ? selectedNode.uniqueKey : ''}
             onChange={(val) => {
@@ -929,6 +1193,36 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
                   : t('addPort.selectNodePlaceholder')
             }
             prefixIcon={<Radio className="w-3.5 h-3.5 text-primary" />}
+            testOption={handleTestNodeOption}
+            testOptions={handleTestNodeOptions}
+            isTesting={isTestingAll}
+            testingValues={nodeTestingValues}
+            renderOptionStatus={(option) => {
+              const boundPort = boundNodeMap.get(option.value)
+              const chainPort = chainUpstreamMap.get(option.value)
+              return (
+                <>
+                  {chainPort && (
+                    <Badge
+                      variant="secondary"
+                      size="sm"
+                      className="!text-[10px] !py-0.5 !px-1.5"
+                    >
+                      {t('addPort.upstreamTag', { port: chainPort })}
+                    </Badge>
+                  )}
+                  {boundPort && (
+                    <Badge
+                      variant="outline"
+                      size="sm"
+                      className="!text-[10px] !py-0.5 !px-1.5"
+                    >
+                      {t('addPort.occupiedTag', { port: boundPort })}
+                    </Badge>
+                  )}
+                </>
+              )
+            }}
           />
           <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">
             {isChainMode
@@ -945,7 +1239,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           >
             {t('addPort.residentialLabel')}
           </label>
-          <Select
+          <SpeedSelect
             id="residential-select"
             value={selectedResidentialProxyId}
             onChange={(val) => handleResidentialChange(String(val))}
@@ -958,6 +1252,13 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             prefixIcon={<Building2 className="w-3.5 h-3.5 text-primary" />}
             clearable={Boolean(selectedResidentialProxyId)}
             onClear={() => handleResidentialChange('')}
+            testOption={handleTestResidentialOption}
+            testOptions={handleTestResidentialOptions}
+            isTesting={
+              residentialBatchTesting ||
+              Object.keys(residentialTesting).length > 0
+            }
+            testingValues={residentialSelectTestingValues}
           />
           <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
             {residentialProxies.length === 0
@@ -977,6 +1278,20 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
               </button>
             </div>
           )}
+          {!residentialConfigError && residentialTestError && (
+            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-destructive">
+              <AlertCircle className="w-3 h-3 shrink-0" />
+              <span className="min-w-0">{residentialTestError}</span>
+            </div>
+          )}
+          {!residentialConfigError &&
+            !residentialTestError &&
+            residentialProxies.length > 0 &&
+            !selectedNode && (
+              <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400 leading-relaxed">
+                {t('residentialI18n.test.selectFirst')}
+              </p>
+            )}
         </div>
 
         {/* Chain Overview Card */}
@@ -1082,7 +1397,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
               </div>
             ) : (
               <>
-                <Select
+                <SpeedSelect
                   id="fallback-select"
                   value={
                     selectedFallbackNode ? selectedFallbackNode.uniqueKey : ''
@@ -1110,6 +1425,10 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
                   prefixIcon={
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
                   }
+                  testOption={handleTestNodeOption}
+                  testOptions={handleTestNodeOptions}
+                  isTesting={isTestingAll}
+                  testingValues={nodeTestingValues}
                 />
                 <p className="text-[10px] text-muted-foreground mt-1">
                   {t('addPort.fallbackHint')}
