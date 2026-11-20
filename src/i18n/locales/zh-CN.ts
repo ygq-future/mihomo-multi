@@ -859,9 +859,11 @@ export const zhCN = {
   'connections.confirmCloseAll': '确认断开所有连接',
   'connections.cancel': '取消',
   'connections.confirmClose': '确认断开',
-  'connections.closeAllDescription': '确定要断开当前所有的活跃连接吗？所有正在传输的 TCP/UDP 长连接将被立即终止。',
+  'connections.closeAllDescription':
+    '确定要断开当前所有的活跃连接吗？所有正在传输的 TCP/UDP 长连接将被立即终止。',
   'settingsUwp.title': 'UWP 应用列表与回环豁免状态',
-  'settingsUwp.subtitle': '已检测到 {total} 个 UWP 应用容器，其中 {exempted} 个已开启豁免，{unexempted} 个未开启',
+  'settingsUwp.subtitle':
+    '已检测到 {total} 个 UWP 应用容器，其中 {exempted} 个已开启豁免，{unexempted} 个未开启',
   'settingsUwp.refreshed': '已刷新 UWP 应用列表',
   'settingsUwp.loadFailed': '获取 UWP 应用列表失败',
   'settingsUwp.copySidToast': '已复制 SID 到剪贴板',
@@ -879,9 +881,11 @@ export const zhCN = {
   'settingsUwp.copySidTitle': '复制 SID',
   'settingsUwp.statusExempted': '已开启',
   'settingsUwp.statusUnexempted': '未开启',
-  'settingsUpdate.appAvailable': '发现新版本 v{version}，前往「设置 → 软件关于与更新」即可查看并下载更新。',
+  'settingsUpdate.appAvailable':
+    '发现新版本 v{version}，前往「设置 → 软件关于与更新」即可查看并下载更新。',
   'settingsUpdate.appTitle': '发现新版本',
-  'settingsUpdate.kernelAvailable': '发现 Mihomo 内核新版本 {version}，可前往设置更新。',
+  'settingsUpdate.kernelAvailable':
+    '发现 Mihomo 内核新版本 {version}，可前往设置更新。',
   'settingsUpdate.kernelTitle': '发现内核新版本',
   'settingsUpdate.goNow': '立即前往',
   'settingsPage.common.listSeparator': '，',
@@ -914,115 +918,150 @@ export const zhCN = {
   'settingsPage.core.mrsTitle': '国内分流规则库 (MRS 二进制)',
   'settingsPage.core.mrsReady': '已就绪 (4/4)',
   'settingsPage.core.mrsMissing': '缺少 {count} 个文件',
-  'settingsPage.core.mrsDesc': '包含 111,004 条中国域名及完整中国 IP CIDR。采用紧凑 Meta 规则集格式，极速匹配且仅占极小内存',
+  'settingsPage.core.mrsDesc':
+    '包含 111,004 条中国域名及完整中国 IP CIDR。采用紧凑 Meta 规则集格式，极速匹配且仅占极小内存',
   'settingsPage.core.mrsLastUpdated': '最后更新：{time}',
   'settingsPage.core.mrsBundled': '跟随安装包内置',
   'settingsPage.core.mrsSize': '库体积：{size} KB',
   'settingsPage.core.updatingRules': '正在更新规则...',
   'settingsPage.core.updateRules': '立即更新规则库',
   'settingsPage.core.portLabel': '外部控制器端口',
-  'settingsPage.core.portDesc': 'Mihomo 本地 RESTful 控制接口端口，用于热重载与测速（默认 {port}）',
-  'settingsPage.core.portRangeError': '端口号必须为整数且在 1024 ~ 65535 范围内',
-  'settingsPage.core.portNeedsRestart': '端口配置已更新为 {port}，重启内核后生效',
+  'settingsPage.core.portDesc':
+    'Mihomo 本地 RESTful 控制接口端口，用于热重载与测速（默认 {port}）',
+  'settingsPage.core.portRangeError':
+    '端口号必须为整数且在 1024 ~ 65535 范围内',
+  'settingsPage.core.portNeedsRestart':
+    '端口配置已更新为 {port}，重启内核后生效',
   'settingsPage.core.logLevelLabel': '内核日志级别',
-  'settingsPage.core.logLevelDesc': 'Mihomo 运行时的日志输出详细程度（修改后即时热重载生效）',
+  'settingsPage.core.logLevelDesc':
+    'Mihomo 运行时的日志输出详细程度（修改后即时热重载生效）',
   'settingsPage.core.logLevel.info': 'Info (标准信息)',
   'settingsPage.core.logLevel.warning': 'Warning (警告)',
   'settingsPage.core.logLevel.error': 'Error (仅错误)',
   'settingsPage.core.logLevel.debug': 'Debug (详细调试)',
   'settingsPage.core.logLevel.silent': 'Silent (静默)',
   'settingsPage.core.allowLanLabel': '允许局域网连接',
-  'settingsPage.core.allowLanDesc': '开启后端口映射将监听所有网卡接口 (0.0.0.0)，允许局域网或虚拟机设备连接；关闭时仅监听本机回环地址 (127.0.0.1)',
+  'settingsPage.core.allowLanDesc':
+    '开启后端口映射将监听所有网卡接口 (0.0.0.0)，允许局域网或虚拟机设备连接；关闭时仅监听本机回环地址 (127.0.0.1)',
   'settingsPage.core.probeTitle': '节点探测与 Fallback 容灾策略',
   'settingsPage.core.testUrlLabel': '探测与测速目标地址',
-  'settingsPage.core.testUrlDesc': '全局测速、单端口测速与 Fallback 策略组测活所使用的网络端点',
+  'settingsPage.core.testUrlDesc':
+    '全局测速、单端口测速与 Fallback 策略组测活所使用的网络端点',
   'settingsPage.core.timeoutLabel': '节点测速与故障判定超时',
-  'settingsPage.core.timeoutDesc': '统一控制手动测速超时时间，以及 Fallback 主节点被判定故障的阈值（毫秒）',
+  'settingsPage.core.timeoutDesc':
+    '统一控制手动测速超时时间，以及 Fallback 主节点被判定故障的阈值（毫秒）',
   'settingsPage.core.fallbackIntervalLabel': 'Fallback 健康检查周期',
-  'settingsPage.core.fallbackIntervalDesc': 'Mihomo 内核在底层向探针测活的间隔秒数；主节点恢复后内核自动切回',
+  'settingsPage.core.fallbackIntervalDesc':
+    'Mihomo 内核在底层向探针测活的间隔秒数；主节点恢复后内核自动切回',
   'settingsPage.core.secondsShort': '秒',
   'settingsPage.core.lazyLabel': '惰性健康检查',
-  'settingsPage.core.lazyDesc': '仅对已配置备用节点 (Fallback) 的端口生效。关闭时内核持续主动测活；开启后仅在该端口有流量经过时发起检测',
+  'settingsPage.core.lazyDesc':
+    '仅对已配置备用节点 (Fallback) 的端口生效。关闭时内核持续主动测活；开启后仅在该端口有流量经过时发起检测',
 
   'settingsPage.proxy.title': '系统代理设置',
-  'settingsPage.proxy.desc': '接管操作系统 WinInet 全局网络代理，多监听端口单选互斥，针对桌面浏览器与系统应用生效',
+  'settingsPage.proxy.desc':
+    '接管操作系统 WinInet 全局网络代理，多监听端口单选互斥，针对桌面浏览器与系统应用生效',
   'settingsPage.proxy.enableLabel': '启用系统代理',
-  'settingsPage.proxy.enableDesc': '将选定监听端口设为系统全局代理。内核停止或应用退出时将自动清理，防止系统断网',
+  'settingsPage.proxy.enableDesc':
+    '将选定监听端口设为系统全局代理。内核停止或应用退出时将自动清理，防止系统断网',
   'settingsPage.proxy.portLabel': '出站绑定的监听端口',
-  'settingsPage.proxy.portDesc': '从已启用的监听端口中选择作为全局出站出口（系统代理与 TUN 模式共享此端口）',
-  'settingsPage.proxy.noPort': '暂无可用代理节点端口，请先在端口管理中启用代理端口',
+  'settingsPage.proxy.portDesc':
+    '从已启用的监听端口中选择作为全局出站出口（系统代理与 TUN 模式共享此端口）',
+  'settingsPage.proxy.noPort':
+    '暂无可用代理节点端口，请先在端口管理中启用代理端口',
   'settingsPage.proxy.portOption': '端口 {port} ({protocol} - {node})',
   'settingsPage.proxy.bypassLabel': '排除域名与 IP',
-  'settingsPage.proxy.bypassDesc': '匹配列表中的网络请求将不经过系统代理直连访问，若开启环境变量同步将同时注入到系统的 no_proxy 环境变量中',
-  'settingsPage.proxy.bypassPlaceholder': '输入排除域名或 IP (如 sheepyu.top, *.sheepyu.top, 119.29.106.76)...',
+  'settingsPage.proxy.bypassDesc':
+    '匹配列表中的网络请求将不经过系统代理直连访问，若开启环境变量同步将同时注入到系统的 no_proxy 环境变量中',
+  'settingsPage.proxy.bypassPlaceholder':
+    '输入排除域名或 IP (如 sheepyu.top, *.sheepyu.top, 119.29.106.76)...',
   'settingsPage.proxy.add': '添加',
   'settingsPage.proxy.customBypassCount': '自定义排除项 ({count})：',
   'settingsPage.proxy.removeBypass': '移除此排除项',
   'settingsPage.proxy.defaultBypass': '系统内置排除项 (局域网与本地回环)：',
   'settingsPage.proxy.uwpLabel': 'UWP 应用回环代理豁免 (Windows AppContainer)',
   'settingsPage.proxy.uwpBadge': '已豁免 {exempted} / 共 {total} 个应用',
-  'settingsPage.proxy.uwpAutoTitle': '已开启「一键豁免」，后续新安装的 UWP 应用会自动加入豁免；点击「一键清除」可停止',
+  'settingsPage.proxy.uwpAutoTitle':
+    '已开启「一键豁免」，后续新安装的 UWP 应用会自动加入豁免；点击「一键清除」可停止',
   'settingsPage.proxy.uwpAutoBadge': '新应用自动豁免',
-  'settingsPage.proxy.uwpDesc': '解除 Windows 沙箱对本地代理端口的隔离，使微软商店、UWP 应用可正常连入系统代理',
+  'settingsPage.proxy.uwpDesc':
+    '解除 Windows 沙箱对本地代理端口的隔离，使微软商店、UWP 应用可正常连入系统代理',
   'settingsPage.proxy.uwpClear': '一键清除',
   'settingsPage.proxy.uwpExempt': '一键豁免',
   'settingsPage.proxy.uwpViewTitle': '查看 UWP 应用列表',
   'settingsPage.proxy.uwpRefreshTitle': '刷新豁免状态',
 
   'settingsPage.env.title': '终端环境变量代理设置',
-  'settingsPage.env.desc': '独立将指定端口注入 Windows 用户环境变量 (http_proxy, https_proxy, all_proxy, no_proxy)，供命令行及开发工具使用。与系统代理完全解耦，可独立切换不同节点端口',
+  'settingsPage.env.desc':
+    '独立将指定端口注入 Windows 用户环境变量 (http_proxy, https_proxy, all_proxy, no_proxy)，供命令行及开发工具使用。与系统代理完全解耦，可独立切换不同节点端口',
   'settingsPage.env.enableLabel': '启用终端环境变量代理 (Windows HKCU)',
-  'settingsPage.env.enableDesc': '修改系统用户级环境变量，自动广播给新打开的 CMD、PowerShell、Git Bash 与开发工具。退出应用或端口停用时将自动清理，防止残留断网',
+  'settingsPage.env.enableDesc':
+    '修改系统用户级环境变量，自动广播给新打开的 CMD、PowerShell、Git Bash 与开发工具。退出应用或端口停用时将自动清理，防止残留断网',
   'settingsPage.env.portLabel': '终端代理绑定的监听端口',
-  'settingsPage.env.portDesc': '独立指定终端请求出口节点，无需与系统代理保持一致',
+  'settingsPage.env.portDesc':
+    '独立指定终端请求出口节点，无需与系统代理保持一致',
   'settingsPage.env.resetLabel': '环境变量异常急救与重置',
-  'settingsPage.env.resetDesc': '如遇终端代理残留或网络异常，可一键主动清除 Windows 用户环境变量中的 proxy 设置',
+  'settingsPage.env.resetDesc':
+    '如遇终端代理残留或网络异常，可一键主动清除 Windows 用户环境变量中的 proxy 设置',
   'settingsPage.env.clearButton': '清除终端代理变量',
 
   'settingsPage.tun.title': 'TUN 模式',
-  'settingsPage.tun.desc': '通过虚拟网卡接管系统全局流量，出口跟随所选监听端口的节点与国内直连策略',
+  'settingsPage.tun.desc':
+    '通过虚拟网卡接管系统全局流量，出口跟随所选监听端口的节点与国内直连策略',
   'settingsPage.tun.enableLabel': '启用 TUN 模式',
-  'settingsPage.tun.enableDesc': '需要管理员权限；与系统代理互斥，开启时自动清理系统代理并复用当前出站端口',
+  'settingsPage.tun.enableDesc':
+    '需要管理员权限；与系统代理互斥，开启时自动清理系统代理并复用当前出站端口',
   'settingsPage.tun.pendingTitle': 'TUN 未生效：需要管理员权限',
-  'settingsPage.tun.pendingDesc': '当前以普通用户运行，未创建虚拟网卡。点击右侧按钮以管理员身份重启后自动生效',
+  'settingsPage.tun.pendingDesc':
+    '当前以普通用户运行，未创建虚拟网卡。点击右侧按钮以管理员身份重启后自动生效',
   'settingsPage.tun.restartAdmin': '以管理员身份重启',
 
   'settingsPage.appearance.acrylicLabel': '磨砂亚克力玻璃质感',
-  'settingsPage.appearance.acrylicDesc': '为所有面板与侧边栏开启半透明毛玻璃透光与模糊效果',
+  'settingsPage.appearance.acrylicDesc':
+    '为所有面板与侧边栏开启半透明毛玻璃透光与模糊效果',
   'settingsPage.appearance.blurLabel': '玻璃模糊度',
-  'settingsPage.appearance.blurDesc': '调节背部背景的毛玻璃模糊程度 ({value}px)',
+  'settingsPage.appearance.blurDesc':
+    '调节背部背景的毛玻璃模糊程度 ({value}px)',
   'settingsPage.appearance.opacityLabel': '面板透明度',
-  'settingsPage.appearance.opacityDesc': '调节卡片底色的透光不透明度 ({value}%)',
+  'settingsPage.appearance.opacityDesc':
+    '调节卡片底色的透光不透明度 ({value}%)',
   'settingsPage.appearance.bgLabel': '自定义背景壁纸',
   'settingsPage.appearance.bgDesc': '从本地电脑选择一张图片作为客户端全景底图',
   'settingsPage.appearance.changeWallpaper': '更换壁纸',
   'settingsPage.appearance.chooseImage': '选择本地图片',
   'settingsPage.appearance.clearWallpaper': '清除壁纸',
   'settingsPage.appearance.bgOpacityLabel': '壁纸不透明度',
-  'settingsPage.appearance.bgOpacityDesc': '调节底层壁纸本身的显隐明暗程度 ({value}%)',
+  'settingsPage.appearance.bgOpacityDesc':
+    '调节底层壁纸本身的显隐明暗程度 ({value}%)',
 
   'settingsPage.system.title': '窗口与系统启动',
   'settingsPage.system.desc': '管理系统托盘常驻模式与开机自启动行为',
   'settingsPage.system.closeToTrayLabel': '关闭窗口时最小化到系统托盘',
-  'settingsPage.system.closeToTrayDesc': '点击窗口关闭按钮 (X) 时隐藏窗口并保持后台代理运行，不退出程序',
+  'settingsPage.system.closeToTrayDesc':
+    '点击窗口关闭按钮 (X) 时隐藏窗口并保持后台代理运行，不退出程序',
   'settingsPage.system.autoLaunchLabel': '开机自动启动',
   'settingsPage.system.autoLaunchDesc': '操作系统启动后自动拉起 {app} 客户端',
   'settingsPage.system.silentStartLabel': '静默启动模式',
-  'settingsPage.system.silentStartDesc': '程序启动时自动最小化至系统托盘，不主动弹出主窗口',
+  'settingsPage.system.silentStartDesc':
+    '程序启动时自动最小化至系统托盘，不主动弹出主窗口',
   'settingsPage.system.lightweightLabel': '轻量模式',
-  'settingsPage.system.lightweightDesc': '关闭窗口时销毁前端界面以降低内存占用，点击托盘时重新加载',
+  'settingsPage.system.lightweightDesc':
+    '关闭窗口时销毁前端界面以降低内存占用，点击托盘时重新加载',
   'settingsPage.system.resetSizeLabel': '重置窗口尺寸',
-  'settingsPage.system.resetSizeDesc': '将窗口尺寸与位置恢复为默认大小并清除记忆缓存',
+  'settingsPage.system.resetSizeDesc':
+    '将窗口尺寸与位置恢复为默认大小并清除记忆缓存',
   'settingsPage.system.resetSizeButton': '恢复默认大小',
 
   'settingsPage.storage.title': '应用数据与订阅存储路径',
-  'settingsPage.storage.desc': '所有订阅 YAML 文件、运行配置与内核日志均保存在本地独立目录中',
+  'settingsPage.storage.desc':
+    '所有订阅 YAML 文件、运行配置与内核日志均保存在本地独立目录中',
   'settingsPage.storage.openFolder': '在资源管理器中打开',
   'settingsPage.storage.currentDir': '当前运行数据目录 (app_local_data_dir)',
   'settingsPage.storage.reading': '正在读取...',
 
   'settingsPage.about.title': '软件关于与更新',
-  'settingsPage.about.desc': '{app} 桌面客户端，支持一键检测并从 GitHub 下载适配安装包或便携包',
+  'settingsPage.about.desc':
+    '{app} 桌面客户端，支持一键检测并从 GitHub 下载适配安装包或便携包',
   'settingsPage.about.github': 'GitHub 仓库',
   'settingsPage.about.checkUpdate': '检查软件更新',
   'settingsPage.about.currentVersion': '当前运行版本',
@@ -1036,7 +1075,8 @@ export const zhCN = {
   'settingsPage.about.latest': '已是最新版本',
   'settingsPage.about.pending': '待检查',
   'settingsPage.about.autoCheckLabel': '启动时及每日自动检查更新',
-  'settingsPage.about.autoCheckDesc': '程序启动时及运行期间每天在后台静默检测一次新版本；检查与下载会自动依次尝试已启用的监听端口，最后回退直连',
+  'settingsPage.about.autoCheckDesc':
+    '程序启动时及运行期间每天在后台静默检测一次新版本；检查与下载会自动依次尝试已启用的监听端口，最后回退直连',
   'settingsPage.about.lastCheckedLabel': '上次检查更新时间：',
   'settingsPage.about.never': '从未检查',
   'settingsPage.about.newVersion': '发现新版本：v{version}',
@@ -1045,15 +1085,18 @@ export const zhCN = {
   'settingsPage.about.selectAsset': '选择下载资产格式：',
   'settingsPage.about.assetInstaller': '安装包（自动运行并关闭旧进程）',
   'settingsPage.about.assetPortable': '便携包（下载至根目录供解压）',
-  'settingsPage.about.singleInstaller': '安装程序包：下载后自动启动安装并退出旧进程',
-  'settingsPage.about.singlePortable': '便携压缩包：下载后保存至软件根目录并打开文件夹',
+  'settingsPage.about.singleInstaller':
+    '安装程序包：下载后自动启动安装并退出旧进程',
+  'settingsPage.about.singlePortable':
+    '便携压缩包：下载后保存至软件根目录并打开文件夹',
   'settingsPage.about.releaseNotes': '更新说明 (Release Notes)：',
   'settingsPage.about.stageReady': '下载完成，正在处理中...',
   'settingsPage.about.stageDownloading': '正在下载更新包...',
   'settingsPage.about.preparing': '准备中...',
   'settingsPage.about.downloadNow': '立即下载并更新',
 
-  'settingsPage.toast.noPort': '当前无可用且已启用的监听端口，请先在端口管理中启用端口',
+  'settingsPage.toast.noPort':
+    '当前无可用且已启用的监听端口，请先在端口管理中启用端口',
   'settingsPage.toast.sysProxyEnabled': '已将端口 {port} 设为系统代理',
   'settingsPage.toast.sysProxyEnableFail': '开启系统代理失败: {error}',
   'settingsPage.toast.sysProxyDisabled': '已关闭系统代理',
@@ -1069,13 +1112,18 @@ export const zhCN = {
   'settingsPage.toast.tunPortSwitched': '已切换 TUN 出口端口至 {port}',
   'settingsPage.toast.outboundPortPreset': '已设置出站预选端口为 {port}',
   'settingsPage.toast.outboundPortFail': '更新出站端口失败: {error}',
-  'settingsPage.toast.tunAdminRestart': 'TUN 模式需要管理员权限，应用正在以管理员身份重启…',
+  'settingsPage.toast.tunAdminRestart':
+    'TUN 模式需要管理员权限，应用正在以管理员身份重启…',
   'settingsPage.toast.tunEnabled': 'TUN 模式已启用，全局出口跟随端口 {port}',
   'settingsPage.toast.tunDisabled': '已关闭 TUN 模式',
-  'settingsPage.toast.localMarker': '「<local>」为操作系统内置排除标记，无需重复添加',
-  'settingsPage.toast.bypassInvalid': '排除项格式无效：支持具体域名 (如 sheepyu.top)、通配符域名 (如 *.sheepyu.top)、IP (如 119.29.106.76) 或网段 (如 10.0.0.0/8)，不允许填单字或全域通配符 *',
-  'settingsPage.toast.bypassDuplicateCustom': '排除项「{item}」已在自定义排除列表中',
-  'settingsPage.toast.bypassDuplicateDefault': '排除项「{item}」已存在于系统内置排除项中',
+  'settingsPage.toast.localMarker':
+    '「<local>」为操作系统内置排除标记，无需重复添加',
+  'settingsPage.toast.bypassInvalid':
+    '排除项格式无效：支持具体域名 (如 sheepyu.top)、通配符域名 (如 *.sheepyu.top)、IP (如 119.29.106.76) 或网段 (如 10.0.0.0/8)，不允许填单字或全域通配符 *',
+  'settingsPage.toast.bypassDuplicateCustom':
+    '排除项「{item}」已在自定义排除列表中',
+  'settingsPage.toast.bypassDuplicateDefault':
+    '排除项「{item}」已存在于系统内置排除项中',
   'settingsPage.toast.bypassAdded': '已添加排除域名/IP: {item}',
   'settingsPage.toast.bypassAddFail': '添加失败: {error}',
   'settingsPage.toast.bypassRemoved': '已移除排除项: {item}',
@@ -1085,15 +1133,18 @@ export const zhCN = {
   'settingsPage.toast.uwpRefreshedDetails': '已刷新状态，{details}',
   'settingsPage.toast.uwpRefreshed': '已刷新 UWP 应用及豁免状态',
   'settingsPage.toast.uwpRefreshFail': '刷新 UWP 豁免状态失败: {error}',
-  'settingsPage.toast.uwpExemptAll': '已为全部 {count} 个 UWP 应用解除回环隔离，后续新安装应用将自动豁免',
+  'settingsPage.toast.uwpExemptAll':
+    '已为全部 {count} 个 UWP 应用解除回环隔离，后续新安装应用将自动豁免',
   'settingsPage.toast.uwpExemptFail': 'UWP 回环豁免失败: {error}',
-  'settingsPage.toast.uwpCleared': '已清除所有 UWP 应用回环豁免，并停止新应用自动豁免',
+  'settingsPage.toast.uwpCleared':
+    '已清除所有 UWP 应用回环豁免，并停止新应用自动豁免',
   'settingsPage.toast.uwpClearFail': '清除 UWP 回环豁免失败: {error}',
   'settingsPage.toast.kernelUpdateFound': '检测到新版本 Mihomo 内核：{version}',
   'settingsPage.toast.kernelLatest': '当前已是最新内核版本 ({version})',
   'settingsPage.toast.kernelDownloading': '正在下载并校验新内核，请稍候...',
   'settingsPage.toast.kernelUpgraded': '内核升级成功！已平滑切换至 {version}',
-  'settingsPage.toast.rulesDownloading': '正在请求官方最新 MRS 规则集，请稍候...',
+  'settingsPage.toast.rulesDownloading':
+    '正在请求官方最新 MRS 规则集，请稍候...',
   'settingsPage.toast.rulesUpdated': '国内分流规则库已成功更新为最新版本！',
   'settingsPage.toast.appUpdateFound': '检测到软件新版本：v{version}',
   'settingsPage.toast.appLatest': '当前已是最新版本 (v{version})',
@@ -1105,13 +1156,16 @@ export const zhCN = {
   'settingsPage.toast.lanEnabled': '已开启局域网连接',
   'settingsPage.toast.lanDisabled': '已恢复为仅监听本机回环',
   'settingsPage.toast.testUrlUpdated': '测活与测速目标地址已更新',
-  'settingsPage.toast.timeoutRange': '超时时间必须为整数且在 {min} ~ {max} ms 范围内',
+  'settingsPage.toast.timeoutRange':
+    '超时时间必须为整数且在 {min} ~ {max} ms 范围内',
   'settingsPage.toast.timeoutUpdated': '测速与故障判定超时已更新为 {ms} ms',
-  'settingsPage.toast.fallbackRange': '检测间隔必须为整数且在 {min} ~ {max} 秒范围内',
+  'settingsPage.toast.fallbackRange':
+    '检测间隔必须为整数且在 {min} ~ {max} 秒范围内',
   'settingsPage.toast.fallbackUpdated': 'Fallback 探测周期已更新为 {sec} 秒',
   'settingsPage.toast.lazyOn': '已开启惰性健康检测',
   'settingsPage.toast.lazyOff': '已恢复持续主动健康检测',
-  'settingsPage.toast.invalidImage': '请选择有效的图片格式文件 (PNG, JPG, WebP 等)',
+  'settingsPage.toast.invalidImage':
+    '请选择有效的图片格式文件 (PNG, JPG, WebP 等)',
   'settingsPage.toast.bgApplied': '背景壁纸已成功应用',
   'settingsPage.toast.bgCleared': '背景壁纸已清除',
   'settingsPage.toast.autoLaunchOn': '已开启开机自启动',
@@ -1134,7 +1188,8 @@ export const zhCN = {
   'app.kernelCrashedProtection':
     'Mihomo 内核异常退出{reason}。为防止全系统断网，已自动关闭系统代理并切换为 DIRECT 直连。',
   'app.kernelCrashedProtectionTitle': '内核异常退出与断网保护',
-  'app.proxyRestored': 'Mihomo 内核已恢复运行，系统代理已自动恢复绑定至端口 :{port}。',
+  'app.proxyRestored':
+    'Mihomo 内核已恢复运行，系统代理已自动恢复绑定至端口 :{port}。',
   'app.proxyRestoredTitle': '系统代理自动恢复',
   'ports.latencyTesting': '测速中...',
   'ports.latencyTimeout': '超时',
@@ -1144,7 +1199,8 @@ export const zhCN = {
   'errors.chainEgressDesktopOnly': '链路出口检测仅支持桌面应用环境',
   'errors.residentialManagementDesktopOnly': '住宅出口管理仅支持桌面应用环境',
   'errors.configNotLoaded': '配置尚未加载，请稍后重试',
-  'errors.residentialProxyInUse': '该住宅出口正被端口 {ports} 使用，请先解除绑定',
+  'errors.residentialProxyInUse':
+    '该住宅出口正被端口 {ports} 使用，请先解除绑定',
   'errors.chainConfigChanged': '链路配置已变化，请重新检测出口 IP',
   'common.listSeparator': '、',
   'rules.presetCategory.all': '全部',
@@ -1193,19 +1249,23 @@ export const zhCN = {
 
   'rules.presetService.openai.description': 'ChatGPT、API、Sora 及静态全链路',
   'rules.presetService.claude.description': 'Claude 网页、对话与 Anthropic API',
-  'rules.presetService.gemini.description': 'Gemini 对话、AI Studio 与 Google AI API',
+  'rules.presetService.gemini.description':
+    'Gemini 对话、AI Studio 与 Google AI API',
   'rules.presetService.copilot.description': '微软 Copilot 助手与 Bing AI',
-  'rules.presetService.cursor.description': 'Cursor 代码编辑器云端推理与更新服务',
+  'rules.presetService.cursor.description':
+    'Cursor 代码编辑器云端推理与更新服务',
   'rules.presetService.perplexity.description': 'Perplexity 智能搜索与 API',
   'rules.presetService.groq.description': 'LPU 超高速云端推理平台',
   'rules.presetService.midjourney.description': 'Midjourney 绘图与 Web 平台',
   'rules.presetService.huggingface.description': '开源 AI 模型与数据集社区',
-  'rules.presetService.twitter.description': '推特网页、客户端、静态资源与 x.ai',
+  'rules.presetService.twitter.description':
+    '推特网页、客户端、静态资源与 x.ai',
   'rules.presetService.telegram.description': 'Telegram 即时通讯与短链服务',
   'rules.presetService.discord.description': 'Discord 语音、社区频道与 CDN',
   'rules.presetService.reddit.description': 'Reddit 社区讨论与多媒体服务',
   'rules.presetService.instagram.description': 'Instagram 社交图片与视频服务',
-  'rules.presetService.facebook.description': 'Facebook、Messenger 与 Meta 生态',
+  'rules.presetService.facebook.description':
+    'Facebook、Messenger 与 Meta 生态',
   'rules.presetService.threads.description': 'Meta 旗下文字分享社区',
   'rules.presetService.tiktok.description': 'TikTok 短视频国际版与 CDN',
   'rules.presetService.github.description': 'GitHub 代码托管、资源库与 Pages',
@@ -1215,7 +1275,8 @@ export const zhCN = {
   'rules.presetService.slack.description': 'Slack 团队即时通讯与边缘网络',
   'rules.presetService.stackoverflow.description': '开发者问答社区与技术网络',
   'rules.presetService.vercel.description': '前端云平台与边缘部署服务',
-  'rules.presetService.youtube.description': 'YouTube 视频、直播与全量音视频 CDN',
+  'rules.presetService.youtube.description':
+    'YouTube 视频、直播与全量音视频 CDN',
   'rules.presetService.netflix.description': 'Netflix 影视点播与全量视频 CDN',
   'rules.presetService.spotify.description': 'Spotify 音乐流媒体与 CDN',
   'rules.presetService.disney.description': '迪士尼+ 流媒体视频点播',
@@ -1223,7 +1284,8 @@ export const zhCN = {
   'rules.presetService.steam.description': 'Steam 商店、社区、好友与下载 CDN',
   'rules.presetService.epic.description': 'Epic 游戏商城与虚幻引擎服务',
   'rules.presetService.playstation.description': '索尼 PSN 商店与网络联机服务',
-  'rules.presetService.google.description': 'Google 搜索、API、Drive、Maps 等核心全家桶',
+  'rules.presetService.google.description':
+    'Google 搜索、API、Drive、Maps 等核心全家桶',
   'rules.presetService.wikipedia.description': '维基百科与自由多媒体档案',
   'rules.presetService.amazon.description': '亚马逊全球电商与零售服务',
 } as const

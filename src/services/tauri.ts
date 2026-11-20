@@ -1,4 +1,8 @@
-import { invoke as tauriInvoke, type InvokeArgs, type InvokeOptions } from '@tauri-apps/api/core'
+import {
+  invoke as tauriInvoke,
+  type InvokeArgs,
+  type InvokeOptions,
+} from '@tauri-apps/api/core'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { t } from '../i18n'
 import type {
@@ -44,7 +48,10 @@ import {
 } from '../constants'
 
 class CommandError extends Error {
-  constructor(message: string, readonly code: string) {
+  constructor(
+    message: string,
+    readonly code: string,
+  ) {
     super(message)
     this.name = 'CommandError'
   }
@@ -54,12 +61,22 @@ export function isCoreNotRunningError(error: unknown): boolean {
   return error instanceof CommandError && error.code === 'CORE_NOT_RUNNING'
 }
 
-async function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
+async function invoke<T>(
+  command: string,
+  args?: InvokeArgs,
+  options?: InvokeOptions,
+): Promise<T> {
   try {
     return await tauriInvoke<T>(command, args, options)
   } catch (error) {
-    if (typeof error === 'object' && error !== null && 'code' in error && 'message' in error &&
-        typeof error.code === 'string' && typeof error.message === 'string') {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      'message' in error &&
+      typeof error.code === 'string' &&
+      typeof error.message === 'string'
+    ) {
       throw new CommandError(error.message, error.code)
     }
     throw error
@@ -1091,9 +1108,9 @@ let localeSyncQueue: Promise<void> = Promise.resolve()
 
 export function setUiLocale(locale: 'zh-CN' | 'en-US'): Promise<void> {
   if (!isTauriEnvironment()) return Promise.resolve()
-  const request = localeSyncQueue.catch(() => {}).then(() =>
-    invoke<void>('set_ui_locale', { locale }),
-  )
+  const request = localeSyncQueue
+    .catch(() => {})
+    .then(() => invoke<void>('set_ui_locale', { locale }))
   localeSyncQueue = request
   return request
 }

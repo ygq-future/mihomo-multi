@@ -400,7 +400,9 @@ export const SettingView: React.FC = () => {
 
       try {
         await setSystemProxy(true, targetPort)
-        toast.success(t('settingsPage.toast.sysProxyEnabled', { port: targetPort }))
+        toast.success(
+          t('settingsPage.toast.sysProxyEnabled', { port: targetPort }),
+        )
       } catch (err) {
         toast.error(
           t('settingsPage.toast.sysProxyEnableFail', {
@@ -437,7 +439,9 @@ export const SettingView: React.FC = () => {
 
       try {
         await setEnvProxy(true, targetPort)
-        toast.success(t('settingsPage.toast.envProxyEnabled', { port: targetPort }))
+        toast.success(
+          t('settingsPage.toast.envProxyEnabled', { port: targetPort }),
+        )
       } catch (err) {
         toast.error(
           t('settingsPage.toast.envProxyEnableFail', {
@@ -531,7 +535,9 @@ export const SettingView: React.FC = () => {
         if (status.pendingElevation) {
           toast.info(t('settingsPage.toast.tunAdminRestart'))
         } else {
-          toast.success(t('settingsPage.toast.tunEnabled', { port: targetPort }))
+          toast.success(
+            t('settingsPage.toast.tunEnabled', { port: targetPort }),
+          )
         }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err))
@@ -577,12 +583,16 @@ export const SettingView: React.FC = () => {
     const lower = trimmed.toLowerCase()
     const currentList = config.systemProxyBypassUser || []
     if (currentList.some((d) => d.toLowerCase() === lower)) {
-      toast.warning(t('settingsPage.toast.bypassDuplicateCustom', { item: trimmed }))
+      toast.warning(
+        t('settingsPage.toast.bypassDuplicateCustom', { item: trimmed }),
+      )
       return
     }
 
     if (defaultBypassList.some((d) => d.toLowerCase() === lower)) {
-      toast.warning(t('settingsPage.toast.bypassDuplicateDefault', { item: trimmed }))
+      toast.warning(
+        t('settingsPage.toast.bypassDuplicateDefault', { item: trimmed }),
+      )
       return
     }
 
@@ -705,9 +715,15 @@ export const SettingView: React.FC = () => {
       const res = await api.checkKernelUpdate()
       setUpdateInfo(res)
       if (res.hasUpdate) {
-        toast.info(t('settingsPage.toast.kernelUpdateFound', { version: res.latestVersion }))
+        toast.info(
+          t('settingsPage.toast.kernelUpdateFound', {
+            version: res.latestVersion,
+          }),
+        )
       } else {
-        toast.success(t('settingsPage.toast.kernelLatest', { version: res.currentVersion }))
+        toast.success(
+          t('settingsPage.toast.kernelLatest', { version: res.currentVersion }),
+        )
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
@@ -721,7 +737,9 @@ export const SettingView: React.FC = () => {
     try {
       toast.info(t('settingsPage.toast.kernelDownloading'))
       const res = await api.upgradeKernel()
-      toast.success(t('settingsPage.toast.kernelUpgraded', { version: res.currentVersion }))
+      toast.success(
+        t('settingsPage.toast.kernelUpgraded', { version: res.currentVersion }),
+      )
       await fetchStatus()
       const refreshed = await api.checkKernelUpdate().catch(() => null)
       if (refreshed) setUpdateInfo(refreshed)
@@ -761,9 +779,15 @@ export const SettingView: React.FC = () => {
         setSelectedAssetUrl(res.availableAssets[0].downloadUrl)
       }
       if (res.hasUpdate) {
-        toast.info(t('settingsPage.toast.appUpdateFound', { version: res.latestVersion }))
+        toast.info(
+          t('settingsPage.toast.appUpdateFound', {
+            version: res.latestVersion,
+          }),
+        )
       } else {
-        toast.success(t('settingsPage.toast.appLatest', { version: res.currentVersion }))
+        toast.success(
+          t('settingsPage.toast.appLatest', { version: res.currentVersion }),
+        )
       }
     } catch (err) {
       toast.error(
@@ -881,7 +905,11 @@ export const SettingView: React.FC = () => {
       allowLan: checked,
     })
     toast.success(
-      t(checked ? 'settingsPage.toast.lanEnabled' : 'settingsPage.toast.lanDisabled'),
+      t(
+        checked
+          ? 'settingsPage.toast.lanEnabled'
+          : 'settingsPage.toast.lanDisabled',
+      ),
     )
   }
 
@@ -2607,9 +2635,9 @@ export const SettingView: React.FC = () => {
                 {appUpdateInfo.publishedAt && (
                   <p className="text-[11px] text-muted-foreground">
                     {t('settingsPage.about.publishedAt', {
-                      time: new Date(
-                        appUpdateInfo.publishedAt,
-                      ).toLocaleString(locale),
+                      time: new Date(appUpdateInfo.publishedAt).toLocaleString(
+                        locale,
+                      ),
                     })}
                   </p>
                 )}

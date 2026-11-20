@@ -326,20 +326,26 @@ export const ConnectionListView: React.FC = () => {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
         <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">{t('connections.active')}</span>
+            <span className="text-xs font-medium">
+              {t('connections.active')}
+            </span>
             <Activity className="w-4 h-4 text-primary" />
           </div>
           <div className="mt-2 flex items-baseline gap-1.5">
             <span className="text-2xl font-bold tracking-tight">
               {snapshot ? snapshot.connections.length : 0}
             </span>
-            <span className="text-xs text-muted-foreground">{t('connections.countUnit')}</span>
+            <span className="text-xs text-muted-foreground">
+              {t('connections.countUnit')}
+            </span>
           </div>
         </div>
 
         <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">{t('connections.liveSpeed')}</span>
+            <span className="text-xs font-medium">
+              {t('connections.liveSpeed')}
+            </span>
             <div className="flex items-center gap-1">
               <ArrowDown className="w-3.5 h-3.5 text-emerald-500" />
               <ArrowUp className="w-3.5 h-3.5 text-sky-500" />
@@ -357,7 +363,9 @@ export const ConnectionListView: React.FC = () => {
 
         <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">{t('connections.totalDownload')}</span>
+            <span className="text-xs font-medium">
+              {t('connections.totalDownload')}
+            </span>
             <ArrowDown className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="mt-2">
@@ -369,7 +377,9 @@ export const ConnectionListView: React.FC = () => {
 
         <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">{t('connections.totalUpload')}</span>
+            <span className="text-xs font-medium">
+              {t('connections.totalUpload')}
+            </span>
             <ArrowUp className="w-4 h-4 text-sky-500" />
           </div>
           <div className="mt-2">
@@ -440,25 +450,34 @@ export const ConnectionListView: React.FC = () => {
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-xs text-muted-foreground mr-1 hidden sm:inline whitespace-nowrap">
             {displayConnections.length} /{' '}
-            {snapshot ? snapshot.connections.length : 0} {t('connections.countUnit')}
+            {snapshot ? snapshot.connections.length : 0}{' '}
+            {t('connections.countUnit')}
           </span>
 
           <Button
             variant={isPaused ? 'primary' : 'outline'}
             size="sm"
             onClick={() => setIsPaused(!isPaused)}
-            title={isPaused ? t('connections.resumeRefresh') : t('connections.pauseRefresh')}
+            title={
+              isPaused
+                ? t('connections.resumeRefresh')
+                : t('connections.pauseRefresh')
+            }
             className="gap-1 px-2.5"
           >
             {isPaused ? (
               <>
                 <Play className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{t('connections.resume')}</span>
+                <span className="hidden sm:inline">
+                  {t('connections.resume')}
+                </span>
               </>
             ) : (
               <>
                 <Pause className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{t('connections.pause')}</span>
+                <span className="hidden sm:inline">
+                  {t('connections.pause')}
+                </span>
               </>
             )}
           </Button>
@@ -487,7 +506,9 @@ export const ConnectionListView: React.FC = () => {
             className="gap-1 px-2.5"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{t('connections.closeAllShort')}</span>
+            <span className="hidden sm:inline">
+              {t('connections.closeAllShort')}
+            </span>
           </Button>
         </div>
       </div>
@@ -497,7 +518,9 @@ export const ConnectionListView: React.FC = () => {
         {!isRunning ? (
           <div className="m-auto py-16 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
             <AlertCircle className="w-8 h-8 text-amber-500/80" />
-            <p className="text-sm font-medium">{t('connections.coreStopped')}</p>
+            <p className="text-sm font-medium">
+              {t('connections.coreStopped')}
+            </p>
             <p className="text-xs text-muted-foreground">
               {t('connections.startCore')}
             </p>
@@ -519,19 +542,33 @@ export const ConnectionListView: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-secondary/90 backdrop-blur-sm sticky top-0 z-10 border-b border-border text-muted-foreground uppercase font-medium text-[11px] select-none shadow-sm">
                 <tr>
-                  <th className="py-2.5 px-3">{t('connections.destination')}</th>
-                  <th className="py-2.5 px-3">{t('connections.inboundPort')}</th>
-                  <th className="py-2.5 px-3">{t('connections.outboundChain')}</th>
-                  <th className="py-2.5 px-3">{t('connections.ruleProcess')}</th>
+                  <th className="py-2.5 px-3">
+                    {t('connections.destination')}
+                  </th>
+                  <th className="py-2.5 px-3">
+                    {t('connections.inboundPort')}
+                  </th>
+                  <th className="py-2.5 px-3">
+                    {t('connections.outboundChain')}
+                  </th>
+                  <th className="py-2.5 px-3">
+                    {t('connections.ruleProcess')}
+                  </th>
                   <th className="py-2.5 px-3 text-right">
                     <span className="inline-flex items-center gap-1">
                       <span>{t('connections.liveSpeedShort')}</span>
                       <ArrowDownUp className="w-3 h-3 text-muted-foreground/70" />
                     </span>
                   </th>
-                  <th className="py-2.5 px-3 text-right">{t('connections.totalTraffic')}</th>
-                  <th className="py-2.5 px-3 text-right">{t('connections.duration')}</th>
-                  <th className="py-2.5 px-3 text-center w-20">{t('connections.actions')}</th>
+                  <th className="py-2.5 px-3 text-right">
+                    {t('connections.totalTraffic')}
+                  </th>
+                  <th className="py-2.5 px-3 text-right">
+                    {t('connections.duration')}
+                  </th>
+                  <th className="py-2.5 px-3 text-center w-20">
+                    {t('connections.actions')}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -797,7 +834,12 @@ export const ConnectionListView: React.FC = () => {
                   {t('connections.duration')}
                 </span>
                 <span className="font-medium text-foreground">
-                  {calculateDuration(selectedConn.start)} {t('connections.startedAt', { time: new Date(selectedConn.start).toLocaleTimeString(locale) })}
+                  {calculateDuration(selectedConn.start)}{' '}
+                  {t('connections.startedAt', {
+                    time: new Date(selectedConn.start).toLocaleTimeString(
+                      locale,
+                    ),
+                  })}
                 </span>
               </div>
             </div>
@@ -851,18 +893,24 @@ export const ConnectionListView: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-3 gap-y-2 text-[11px]">
-                <span className="text-muted-foreground">{t('connections.id')}</span>
+                <span className="text-muted-foreground">
+                  {t('connections.id')}
+                </span>
                 <span className="col-span-2 font-mono text-foreground break-all select-all">
                   {selectedConn.id}
                 </span>
 
-                <span className="text-muted-foreground">{t('connections.source')}</span>
+                <span className="text-muted-foreground">
+                  {t('connections.source')}
+                </span>
                 <span className="col-span-2 font-mono text-foreground">
                   {selectedConn.metadata.sourceIP}:
                   {selectedConn.metadata.sourcePort}
                 </span>
 
-                <span className="text-muted-foreground">{t('connections.destinationIp')}</span>
+                <span className="text-muted-foreground">
+                  {t('connections.destinationIp')}
+                </span>
                 <span className="col-span-2 font-mono text-foreground">
                   {selectedConn.metadata.destinationIP}:
                   {selectedConn.metadata.destinationPort}
@@ -870,7 +918,9 @@ export const ConnectionListView: React.FC = () => {
 
                 {selectedConn.metadata.sniffHost && (
                   <>
-                    <span className="text-muted-foreground">{t('connections.sniffHost')}</span>
+                    <span className="text-muted-foreground">
+                      {t('connections.sniffHost')}
+                    </span>
                     <span className="col-span-2 text-foreground font-mono">
                       {selectedConn.metadata.sniffHost}
                     </span>
@@ -879,14 +929,18 @@ export const ConnectionListView: React.FC = () => {
 
                 {selectedConn.metadata.dnsMode && (
                   <>
-                    <span className="text-muted-foreground">{t('connections.dnsMode')}</span>
+                    <span className="text-muted-foreground">
+                      {t('connections.dnsMode')}
+                    </span>
                     <span className="col-span-2 text-foreground">
                       {selectedConn.metadata.dnsMode}
                     </span>
                   </>
                 )}
 
-                <span className="text-muted-foreground">{t('connections.matchedRule')}</span>
+                <span className="text-muted-foreground">
+                  {t('connections.matchedRule')}
+                </span>
                 <span className="col-span-2 text-foreground font-mono">
                   {selectedConn.rule}{' '}
                   {selectedConn.rulePayload
@@ -894,14 +948,18 @@ export const ConnectionListView: React.FC = () => {
                     : ''}
                 </span>
 
-                <span className="text-muted-foreground">{t('connections.proxyChain')}</span>
+                <span className="text-muted-foreground">
+                  {t('connections.proxyChain')}
+                </span>
                 <span className="col-span-2 text-foreground font-medium">
                   {selectedConn.chains?.join(' → ') || 'DIRECT'}
                 </span>
 
                 {selectedConn.metadata.process && (
                   <>
-                    <span className="text-muted-foreground">{t('connections.process')}</span>
+                    <span className="text-muted-foreground">
+                      {t('connections.process')}
+                    </span>
                     <span className="col-span-2 text-foreground font-medium">
                       {selectedConn.metadata.process}
                     </span>
@@ -910,7 +968,9 @@ export const ConnectionListView: React.FC = () => {
 
                 {selectedConn.metadata.processPath && (
                   <>
-                    <span className="text-muted-foreground">{t('connections.processPath')}</span>
+                    <span className="text-muted-foreground">
+                      {t('connections.processPath')}
+                    </span>
                     <span
                       className="col-span-2 text-foreground font-mono break-all select-all text-[10px]"
                       title={selectedConn.metadata.processPath}

@@ -47,7 +47,8 @@ interface I18nState {
 }
 
 const initialPreference = detectInitialPreference()
-const initialLocale = initialPreference === 'system' ? detectSystemLocale() : initialPreference
+const initialLocale =
+  initialPreference === 'system' ? detectSystemLocale() : initialPreference
 syncDocumentLang(initialLocale)
 
 export const useI18nStore = create<I18nState>()((set) => ({

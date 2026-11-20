@@ -54,7 +54,10 @@ function setup({
       toast: { info: (...args) => calls.notices.push(args) },
     },
     '../constants': { APP_VERSION: '1.6.2' },
-    '../i18n': { t: (key) => key === 'settingsUpdate.kernelTitle' ? '发现内核新版本' : key },
+    '../i18n': {
+      t: (key) =>
+        key === 'settingsUpdate.kernelTitle' ? '发现内核新版本' : key,
+    },
     '../services/tauri': api,
     '../stores/appStore': { useAppStore: (selector) => selector(state) },
     '../utils/appUpdateCache': {

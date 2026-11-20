@@ -72,7 +72,9 @@ export function useAppUpdateCheck(): void {
             setKernelUpdateInfo(res)
             if (!res.hasUpdate) return
             toast.info(
-              t('settingsUpdate.kernelAvailable', { version: res.latestVersion }),
+              t('settingsUpdate.kernelAvailable', {
+                version: res.latestVersion,
+              }),
               t('settingsUpdate.kernelTitle'),
               8000,
               {

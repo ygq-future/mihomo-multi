@@ -165,7 +165,10 @@ export const PortTableView: React.FC = () => {
         saveCachedDirectEgress(info)
         if (isManual) {
           toast.success(
-            t('ports.egressDetectDone', { ip: info.ip, region: info.region || t('common.unknown') }),
+            t('ports.egressDetectDone', {
+              ip: info.ip,
+              region: info.region || t('common.unknown'),
+            }),
           )
         }
         return info

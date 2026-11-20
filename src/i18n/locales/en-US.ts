@@ -902,10 +902,12 @@ export const enUS: Record<TranslationKey, string> = {
   'connections.closeAll': 'Close all connections',
   'connections.closeAllShort': 'Close all',
   'connections.coreStopped': 'Mihomo core is not running',
-  'connections.startCore': 'Start the proxy core from the main screen or settings to view live connections',
+  'connections.startCore':
+    'Start the proxy core from the main screen or settings to view live connections',
   'connections.noMatches': 'No matching active connections',
   'connections.clearFilters': 'Clear filters to view all connections',
-  'connections.awaitTraffic': 'Connections appear here when traffic passes through a listener',
+  'connections.awaitTraffic':
+    'Connections appear here when traffic passes through a listener',
   'connections.destination': 'Destination',
   'connections.inboundPort': 'Inbound port',
   'connections.outboundChain': 'Exit node / chain',
@@ -939,16 +941,19 @@ export const enUS: Record<TranslationKey, string> = {
   'connections.confirmCloseAll': 'Close all connections?',
   'connections.cancel': 'Cancel',
   'connections.confirmClose': 'Confirm',
-  'connections.closeAllDescription': 'Close all active connections? All ongoing TCP/UDP connections will be terminated immediately.',
+  'connections.closeAllDescription':
+    'Close all active connections? All ongoing TCP/UDP connections will be terminated immediately.',
   'settingsUwp.title': 'UWP app list & loopback exemption status',
-  'settingsUwp.subtitle': 'Detected {total} UWP app containers: {exempted} exempted, {unexempted} not exempted',
+  'settingsUwp.subtitle':
+    'Detected {total} UWP app containers: {exempted} exempted, {unexempted} not exempted',
   'settingsUwp.refreshed': 'UWP app list refreshed',
   'settingsUwp.loadFailed': 'Failed to get UWP app list',
   'settingsUwp.copySidToast': 'SID copied to clipboard',
   'settingsUwp.copyFailed': 'Copy failed',
   'settingsUwp.footerCount': 'Showing {shown} of {total} apps',
   'settingsUwp.close': 'Close',
-  'settingsUwp.searchPlaceholder': 'Search app name, package identity or SID...',
+  'settingsUwp.searchPlaceholder':
+    'Search app name, package identity or SID...',
   'settingsUwp.filterAll': 'All ({count})',
   'settingsUwp.filterExempted': 'Exempted ({count})',
   'settingsUwp.filterUnexempted': 'Not exempted ({count})',
@@ -959,15 +964,18 @@ export const enUS: Record<TranslationKey, string> = {
   'settingsUwp.copySidTitle': 'Copy SID',
   'settingsUwp.statusExempted': 'Exempted',
   'settingsUwp.statusUnexempted': 'Not exempted',
-  'settingsUpdate.appAvailable': 'Version v{version} is available. Go to Settings → About & Updates to view and download it.',
+  'settingsUpdate.appAvailable':
+    'Version v{version} is available. Go to Settings → About & Updates to view and download it.',
   'settingsUpdate.appTitle': 'New version available',
-  'settingsUpdate.kernelAvailable': 'Mihomo core version {version} is available in Settings.',
+  'settingsUpdate.kernelAvailable':
+    'Mihomo core version {version} is available in Settings.',
   'settingsUpdate.kernelTitle': 'Core update available',
   'settingsUpdate.goNow': 'Open settings',
   'settingsPage.common.listSeparator': ', ',
 
   'settingsPage.core.title': 'Mihomo Core & Network',
-  'settingsPage.core.desc': 'Supervises the child process lifecycle and network listener communication',
+  'settingsPage.core.desc':
+    'Supervises the child process lifecycle and network listener communication',
   'settingsPage.core.stop': 'Stop Core',
   'settingsPage.core.start': 'Start Core',
   'settingsPage.core.restart': 'Restart',
@@ -986,7 +994,8 @@ export const enUS: Record<TranslationKey, string> = {
   'settingsPage.core.checkingUpdate': 'Checking...',
   'settingsPage.core.checkUpdate': 'Check Kernel Update',
   'settingsPage.core.updateFound': 'New version available: {version}',
-  'settingsPage.core.updateDesc': 'Downloads and replaces the core binary, then reloads automatically.',
+  'settingsPage.core.updateDesc':
+    'Downloads and replaces the core binary, then reloads automatically.',
   'settingsPage.core.targetPath': 'Target path: {path}',
   'settingsPage.core.releaseNotes': 'Release Notes',
   'settingsPage.core.updating': 'Updating...',
@@ -994,115 +1003,157 @@ export const enUS: Record<TranslationKey, string> = {
   'settingsPage.core.mrsTitle': 'China Routing Rules (MRS Binary)',
   'settingsPage.core.mrsReady': 'Ready (4/4)',
   'settingsPage.core.mrsMissing': 'Missing {count} file(s)',
-  'settingsPage.core.mrsDesc': 'Contains 111,004 China domains and complete China IP CIDRs. Compact Meta rule-set format for fast matching with minimal memory.',
+  'settingsPage.core.mrsDesc':
+    'Contains 111,004 China domains and complete China IP CIDRs. Compact Meta rule-set format for fast matching with minimal memory.',
   'settingsPage.core.mrsLastUpdated': 'Last updated: {time}',
   'settingsPage.core.mrsBundled': 'Bundled with installer',
   'settingsPage.core.mrsSize': 'Size: {size} KB',
   'settingsPage.core.updatingRules': 'Updating rules...',
   'settingsPage.core.updateRules': 'Update Rule Set Now',
   'settingsPage.core.portLabel': 'External Controller Port',
-  'settingsPage.core.portDesc': 'Mihomo local RESTful control API port for hot reload and latency tests (default {port})',
-  'settingsPage.core.portRangeError': 'Port must be an integer between 1024 and 65535',
-  'settingsPage.core.portNeedsRestart': 'Port changed to {port}; restart the core to apply',
+  'settingsPage.core.portDesc':
+    'Mihomo local RESTful control API port for hot reload and latency tests (default {port})',
+  'settingsPage.core.portRangeError':
+    'Port must be an integer between 1024 and 65535',
+  'settingsPage.core.portNeedsRestart':
+    'Port changed to {port}; restart the core to apply',
   'settingsPage.core.logLevelLabel': 'Core Log Level',
-  'settingsPage.core.logLevelDesc': 'Mihomo runtime log verbosity (hot-reloaded immediately)',
+  'settingsPage.core.logLevelDesc':
+    'Mihomo runtime log verbosity (hot-reloaded immediately)',
   'settingsPage.core.logLevel.info': 'Info (Standard)',
   'settingsPage.core.logLevel.warning': 'Warning',
   'settingsPage.core.logLevel.error': 'Error (Errors only)',
   'settingsPage.core.logLevel.debug': 'Debug (Verbose)',
   'settingsPage.core.logLevel.silent': 'Silent',
   'settingsPage.core.allowLanLabel': 'Allow LAN Connections',
-  'settingsPage.core.allowLanDesc': 'When enabled, port mappings listen on all interfaces (0.0.0.0), allowing LAN or VM devices to connect; when disabled, only localhost (127.0.0.1) is used.',
+  'settingsPage.core.allowLanDesc':
+    'When enabled, port mappings listen on all interfaces (0.0.0.0), allowing LAN or VM devices to connect; when disabled, only localhost (127.0.0.1) is used.',
   'settingsPage.core.probeTitle': 'Node Probing & Fallback Strategy',
   'settingsPage.core.testUrlLabel': 'Probe & Latency Test URL',
-  'settingsPage.core.testUrlDesc': 'Endpoint used for global latency tests, per-port tests, and fallback health checks',
+  'settingsPage.core.testUrlDesc':
+    'Endpoint used for global latency tests, per-port tests, and fallback health checks',
   'settingsPage.core.timeoutLabel': 'Node Test & Failure Timeout',
-  'settingsPage.core.timeoutDesc': 'Controls manual latency-test timeout and the fallback primary-node failure threshold (ms)',
+  'settingsPage.core.timeoutDesc':
+    'Controls manual latency-test timeout and the fallback primary-node failure threshold (ms)',
   'settingsPage.core.fallbackIntervalLabel': 'Fallback Health Check Interval',
-  'settingsPage.core.fallbackIntervalDesc': 'Interval in seconds between Mihomo core probe checks; the core switches back automatically when the primary recovers',
+  'settingsPage.core.fallbackIntervalDesc':
+    'Interval in seconds between Mihomo core probe checks; the core switches back automatically when the primary recovers',
   'settingsPage.core.secondsShort': 's',
   'settingsPage.core.lazyLabel': 'Lazy Health Check',
-  'settingsPage.core.lazyDesc': 'Applies only to ports with a fallback node. When off, the core probes continuously; when on, checks run only while traffic passes through the port.',
+  'settingsPage.core.lazyDesc':
+    'Applies only to ports with a fallback node. When off, the core probes continuously; when on, checks run only while traffic passes through the port.',
 
   'settingsPage.proxy.title': 'System Proxy',
-  'settingsPage.proxy.desc': 'Takes over the Windows WinInet global proxy; one listening port at a time, applies to desktop browsers and system apps',
+  'settingsPage.proxy.desc':
+    'Takes over the Windows WinInet global proxy; one listening port at a time, applies to desktop browsers and system apps',
   'settingsPage.proxy.enableLabel': 'Enable System Proxy',
-  'settingsPage.proxy.enableDesc': 'Sets the selected listening port as the global system proxy. Automatically cleaned up when the core stops or the app exits to prevent network loss',
+  'settingsPage.proxy.enableDesc':
+    'Sets the selected listening port as the global system proxy. Automatically cleaned up when the core stops or the app exits to prevent network loss',
   'settingsPage.proxy.portLabel': 'Outbound Listening Port',
-  'settingsPage.proxy.portDesc': 'Select an enabled listening port as the global egress (shared by system proxy and TUN mode)',
-  'settingsPage.proxy.noPort': 'No proxy port available. Enable a proxy port in port management first.',
+  'settingsPage.proxy.portDesc':
+    'Select an enabled listening port as the global egress (shared by system proxy and TUN mode)',
+  'settingsPage.proxy.noPort':
+    'No proxy port available. Enable a proxy port in port management first.',
   'settingsPage.proxy.portOption': 'Port {port} ({protocol} - {node})',
   'settingsPage.proxy.bypassLabel': 'Excluded Domains & IPs',
-  'settingsPage.proxy.bypassDesc': 'Requests matching this list connect directly without the system proxy. If env-var sync is enabled, they are also injected into the system no_proxy variable',
-  'settingsPage.proxy.bypassPlaceholder': 'Enter an excluded domain or IP (e.g. sheepyu.top, *.sheepyu.top, 119.29.106.76)...',
+  'settingsPage.proxy.bypassDesc':
+    'Requests matching this list connect directly without the system proxy. If env-var sync is enabled, they are also injected into the system no_proxy variable',
+  'settingsPage.proxy.bypassPlaceholder':
+    'Enter an excluded domain or IP (e.g. sheepyu.top, *.sheepyu.top, 119.29.106.76)...',
   'settingsPage.proxy.add': 'Add',
   'settingsPage.proxy.customBypassCount': 'Custom exclusions ({count}):',
   'settingsPage.proxy.removeBypass': 'Remove this exclusion',
-  'settingsPage.proxy.defaultBypass': 'Built-in exclusions (LAN and localhost):',
+  'settingsPage.proxy.defaultBypass':
+    'Built-in exclusions (LAN and localhost):',
   'settingsPage.proxy.uwpLabel': 'UWP Loopback Exemption',
   'settingsPage.proxy.uwpBadge': '{exempted} of {total} apps exempted',
-  'settingsPage.proxy.uwpAutoTitle': 'Auto-exempt is on: newly installed UWP apps are added automatically; click "Clear All" to stop',
+  'settingsPage.proxy.uwpAutoTitle':
+    'Auto-exempt is on: newly installed UWP apps are added automatically; click "Clear All" to stop',
   'settingsPage.proxy.uwpAutoBadge': 'Auto-exempt new apps',
-  'settingsPage.proxy.uwpDesc': 'Removes Windows sandbox isolation from local proxy ports so Microsoft Store and UWP apps can connect through the system proxy',
+  'settingsPage.proxy.uwpDesc':
+    'Removes Windows sandbox isolation from local proxy ports so Microsoft Store and UWP apps can connect through the system proxy',
   'settingsPage.proxy.uwpClear': 'Clear All',
   'settingsPage.proxy.uwpExempt': 'Exempt All',
   'settingsPage.proxy.uwpViewTitle': 'View UWP app list',
   'settingsPage.proxy.uwpRefreshTitle': 'Refresh exemption status',
 
   'settingsPage.env.title': 'Terminal Environment Proxy',
-  'settingsPage.env.desc': 'Injects the selected port into Windows user environment variables (http_proxy, https_proxy, all_proxy, no_proxy) for command-line and development tools. Fully decoupled from the system proxy, so a different node port can be used independently',
-  'settingsPage.env.enableLabel': 'Enable Terminal Environment Proxy (Windows HKCU)',
-  'settingsPage.env.enableDesc': 'Modifies user-level environment variables and broadcasts them to newly opened CMD, PowerShell, Git Bash, and development tools. Automatically cleaned up when the app exits or the port is disabled to prevent stale network loss',
+  'settingsPage.env.desc':
+    'Injects the selected port into Windows user environment variables (http_proxy, https_proxy, all_proxy, no_proxy) for command-line and development tools. Fully decoupled from the system proxy, so a different node port can be used independently',
+  'settingsPage.env.enableLabel':
+    'Enable Terminal Environment Proxy (Windows HKCU)',
+  'settingsPage.env.enableDesc':
+    'Modifies user-level environment variables and broadcasts them to newly opened CMD, PowerShell, Git Bash, and development tools. Automatically cleaned up when the app exits or the port is disabled to prevent stale network loss',
   'settingsPage.env.portLabel': 'Listening Port for Terminal Proxy',
-  'settingsPage.env.portDesc': 'Independently selects the terminal egress node; does not need to match the system proxy',
+  'settingsPage.env.portDesc':
+    'Independently selects the terminal egress node; does not need to match the system proxy',
   'settingsPage.env.resetLabel': 'Environment Variable Emergency Reset',
-  'settingsPage.env.resetDesc': 'If terminal proxy settings linger or networking is abnormal, clear proxy settings from Windows user environment variables in one click',
+  'settingsPage.env.resetDesc':
+    'If terminal proxy settings linger or networking is abnormal, clear proxy settings from Windows user environment variables in one click',
   'settingsPage.env.clearButton': 'Clear Terminal Proxy Variables',
 
   'settingsPage.tun.title': 'TUN Mode',
-  'settingsPage.tun.desc': 'Takes over all system traffic through a virtual network adapter; egress follows the selected listening port node and China direct-connect rules',
+  'settingsPage.tun.desc':
+    'Takes over all system traffic through a virtual network adapter; egress follows the selected listening port node and China direct-connect rules',
   'settingsPage.tun.enableLabel': 'Enable TUN Mode',
-  'settingsPage.tun.enableDesc': 'Requires administrator privileges; mutually exclusive with system proxy. Enabling clears the system proxy and reuses the current egress port',
-  'settingsPage.tun.pendingTitle': 'TUN inactive: administrator privileges required',
-  'settingsPage.tun.pendingDesc': 'Running as a standard user, so no virtual adapter was created. Restart as administrator with the button on the right to apply automatically',
+  'settingsPage.tun.enableDesc':
+    'Requires administrator privileges; mutually exclusive with system proxy. Enabling clears the system proxy and reuses the current egress port',
+  'settingsPage.tun.pendingTitle':
+    'TUN inactive: administrator privileges required',
+  'settingsPage.tun.pendingDesc':
+    'Running as a standard user, so no virtual adapter was created. Restart as administrator with the button on the right to apply automatically',
   'settingsPage.tun.restartAdmin': 'Restart as Administrator',
 
   'settingsPage.appearance.acrylicLabel': 'Frosted Acrylic Glass',
-  'settingsPage.appearance.acrylicDesc': 'Enables translucent frosted-glass blur and light transmission for all panels and the sidebar',
+  'settingsPage.appearance.acrylicDesc':
+    'Enables translucent frosted-glass blur and light transmission for all panels and the sidebar',
   'settingsPage.appearance.blurLabel': 'Glass Blur',
-  'settingsPage.appearance.blurDesc': 'Adjusts the frosted-glass blur of the background ({value}px)',
+  'settingsPage.appearance.blurDesc':
+    'Adjusts the frosted-glass blur of the background ({value}px)',
   'settingsPage.appearance.opacityLabel': 'Panel Opacity',
-  'settingsPage.appearance.opacityDesc': 'Adjusts the translucency of card backgrounds ({value}%)',
+  'settingsPage.appearance.opacityDesc':
+    'Adjusts the translucency of card backgrounds ({value}%)',
   'settingsPage.appearance.bgLabel': 'Custom Background Wallpaper',
-  'settingsPage.appearance.bgDesc': 'Choose an image from your computer as the full-app background',
+  'settingsPage.appearance.bgDesc':
+    'Choose an image from your computer as the full-app background',
   'settingsPage.appearance.changeWallpaper': 'Change Wallpaper',
   'settingsPage.appearance.chooseImage': 'Choose Local Image',
   'settingsPage.appearance.clearWallpaper': 'Clear Wallpaper',
   'settingsPage.appearance.bgOpacityLabel': 'Wallpaper Opacity',
-  'settingsPage.appearance.bgOpacityDesc': 'Adjusts the visibility and brightness of the wallpaper ({value}%)',
+  'settingsPage.appearance.bgOpacityDesc':
+    'Adjusts the visibility and brightness of the wallpaper ({value}%)',
 
   'settingsPage.system.title': 'Window & System Startup',
-  'settingsPage.system.desc': 'Manages system tray residency and launch-at-startup behavior',
+  'settingsPage.system.desc':
+    'Manages system tray residency and launch-at-startup behavior',
   'settingsPage.system.closeToTrayLabel': 'Minimize to System Tray on Close',
-  'settingsPage.system.closeToTrayDesc': 'Hides the window when the close button (X) is clicked and keeps the proxy running in the background instead of quitting',
+  'settingsPage.system.closeToTrayDesc':
+    'Hides the window when the close button (X) is clicked and keeps the proxy running in the background instead of quitting',
   'settingsPage.system.autoLaunchLabel': 'Launch at Startup',
-  'settingsPage.system.autoLaunchDesc': 'Starts the {app} client automatically when the operating system boots',
+  'settingsPage.system.autoLaunchDesc':
+    'Starts the {app} client automatically when the operating system boots',
   'settingsPage.system.silentStartLabel': 'Silent Startup',
-  'settingsPage.system.silentStartDesc': 'Minimizes to the system tray on launch without opening the main window',
+  'settingsPage.system.silentStartDesc':
+    'Minimizes to the system tray on launch without opening the main window',
   'settingsPage.system.lightweightLabel': 'Lightweight Mode',
-  'settingsPage.system.lightweightDesc': 'Destroys the frontend UI on window close to reduce memory usage and reloads it when the tray icon is clicked',
+  'settingsPage.system.lightweightDesc':
+    'Destroys the frontend UI on window close to reduce memory usage and reloads it when the tray icon is clicked',
   'settingsPage.system.resetSizeLabel': 'Reset Window Size',
-  'settingsPage.system.resetSizeDesc': 'Restores the window size and position to the default and clears the remembered state',
+  'settingsPage.system.resetSizeDesc':
+    'Restores the window size and position to the default and clears the remembered state',
   'settingsPage.system.resetSizeButton': 'Restore Default Size',
 
   'settingsPage.storage.title': 'App Data & Profile Storage',
-  'settingsPage.storage.desc': 'All profile YAML files, runtime config, and core logs are stored in a local dedicated directory',
+  'settingsPage.storage.desc':
+    'All profile YAML files, runtime config, and core logs are stored in a local dedicated directory',
   'settingsPage.storage.openFolder': 'Open in File Explorer',
-  'settingsPage.storage.currentDir': 'Current data directory (app_local_data_dir)',
+  'settingsPage.storage.currentDir':
+    'Current data directory (app_local_data_dir)',
   'settingsPage.storage.reading': 'Reading...',
 
   'settingsPage.about.title': 'About & Updates',
-  'settingsPage.about.desc': '{app} desktop client with one-click update checks and downloads of the matching installer or portable package from GitHub',
+  'settingsPage.about.desc':
+    '{app} desktop client with one-click update checks and downloads of the matching installer or portable package from GitHub',
   'settingsPage.about.github': 'GitHub Repository',
   'settingsPage.about.checkUpdate': 'Check for Updates',
   'settingsPage.about.currentVersion': 'Current Version',
@@ -1116,82 +1167,124 @@ export const enUS: Record<TranslationKey, string> = {
   'settingsPage.about.latest': 'Up to date',
   'settingsPage.about.pending': 'Pending check',
   'settingsPage.about.autoCheckLabel': 'Check for Updates at Startup and Daily',
-  'settingsPage.about.autoCheckDesc': 'Silently checks for a new version once at startup and once per day in the background. Checks and downloads try enabled listening ports in order and finally fall back to a direct connection',
+  'settingsPage.about.autoCheckDesc':
+    'Silently checks for a new version once at startup and once per day in the background. Checks and downloads try enabled listening ports in order and finally fall back to a direct connection',
   'settingsPage.about.lastCheckedLabel': 'Last checked: ',
   'settingsPage.about.never': 'Never checked',
   'settingsPage.about.newVersion': 'New version available: v{version}',
   'settingsPage.about.publishedAt': 'Published: {time}',
   'settingsPage.about.releaseNotesLink': 'View Release Notes',
   'settingsPage.about.selectAsset': 'Select download asset format:',
-  'settingsPage.about.assetInstaller': 'Installer (runs automatically and closes the old process)',
-  'settingsPage.about.assetPortable': 'Portable package (downloads to the root directory for extraction)',
-  'settingsPage.about.singleInstaller': 'Installer package: downloads, launches the installer, and exits the old process',
-  'settingsPage.about.singlePortable': 'Portable archive: downloads to the app root directory and opens the folder',
+  'settingsPage.about.assetInstaller':
+    'Installer (runs automatically and closes the old process)',
+  'settingsPage.about.assetPortable':
+    'Portable package (downloads to the root directory for extraction)',
+  'settingsPage.about.singleInstaller':
+    'Installer package: downloads, launches the installer, and exits the old process',
+  'settingsPage.about.singlePortable':
+    'Portable archive: downloads to the app root directory and opens the folder',
   'settingsPage.about.releaseNotes': 'Release Notes:',
   'settingsPage.about.stageReady': 'Download complete, processing...',
   'settingsPage.about.stageDownloading': 'Downloading update package...',
   'settingsPage.about.preparing': 'Preparing...',
   'settingsPage.about.downloadNow': 'Download and Update Now',
 
-  'settingsPage.toast.noPort': 'No available enabled listening port. Enable a port in port management first.',
+  'settingsPage.toast.noPort':
+    'No available enabled listening port. Enable a port in port management first.',
   'settingsPage.toast.sysProxyEnabled': 'Port {port} is now the system proxy',
-  'settingsPage.toast.sysProxyEnableFail': 'Failed to enable system proxy: {error}',
+  'settingsPage.toast.sysProxyEnableFail':
+    'Failed to enable system proxy: {error}',
   'settingsPage.toast.sysProxyDisabled': 'System proxy disabled',
-  'settingsPage.toast.sysProxyDisableFail': 'Failed to disable system proxy: {error}',
-  'settingsPage.toast.envProxyEnabled': 'Terminal environment proxy enabled (port {port})',
-  'settingsPage.toast.envProxyEnableFail': 'Failed to enable terminal proxy: {error}',
-  'settingsPage.toast.envProxyDisabled': 'Terminal environment proxy disabled and variables cleared',
-  'settingsPage.toast.envProxyDisableFail': 'Failed to disable terminal proxy: {error}',
-  'settingsPage.toast.envPortSwitched': 'Terminal proxy port switched to {port}',
-  'settingsPage.toast.envPortPreset': 'Terminal proxy preset port set to {port}',
-  'settingsPage.toast.envPortFail': 'Failed to update terminal proxy port: {error}',
-  'settingsPage.toast.sysProxyPortSwitched': 'System proxy port switched to {port}',
+  'settingsPage.toast.sysProxyDisableFail':
+    'Failed to disable system proxy: {error}',
+  'settingsPage.toast.envProxyEnabled':
+    'Terminal environment proxy enabled (port {port})',
+  'settingsPage.toast.envProxyEnableFail':
+    'Failed to enable terminal proxy: {error}',
+  'settingsPage.toast.envProxyDisabled':
+    'Terminal environment proxy disabled and variables cleared',
+  'settingsPage.toast.envProxyDisableFail':
+    'Failed to disable terminal proxy: {error}',
+  'settingsPage.toast.envPortSwitched':
+    'Terminal proxy port switched to {port}',
+  'settingsPage.toast.envPortPreset':
+    'Terminal proxy preset port set to {port}',
+  'settingsPage.toast.envPortFail':
+    'Failed to update terminal proxy port: {error}',
+  'settingsPage.toast.sysProxyPortSwitched':
+    'System proxy port switched to {port}',
   'settingsPage.toast.tunPortSwitched': 'TUN egress port switched to {port}',
   'settingsPage.toast.outboundPortPreset': 'Outbound preset port set to {port}',
-  'settingsPage.toast.outboundPortFail': 'Failed to update outbound port: {error}',
-  'settingsPage.toast.tunAdminRestart': 'TUN mode requires administrator privileges. Restarting as administrator...',
-  'settingsPage.toast.tunEnabled': 'TUN mode enabled; global egress follows port {port}',
+  'settingsPage.toast.outboundPortFail':
+    'Failed to update outbound port: {error}',
+  'settingsPage.toast.tunAdminRestart':
+    'TUN mode requires administrator privileges. Restarting as administrator...',
+  'settingsPage.toast.tunEnabled':
+    'TUN mode enabled; global egress follows port {port}',
   'settingsPage.toast.tunDisabled': 'TUN mode disabled',
-  'settingsPage.toast.localMarker': '"<local>" is a built-in OS exclusion marker and does not need to be added',
-  'settingsPage.toast.bypassInvalid': 'Invalid exclusion format. Use a domain (e.g. sheepyu.top), wildcard domain (e.g. *.sheepyu.top), IP (e.g. 119.29.106.76), or CIDR (e.g. 10.0.0.0/8). Single labels and the global wildcard * are not allowed.',
-  'settingsPage.toast.bypassDuplicateCustom': 'Exclusion "{item}" is already in the custom exclusion list',
-  'settingsPage.toast.bypassDuplicateDefault': 'Exclusion "{item}" already exists in the built-in exclusions',
+  'settingsPage.toast.localMarker':
+    '"<local>" is a built-in OS exclusion marker and does not need to be added',
+  'settingsPage.toast.bypassInvalid':
+    'Invalid exclusion format. Use a domain (e.g. sheepyu.top), wildcard domain (e.g. *.sheepyu.top), IP (e.g. 119.29.106.76), or CIDR (e.g. 10.0.0.0/8). Single labels and the global wildcard * are not allowed.',
+  'settingsPage.toast.bypassDuplicateCustom':
+    'Exclusion "{item}" is already in the custom exclusion list',
+  'settingsPage.toast.bypassDuplicateDefault':
+    'Exclusion "{item}" already exists in the built-in exclusions',
   'settingsPage.toast.bypassAdded': 'Added excluded domain/IP: {item}',
   'settingsPage.toast.bypassAddFail': 'Failed to add: {error}',
   'settingsPage.toast.bypassRemoved': 'Removed exclusion: {item}',
   'settingsPage.toast.bypassRemoveFail': 'Failed to remove: {error}',
   'settingsPage.toast.uwpNewExempted': 'Auto-exempted {count} new app(s)',
-  'settingsPage.toast.uwpCleaned': 'Cleaned up stale exemptions for {count} uninstalled app(s)',
+  'settingsPage.toast.uwpCleaned':
+    'Cleaned up stale exemptions for {count} uninstalled app(s)',
   'settingsPage.toast.uwpRefreshedDetails': 'Status refreshed: {details}',
   'settingsPage.toast.uwpRefreshed': 'UWP apps and exemption status refreshed',
-  'settingsPage.toast.uwpRefreshFail': 'Failed to refresh UWP exemption status: {error}',
-  'settingsPage.toast.uwpExemptAll': 'Removed loopback isolation for all {count} UWP apps; newly installed apps will be exempted automatically',
+  'settingsPage.toast.uwpRefreshFail':
+    'Failed to refresh UWP exemption status: {error}',
+  'settingsPage.toast.uwpExemptAll':
+    'Removed loopback isolation for all {count} UWP apps; newly installed apps will be exempted automatically',
   'settingsPage.toast.uwpExemptFail': 'UWP loopback exemption failed: {error}',
-  'settingsPage.toast.uwpCleared': 'Cleared all UWP loopback exemptions and stopped auto-exempting new apps',
-  'settingsPage.toast.uwpClearFail': 'Failed to clear UWP loopback exemptions: {error}',
-  'settingsPage.toast.kernelUpdateFound': 'New Mihomo core version detected: {version}',
-  'settingsPage.toast.kernelLatest': 'The core is already up to date ({version})',
-  'settingsPage.toast.kernelDownloading': 'Downloading and verifying the new core, please wait...',
-  'settingsPage.toast.kernelUpgraded': 'Core upgraded successfully! Switched to {version} seamlessly',
-  'settingsPage.toast.rulesDownloading': 'Fetching the latest official MRS rule set, please wait...',
-  'settingsPage.toast.rulesUpdated': 'China routing rule set updated to the latest version!',
+  'settingsPage.toast.uwpCleared':
+    'Cleared all UWP loopback exemptions and stopped auto-exempting new apps',
+  'settingsPage.toast.uwpClearFail':
+    'Failed to clear UWP loopback exemptions: {error}',
+  'settingsPage.toast.kernelUpdateFound':
+    'New Mihomo core version detected: {version}',
+  'settingsPage.toast.kernelLatest':
+    'The core is already up to date ({version})',
+  'settingsPage.toast.kernelDownloading':
+    'Downloading and verifying the new core, please wait...',
+  'settingsPage.toast.kernelUpgraded':
+    'Core upgraded successfully! Switched to {version} seamlessly',
+  'settingsPage.toast.rulesDownloading':
+    'Fetching the latest official MRS rule set, please wait...',
+  'settingsPage.toast.rulesUpdated':
+    'China routing rule set updated to the latest version!',
   'settingsPage.toast.appUpdateFound': 'New app version detected: v{version}',
   'settingsPage.toast.appLatest': 'The app is already up to date (v{version})',
   'settingsPage.toast.appCheckFail': 'Failed to check for app updates: {error}',
-  'settingsPage.toast.assetNotFound': 'No update package found for this platform',
-  'settingsPage.toast.installerStarted': 'Installer launched; closing the old app...',
+  'settingsPage.toast.assetNotFound':
+    'No update package found for this platform',
+  'settingsPage.toast.installerStarted':
+    'Installer launched; closing the old app...',
   'settingsPage.toast.portableReady': 'Portable package downloaded',
   'settingsPage.toast.appUpdateFail': 'Update failed: {error}',
   'settingsPage.toast.lanEnabled': 'LAN connections enabled',
   'settingsPage.toast.lanDisabled': 'Restored to localhost-only listening',
-  'settingsPage.toast.testUrlUpdated': 'Health-check and latency-test URL updated',
-  'settingsPage.toast.timeoutRange': 'Timeout must be an integer between {min} and {max} ms',
-  'settingsPage.toast.timeoutUpdated': 'Latency test and failure timeout updated to {ms} ms',
-  'settingsPage.toast.fallbackRange': 'Check interval must be an integer between {min} and {max} seconds',
-  'settingsPage.toast.fallbackUpdated': 'Fallback probe interval updated to {sec} seconds',
+  'settingsPage.toast.testUrlUpdated':
+    'Health-check and latency-test URL updated',
+  'settingsPage.toast.timeoutRange':
+    'Timeout must be an integer between {min} and {max} ms',
+  'settingsPage.toast.timeoutUpdated':
+    'Latency test and failure timeout updated to {ms} ms',
+  'settingsPage.toast.fallbackRange':
+    'Check interval must be an integer between {min} and {max} seconds',
+  'settingsPage.toast.fallbackUpdated':
+    'Fallback probe interval updated to {sec} seconds',
   'settingsPage.toast.lazyOn': 'Lazy health check enabled',
   'settingsPage.toast.lazyOff': 'Restored continuous active health checks',
-  'settingsPage.toast.invalidImage': 'Please select a valid image file (PNG, JPG, WebP, etc.)',
+  'settingsPage.toast.invalidImage':
+    'Please select a valid image file (PNG, JPG, WebP, etc.)',
   'settingsPage.toast.bgApplied': 'Background wallpaper applied',
   'settingsPage.toast.bgCleared': 'Background wallpaper cleared',
   'settingsPage.toast.autoLaunchOn': 'Launch at startup enabled',
@@ -1202,14 +1295,16 @@ export const enUS: Record<TranslationKey, string> = {
   'settingsPage.toast.autoCheckOff': 'Automatic update checks disabled',
   'settingsPage.toast.windowReset': 'Window size restored to default',
   'settingsPage.toast.windowResetFail': 'Failed to reset window size: {error}',
-  'settingsPage.toast.envCleared': 'Proxy settings cleared from user environment variables',
+  'settingsPage.toast.envCleared':
+    'Proxy settings cleared from user environment variables',
   'settingsPage.toast.envClearFail': 'Failed to clear: {error}',
   'app.profileUpdateFailed': 'Failed to fetch subscription "{name}": {error}',
   'app.profileUpdateFallbackError': 'Network or parsing error',
   'app.profileUpdateFailedTitle': 'Subscription auto-update failed',
   'app.portToggleFailedTitle': 'Failed to switch tray port',
   'app.kernelCrashedReason': ' ({reason})',
-  'app.kernelCrashed': 'Mihomo core exited unexpectedly{reason}. Check the core logs.',
+  'app.kernelCrashed':
+    'Mihomo core exited unexpectedly{reason}. Check the core logs.',
   'app.kernelCrashedTitle': 'Core stopped unexpectedly',
   'app.kernelCrashedProtection':
     'Mihomo core exited unexpectedly{reason}. To prevent a system-wide outage, the system proxy was disabled and traffic was switched to DIRECT.',
@@ -1219,14 +1314,16 @@ export const enUS: Record<TranslationKey, string> = {
   'app.proxyRestoredTitle': 'System proxy restored',
   'ports.latencyTesting': 'Testing...',
   'ports.latencyTimeout': 'Timeout',
-  'ports.residentialProxyTooltip': 'Residential proxy {protocol} {server}:{port}',
+  'ports.residentialProxyTooltip':
+    'Residential proxy {protocol} {server}:{port}',
   'filePicker.clashYaml': 'Clash YAML config file',
   'filePicker.allFiles': 'All files',
   'errors.chainEgressDesktopOnly':
     'Chain egress detection is only available in the desktop app',
   'errors.residentialManagementDesktopOnly':
     'Residential exit management is only available in the desktop app',
-  'errors.configNotLoaded': 'Configuration is not loaded yet; try again shortly',
+  'errors.configNotLoaded':
+    'Configuration is not loaded yet; try again shortly',
   'errors.residentialProxyInUse':
     'This residential exit is used by ports {ports}; unbind them first',
   'errors.chainConfigChanged':
@@ -1276,39 +1373,70 @@ export const enUS: Record<TranslationKey, string> = {
   'rules.presetService.wikipedia.name': 'Wikipedia',
   'rules.presetService.amazon.name': 'Amazon',
 
-  'rules.presetService.openai.description': 'ChatGPT, API, Sora, and static assets',
-  'rules.presetService.claude.description': 'Claude web, chat, and Anthropic API',
-  'rules.presetService.gemini.description': 'Gemini chat, AI Studio, and Google AI API',
-  'rules.presetService.copilot.description': 'Microsoft Copilot assistant and Bing AI',
-  'rules.presetService.cursor.description': 'Cursor editor cloud inference and update services',
+  'rules.presetService.openai.description':
+    'ChatGPT, API, Sora, and static assets',
+  'rules.presetService.claude.description':
+    'Claude web, chat, and Anthropic API',
+  'rules.presetService.gemini.description':
+    'Gemini chat, AI Studio, and Google AI API',
+  'rules.presetService.copilot.description':
+    'Microsoft Copilot assistant and Bing AI',
+  'rules.presetService.cursor.description':
+    'Cursor editor cloud inference and update services',
   'rules.presetService.perplexity.description': 'Perplexity AI search and API',
-  'rules.presetService.groq.description': 'Ultra-fast LPU cloud inference platform',
-  'rules.presetService.midjourney.description': 'Midjourney image generation and web platform',
-  'rules.presetService.huggingface.description': 'Open-source AI models and datasets community',
-  'rules.presetService.twitter.description': 'X web, clients, static assets, and x.ai',
-  'rules.presetService.telegram.description': 'Telegram messaging and short-link services',
-  'rules.presetService.discord.description': 'Discord voice, community channels, and CDN',
-  'rules.presetService.reddit.description': 'Reddit community discussions and media',
-  'rules.presetService.instagram.description': 'Instagram social photos and videos',
-  'rules.presetService.facebook.description': 'Facebook, Messenger, and the Meta ecosystem',
+  'rules.presetService.groq.description':
+    'Ultra-fast LPU cloud inference platform',
+  'rules.presetService.midjourney.description':
+    'Midjourney image generation and web platform',
+  'rules.presetService.huggingface.description':
+    'Open-source AI models and datasets community',
+  'rules.presetService.twitter.description':
+    'X web, clients, static assets, and x.ai',
+  'rules.presetService.telegram.description':
+    'Telegram messaging and short-link services',
+  'rules.presetService.discord.description':
+    'Discord voice, community channels, and CDN',
+  'rules.presetService.reddit.description':
+    'Reddit community discussions and media',
+  'rules.presetService.instagram.description':
+    'Instagram social photos and videos',
+  'rules.presetService.facebook.description':
+    'Facebook, Messenger, and the Meta ecosystem',
   'rules.presetService.threads.description': 'Meta text-sharing community',
-  'rules.presetService.tiktok.description': 'TikTok short videos (global) and CDN',
-  'rules.presetService.github.description': 'GitHub code hosting, assets, and Pages',
-  'rules.presetService.docker.description': 'Docker image registry and downloads',
-  'rules.presetService.notion.description': 'Notion notes and workspace collaboration',
-  'rules.presetService.figma.description': 'Figma online design and collaboration',
-  'rules.presetService.slack.description': 'Slack team messaging and edge network',
-  'rules.presetService.stackoverflow.description': 'Developer Q&A community and network',
-  'rules.presetService.vercel.description': 'Frontend cloud platform and edge deployments',
-  'rules.presetService.youtube.description': 'YouTube videos, live streams, and full media CDN',
-  'rules.presetService.netflix.description': 'Netflix streaming and full video CDN',
+  'rules.presetService.tiktok.description':
+    'TikTok short videos (global) and CDN',
+  'rules.presetService.github.description':
+    'GitHub code hosting, assets, and Pages',
+  'rules.presetService.docker.description':
+    'Docker image registry and downloads',
+  'rules.presetService.notion.description':
+    'Notion notes and workspace collaboration',
+  'rules.presetService.figma.description':
+    'Figma online design and collaboration',
+  'rules.presetService.slack.description':
+    'Slack team messaging and edge network',
+  'rules.presetService.stackoverflow.description':
+    'Developer Q&A community and network',
+  'rules.presetService.vercel.description':
+    'Frontend cloud platform and edge deployments',
+  'rules.presetService.youtube.description':
+    'YouTube videos, live streams, and full media CDN',
+  'rules.presetService.netflix.description':
+    'Netflix streaming and full video CDN',
   'rules.presetService.spotify.description': 'Spotify music streaming and CDN',
   'rules.presetService.disney.description': 'Disney+ streaming video on demand',
-  'rules.presetService.twitch.description': 'Game streaming and interactive video platform',
-  'rules.presetService.steam.description': 'Steam store, community, friends, and download CDN',
-  'rules.presetService.epic.description': 'Epic Games Store and Unreal Engine services',
-  'rules.presetService.playstation.description': 'Sony PSN store and online multiplayer services',
-  'rules.presetService.google.description': 'Google Search, API, Drive, Maps, and core services',
-  'rules.presetService.wikipedia.description': 'Wikipedia and free multimedia archive',
-  'rules.presetService.amazon.description': 'Amazon global e-commerce and retail services',
+  'rules.presetService.twitch.description':
+    'Game streaming and interactive video platform',
+  'rules.presetService.steam.description':
+    'Steam store, community, friends, and download CDN',
+  'rules.presetService.epic.description':
+    'Epic Games Store and Unreal Engine services',
+  'rules.presetService.playstation.description':
+    'Sony PSN store and online multiplayer services',
+  'rules.presetService.google.description':
+    'Google Search, API, Drive, Maps, and core services',
+  'rules.presetService.wikipedia.description':
+    'Wikipedia and free multimedia archive',
+  'rules.presetService.amazon.description':
+    'Amazon global e-commerce and retail services',
 }

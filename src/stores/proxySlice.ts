@@ -131,7 +131,9 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
         return {
           latencies: { ...state.latencies, [nodeName]: null },
           testingNodeNames: nextTesting,
-          proxyError: api.isCoreNotRunningError(err) ? errMsg : state.proxyError,
+          proxyError: api.isCoreNotRunningError(err)
+            ? errMsg
+            : state.proxyError,
         }
       })
       return null
