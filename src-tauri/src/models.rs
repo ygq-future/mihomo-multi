@@ -11,6 +11,67 @@ pub enum ProfileType {
     Local,
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remaining_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expire_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub never_expires: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_days: Option<u32>,
+}
+
+impl SubscriptionInfo {
+    pub fn is_empty(&self) -> bool {
+        self.upload.is_none()
+            && self.download.is_none()
+            && self.total.is_none()
+            && self.remaining_bytes.is_none()
+            && self.expire_at.is_none()
+            && !self.never_expires
+            && self.reset_days.is_none()
+    }
+
+    /// Merges HTTP header metadata (higher precision) with YAML pseudo-node metadata.
+    pub fn merge(header: Option<Self>, yaml: Option<Self>) -> Option<Self> {
+        match (header, yaml) {
+            (None, None) => None,
+            (Some(h), None) => (!h.is_empty()).then_some(h),
+            (None, Some(y)) => (!y.is_empty()).then_some(y),
+            (Some(h), Some(y)) => {
+                let expire_at = h.expire_at.or(y.expire_at);
+                let merged = Self {
+                    upload: h.upload.or(y.upload),
+                    download: h.download.or(y.download),
+                    total: h.total.or(y.total),
+                    remaining_bytes: h.remaining_bytes.or(y.remaining_bytes),
+                    expire_at,
+                    never_expires: if expire_at.is_some() {
+                        false
+                    } else {
+                        h.never_expires || y.never_expires
+                    },
+                    reset_days: h.reset_days.or(y.reset_days),
+                };
+                (!merged.is_empty()).then_some(merged)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileItem {
@@ -24,6 +85,8 @@ pub struct ProfileItem {
     pub auto_update_interval_mins: u32,
     pub last_updated_at: u64,
     pub node_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_info: Option<SubscriptionInfo>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]

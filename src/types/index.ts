@@ -1,5 +1,15 @@
 export type ProfileType = 'remote' | 'local'
 
+export interface SubscriptionInfo {
+  upload?: number
+  download?: number
+  total?: number
+  remainingBytes?: number
+  expireAt?: number
+  neverExpires?: boolean
+  resetDays?: number
+}
+
 export interface ProfileItem {
   id: string
   name: string
@@ -9,6 +19,7 @@ export interface ProfileItem {
   autoUpdateIntervalMins: number
   lastUpdatedAt: number
   nodeCount: number
+  subscriptionInfo?: SubscriptionInfo
 }
 
 export type InboundProtocol = 'mixed' | 'http' | 'socks5'

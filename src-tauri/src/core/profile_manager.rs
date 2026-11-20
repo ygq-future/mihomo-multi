@@ -1,5 +1,6 @@
 use crate::error::{AppError, AppResult};
-use crate::models::{ProfileItem, ProfileType, ProxyNode};
+use crate::models::{ProfileItem, ProfileType, ProxyNode, SubscriptionInfo};
+use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -19,15 +20,207 @@ fn current_unix_timestamp() -> u64 {
         .as_secs()
 }
 
+/// Parses Clash `Subscription-Userinfo` HTTP header value (`upload=...; download=...; total=...; expire=...`).
+pub fn parse_subscription_userinfo_header(raw: &str) -> Option<SubscriptionInfo> {
+    let mut info = SubscriptionInfo::default();
+
+    for part in raw.split(';') {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Some((key, val)) = trimmed.split_once('=') else {
+            continue;
+        };
+        let key_lower = key.trim().to_ascii_lowercase();
+        let val_trimmed = val.trim();
+        let parsed_num = val_trimmed.parse::<u64>().ok().or_else(|| {
+            val_trimmed
+                .parse::<f64>()
+                .ok()
+                .filter(|v| v.is_finite() && *v >= 0.0)
+                .map(|v| v.round() as u64)
+        });
+
+        let Some(num) = parsed_num else {
+            continue;
+        };
+
+        match key_lower.as_str() {
+            "upload" => info.upload = Some(num),
+            "download" => info.download = Some(num),
+            "total" if num > 0 => info.total = Some(num),
+            "expire" if num > 0 => info.expire_at = Some(num),
+            _ => {}
+        }
+    }
+
+    (!info.is_empty()).then_some(info)
+}
+
+fn parse_byte_size(text: &str) -> Option<u64> {
+    let trimmed = text.trim();
+    let mut num_end = 0usize;
+    let mut seen_digit = false;
+    let mut seen_dot = false;
+
+    for (idx, ch) in trimmed.char_indices() {
+        if ch.is_ascii_digit() {
+            seen_digit = true;
+            num_end = idx + ch.len_utf8();
+        } else if ch == '.' && seen_digit && !seen_dot {
+            seen_dot = true;
+            num_end = idx + ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    if !seen_digit {
+        return None;
+    }
+
+    let value = trimmed[..num_end].parse::<f64>().ok()?;
+    if !value.is_finite() || value < 0.0 {
+        return None;
+    }
+
+    let unit_raw = trimmed[num_end..].trim();
+    let unit: String = unit_raw
+        .chars()
+        .take_while(char::is_ascii_alphabetic)
+        .collect::<String>()
+        .to_ascii_lowercase();
+
+    let multiplier: f64 = match unit.as_str() {
+        "" | "b" | "bytes" => 1.0,
+        "k" | "kb" | "kib" => 1024.0,
+        "m" | "mb" | "mib" => 1024.0 * 1024.0,
+        "g" | "gb" | "gib" => 1024.0 * 1024.0 * 1024.0,
+        "t" | "tb" | "tib" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
+        _ => return None,
+    };
+
+    Some((value * multiplier).round() as u64)
+}
+
+fn parse_first_u32(text: &str) -> Option<u32> {
+    let start = text.find(|c: char| c.is_ascii_digit())?;
+    let digits: String = text[start..].chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse::<u32>().ok()
+}
+
+fn naive_datetime_to_local_timestamp(dt: NaiveDateTime) -> u64 {
+    let resolved = Local
+        .from_local_datetime(&dt)
+        .single()
+        .or_else(|| Local.from_local_datetime(&dt).earliest())
+        .map(|d| d.timestamp())
+        .unwrap_or_else(|| dt.and_utc().timestamp());
+    resolved.max(0) as u64
+}
+
+fn parse_expire_timestamp(text: &str) -> Option<u64> {
+    let cleaned = text.trim().replace(['/', '.'], "-");
+    let candidate = cleaned
+        .split(|c: char| !(c.is_ascii_digit() || c == '-' || c == ':' || c == ' '))
+        .next()
+        .unwrap_or("")
+        .trim();
+
+    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"] {
+        if let Ok(dt) = NaiveDateTime::parse_from_str(candidate, fmt) {
+            return Some(naive_datetime_to_local_timestamp(dt));
+        }
+    }
+
+    let date_token = candidate.split_whitespace().next().unwrap_or(candidate);
+    if let Ok(date) = NaiveDate::parse_from_str(date_token, "%Y-%m-%d")
+        && let Some(dt) = date.and_hms_opt(23, 59, 59)
+    {
+        return Some(naive_datetime_to_local_timestamp(dt));
+    }
+
+    None
+}
+
+fn extract_pseudo_node_kv(name: &str) -> Option<(String, String)> {
+    let normalized = name.trim().replace('：', ":");
+    let (key, val) = normalized.split_once(':')?;
+    let k = key.trim().to_ascii_lowercase();
+    let v = val.trim().to_string();
+    if k.is_empty() || v.is_empty() {
+        return None;
+    }
+    Some((k, v))
+}
+
+/// Extracts subscription quota, expiration, and reset info from YAML proxy pseudo-nodes.
+pub fn parse_subscription_info_from_nodes(nodes: &[ProxyNode]) -> Option<SubscriptionInfo> {
+    let mut info = SubscriptionInfo::default();
+
+    for node in nodes {
+        let Some((key, val)) = extract_pseudo_node_kv(&node.name) else {
+            continue;
+        };
+
+        if key.contains("重置") || key.contains("reset") {
+            if info.reset_days.is_none()
+                && let Some(days) = parse_first_u32(&val)
+            {
+                info.reset_days = Some(days);
+            }
+            continue;
+        }
+
+        if key.contains("流量") || key.ends_with("剩余") || key.contains("remaining") || key == "traffic" {
+            if info.remaining_bytes.is_none()
+                && let Some(bytes) = parse_byte_size(&val)
+            {
+                info.remaining_bytes = Some(bytes);
+            }
+            continue;
+        }
+
+        if key.contains("到期") || key.contains("过期") || key.contains("有效期") || key.contains("expire") {
+            let val_lower = val.to_ascii_lowercase();
+            if val.contains("长期")
+                || val.contains("永久")
+                || val.contains("永不")
+                || val.contains("无限")
+                || val_lower.contains("never")
+                || val_lower.contains("permanent")
+                || val_lower.contains("lifetime")
+            {
+                if info.expire_at.is_none() {
+                    info.never_expires = true;
+                }
+            } else if info.expire_at.is_none()
+                && let Some(ts) = parse_expire_timestamp(&val)
+            {
+                info.expire_at = Some(ts);
+                info.never_expires = false;
+            }
+        }
+    }
+
+    (!info.is_empty()).then_some(info)
+}
+
+/// Convenience wrapper to parse subscription info directly from Clash YAML text.
+pub fn parse_subscription_info_from_yaml(yaml_content: &str) -> AppResult<Option<SubscriptionInfo>> {
+    let nodes = parse_nodes_from_yaml(yaml_content)?;
+    Ok(parse_subscription_info_from_nodes(&nodes))
+}
+
 /// Helper function to parse ProxyNode list from Clash YAML string
 pub fn parse_nodes_from_yaml(yaml_content: &str) -> AppResult<Vec<ProxyNode>> {
-    let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml_content)
-        .map_err(|err| {
-            AppError::InvalidConfig(crate::tr!(
-                format!("解析 YAML 失败: {err}"),
-                format!("Failed to parse YAML: {err}"),
-            ))
-        })?;
+    let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml_content).map_err(|err| {
+        AppError::InvalidConfig(crate::tr!(
+            format!("解析 YAML 失败: {err}"),
+            format!("Failed to parse YAML: {err}"),
+        ))
+    })?;
 
     let proxies_val = match root.get("proxies") {
         Some(v) => v,
@@ -100,13 +293,12 @@ pub fn parse_nodes_from_yaml(yaml_content: &str) -> AppResult<Vec<ProxyNode>> {
 
 /// Helper function to extract raw proxies YAML array
 pub fn extract_raw_proxies_from_yaml(yaml_content: &str) -> AppResult<Vec<serde_yaml_ng::Value>> {
-    let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml_content)
-        .map_err(|err| {
-            AppError::InvalidConfig(crate::tr!(
-                format!("解析 YAML 失败: {err}"),
-                format!("Failed to parse YAML: {err}"),
-            ))
-        })?;
+    let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml_content).map_err(|err| {
+        AppError::InvalidConfig(crate::tr!(
+            format!("解析 YAML 失败: {err}"),
+            format!("Failed to parse YAML: {err}"),
+        ))
+    })?;
 
     if let Some(proxies_val) = root.get("proxies")
         && let Some(seq) = proxies_val.as_sequence()
@@ -122,6 +314,7 @@ pub struct ProfileNodeIndexEntry {
     pub nodes: Vec<ProxyNode>,
     pub raw_proxies: Vec<serde_yaml_ng::Value>,
     pub node_names: HashSet<String>,
+    pub subscription_info: Option<SubscriptionInfo>,
 }
 
 struct TempFileCleanup {
@@ -247,16 +440,21 @@ impl ProfileManager {
             .build()
             .unwrap_or_default();
 
-        let initial_profiles = Self::load_metadata(&metadata_path);
+        let mut initial_profiles = Self::load_metadata(&metadata_path);
         let mut index_map = HashMap::new();
+        let mut metadata_dirty = false;
 
         // Parse and index existing profile YAML files once on startup
-        for profile in &initial_profiles {
+        for profile in &mut initial_profiles {
             let file_path = PathBuf::from(&profile.file_path);
             if file_path.exists() {
                 match std::fs::read_to_string(&file_path) {
                     Ok(yaml_content) => match Self::index_yaml_content(&profile.id, &profile.name, &yaml_content) {
                         Ok(entry) => {
+                            if profile.subscription_info.is_none() && entry.subscription_info.is_some() {
+                                profile.subscription_info = entry.subscription_info.clone();
+                                metadata_dirty = true;
+                            }
                             index_map.insert(profile.id.clone(), entry);
                         }
                         Err(err) => {
@@ -279,13 +477,17 @@ impl ProfileManager {
             }
         }
 
-        Self {
+        let manager = Self {
             profiles: Arc::new(RwLock::new(initial_profiles)),
             node_index: Arc::new(RwLock::new(index_map)),
             profiles_dir: Some(profiles_dir),
             metadata_path: Some(metadata_path),
             http_client,
+        };
+        if metadata_dirty {
+            let _ = manager.persist_metadata();
         }
+        manager
     }
 
     /// Creates an entirely in-memory ProfileManager without disk persistence, ideal for testing.
@@ -313,6 +515,7 @@ impl ProfileManager {
         yaml_content: &str,
     ) -> AppResult<ProfileNodeIndexEntry> {
         let mut nodes = parse_nodes_from_yaml(yaml_content)?;
+        let subscription_info = parse_subscription_info_from_nodes(&nodes);
         let mut node_names = HashSet::with_capacity(nodes.len());
 
         for node in &mut nodes {
@@ -411,6 +614,7 @@ impl ProfileManager {
             nodes,
             raw_proxies,
             node_names,
+            subscription_info,
         })
     }
 
@@ -445,7 +649,7 @@ impl ProfileManager {
         Ok(())
     }
 
-    pub async fn fetch_remote_yaml(&self, url: &str) -> AppResult<String> {
+    pub async fn fetch_remote_yaml_with_info(&self, url: &str) -> AppResult<(String, Option<SubscriptionInfo>)> {
         info!("Fetching remote subscription from: {}", url);
         let resp = self.http_client.get(url).send().await.map_err(AppError::Network)?;
 
@@ -456,8 +660,13 @@ impl ProfileManager {
             )));
         }
 
+        let header_info = resp
+            .headers()
+            .get("subscription-userinfo")
+            .and_then(|value| value.to_str().ok())
+            .and_then(parse_subscription_userinfo_header);
         let content = resp.text().await.map_err(AppError::Network)?;
-        Ok(content)
+        Ok((content, header_info))
     }
 
     pub fn get_profiles(&self) -> Vec<ProfileItem> {
@@ -480,6 +689,7 @@ impl ProfileManager {
         let id = Uuid::new_v4().to_string();
         let entry = Self::index_yaml_content(&id, &trimmed_name, yaml_content)?;
         let node_count = entry.nodes.len();
+        let subscription_info = entry.subscription_info.clone();
 
         let item = ProfileItem {
             id: id.clone(),
@@ -490,6 +700,7 @@ impl ProfileManager {
             auto_update_interval_mins: 0,
             last_updated_at: current_unix_timestamp(),
             node_count,
+            subscription_info,
         };
 
         {
@@ -529,12 +740,13 @@ impl ProfileManager {
             ));
         }
 
-        let yaml_content = self.fetch_remote_yaml(&trimmed_url).await?;
+        let (yaml_content, header_info) = self.fetch_remote_yaml_with_info(&trimmed_url).await?;
         let id = Uuid::new_v4().to_string();
         let entry = Self::index_yaml_content(&id, &trimmed_name, &yaml_content)?;
         let node_count = entry.nodes.len();
+        let subscription_info = SubscriptionInfo::merge(header_info, entry.subscription_info.clone());
 
-        let file_path_str = if let Some(ref dir) = self.profiles_dir {
+        let file_path_str = if let Some(dir) = &self.profiles_dir {
             let file_path = dir.join(format!("{}.yaml", id));
             atomic_write_file(&file_path, yaml_content.as_bytes())?;
             file_path.to_string_lossy().to_string()
@@ -551,8 +763,8 @@ impl ProfileManager {
             auto_update_interval_mins,
             last_updated_at: current_unix_timestamp(),
             node_count,
+            subscription_info,
         };
-
         {
             let mut guard = self.profiles.write();
             guard.push(item.clone());
@@ -590,8 +802,9 @@ impl ProfileManager {
         let id = Uuid::new_v4().to_string();
         let entry = Self::index_yaml_content(&id, &trimmed_name, &yaml_content)?;
         let node_count = entry.nodes.len();
+        let subscription_info = entry.subscription_info.clone();
 
-        let dest_file_str = if let Some(ref dir) = self.profiles_dir {
+        let dest_file_str = if let Some(dir) = &self.profiles_dir {
             let dest_file_path = dir.join(format!("{}.yaml", id));
             atomic_write_file(&dest_file_path, yaml_content.as_bytes())?;
             dest_file_path.to_string_lossy().to_string()
@@ -608,6 +821,7 @@ impl ProfileManager {
             auto_update_interval_mins: 0,
             last_updated_at: current_unix_timestamp(),
             node_count,
+            subscription_info,
         };
 
         {
@@ -629,17 +843,27 @@ impl ProfileManager {
 
     /// Update a profile with new YAML content, atomically persisting and updating the node index.
     pub fn update_profile_with_yaml(&self, id: &str, yaml_content: &str) -> AppResult<ProfileItem> {
-        let existing = self
-            .get_profile_by_id(id)
-            .ok_or_else(|| AppError::ProfileNotFound(crate::tr!(
+        self.update_profile_with_yaml_and_header(id, yaml_content, None)
+    }
+
+    fn update_profile_with_yaml_and_header(
+        &self,
+        id: &str,
+        yaml_content: &str,
+        header_info: Option<SubscriptionInfo>,
+    ) -> AppResult<ProfileItem> {
+        let existing = self.get_profile_by_id(id).ok_or_else(|| {
+            AppError::ProfileNotFound(crate::tr!(
                 format!("未找到 ID 为 '{}' 的订阅", id),
                 format!("Profile with ID '{}' not found", id),
-            )))?;
+            ))
+        })?;
 
         let entry = Self::index_yaml_content(id, &existing.name, yaml_content)?;
         let node_count = entry.nodes.len();
+        let subscription_info = SubscriptionInfo::merge(header_info, entry.subscription_info.clone());
 
-        let target_file_path_str = if let Some(ref dir) = self.profiles_dir {
+        let target_file_path_str = if let Some(dir) = &self.profiles_dir {
             let target_file_path = dir.join(format!("{}.yaml", id));
             atomic_write_file(&target_file_path, yaml_content.as_bytes())?;
             target_file_path.to_string_lossy().to_string()
@@ -649,17 +873,17 @@ impl ProfileManager {
 
         let updated_item = {
             let mut guard = self.profiles.write();
-            let item = guard
-                .iter_mut()
-                .find(|p| p.id == id)
-                .ok_or_else(|| AppError::ProfileNotFound(crate::tr!(
-                format!("未找到 ID 为 '{}' 的订阅", id),
-                format!("Profile with ID '{}' not found", id),
-            )))?;
+            let item = guard.iter_mut().find(|p| p.id == id).ok_or_else(|| {
+                AppError::ProfileNotFound(crate::tr!(
+                    format!("未找到 ID 为 '{}' 的订阅", id),
+                    format!("Profile with ID '{}' not found", id),
+                ))
+            })?;
 
             item.last_updated_at = current_unix_timestamp();
             item.node_count = node_count;
             item.file_path = target_file_path_str;
+            item.subscription_info = subscription_info;
             item.clone()
         };
 
@@ -677,24 +901,19 @@ impl ProfileManager {
     }
 
     pub async fn update_profile(&self, id: &str) -> AppResult<ProfileItem> {
-        let existing = self
-            .get_profile_by_id(id)
-            .ok_or_else(|| AppError::ProfileNotFound(crate::tr!(
+        let existing = self.get_profile_by_id(id).ok_or_else(|| {
+            AppError::ProfileNotFound(crate::tr!(
                 format!("未找到 ID 为 '{}' 的订阅", id),
                 format!("Profile with ID '{}' not found", id),
-            )))?;
+            ))
+        })?;
 
-        let yaml_content = match existing.profile_type {
+        let (yaml_content, header_info) = match existing.profile_type {
             ProfileType::Remote => {
-                let url = existing
-                    .url
-                    .as_deref()
-                    .ok_or_else(|| {
-                        AppError::InvalidConfig(
-                            crate::tr!("远程订阅缺少 URL", "Remote profile is missing URL").to_string(),
-                        )
-                    })?;
-                self.fetch_remote_yaml(url).await?
+                let url = existing.url.as_deref().ok_or_else(|| {
+                    AppError::InvalidConfig(crate::tr!("远程订阅缺少 URL", "Remote profile is missing URL").to_string())
+                })?;
+                self.fetch_remote_yaml_with_info(url).await?
             }
             ProfileType::Local => {
                 let path = PathBuf::from(&existing.file_path);
@@ -704,11 +923,12 @@ impl ProfileManager {
                         path.display()
                     )));
                 }
-                std::fs::read_to_string(&path).map_err(AppError::Io)?
+                let content = std::fs::read_to_string(&path).map_err(AppError::Io)?;
+                (content, None)
             }
         };
 
-        self.update_profile_with_yaml(id, &yaml_content)
+        self.update_profile_with_yaml_and_header(id, &yaml_content, header_info)
     }
 
     pub fn edit_profile(
@@ -727,13 +947,12 @@ impl ProfileManager {
 
         let (updated_item, name_changed) = {
             let mut guard = self.profiles.write();
-            let item = guard
-                .iter_mut()
-                .find(|p| p.id == id)
-                .ok_or_else(|| AppError::ProfileNotFound(crate::tr!(
-                format!("未找到 ID 为 '{}' 的订阅", id),
-                format!("Profile with ID '{}' not found", id),
-            )))?;
+            let item = guard.iter_mut().find(|p| p.id == id).ok_or_else(|| {
+                AppError::ProfileNotFound(crate::tr!(
+                    format!("未找到 ID 为 '{}' 的订阅", id),
+                    format!("Profile with ID '{}' not found", id),
+                ))
+            })?;
 
             let name_changed = item.name != trimmed_name;
             item.name = trimmed_name.clone();
@@ -1193,5 +1412,100 @@ proxies:
         assert_eq!(indexed.raw_proxies[0]["name"].as_str(), Some("[Airport] DIRECT"));
         assert_eq!(indexed.raw_proxies[0]["dialer-proxy"].as_str(), Some("DIRECT"));
         assert_eq!(indexed.raw_proxies[1]["dialer-proxy"].as_str(), Some("DIRECT"));
+    }
+    #[test]
+    fn parses_subscription_userinfo_header() {
+        let raw = "upload=9823718108; download=37604665872; total=322122547200; expire=1802234215";
+        let info = parse_subscription_userinfo_header(raw).expect("header should parse");
+        assert_eq!(info.upload, Some(9_823_718_108));
+        assert_eq!(info.download, Some(37_604_665_872));
+        assert_eq!(info.total, Some(322_122_547_200));
+        assert_eq!(info.expire_at, Some(1_802_234_215));
+        assert!(!info.never_expires);
+
+        let zero_meta = parse_subscription_userinfo_header("upload=0; download=0; total=0; expire=0")
+            .expect("upload/download still retained");
+        assert_eq!(zero_meta.total, None);
+        assert_eq!(zero_meta.expire_at, None);
+        assert!(parse_subscription_userinfo_header("invalid-header").is_none());
+    }
+
+    #[test]
+    fn parses_yaml_pseudo_nodes_for_traffic_reset_and_expiry() {
+        let yaml_saibo = r#"
+proxies:
+  - { name: '剩余流量：520 GB', type: tuic, server: example.com, port: 443 }
+  - { name: '距离下次重置剩余：30 天', type: tuic, server: example.com, port: 443 }
+  - { name: 套餐到期：2026-12-20, type: tuic, server: example.com, port: 443 }
+  - { name: '台湾-节点1', type: tuic, server: example.com, port: 443 }
+"#;
+        let info = parse_subscription_info_from_yaml(yaml_saibo)
+            .expect("yaml should parse")
+            .expect("subscription info expected");
+        assert_eq!(info.remaining_bytes, Some(520 * 1024 * 1024 * 1024));
+        assert_eq!(info.reset_days, Some(30));
+        assert!(info.expire_at.is_some());
+        assert!(!info.never_expires);
+
+        let yaml_mojie = r#"
+proxies:
+  - { name: '香港-节点1', type: vmess, server: example.com, port: 443 }
+  - { name: '剩余流量：121.72 GB', type: vmess, server: example.com, port: 443 }
+  - { name: 套餐到期：长期有效, type: vmess, server: example.com, port: 443 }
+  - { name: 过滤掉14条线路, type: vmess, server: example.com, port: 443 }
+"#;
+        let mojie_info = parse_subscription_info_from_yaml(yaml_mojie)
+            .expect("yaml should parse")
+            .expect("mojie subscription info expected");
+        assert_eq!(
+            mojie_info.remaining_bytes,
+            Some((121.72_f64 * 1024.0 * 1024.0 * 1024.0).round() as u64)
+        );
+        assert!(mojie_info.never_expires);
+        assert_eq!(mojie_info.expire_at, None);
+    }
+
+    #[test]
+    fn startup_backfills_subscription_info_from_existing_yaml_preserving_all_nodes() {
+        let temp_dir = std::env::temp_dir().join(format!("mihomo_test_sub_backfill_{}", Uuid::new_v4()));
+        let profiles_dir = temp_dir.join("profiles");
+        std::fs::create_dir_all(&profiles_dir).expect("create profiles dir");
+
+        let yaml_path = profiles_dir.join("sub-1.yaml");
+        std::fs::write(
+            &yaml_path,
+            "proxies:\n  - { name: '剩余流量：100 GB', type: ss, server: 1.1.1.1, port: 443 }\n  - { name: '套餐到期：长期有效', type: ss, server: 1.1.1.1, port: 443 }\n  - { name: 'HK-01', type: ss, server: 1.1.1.1, port: 443 }\n",
+        )
+        .expect("write yaml");
+
+        let legacy_json = serde_json::json!([{
+            "id": "sub-1",
+            "name": "Legacy",
+            "type": "remote",
+            "url": "https://example.com/sub",
+            "filePath": yaml_path.to_string_lossy(),
+            "autoUpdateIntervalMins": 60,
+            "lastUpdatedAt": 1_700_000_000_u64,
+            "nodeCount": 3
+        }]);
+        std::fs::write(
+            temp_dir.join("profiles.json"),
+            serde_json::to_string_pretty(&legacy_json).expect("serialize legacy"),
+        )
+        .expect("write legacy metadata");
+
+        let manager = ProfileManager::new(temp_dir.clone());
+        let profiles = manager.get_profiles();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].node_count, 3);
+        let info = profiles[0]
+            .subscription_info
+            .as_ref()
+            .expect("backfilled subscription info");
+        assert_eq!(info.remaining_bytes, Some(100 * 1024 * 1024 * 1024));
+        assert!(info.never_expires);
+        assert_eq!(manager.get_profile_nodes("sub-1").expect("nodes retained").len(), 3);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

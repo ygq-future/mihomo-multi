@@ -1,8 +1,10 @@
 import {
   Building2,
+  Calendar,
   Check,
   Clock,
   Copy,
+  Database,
   FileCode,
   FolderOpen,
   Globe,
@@ -14,11 +16,16 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react'
-import type React from 'react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { useAppStore } from '../../stores/appStore'
 import type { ProfileItem } from '../../types'
+import {
+  SUBSCRIPTION_TONE_CLASSES,
+  formatExpireDate,
+  formatTrafficBytes,
+  getSubscriptionStats,
+} from '../../utils/subscription'
 import { Button, Modal, toast } from '../common'
 import { AddLocalModal } from '../profiles/AddLocalModal'
 import { AddRemoteModal } from '../profiles/AddRemoteModal'
@@ -319,7 +326,13 @@ export const ProfileListView: React.FC = () => {
               const isUpdating = updatingProfileIds[profile.id] ?? false
               const isRemote = profile.type === 'remote'
               const isCopied = copiedId === profile.id
-
+              const stats = getSubscriptionStats(profile.subscriptionInfo)
+              const trafficTextClass =
+                SUBSCRIPTION_TONE_CLASSES.trafficText[stats.trafficTone]
+              const progressBarClass =
+                SUBSCRIPTION_TONE_CLASSES.progressBar[stats.trafficTone]
+              const expiryTextClass =
+                SUBSCRIPTION_TONE_CLASSES.expiryText[stats.expiryTone]
               return (
                 <div
                   key={profile.id}
@@ -393,6 +406,116 @@ export const ProfileListView: React.FC = () => {
                       </button>
                     </div>
 
+                    {/* Subscription Quota & Expiry */}
+                    {stats.hasAny && (
+                      <div className="bg-background/50 border border-border/50 rounded-lg px-2.5 py-1.5 space-y-1 text-[10px]">
+                        {stats.hasTraffic && (
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <Database className="w-2.5 h-2.5 text-muted-foreground shrink-0" />
+                              <span
+                                className={`font-mono font-medium truncate ${trafficTextClass}`}
+                              >
+                                {stats.remainingBytes !== null &&
+                                stats.totalBytes !== null
+                                  ? t('profileMain.remainingOfTotal', {
+                                      remaining: formatTrafficBytes(
+                                        stats.remainingBytes,
+                                      ),
+                                      total: formatTrafficBytes(
+                                        stats.totalBytes,
+                                      ),
+                                    })
+                                  : stats.remainingBytes !== null
+                                    ? t('profileMain.remainingTraffic', {
+                                        amount: formatTrafficBytes(
+                                          stats.remainingBytes,
+                                        ),
+                                      })
+                                    : stats.usedBytes !== null
+                                      ? t('profileMain.usedTraffic', {
+                                          used: formatTrafficBytes(
+                                            stats.usedBytes,
+                                          ),
+                                        })
+                                      : ''}
+                              </span>
+                            </div>
+                            {stats.usedBytes !== null ? (
+                              <span className="text-muted-foreground font-mono shrink-0">
+                                {t('profileMain.usedTraffic', {
+                                  used: formatTrafficBytes(stats.usedBytes),
+                                })}
+                              </span>
+                            ) : stats.resetDays !== null ? (
+                              <span className="text-muted-foreground font-mono shrink-0">
+                                {t('profileMain.resetInDays', {
+                                  days: stats.resetDays,
+                                })}
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
+
+                        {stats.remainingPercent !== null && (
+                          <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${progressBarClass}`}
+                              style={{
+                                width:
+                                  stats.remainingPercent <= 0
+                                    ? '0%'
+                                    : `${Math.max(2, Math.round(stats.remainingPercent))}%`,
+                              }}
+                            />
+                          </div>
+                        )}
+
+                        {(stats.hasExpiry ||
+                          (stats.resetDays !== null &&
+                            (!stats.hasTraffic ||
+                              stats.usedBytes !== null))) && (
+                          <div className="flex items-center justify-between gap-2">
+                            {stats.hasExpiry ? (
+                              <div className="flex items-center gap-1 min-w-0">
+                                <Calendar className="w-2.5 h-2.5 text-muted-foreground shrink-0" />
+                                <span
+                                  className={`font-mono truncate ${expiryTextClass}`}
+                                >
+                                  {stats.neverExpires
+                                    ? t('profileMain.expireNever')
+                                    : stats.isExpired
+                                      ? t('profileMain.expired')
+                                      : stats.expireAt !== null
+                                        ? `${t('profileMain.expireOn', {
+                                            date: formatExpireDate(
+                                              stats.expireAt,
+                                              locale,
+                                            ),
+                                          })}${
+                                            stats.daysLeft !== null
+                                              ? ` · ${t('profileMain.expireDaysLeft', { days: stats.daysLeft })}`
+                                              : ''
+                                          }`
+                                        : ''}
+                                </span>
+                              </div>
+                            ) : (
+                              <span />
+                            )}
+                            {stats.resetDays !== null &&
+                              (!stats.hasTraffic ||
+                                stats.usedBytes !== null) && (
+                                <span className="text-muted-foreground font-mono shrink-0">
+                                  {t('profileMain.resetInDays', {
+                                    days: stats.resetDays,
+                                  })}
+                                </span>
+                              )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {/* Metadata Row */}
                     <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-0.5">
                       <div className="flex items-center gap-1">

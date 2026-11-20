@@ -26,15 +26,22 @@ import {
   useRef,
   useState,
 } from 'react'
-import * as api from '../../services/tauri'
-import { useAppStore } from '../../stores/appStore'
+import {
+  DEFAULT_TIMEOUT_MS,
+  FALLBACK_STATUS_POLL_INTERVAL_MS,
+  FIXED_DIRECT_PORT_ID,
+} from '../../constants'
 import { useTranslation } from '../../i18n'
+import * as api from '../../services/tauri'
+import { useWindowVisibility } from '../../services/useWindowVisibility'
+import { useAppStore } from '../../stores/appStore'
 import type {
   DirectEgressInfo,
   InboundProtocol,
   LanIpInfo,
   PortDriftReport,
   PortMapping,
+  ProfileItem,
 } from '../../types'
 import {
   extractRegion,
@@ -54,13 +61,8 @@ import {
 import { AddPortModal } from '../ports/AddPortModal'
 import { EditDirectPortModal } from '../ports/EditDirectPortModal'
 import { PortRulesModal } from '../ports/PortRulesModal'
-import { useWindowVisibility } from '../../services/useWindowVisibility'
 import { QuickCopyMenu } from '../ports/QuickCopyMenu'
-import {
-  DEFAULT_TIMEOUT_MS,
-  FALLBACK_STATUS_POLL_INTERVAL_MS,
-  FIXED_DIRECT_PORT_ID,
-} from '../../constants'
+import { ProfileBadgeTooltip } from '../profiles/ProfileBadgeTooltip'
 
 const DIRECT_EGRESS_CACHE_KEY = 'mihomo_direct_egress_cache'
 
@@ -477,11 +479,11 @@ export const PortTableView: React.FC = () => {
     return map
   }, [driftReports])
 
-  // Profile map for easy name lookup
-  const profileMap = useMemo(() => {
-    const map: Record<string, string> = {}
+  // Profile maps for easy name and metadata lookup
+  const profileById = useMemo(() => {
+    const map: Record<string, ProfileItem> = {}
     for (const p of profiles) {
-      map[p.id] = p.name
+      map[p.id] = p
     }
     return map
   }, [profiles])
@@ -1362,8 +1364,9 @@ export const PortTableView: React.FC = () => {
                 m.id === FIXED_DIRECT_PORT_ID || m.nodeName === 'DIRECT'
               const residentialProxy = getResidentialProxy(m)
               const isChainPort = Boolean(m.residentialProxyId)
+              const primaryProfile = profileById[m.profileId]
               const profileName =
-                profileMap[m.profileId] || t('ports.unknownProfile')
+                primaryProfile?.name || t('ports.unknownProfile')
               const drift = driftMap[m.id]
               const isDrifted = drift && drift.status !== 'healthy'
               const nodeKey = profileName
@@ -1417,9 +1420,11 @@ export const PortTableView: React.FC = () => {
                 (isAutoFallbackActive && latency === undefined)
               const isFallbackWarning =
                 isRunning && m.enabled && hasFallback && isAutoFallbackActive
-              const fbProfileName =
-                (m.fallbackProfileId && profileMap[m.fallbackProfileId]) ||
-                profileName
+              const fbProfileId = m.fallbackProfileId || m.profileId
+              const fbProfile = fbProfileId
+                ? profileById[fbProfileId]
+                : undefined
+              const fbProfileName = fbProfile?.name || profileName
               const fbNodeKey =
                 fbProfileName && m.fallbackNodeName
                   ? `[${fbProfileName}] ${m.fallbackNodeName}`
@@ -1846,14 +1851,11 @@ export const PortTableView: React.FC = () => {
                             {t('ports.upstreamLabel')}
                           </span>
                           {profileName && (
-                            <span
-                              className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
-                              title={t('ports.belongsToProfile', {
-                                name: profileName,
-                              })}
-                            >
-                              {profileName}
-                            </span>
+                            <ProfileBadgeTooltip
+                              profile={primaryProfile}
+                              fallbackName={profileName}
+                              size="xs"
+                            />
                           )}
                           <RegionFlag
                             code={extractRegion(m.nodeName).code}
@@ -2005,14 +2007,11 @@ export const PortTableView: React.FC = () => {
                                   size="md"
                                 />
                                 {profileName && (
-                                  <span
-                                    className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
-                                    title={t('ports.belongsToProfile', {
-                                      name: profileName,
-                                    })}
-                                  >
-                                    {profileName}
-                                  </span>
+                                  <ProfileBadgeTooltip
+                                    profile={primaryProfile}
+                                    fallbackName={profileName}
+                                    size="sm"
+                                  />
                                 )}
                                 <div className="relative flex items-center flex-1 min-w-0 group/name">
                                   <span
@@ -2204,14 +2203,11 @@ export const PortTableView: React.FC = () => {
                                       }`}
                                     />
                                     {fbProfileName && (
-                                      <span
-                                        className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
-                                        title={t('ports.belongsToProfile', {
-                                          name: fbProfileName,
-                                        })}
-                                      >
-                                        {fbProfileName}
-                                      </span>
+                                      <ProfileBadgeTooltip
+                                        profile={fbProfile}
+                                        fallbackName={fbProfileName}
+                                        size="xs"
+                                      />
                                     )}
                                     <RegionFlag
                                       code={

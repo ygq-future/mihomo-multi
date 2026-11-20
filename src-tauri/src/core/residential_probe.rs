@@ -571,6 +571,7 @@ mod tests {
             auto_update_interval_mins: 0,
             last_updated_at: 0,
             node_count: 3,
+            subscription_info: None,
         }
     }
 

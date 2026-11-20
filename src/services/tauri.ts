@@ -1,39 +1,9 @@
 import {
-  invoke as tauriInvoke,
   type InvokeArgs,
   type InvokeOptions,
+  invoke as tauriInvoke,
 } from '@tauri-apps/api/core'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
-import { t } from '../i18n'
-import type {
-  AppConfig,
-  AppStatus,
-  AutoUpdateEventPayload,
-  DirectEgressInfo,
-  AutoUpdaterStatus,
-  ConnectionSnapshot,
-  CoreStatus,
-  KernelUpdateCheckResult,
-  InboundProtocol,
-  KernelUpgradeResult,
-  LanIpInfo,
-  NodeLatencyResult,
-  PortDriftReport,
-  PortFallbackStatus,
-  PortMapping,
-  ProfileItem,
-  ProxyNode,
-  ResidentialProxyTestResult,
-  EnvProxyStatus,
-  SystemProxyStatus,
-  TunStatus,
-  UwpAppInfo,
-  UwpLoopbackStats,
-  AppUpdateCheckResult,
-  AppUpdateInstallResult,
-  MrsRulesInfo,
-  SniffedAccessLogEntry,
-} from '../types'
 import {
   APP_VERSION,
   DEFAULT_ACRYLIC_BLUR,
@@ -46,6 +16,36 @@ import {
   DEFAULT_TEST_URL,
   DEFAULT_TIMEOUT_MS,
 } from '../constants'
+import { t } from '../i18n'
+import type {
+  AppConfig,
+  AppStatus,
+  AppUpdateCheckResult,
+  AppUpdateInstallResult,
+  AutoUpdateEventPayload,
+  AutoUpdaterStatus,
+  ConnectionSnapshot,
+  CoreStatus,
+  DirectEgressInfo,
+  EnvProxyStatus,
+  InboundProtocol,
+  KernelUpdateCheckResult,
+  KernelUpgradeResult,
+  LanIpInfo,
+  MrsRulesInfo,
+  NodeLatencyResult,
+  PortDriftReport,
+  PortFallbackStatus,
+  PortMapping,
+  ProfileItem,
+  ProxyNode,
+  ResidentialProxyTestResult,
+  SniffedAccessLogEntry,
+  SystemProxyStatus,
+  TunStatus,
+  UwpAppInfo,
+  UwpLoopbackStats,
+} from '../types'
 
 class CommandError extends Error {
   constructor(
@@ -472,6 +472,12 @@ export async function getProfiles(): Promise<ProfileItem[]> {
         autoUpdateIntervalMins: 60,
         lastUpdatedAt: Math.floor(Date.now() / 1000),
         nodeCount: 4,
+        subscriptionInfo: {
+          upload: 9823718108,
+          download: 37604665872,
+          total: 322122547200,
+          expireAt: Math.floor(Date.now() / 1000) + 86400 * 45,
+        },
       },
       {
         id: 'mock-sub-2',
@@ -482,6 +488,11 @@ export async function getProfiles(): Promise<ProfileItem[]> {
         autoUpdateIntervalMins: 120,
         lastUpdatedAt: Math.floor(Date.now() / 1000),
         nodeCount: 4,
+        subscriptionInfo: {
+          remainingBytes: 520 * 1024 * 1024 * 1024,
+          neverExpires: true,
+          resetDays: 30,
+        },
       },
       {
         id: 'mock-sub-3',
