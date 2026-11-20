@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from '../../i18n'
 import * as api from '../../services/tauri'
 import { useWindowVisibility } from '../../services/useWindowVisibility'
 import { useAppStore } from '../../stores/appStore'
@@ -42,6 +43,7 @@ interface ConnSpeedMetrics {
 }
 
 export const ConnectionListView: React.FC = () => {
+  const { t, locale } = useTranslation()
   const coreStatus = useAppStore((state) => state.coreStatus)
   const isWindowVisible = useWindowVisibility()
   const isRunning = coreStatus?.running ?? false
@@ -174,7 +176,7 @@ export const ConnectionListView: React.FC = () => {
     setClosingId(id)
     try {
       await api.closeConnection(id)
-      toast.success('连接已断开')
+      toast.success(t('connections.closed'))
       setSnapshot((prev) => {
         if (!prev) return null
         return {
@@ -187,7 +189,7 @@ export const ConnectionListView: React.FC = () => {
         setCachedConn(null)
       }
     } catch (err) {
-      toast.error(`断开连接失败: ${String(err)}`)
+      toast.error(t('connections.closeFailed', { error: String(err) }))
     } finally {
       setClosingId(null)
     }
@@ -198,7 +200,7 @@ export const ConnectionListView: React.FC = () => {
     setClosingAll(true)
     try {
       await api.closeAllConnections()
-      toast.success('所有连接已断开')
+      toast.success(t('connections.allClosed'))
       setSnapshot((prev) => {
         if (!prev) return null
         return {
@@ -210,7 +212,7 @@ export const ConnectionListView: React.FC = () => {
       setCachedConn(null)
       setShowCloseAllModal(false)
     } catch (err) {
-      toast.error(`断开全部连接失败: ${String(err)}`)
+      toast.error(t('connections.closeAllFailed', { error: String(err) }))
     } finally {
       setClosingAll(false)
     }
@@ -324,20 +326,20 @@ export const ConnectionListView: React.FC = () => {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
         <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">当前活跃连接</span>
+            <span className="text-xs font-medium">{t('connections.active')}</span>
             <Activity className="w-4 h-4 text-primary" />
           </div>
           <div className="mt-2 flex items-baseline gap-1.5">
             <span className="text-2xl font-bold tracking-tight">
               {snapshot ? snapshot.connections.length : 0}
             </span>
-            <span className="text-xs text-muted-foreground">个</span>
+            <span className="text-xs text-muted-foreground">{t('connections.countUnit')}</span>
           </div>
         </div>
 
         <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">实时总速率</span>
+            <span className="text-xs font-medium">{t('connections.liveSpeed')}</span>
             <div className="flex items-center gap-1">
               <ArrowDown className="w-3.5 h-3.5 text-emerald-500" />
               <ArrowUp className="w-3.5 h-3.5 text-sky-500" />
@@ -355,7 +357,7 @@ export const ConnectionListView: React.FC = () => {
 
         <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">累计下载流量</span>
+            <span className="text-xs font-medium">{t('connections.totalDownload')}</span>
             <ArrowDown className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="mt-2">
@@ -367,7 +369,7 @@ export const ConnectionListView: React.FC = () => {
 
         <div className="p-3.5 rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-muted-foreground">
-            <span className="text-xs font-medium">累计上传流量</span>
+            <span className="text-xs font-medium">{t('connections.totalUpload')}</span>
             <ArrowUp className="w-4 h-4 text-sky-500" />
           </div>
           <div className="mt-2">
@@ -385,7 +387,7 @@ export const ConnectionListView: React.FC = () => {
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索域名 / IP / 进程 / 节点..."
+              placeholder={t('connections.search')}
               prefixIcon={<Search className="w-4 h-4 text-muted-foreground" />}
               clearable
               onClear={() => setSearchQuery('')}
@@ -398,10 +400,10 @@ export const ConnectionListView: React.FC = () => {
               value={selectedPort}
               onChange={(val) => setSelectedPort(val)}
               options={[
-                { value: 'all', label: '所有端口' },
+                { value: 'all', label: t('connections.allPorts') },
                 ...availablePorts.map((p) => ({
                   value: p,
-                  label: `端口 ${p}`,
+                  label: t('connections.port', { port: p }),
                 })),
               ]}
             />
@@ -413,7 +415,7 @@ export const ConnectionListView: React.FC = () => {
               value={selectedProtocol}
               onChange={(val) => setSelectedProtocol(val)}
               options={[
-                { value: 'all', label: '所有协议' },
+                { value: 'all', label: t('connections.allProtocols') },
                 { value: 'tcp', label: 'TCP' },
                 { value: 'udp', label: 'UDP' },
               ]}
@@ -426,9 +428,9 @@ export const ConnectionListView: React.FC = () => {
               value={sortField}
               onChange={(val) => setSortField(val as SortField)}
               options={[
-                { value: 'speed', label: '按实时网速 ↓' },
-                { value: 'download', label: '按累计流量 ↓' },
-                { value: 'duration', label: '按持续时长 ↓' },
+                { value: 'speed', label: t('connections.sortSpeed') },
+                { value: 'download', label: t('connections.sortTraffic') },
+                { value: 'duration', label: t('connections.sortDuration') },
               ]}
             />
           </div>
@@ -438,25 +440,25 @@ export const ConnectionListView: React.FC = () => {
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-xs text-muted-foreground mr-1 hidden sm:inline whitespace-nowrap">
             {displayConnections.length} /{' '}
-            {snapshot ? snapshot.connections.length : 0} 条
+            {snapshot ? snapshot.connections.length : 0} {t('connections.countUnit')}
           </span>
 
           <Button
             variant={isPaused ? 'primary' : 'outline'}
             size="sm"
             onClick={() => setIsPaused(!isPaused)}
-            title={isPaused ? '继续自动刷新' : '暂停自动刷新'}
+            title={isPaused ? t('connections.resumeRefresh') : t('connections.pauseRefresh')}
             className="gap-1 px-2.5"
           >
             {isPaused ? (
               <>
                 <Play className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">继续</span>
+                <span className="hidden sm:inline">{t('connections.resume')}</span>
               </>
             ) : (
               <>
                 <Pause className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">暂停</span>
+                <span className="hidden sm:inline">{t('connections.pause')}</span>
               </>
             )}
           </Button>
@@ -466,7 +468,7 @@ export const ConnectionListView: React.FC = () => {
             size="sm"
             onClick={() => fetchConnections(true)}
             disabled={loading || !isRunning}
-            title="立即刷新"
+            title={t('connections.refreshNow')}
             className="px-2.5"
           >
             <RefreshCw
@@ -481,11 +483,11 @@ export const ConnectionListView: React.FC = () => {
             disabled={
               !snapshot || snapshot.connections.length === 0 || !isRunning
             }
-            title="断开所有连接"
+            title={t('connections.closeAll')}
             className="gap-1 px-2.5"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">断开全部</span>
+            <span className="hidden sm:inline">{t('connections.closeAllShort')}</span>
           </Button>
         </div>
       </div>
@@ -495,21 +497,21 @@ export const ConnectionListView: React.FC = () => {
         {!isRunning ? (
           <div className="m-auto py-16 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
             <AlertCircle className="w-8 h-8 text-amber-500/80" />
-            <p className="text-sm font-medium">Mihomo 内核未启动</p>
+            <p className="text-sm font-medium">{t('connections.coreStopped')}</p>
             <p className="text-xs text-muted-foreground">
-              请在主界面或设置中启动代理内核后查看实时连接
+              {t('connections.startCore')}
             </p>
           </div>
         ) : displayConnections.length === 0 ? (
           <div className="m-auto py-16 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
             <Activity className="w-8 h-8 text-muted-foreground/40" />
-            <p className="text-sm font-medium">当前无匹配的活跃连接</p>
+            <p className="text-sm font-medium">{t('connections.noMatches')}</p>
             <p className="text-xs text-muted-foreground">
               {searchQuery ||
               selectedPort !== 'all' ||
               selectedProtocol !== 'all'
-                ? '尝试清除筛选条件查看所有连接'
-                : '当有网络流量通过监听端口时将实时展示在此处'}
+                ? t('connections.clearFilters')
+                : t('connections.awaitTraffic')}
             </p>
           </div>
         ) : (
@@ -517,19 +519,19 @@ export const ConnectionListView: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-secondary/90 backdrop-blur-sm sticky top-0 z-10 border-b border-border text-muted-foreground uppercase font-medium text-[11px] select-none shadow-sm">
                 <tr>
-                  <th className="py-2.5 px-3">目标地址</th>
-                  <th className="py-2.5 px-3">入站端口</th>
-                  <th className="py-2.5 px-3">出口节点 / 链路</th>
-                  <th className="py-2.5 px-3">规则 / 进程</th>
+                  <th className="py-2.5 px-3">{t('connections.destination')}</th>
+                  <th className="py-2.5 px-3">{t('connections.inboundPort')}</th>
+                  <th className="py-2.5 px-3">{t('connections.outboundChain')}</th>
+                  <th className="py-2.5 px-3">{t('connections.ruleProcess')}</th>
                   <th className="py-2.5 px-3 text-right">
                     <span className="inline-flex items-center gap-1">
-                      <span>实时速率</span>
+                      <span>{t('connections.liveSpeedShort')}</span>
                       <ArrowDownUp className="w-3 h-3 text-muted-foreground/70" />
                     </span>
                   </th>
-                  <th className="py-2.5 px-3 text-right">累计总流量</th>
-                  <th className="py-2.5 px-3 text-right">持续时长</th>
-                  <th className="py-2.5 px-3 text-center w-20">操作</th>
+                  <th className="py-2.5 px-3 text-right">{t('connections.totalTraffic')}</th>
+                  <th className="py-2.5 px-3 text-right">{t('connections.duration')}</th>
+                  <th className="py-2.5 px-3 text-center w-20">{t('connections.actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -690,7 +692,7 @@ export const ConnectionListView: React.FC = () => {
                               handleOpenDetail(conn)
                             }}
                             className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                            title="查看连接详情"
+                            title={t('connections.viewDetails')}
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </Button>
@@ -701,7 +703,7 @@ export const ConnectionListView: React.FC = () => {
                             onClick={(e) => handleCloseConnection(conn.id, e)}
                             disabled={isClosing}
                             className="h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                            title="断开此连接"
+                            title={t('connections.closeConnection')}
                           >
                             <XCircle className="w-3.5 h-3.5" />
                           </Button>
@@ -724,7 +726,7 @@ export const ConnectionListView: React.FC = () => {
             setSelectedConnId(null)
             setCachedConn(null)
           }}
-          title="连接详细信息"
+          title={t('connections.details')}
           subtitle={getHostDisplay(selectedConn.metadata)}
           icon={<Activity className="w-4 h-4 text-primary" />}
           maxWidth="lg"
@@ -737,7 +739,7 @@ export const ConnectionListView: React.FC = () => {
                 onClick={(e) => handleCloseConnection(selectedConn.id, e)}
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                断开此连接
+                {t('connections.closeConnection')}
               </Button>
               <Button
                 variant="outline"
@@ -747,7 +749,7 @@ export const ConnectionListView: React.FC = () => {
                   setCachedConn(null)
                 }}
               >
-                关闭
+                {t('connections.close')}
               </Button>
             </div>
           }
@@ -757,7 +759,7 @@ export const ConnectionListView: React.FC = () => {
             <div className="grid grid-cols-2 gap-3 p-3.5 rounded-lg bg-secondary/30 border border-border">
               <div>
                 <span className="text-muted-foreground block text-[11px]">
-                  目标主机 (Host)
+                  {t('connections.host')}
                 </span>
                 <span className="font-semibold text-foreground text-sm break-all">
                   {getHostDisplay(selectedConn.metadata)}
@@ -766,12 +768,12 @@ export const ConnectionListView: React.FC = () => {
 
               <div>
                 <span className="text-muted-foreground block text-[11px]">
-                  入站端口
+                  {t('connections.inboundPort')}
                 </span>
                 <span className="font-semibold text-primary text-sm font-mono">
                   {selectedConn.metadata.inboundPort
                     ? `:${selectedConn.metadata.inboundPort}`
-                    : '默认'}
+                    : t('connections.default')}
                   {selectedConn.metadata.inboundName && (
                     <span className="text-xs text-muted-foreground ml-1.5 font-normal">
                       ({selectedConn.metadata.inboundName})
@@ -782,7 +784,7 @@ export const ConnectionListView: React.FC = () => {
 
               <div>
                 <span className="text-muted-foreground block text-[11px]">
-                  网络与类型
+                  {t('connections.networkType')}
                 </span>
                 <span className="font-medium text-foreground uppercase">
                   {selectedConn.metadata.network} /{' '}
@@ -792,11 +794,10 @@ export const ConnectionListView: React.FC = () => {
 
               <div>
                 <span className="text-muted-foreground block text-[11px]">
-                  持续时间
+                  {t('connections.duration')}
                 </span>
                 <span className="font-medium text-foreground">
-                  {calculateDuration(selectedConn.start)} (建立于{' '}
-                  {new Date(selectedConn.start).toLocaleTimeString()})
+                  {calculateDuration(selectedConn.start)} {t('connections.startedAt', { time: new Date(selectedConn.start).toLocaleTimeString(locale) })}
                 </span>
               </div>
             </div>
@@ -806,7 +807,7 @@ export const ConnectionListView: React.FC = () => {
               <div>
                 <div className="text-[11px] text-muted-foreground flex items-center gap-1">
                   <ArrowDown className="w-3 h-3 text-emerald-500" />
-                  实时下行
+                  {t('connections.liveDownload')}
                 </div>
                 <div className="font-semibold text-emerald-500 font-mono mt-0.5">
                   {formatTraffic(selectedConnSpeed?.downloadSpeed ?? 0)}
@@ -816,7 +817,7 @@ export const ConnectionListView: React.FC = () => {
               <div>
                 <div className="text-[11px] text-muted-foreground flex items-center gap-1">
                   <ArrowUp className="w-3 h-3 text-sky-500" />
-                  实时上行
+                  {t('connections.liveUpload')}
                 </div>
                 <div className="font-semibold text-sky-500 font-mono mt-0.5">
                   {formatTraffic(selectedConnSpeed?.uploadSpeed ?? 0)}
@@ -825,7 +826,7 @@ export const ConnectionListView: React.FC = () => {
 
               <div>
                 <div className="text-[11px] text-muted-foreground">
-                  累计已下载
+                  {t('connections.downloaded')}
                 </div>
                 <div className="font-semibold text-foreground mt-0.5">
                   {formatBytes(selectedConn.download)}
@@ -834,7 +835,7 @@ export const ConnectionListView: React.FC = () => {
 
               <div>
                 <div className="text-[11px] text-muted-foreground">
-                  累计已上传
+                  {t('connections.uploaded')}
                 </div>
                 <div className="font-semibold text-foreground mt-0.5">
                   {formatBytes(selectedConn.upload)}
@@ -846,22 +847,22 @@ export const ConnectionListView: React.FC = () => {
             <div className="space-y-1.5 border border-border rounded-lg p-3.5 bg-background/50">
               <div className="font-medium text-foreground mb-2 flex items-center gap-1.5">
                 <Info className="w-3.5 h-3.5 text-primary" />
-                <span>网络与路由元数据</span>
+                <span>{t('connections.metadata')}</span>
               </div>
 
               <div className="grid grid-cols-3 gap-y-2 text-[11px]">
-                <span className="text-muted-foreground">连接 ID</span>
+                <span className="text-muted-foreground">{t('connections.id')}</span>
                 <span className="col-span-2 font-mono text-foreground break-all select-all">
                   {selectedConn.id}
                 </span>
 
-                <span className="text-muted-foreground">源地址</span>
+                <span className="text-muted-foreground">{t('connections.source')}</span>
                 <span className="col-span-2 font-mono text-foreground">
                   {selectedConn.metadata.sourceIP}:
                   {selectedConn.metadata.sourcePort}
                 </span>
 
-                <span className="text-muted-foreground">目标 IP</span>
+                <span className="text-muted-foreground">{t('connections.destinationIp')}</span>
                 <span className="col-span-2 font-mono text-foreground">
                   {selectedConn.metadata.destinationIP}:
                   {selectedConn.metadata.destinationPort}
@@ -869,7 +870,7 @@ export const ConnectionListView: React.FC = () => {
 
                 {selectedConn.metadata.sniffHost && (
                   <>
-                    <span className="text-muted-foreground">嗅探域名</span>
+                    <span className="text-muted-foreground">{t('connections.sniffHost')}</span>
                     <span className="col-span-2 text-foreground font-mono">
                       {selectedConn.metadata.sniffHost}
                     </span>
@@ -878,14 +879,14 @@ export const ConnectionListView: React.FC = () => {
 
                 {selectedConn.metadata.dnsMode && (
                   <>
-                    <span className="text-muted-foreground">DNS 模式</span>
+                    <span className="text-muted-foreground">{t('connections.dnsMode')}</span>
                     <span className="col-span-2 text-foreground">
                       {selectedConn.metadata.dnsMode}
                     </span>
                   </>
                 )}
 
-                <span className="text-muted-foreground">命中规则</span>
+                <span className="text-muted-foreground">{t('connections.matchedRule')}</span>
                 <span className="col-span-2 text-foreground font-mono">
                   {selectedConn.rule}{' '}
                   {selectedConn.rulePayload
@@ -893,14 +894,14 @@ export const ConnectionListView: React.FC = () => {
                     : ''}
                 </span>
 
-                <span className="text-muted-foreground">代理链路</span>
+                <span className="text-muted-foreground">{t('connections.proxyChain')}</span>
                 <span className="col-span-2 text-foreground font-medium">
                   {selectedConn.chains?.join(' → ') || 'DIRECT'}
                 </span>
 
                 {selectedConn.metadata.process && (
                   <>
-                    <span className="text-muted-foreground">所属进程</span>
+                    <span className="text-muted-foreground">{t('connections.process')}</span>
                     <span className="col-span-2 text-foreground font-medium">
                       {selectedConn.metadata.process}
                     </span>
@@ -909,7 +910,7 @@ export const ConnectionListView: React.FC = () => {
 
                 {selectedConn.metadata.processPath && (
                   <>
-                    <span className="text-muted-foreground">进程路径</span>
+                    <span className="text-muted-foreground">{t('connections.processPath')}</span>
                     <span
                       className="col-span-2 text-foreground font-mono break-all select-all text-[10px]"
                       title={selectedConn.metadata.processPath}
@@ -929,7 +930,7 @@ export const ConnectionListView: React.FC = () => {
         <Modal
           isOpen={showCloseAllModal}
           onClose={() => setShowCloseAllModal(false)}
-          title="确认断开所有连接"
+          title={t('connections.confirmCloseAll')}
           maxWidth="sm"
           footer={
             <div className="flex justify-end gap-2">
@@ -939,7 +940,7 @@ export const ConnectionListView: React.FC = () => {
                 onClick={() => setShowCloseAllModal(false)}
                 disabled={closingAll}
               >
-                取消
+                {t('connections.cancel')}
               </Button>
               <Button
                 variant="danger"
@@ -951,15 +952,14 @@ export const ConnectionListView: React.FC = () => {
                 {closingAll && (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                 )}
-                确认断开
+                {t('connections.confirmClose')}
               </Button>
             </div>
           }
         >
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground leading-relaxed">
-              确定要断开当前所有的活跃连接吗？所有正在传输的 TCP/UDP
-              长连接将被立即终止。
+              {t('connections.closeAllDescription')}
             </p>
           </div>
         </Modal>
