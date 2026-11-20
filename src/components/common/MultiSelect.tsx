@@ -1,3 +1,4 @@
+import { useTranslation } from '../../i18n'
 import { Check, ChevronDown, Search, X } from 'lucide-react'
 import type React from 'react'
 import {
@@ -54,18 +55,24 @@ export function MultiSelect<T extends string | number = string>({
   values,
   onChange,
   options,
-  placeholder = '请选择',
+  placeholder,
   disabled = false,
   className = '',
   width = 'w-full',
   prefixIcon,
   filterable = true,
-  selectAllText = '全选',
-  clearAllText = '清空',
-  invertText = '反选',
-  noDataText = '无匹配选项',
+  selectAllText,
+  clearAllText,
+  invertText,
+  noDataText,
   renderTriggerText,
 }: MultiSelectProps<T>) {
+  const { t } = useTranslation()
+  const resolvedPlaceholder = placeholder ?? t('multiSelect.placeholder')
+  const resolvedSelectAllText = selectAllText ?? t('multiSelect.selectAll')
+  const resolvedClearAllText = clearAllText ?? t('multiSelect.clearAll')
+  const resolvedInvertText = invertText ?? t('multiSelect.invert')
+  const resolvedNoDataText = noDataText ?? t('multiSelect.noData')
   const [isOpen, setIsOpen] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -88,16 +95,22 @@ export function MultiSelect<T extends string | number = string>({
       return renderTriggerText(values, selectedOptions)
     }
     if (selectedOptions.length === 0) {
-      return placeholder
+      return resolvedPlaceholder
     }
     if (selectedOptions.length === options.length && options.length > 0) {
-      return `全部 (${options.length})`
+      return t('multiSelect.allCount', { count: options.length })
     }
     if (selectedOptions.length === 1) {
       return selectedOptions[0].label
     }
-    return `已选 ${selectedOptions.length} 项`
-  }, [renderTriggerText, values, selectedOptions, options.length, placeholder])
+    return t('multiSelect.selectedCount', { count: selectedOptions.length })
+  }, [
+    renderTriggerText,
+    values,
+    selectedOptions,
+    options.length,
+    resolvedPlaceholder,
+  ])
 
   const openDropdown = useCallback(() => {
     if (disabled) return
@@ -401,13 +414,13 @@ export function MultiSelect<T extends string | number = string>({
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={handleListKeyDown}
-                    placeholder="搜索选项..."
+                    placeholder={t('multiSelect.searchPlaceholder')}
                     className="w-full bg-background border border-input rounded-md pl-8 pr-7 py-1 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
                   />
                   {searchQuery && (
                     <button
                       type="button"
-                      aria-label="清空搜索"
+                      aria-label={t('multiSelect.clearSearch')}
                       onClick={() => setSearchQuery('')}
                       className="absolute right-2 text-muted-foreground hover:text-foreground"
                     >
@@ -421,11 +434,10 @@ export function MultiSelect<T extends string | number = string>({
             {/* Action Bar (Select All / Invert / Clear) */}
             <div className="flex items-center justify-between px-2 py-1 bg-muted/30 border-b border-border/50 text-[11px] shrink-0">
               <span className="text-muted-foreground">
-                已选{' '}
-                <span className="text-foreground font-medium">
-                  {selectedOptions.length}
-                </span>
-                /{options.length}
+                {t('multiSelect.selectedRatio', {
+                  selected: selectedOptions.length,
+                  total: options.length,
+                })}
               </span>
               <div className="flex items-center gap-1.5">
                 <button
@@ -434,7 +446,7 @@ export function MultiSelect<T extends string | number = string>({
                   disabled={selectedOptions.length === options.length}
                   className="text-primary hover:underline disabled:opacity-40 disabled:no-underline cursor-pointer disabled:cursor-not-allowed"
                 >
-                  {selectAllText}
+                  {resolvedSelectAllText}
                 </button>
                 <span className="text-border/60">·</span>
                 <button
@@ -442,7 +454,7 @@ export function MultiSelect<T extends string | number = string>({
                   onClick={handleInvert}
                   className="text-muted-foreground hover:text-foreground hover:underline cursor-pointer"
                 >
-                  {invertText}
+                  {resolvedInvertText}
                 </button>
                 <span className="text-border/60">·</span>
                 <button
@@ -451,7 +463,7 @@ export function MultiSelect<T extends string | number = string>({
                   disabled={selectedOptions.length === 0}
                   className="text-muted-foreground hover:text-destructive hover:underline disabled:opacity-40 disabled:no-underline cursor-pointer disabled:cursor-not-allowed"
                 >
-                  {clearAllText}
+                  {resolvedClearAllText}
                 </button>
               </div>
             </div>
@@ -520,7 +532,7 @@ export function MultiSelect<T extends string | number = string>({
                 })
               ) : (
                 <div className="py-6 px-3 text-center text-xs text-muted-foreground select-none">
-                  {noDataText}
+                  {resolvedNoDataText}
                 </div>
               )}
             </div>

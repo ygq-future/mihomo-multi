@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../../stores/appStore'
+import { useTranslation } from '../../i18n'
 import type { DirectEgressInfo, ProxyNode } from '../../types'
 import {
   extractRegion,
@@ -72,6 +73,7 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
     onCopyEgressIp,
     onQuickBind,
   }) => {
+    const { t } = useTranslation()
     const nodeKey = node.runtimeName || node.name
     const latencyProps = getLatencyBadgeProps(latency, isTesting)
     const protocolProps = getProtocolBadgeProps(node.type)
@@ -102,21 +104,26 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
               }`}
               title={
                 isProbingEgress
-                  ? '正在探测出口 IP...'
+                  ? t('proxies.detectingIpTitle')
                   : egressInfo
-                    ? `点击复制节点出口 IP: ${egressInfo.ip}${egressInfo.region ? ` (${egressInfo.region})` : ''}`
-                    : '点击探测并复制该节点出口 IP'
+                    ? t('proxies.copyIpTitle', {
+                        ip: egressInfo.ip,
+                        region: egressInfo.region
+                          ? ` (${egressInfo.region})`
+                          : '',
+                      })
+                    : t('proxies.detectIpTitle')
               }
             >
               {isProbingEgress ? (
                 <>
                   <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                  <span>探测中</span>
+                  <span>{t('proxies.detectingIp')}</span>
                 </>
               ) : (
                 <>
                   <Copy className="w-2.5 h-2.5" />
-                  <span>复制IP</span>
+                  <span>{t('proxies.copyIp')}</span>
                 </>
               )}
             </button>
@@ -144,7 +151,11 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
               onClick={() => onTestDelay(nodeKey)}
               disabled={isTesting || isTestingAll}
               className="focus:outline-none"
-              title={isTesting ? '正在测速中...' : '点击单独测速'}
+              title={
+                isTesting
+                  ? t('proxies.testingTitle')
+                  : t('proxies.testSingleTitle')
+              }
             >
               <Badge
                 variant={latencyProps.variant}
@@ -181,11 +192,11 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
               icon={isBound ? undefined : <Network className="w-2.5 h-2.5" />}
               title={
                 isBound
-                  ? `该节点已绑定到端口 ${boundPort}`
-                  : '绑定到本地入站端口'
+                  ? t('proxies.boundPortTitle', { port: boundPort ?? '' })
+                  : t('proxies.bindPortTitle')
               }
             >
-              {isBound ? String(boundPort) : '绑定'}
+              {isBound ? String(boundPort) : t('proxies.bind')}
             </Button>
           </div>
         </div>
@@ -195,6 +206,7 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
 )
 
 export const ProxyGridView: React.FC = () => {
+  const { t } = useTranslation()
   const profiles = useAppStore((state) => state.profiles)
   const fetchProfiles = useAppStore((state) => state.fetchProfiles)
   const profileNodes = useAppStore((state) => state.profileNodes)
@@ -537,7 +549,10 @@ export const ProxyGridView: React.FC = () => {
       if (cached) {
         await navigator.clipboard.writeText(cached.ip).catch(() => {})
         toast.success(
-          `已复制节点出口 IP: ${cached.ip}${cached.region ? ` (${cached.region})` : ''}`,
+          t('proxies.copiedIpToast', {
+            ip: cached.ip,
+            region: cached.region ? ` (${cached.region})` : '',
+          }),
         )
         return
       }
@@ -550,11 +565,16 @@ export const ProxyGridView: React.FC = () => {
         )
         await navigator.clipboard.writeText(info.ip).catch(() => {})
         toast.success(
-          `已复制节点出口 IP: ${info.ip}${info.region ? ` (${info.region})` : ''}`,
+          t('proxies.copiedIpToast', {
+            ip: info.ip,
+            region: info.region ? ` (${info.region})` : '',
+          }),
         )
       } catch (err) {
         toast.error(
-          `探测出口 IP 失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('proxies.detectIpFailed', {
+            err: err instanceof Error ? err.message : String(err),
+          }),
         )
       }
     },
@@ -593,7 +613,7 @@ export const ProxyGridView: React.FC = () => {
                 onClick={() => setActiveTab('settings')}
                 className="!text-[11px] !py-0.5 !px-2 h-6"
               >
-                前往设置
+                {t('proxies.goToSettings')}
               </Button>
             )}
             <button
@@ -613,7 +633,7 @@ export const ProxyGridView: React.FC = () => {
           <div className="flex items-center gap-2 flex-1 max-w-xl">
             <div className="flex-1">
               <Input
-                placeholder="搜索节点名称、地区、协议..."
+                placeholder={t('proxies.searchPlaceholder')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 prefixIcon={<Search className="w-4 h-4" />}
@@ -623,21 +643,23 @@ export const ProxyGridView: React.FC = () => {
             </div>
 
             {profiles.length > 0 && (
-              <div className="w-48 shrink-0">
+              <div className="w-44 shrink-0">
                 <MultiSelect
                   values={selectedProfileIds}
                   onChange={handleProfileFilterChange}
                   options={profileOptions}
-                  placeholder="选择订阅..."
+                  placeholder={t('proxies.selectProfilePlaceholder')}
                   renderTriggerText={(selectedVals) => {
                     if (selectedVals.length === 0) {
-                      return '未选择订阅'
+                      return t('proxies.noProfileSelected')
                     }
                     if (
                       selectedVals.length === profiles.length &&
                       profiles.length > 0
                     ) {
-                      return `全部订阅 (${allNodes.length})`
+                      return t('proxies.allProfiles', {
+                        count: allNodes.length,
+                      })
                     }
                     if (selectedVals.length === 1) {
                       const prof = profiles.find(
@@ -645,9 +667,11 @@ export const ProxyGridView: React.FC = () => {
                       )
                       return prof
                         ? `${prof.name} (${prof.nodeCount})`
-                        : '已选 1 个订阅'
+                        : t('proxies.oneProfileSelected')
                     }
-                    return `已选 ${selectedVals.length} 个订阅`
+                    return t('proxies.nProfilesSelected', {
+                      count: selectedVals.length,
+                    })
                   }}
                 />
               </div>
@@ -655,15 +679,18 @@ export const ProxyGridView: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <div className="w-36">
+            <div className="w-32">
               <Select
                 value={sortBy}
                 onChange={(val) => handleSortChange(val as SortOption)}
                 options={[
-                  { value: 'default', label: '默认排序' },
-                  { value: 'latency-asc', label: '延迟低到高' },
-                  { value: 'latency-desc', label: '延迟高到低' },
-                  { value: 'name-asc', label: '名称 (A-Z)' },
+                  { value: 'default', label: t('proxies.sortDefault') },
+                  { value: 'latency-asc', label: t('proxies.sortLatencyAsc') },
+                  {
+                    value: 'latency-desc',
+                    label: t('proxies.sortLatencyDesc'),
+                  },
+                  { value: 'name-asc', label: t('proxies.sortNameAsc') },
                 ]}
                 prefixIcon={<ArrowUpDown className="w-3.5 h-3.5" />}
               />
@@ -677,20 +704,19 @@ export const ProxyGridView: React.FC = () => {
               onClick={handleBatchSpeedTest}
               icon={<Gauge className="w-3.5 h-3.5" />}
             >
-              {isTestingAll ? '正在并发测速...' : '全量并发测速'}
+              {isTestingAll ? t('proxies.testingAll') : t('proxies.testAll')}
             </Button>
           </div>
         </div>
 
         {/* Region & Protocol Filter Pills */}
         {allNodes.length > 0 && (
-          <div className="space-y-2.5 pt-2 border-t border-border/50">
+          <div className="grid grid-cols-[auto_1fr] items-start gap-x-2.5 gap-y-2.5 pt-2 border-t border-border/50 text-xs">
             {/* Row 1: Region Filters */}
-            <div className="flex items-start gap-2 text-xs">
-              <span className="text-[11px] font-medium text-muted-foreground pt-0.5 flex items-center gap-1 shrink-0 w-12">
-                <Globe className="w-3.5 h-3.5 text-primary shrink-0" />
-                地区:
-              </span>
+            <span className="text-[11px] font-medium text-muted-foreground pt-0.5 flex items-center gap-1 whitespace-nowrap">
+              <Globe className="w-3.5 h-3.5 text-primary shrink-0" />
+              {t('proxies.regionLabel')}
+            </span>
               <div className="flex-1 flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
@@ -701,7 +727,9 @@ export const ProxyGridView: React.FC = () => {
                       : 'bg-secondary/70 text-muted-foreground hover:bg-secondary hover:text-foreground'
                   }`}
                 >
-                  全部 ({allNodes.length})
+                  <RegionFlag code={r.code} size="sm" />
+                  <span>{r.code}</span>
+                  <span className="opacity-70 text-[10px]">({r.count})</span>
                 </button>
                 {availableRegions.map((r) => (
                   <button
@@ -725,13 +753,12 @@ export const ProxyGridView: React.FC = () => {
                 ))}
               </div>
             </div>
-
             {/* Row 2: Protocol Filters */}
             {availableProtocols.length > 0 && (
-              <div className="flex items-start gap-2 text-xs">
-                <span className="text-[11px] font-medium text-muted-foreground pt-0.5 flex items-center gap-1 shrink-0 w-12">
+              <>
+                <span className="text-[11px] font-medium text-muted-foreground pt-0.5 flex items-center gap-1 whitespace-nowrap">
                   <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                  协议:
+                  {t('proxies.protocolLabel')}
                 </span>
                 <div className="flex-1 flex flex-wrap items-center gap-1.5">
                   <button
@@ -743,7 +770,7 @@ export const ProxyGridView: React.FC = () => {
                         : 'bg-secondary/70 text-muted-foreground hover:bg-secondary hover:text-foreground'
                     }`}
                   >
-                    全部 ({allNodes.length})
+                    {t('proxies.allCount', { count: allNodes.length })}
                   </button>
                   {availableProtocols.map((p) => (
                     <button
@@ -771,7 +798,7 @@ export const ProxyGridView: React.FC = () => {
                     </button>
                   ))}
                 </div>
-              </div>
+              </>
             )}
           </div>
         )}
@@ -786,10 +813,10 @@ export const ProxyGridView: React.FC = () => {
             </div>
             <div className="space-y-1 max-w-sm">
               <h3 className="text-sm font-semibold text-foreground">
-                未勾选任何订阅
+                {t('proxies.emptyNoProfileTitle')}
               </h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                请在上方订阅多选下拉框中勾选需要查看的订阅配置。
+                {t('proxies.emptyNoProfileDesc')}
               </p>
             </div>
             <Button
@@ -806,7 +833,7 @@ export const ProxyGridView: React.FC = () => {
                 }
               }}
             >
-              全选所有订阅
+              {t('proxies.selectAllProfiles')}
             </Button>
           </div>
         ) : allNodes.length === 0 ? (
@@ -816,11 +843,10 @@ export const ProxyGridView: React.FC = () => {
             </div>
             <div className="space-y-1 max-w-sm">
               <h3 className="text-sm font-semibold text-foreground">
-                暂无可用代理节点
+                {t('proxies.emptyNoNodesTitle')}
               </h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                请前往「配置订阅」页面导入远程订阅链接或本地 Clash YAML
-                配置文件。
+                {t('proxies.emptyNoNodesDesc')}
               </p>
             </div>
             <Button
@@ -828,14 +854,14 @@ export const ProxyGridView: React.FC = () => {
               onClick={() => setActiveTab('profiles')}
               icon={<Layers className="w-3.5 h-3.5" />}
             >
-              前往配置订阅
+              {t('proxies.goToProfiles')}
             </Button>
           </div>
         ) : processedNodes.length === 0 ? (
           <div className="border border-dashed border-border rounded-xl p-10 flex flex-col items-center justify-center text-center space-y-3 bg-card/20">
             <Search className="w-6 h-6 text-muted-foreground" />
             <div className="text-xs text-muted-foreground">
-              未找到与当前筛选条件匹配的代理节点
+              {t('proxies.emptyNoMatch')}
             </div>
             <Button
               variant="outline"
@@ -846,7 +872,7 @@ export const ProxyGridView: React.FC = () => {
                 handleProtocolFilterChange('all')
               }}
             >
-              重置所有筛选
+              {t('proxies.resetFilters')}
             </Button>
           </div>
         ) : (
