@@ -282,7 +282,12 @@ pub async fn ensure_mrs_rules<R: tauri::Runtime>(app: Option<&tauri::AppHandle<R
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .build()
-        .map_err(|e| AppError::Internal(format!("Failed to build HTTP client for MRS download: {}", e)))?;
+        .map_err(|e| {
+            AppError::Internal(crate::tr!(
+                format!("构建 MRS 规则下载 HTTP 客户端失败: {e}"),
+                format!("Failed to build HTTP client for MRS download: {e}"),
+            ))
+        })?;
 
     for (filename, _, urls) in MRS_RULES {
         if status.missing.contains(&filename.to_string()) {
@@ -308,7 +313,12 @@ pub async fn update_mrs_rules(work_dir: &Path) -> AppResult<MrsRulesInfo> {
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(45))
         .build()
-        .map_err(|e| AppError::Internal(format!("Failed to build HTTP client for MRS update: {}", e)))?;
+        .map_err(|e| {
+            AppError::Internal(crate::tr!(
+                format!("构建 MRS 规则更新 HTTP 客户端失败: {e}"),
+                format!("Failed to build HTTP client for MRS update: {e}"),
+            ))
+        })?;
 
     let mut failed = Vec::new();
     for (filename, _, urls) in MRS_RULES {
@@ -322,9 +332,9 @@ pub async fn update_mrs_rules(work_dir: &Path) -> AppResult<MrsRulesInfo> {
     cleanup_temp_files(&rules_dir);
 
     if !failed.is_empty() && failed.len() == MRS_RULES.len() {
-        return Err(AppError::Internal(format!(
-            "所有规则集更新均失败: {}",
-            failed.join(", ")
+        return Err(AppError::Internal(crate::tr!(
+            format!("所有规则集更新均失败: {}", failed.join(", ")),
+            format!("All ruleset updates failed: {}", failed.join(", ")),
         )));
     }
 

@@ -149,7 +149,12 @@ pub fn get_kernel_destination(app: &tauri::AppHandle, state: &AppState) -> AppRe
     let app_dir = app
         .path()
         .app_local_data_dir()
-        .map_err(|e| AppError::Internal(format!("Failed to resolve app local data dir: {}", e)))?;
+        .map_err(|e| {
+            AppError::Internal(crate::tr!(
+                format!("解析应用本地数据目录失败: {e}"),
+                format!("Failed to resolve app local data dir: {e}"),
+            ))
+        })?;
     let bin_dir = app_dir.join("binaries");
     Ok((KernelInstallMode::Installed, bin_dir.join(&binary_name)))
 }
@@ -228,9 +233,12 @@ pub async fn check_kernel_update(app: &tauri::AppHandle, state: &AppState) -> Ap
         }
     }
 
-    Err(AppError::Internal(format!(
-        "检查内核更新失败，已尝试所有网络出口：{}",
-        failures.join("; ")
+    Err(AppError::Internal(crate::tr!(
+        format!("检查内核更新失败，已尝试所有网络出口：{}", failures.join("; ")),
+        format!(
+            "Failed to check for kernel updates; all network egresses were tried: {}",
+            failures.join("; ")
+        ),
     )))
 }
 
@@ -255,27 +263,34 @@ async fn fetch_kernel_release(egress: UpdateEgress) -> AppResult<(String, Option
 
     // 2. Fallback to version.txt if API was rate-limited or failed
     if latest_version.is_empty() {
-        let res = client
-            .get(GITHUB_VERSION_TXT)
-            .send()
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to fetch latest kernel version: {}", e)))?;
+        let res = client.get(GITHUB_VERSION_TXT).send().await.map_err(|e| {
+            AppError::Internal(crate::tr!(
+                format!("获取最新内核版本失败: {e}"),
+                format!("Failed to fetch latest kernel version: {e}"),
+            ))
+        })?;
         if !res.status().is_success() {
-            return Err(AppError::Internal(format!(
-                "Failed to fetch latest kernel version: HTTP {}",
-                res.status()
+            return Err(AppError::Internal(crate::tr!(
+                format!("获取最新内核版本失败: HTTP {}", res.status()),
+                format!("Failed to fetch latest kernel version: HTTP {}", res.status()),
             )));
         }
-        let text = res
-            .text()
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to read version text: {}", e)))?;
+        let text = res.text().await.map_err(|e| {
+            AppError::Internal(crate::tr!(
+                format!("读取版本信息失败: {e}"),
+                format!("Failed to read version text: {e}"),
+            ))
+        })?;
         latest_version = text.trim().to_string();
     }
 
     if latest_version.is_empty() {
         return Err(AppError::Internal(
-            "Latest kernel version response was empty".to_string(),
+            crate::tr!(
+                "最新内核版本响应为空",
+                "Latest kernel version response was empty"
+            )
+            .to_string(),
         ));
     }
 
@@ -284,33 +299,51 @@ async fn fetch_kernel_release(egress: UpdateEgress) -> AppResult<(String, Option
 
 fn extract_binary_from_zip(bytes: &[u8]) -> AppResult<Vec<u8>> {
     let reader = Cursor::new(bytes);
-    let mut archive =
-        zip::ZipArchive::new(reader).map_err(|e| AppError::Internal(format!("Failed to parse zip archive: {}", e)))?;
+    let mut archive = zip::ZipArchive::new(reader).map_err(|e| {
+        AppError::Internal(crate::tr!(
+            format!("解析 zip 压缩包失败: {e}"),
+            format!("Failed to parse zip archive: {e}"),
+        ))
+    })?;
 
     for i in 0..archive.len() {
-        let mut file = archive
-            .by_index(i)
-            .map_err(|e| AppError::Internal(format!("Zip read entry error: {}", e)))?;
+        let mut file = archive.by_index(i).map_err(|e| {
+            AppError::Internal(crate::tr!(
+                format!("读取 zip 条目失败: {e}"),
+                format!("Zip read entry error: {e}"),
+            ))
+        })?;
         let name = file.name().to_string();
         if name.ends_with(".exe") || (!name.contains('.') && !name.ends_with('/')) {
             let mut buf = Vec::new();
-            file.read_to_end(&mut buf)
-                .map_err(|e| AppError::Internal(format!("Failed to extract file from zip: {}", e)))?;
+            file.read_to_end(&mut buf).map_err(|e| {
+                AppError::Internal(crate::tr!(
+                    format!("从 zip 中提取文件失败: {e}"),
+                    format!("Failed to extract file from zip: {e}"),
+                ))
+            })?;
             return Ok(buf);
         }
     }
 
     Err(AppError::Internal(
-        "No executable found inside downloaded zip archive".to_string(),
+        crate::tr!(
+            "下载的 zip 压缩包中未找到可执行文件",
+            "No executable found inside downloaded zip archive"
+        )
+        .to_string(),
     ))
 }
 
 fn extract_binary_from_gz(bytes: &[u8]) -> AppResult<Vec<u8>> {
     let mut decoder = GzDecoder::new(bytes);
     let mut decompressed = Vec::new();
-    decoder
-        .read_to_end(&mut decompressed)
-        .map_err(|e| AppError::Internal(format!("Failed to decompress gz archive: {}", e)))?;
+    decoder.read_to_end(&mut decompressed).map_err(|e| {
+        AppError::Internal(crate::tr!(
+            format!("解压 gz 压缩包失败: {e}"),
+            format!("Failed to decompress gz archive: {e}"),
+        ))
+    })?;
     Ok(decompressed)
 }
 
@@ -332,7 +365,13 @@ pub fn cleanup_downloading_files(dir: &Path) {
 pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState) -> AppResult<KernelUpgradeResult> {
     let (install_mode, target_path) = get_kernel_destination(app, state)?;
     let target_spec = get_current_target_spec().ok_or_else(|| {
-        AppError::Internal("Current platform architecture is unsupported for auto-upgrade".to_string())
+        AppError::Internal(
+            crate::tr!(
+                "当前平台架构不支持自动升级",
+                "Current platform architecture is unsupported for auto-upgrade"
+            )
+            .to_string(),
+        )
     })?;
 
     let chain = update_egress_chain(state);
@@ -343,7 +382,11 @@ pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState)
     let version = version_text.trim().to_string();
     if version.is_empty() {
         return Err(AppError::Internal(
-            "Latest kernel version response was empty".to_string(),
+            crate::tr!(
+                "最新内核版本响应为空",
+                "Latest kernel version response was empty"
+            )
+            .to_string(),
         ));
     }
 
@@ -370,15 +413,17 @@ pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState)
     } else if target_spec.ext == "gz" {
         extract_binary_from_gz(&archive_bytes)?
     } else {
-        return Err(AppError::Internal(format!(
-            "Unsupported archive extension: {}",
-            target_spec.ext
+        return Err(AppError::Internal(crate::tr!(
+            format!("不支持的压缩包扩展名: {}", target_spec.ext),
+            format!("Unsupported archive extension: {}", target_spec.ext),
         )));
     };
 
-    let target_dir = target_path
-        .parent()
-        .ok_or_else(|| AppError::Internal("Invalid target path parent".to_string()))?;
+    let target_dir = target_path.parent().ok_or_else(|| {
+        AppError::Internal(
+            crate::tr!("目标路径的父目录无效", "Invalid target path parent").to_string(),
+        )
+    })?;
     std::fs::create_dir_all(target_dir)?;
 
     cleanup_downloading_files(target_dir);
@@ -399,7 +444,13 @@ pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState)
     let supervisor = CoreSupervisor::new(target_dir.to_path_buf());
     let verified_version = supervisor.query_version(&temp_target).ok_or_else(|| {
         let _ = std::fs::remove_file(&temp_target);
-        AppError::Internal("Downloaded kernel verification failed (-v check returned invalid output)".to_string())
+        AppError::Internal(
+            crate::tr!(
+                "下载的内核校验失败（-v 检查未返回有效输出）",
+                "Downloaded kernel verification failed (-v check returned invalid output)"
+            )
+            .to_string(),
+        )
     })?;
 
     info!(
@@ -427,19 +478,29 @@ pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState)
     // 6. Clean replacement: remove target if exists, rename temp into place
     if target_path.exists() {
         std::fs::remove_file(&target_path).map_err(|e| {
-            AppError::Internal(format!(
-                "Failed to remove old kernel file at {}: {}",
-                target_path.display(),
-                e
+            AppError::Internal(crate::tr!(
+                format!(
+                    "删除旧内核文件失败 {}: {}",
+                    target_path.display(),
+                    e
+                ),
+                format!(
+                    "Failed to remove old kernel file at {}: {}",
+                    target_path.display(),
+                    e
+                ),
             ))
         })?;
     }
 
     std::fs::rename(&temp_target, &target_path).map_err(|e| {
-        AppError::Internal(format!(
-            "Failed to place new kernel into {}: {}",
-            target_path.display(),
-            e
+        AppError::Internal(crate::tr!(
+            format!("放置新内核到 {} 失败: {}", target_path.display(), e),
+            format!(
+                "Failed to place new kernel into {}: {}",
+                target_path.display(),
+                e
+            ),
         ))
     })?;
 

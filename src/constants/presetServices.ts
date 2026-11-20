@@ -1,3 +1,4 @@
+import type { TranslationKey } from '../i18n'
 import type { PortRuleMatchType } from '../types'
 
 export type ServiceCategory =
@@ -10,9 +11,12 @@ export type ServiceCategory =
   | 'general'
 
 export interface PresetService {
+  /** Stable id used to resolve localized display text. */
   id: string
+  /** Canonical name persisted in saved rules; display text is localized by id. */
   name: string
   category: Exclude<ServiceCategory, 'all'>
+  /** Canonical fallback description; display text is localized by id. */
   description: string
   domains: string[]
   matchType: PortRuleMatchType
@@ -20,15 +24,29 @@ export interface PresetService {
   color: string
 }
 
-export const SERVICE_CATEGORIES: { id: ServiceCategory; label: string }[] = [
-  { id: 'all', label: '全部' },
-  { id: 'ai', label: 'AI 大模型' },
-  { id: 'social', label: '社交通讯' },
-  { id: 'dev', label: '开发与工作' },
-  { id: 'media', label: '流媒体影音' },
-  { id: 'game', label: '游戏平台' },
-  { id: 'general', label: '综合常用' },
+export const SERVICE_CATEGORIES: {
+  id: ServiceCategory
+  labelKey: TranslationKey
+}[] = [
+  { id: 'all', labelKey: 'rules.presetCategory.all' },
+  { id: 'ai', labelKey: 'rules.presetCategory.ai' },
+  { id: 'social', labelKey: 'rules.presetCategory.social' },
+  { id: 'dev', labelKey: 'rules.presetCategory.dev' },
+  { id: 'media', labelKey: 'rules.presetCategory.media' },
+  { id: 'game', labelKey: 'rules.presetCategory.game' },
+  { id: 'general', labelKey: 'rules.presetCategory.general' },
 ]
+
+/**
+ * Display text for a preset service is keyed by its stable id, so switching the
+ * UI language never changes the canonical name persisted in saved rules.
+ */
+export function presetServiceI18nKey(
+  id: string,
+  field: 'name' | 'description',
+): TranslationKey {
+  return `rules.presetService.${id}.${field}` as TranslationKey
+}
 
 export const PRESET_SERVICES: PresetService[] = [
   // --- AI 大模型 ---

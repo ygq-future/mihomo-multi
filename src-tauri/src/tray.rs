@@ -249,6 +249,10 @@ fn current_locale() -> TrayLocale {
     *TRAY_LOCALE.read()
 }
 
+pub(crate) fn is_english() -> bool {
+    current_locale() == TrayLocale::EnUs
+}
+
 /// Synchronizes the native tray language with the frontend's effective locale.
 /// Idempotent so React StrictMode's duplicate startup effect (or a recreated window) cannot
 /// restart or rebuild the tray when the language did not actually change.
@@ -1254,7 +1258,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                                 .title(locale.text().latency_test)
                                 .show(|_| {});
                         }
-                        Err(error) => show_tray_error(&app_handle, &error),
+                        Err(error) => show_tray_error(&app_handle, &error.message),
                     }
                 });
                 return;

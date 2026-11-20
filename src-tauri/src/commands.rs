@@ -2,6 +2,7 @@ use crate::core::auto_updater::AutoUpdater;
 use crate::core::config_generator::chain_proxy_name;
 use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::{PortTransport, is_port_available};
+use crate::error::CommandError;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
     DriftStatus, EnvProxyStatus, FIXED_DIRECT_PORT_ID, InboundProtocol, LanIpInfo, NodeLatencyResult, PortDriftReport,
@@ -45,7 +46,12 @@ pub async fn start_core(app: AppHandle, state: State<'_, AppState>) -> Result<Co
     state
         .sync_runtime_config()
         .await
-        .map_err(|err| format!("生成运行时配置失败: {}", err))?;
+        .map_err(|err| {
+            crate::tr!(
+                format!("生成运行时配置失败: {err}"),
+                format!("Failed to generate runtime configuration: {err}"),
+            )
+        })?;
     let config = state.config.read().clone();
     let res = state.engine.start(Some(&app), &config).map_err(|err| err.to_string())?;
     state.ensure_system_proxy_active();
@@ -66,7 +72,12 @@ pub async fn restart_core(app: AppHandle, state: State<'_, AppState>) -> Result<
     state
         .sync_runtime_config()
         .await
-        .map_err(|err| format!("生成运行时配置失败: {}", err))?;
+        .map_err(|err| {
+            crate::tr!(
+                format!("生成运行时配置失败: {err}"),
+                format!("Failed to generate runtime configuration: {err}"),
+            )
+        })?;
     let config = state.config.read().clone();
     let res = state
         .engine
@@ -135,17 +146,29 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
 
         if !is_current_active_core_port {
             if !is_port_available(config.controller_port, PortTransport::Tcp, false, None) {
-                return Err(format!(
-                    "端口 {} 已被本地其他应用程序占用，无法设为控制器端口，请换用其他端口（如 9090）。",
-                    config.controller_port
+                return Err(crate::tr!(
+                    format!(
+                        "端口 {} 已被本地其他应用程序占用，无法设为控制器端口，请换用其他端口（如 9090）。",
+                        config.controller_port
+                    ),
+                    format!(
+                        "Port {} is already used by another local application and cannot be set as the controller port. Choose another port (for example 9090).",
+                        config.controller_port
+                    ),
                 ));
             }
 
             let mappings = state.port_router.get_port_mappings();
             if mappings.iter().any(|m| m.port == config.controller_port && m.enabled) {
-                return Err(format!(
-                    "端口 {} 已在「端口映射」中作为代理入站端口使用，请换用其他端口。",
-                    config.controller_port
+                return Err(crate::tr!(
+                    format!(
+                        "端口 {} 已在「端口映射」中作为代理入站端口使用，请换用其他端口。",
+                        config.controller_port
+                    ),
+                    format!(
+                        "Port {} is already used as a proxy inbound port in Port Mappings. Choose another port.",
+                        config.controller_port
+                    ),
                 ));
             }
         }
@@ -190,8 +213,12 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
         || config.tun_enabled != old_config.tun_enabled)
         && let Ok(exe_path) = std::env::current_exe()
     {
-        crate::core::autostart::sync_autostart_state(&config, &exe_path)
-            .map_err(|e| format!("同步开机自启状态失败: {}", e))?;
+        crate::core::autostart::sync_autostart_state(&config, &exe_path).map_err(|e| {
+            crate::tr!(
+                format!("同步开机自启状态失败: {e}"),
+                format!("Failed to sync autostart state: {e}"),
+            )
+        })?;
     }
     if config.theme != old_config.theme
         && let Some(window) = app.get_webview_window("main")
@@ -213,14 +240,30 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
         || config.global_rules != old_config.global_rules
         || config.residential_proxies != old_config.residential_proxies;
     if runtime_settings_changed && let Err(error) = state.sync_runtime_config().await {
-        state
-            .persist_config(&old_config)
-            .map_err(|rollback| format!("应用运行时配置失败: {}；恢复已保存配置失败: {}", error, rollback))?;
-        state
-            .sync_runtime_config()
-            .await
-            .map_err(|rollback| format!("应用运行时配置失败: {}；恢复运行时配置失败: {}", error, rollback))?;
-        return Err(format!("应用运行时配置失败，已恢复原配置: {}", error));
+        state.persist_config(&old_config).map_err(|rollback| {
+            crate::tr!(
+                format!(
+                    "应用运行时配置失败: {error}；恢复已保存配置失败: {rollback}"
+                ),
+                format!(
+                    "Failed to apply runtime configuration: {error}; failed to restore the saved configuration: {rollback}"
+                ),
+            )
+        })?;
+        state.sync_runtime_config().await.map_err(|rollback| {
+            crate::tr!(
+                format!(
+                    "应用运行时配置失败: {error}；恢复运行时配置失败: {rollback}"
+                ),
+                format!(
+                    "Failed to apply runtime configuration: {error}; failed to restore the runtime configuration: {rollback}"
+                ),
+            )
+        })?;
+        return Err(crate::tr!(
+            format!("应用运行时配置失败，已恢复原配置: {error}"),
+            format!("Failed to apply runtime configuration; the previous configuration was restored: {error}"),
+        ));
     }
 
     crate::tray::update_tray_menu(&app);
@@ -437,16 +480,24 @@ pub async fn test_port_mapping_delay(
     test_url: Option<String>,
     timeout_ms: Option<u32>,
     state: State<'_, AppState>,
-) -> Result<u32, String> {
+) -> Result<u32, CommandError> {
     let status = state.engine.get_status();
     if !status.running {
-        return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
+        return Err(CommandError::core_not_running(
+            "Mihomo 内核未运行，请在设置中启动内核后再进行测速",
+            "The Mihomo core is not running. Start the core in Settings before testing latency.",
+        ));
     }
 
     let mapping = state
         .port_router
         .get_port_mapping_by_id(&id)
-        .ok_or_else(|| format!("未找到 ID 为 '{}' 的端口映射", id))?;
+        .ok_or_else(|| {
+            crate::tr!(
+                format!("未找到 ID 为 '{}' 的端口映射", id),
+                format!("Port mapping with ID '{}' not found", id),
+            )
+        })?;
 
     let profile = state.profile_manager.get_profile_by_id(&mapping.profile_id);
     let runtime_name = if let Some(prof) = profile.as_ref() {
@@ -463,7 +514,11 @@ pub async fn test_port_mapping_delay(
 
     if mapping.residential_proxy_id.is_some() {
         if !mapping.enabled {
-            return Err("请先启用住宅代理链端口后再进行测速".to_string());
+            return Err(crate::tr!(
+                "请先启用住宅代理链端口后再进行测速",
+                "Enable the residential proxy chain port before testing latency"
+            )
+            .into());
         }
         let target = chain_proxy_name(mapping.port);
         let result = state
@@ -472,10 +527,9 @@ pub async fn test_port_mapping_delay(
             .await;
         state
             .port_router
-            .update_port_latency(&id, result.as_ref().ok().copied())
-            .map_err(|error| error.to_string())?;
+            .update_port_latency(&id, result.as_ref().ok().copied())?;
         crate::tray::update_tray_menu(&app);
-        return result.map_err(|error| error.to_string());
+        return result.map_err(CommandError::from);
     }
 
     let fb_info = mapping
@@ -511,7 +565,10 @@ pub async fn test_port_mapping_delay(
                     .or_else(|| delays.get(&mapping.node_name))
                     .copied();
                 let fb_delay = delays.get(fb_runtime_name).or_else(|| delays.get(fb_name)).copied();
-                let timeout_err = format!("Latency test timed out after {}ms", actual_timeout);
+                let timeout_err = crate::tr!(
+                    format!("测速超时（{actual_timeout} 毫秒）"),
+                    format!("Latency test timed out after {actual_timeout}ms"),
+                );
 
                 state.latency_probe.record_node_result(
                     &mapping.node_name,
@@ -538,7 +595,7 @@ pub async fn test_port_mapping_delay(
 
                 let _ = state.port_router.update_port_latency(&id, primary_delay);
                 crate::tray::update_tray_menu(&app);
-                return primary_delay.ok_or(timeout_err);
+                return primary_delay.ok_or_else(|| CommandError::from(timeout_err));
             }
             Err(_) => {
                 // Fallback to concurrent individual node probes if group endpoint is unavailable
@@ -585,7 +642,7 @@ pub async fn test_port_mapping_delay(
         Err(err) => {
             let _ = state.port_router.update_port_latency(&id, None);
             crate::tray::update_tray_menu(&app);
-            Err(err.to_string())
+            Err(err.into())
         }
     }
 }
@@ -596,26 +653,43 @@ pub async fn test_port_fallback_delay(
     test_url: Option<String>,
     timeout_ms: Option<u32>,
     state: State<'_, AppState>,
-) -> Result<u32, String> {
+) -> Result<u32, CommandError> {
     let status = state.engine.get_status();
     if !status.running {
-        return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
+        return Err(CommandError::core_not_running(
+            "Mihomo 内核未运行，请在设置中启动内核后再进行测速",
+            "The Mihomo core is not running. Start the core in Settings before testing latency.",
+        ));
     }
 
     let mapping = state
         .port_router
         .get_port_mapping_by_id(&id)
-        .ok_or_else(|| format!("未找到 ID 为 '{}' 的端口映射", id))?;
+        .ok_or_else(|| {
+            crate::tr!(
+                format!("未找到 ID 为 '{}' 的端口映射", id),
+                format!("Port mapping with ID '{}' not found", id),
+            )
+        })?;
 
     if mapping.residential_proxy_id.is_some() {
-        return Err("住宅代理链端口不支持备用节点测速".to_string());
+        return Err(crate::tr!(
+            "住宅代理链端口不支持备用节点测速",
+            "Residential proxy chain ports do not support fallback node latency tests"
+        )
+        .into());
     }
 
     let fb_name = mapping
         .fallback_node_name
         .as_ref()
         .filter(|fb| !fb.trim().is_empty())
-        .ok_or_else(|| "该端口未配置备用节点".to_string())?;
+        .ok_or_else(|| {
+            crate::tr!(
+                "该端口未配置备用节点",
+                "This port has no fallback node configured"
+            )
+        })?;
 
     let fb_profile_id = mapping.fallback_profile_id.as_deref().unwrap_or(&mapping.profile_id);
     let fb_profile = state.profile_manager.get_profile_by_id(fb_profile_id);
@@ -652,7 +726,7 @@ pub async fn test_port_fallback_delay(
 
     crate::tray::update_tray_menu(&app);
 
-    res.map_err(|err| err.to_string())
+    res.map_err(CommandError::from)
 }
 
 #[tauri::command]
@@ -662,10 +736,13 @@ pub async fn test_all_port_mappings_delay(
     timeout_ms: Option<u32>,
     concurrency: Option<usize>,
     state: State<'_, AppState>,
-) -> Result<Vec<NodeLatencyResult>, String> {
+) -> Result<Vec<NodeLatencyResult>, CommandError> {
     let status = state.engine.get_status();
     if !status.running {
-        return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
+        return Err(CommandError::core_not_running(
+            "Mihomo 内核未运行，请在设置中启动内核后再进行测速",
+            "The Mihomo core is not running. Start the core in Settings before testing latency.",
+        ));
     }
 
     let mappings = state.port_router.get_port_mappings();
@@ -775,7 +852,10 @@ pub async fn test_all_port_mappings_delay(
         }
     }
 
-    let timeout_err = format!("Latency test timed out after {}ms", actual_timeout);
+    let timeout_err = crate::tr!(
+        format!("测速超时（{actual_timeout} 毫秒）"),
+        format!("Latency test timed out after {actual_timeout}ms"),
+    );
     while let Some(Ok((grp, group_res))) = join_set.join_next().await {
         let delays = group_res.unwrap_or_default();
         let primary_delay = delays
@@ -1137,7 +1217,12 @@ pub async fn get_profile_nodes(profile_id: String, state: State<'_, AppState>) -
 pub async fn open_app_data_dir(state: State<'_, AppState>) -> Result<(), String> {
     let dir = &state.app_dir;
     if !dir.exists() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("Failed to create directory: {}", e))?;
+        std::fs::create_dir_all(dir).map_err(|e| {
+            crate::tr!(
+                format!("创建目录失败: {e}"),
+                format!("Failed to create directory: {e}"),
+            )
+        })?;
     }
 
     #[cfg(target_os = "windows")]
@@ -1145,21 +1230,36 @@ pub async fn open_app_data_dir(state: State<'_, AppState>) -> Result<(), String>
         Command::new("explorer")
             .arg(dir)
             .spawn()
-            .map_err(|e| format!("Failed to open directory: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("打开目录失败: {e}"),
+                    format!("Failed to open directory: {e}"),
+                )
+            })?;
     }
     #[cfg(target_os = "macos")]
     {
         Command::new("open")
             .arg(dir)
             .spawn()
-            .map_err(|e| format!("Failed to open directory: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("打开目录失败: {e}"),
+                    format!("Failed to open directory: {e}"),
+                )
+            })?;
     }
     #[cfg(target_os = "linux")]
     {
         Command::new("xdg-open")
             .arg(dir)
             .spawn()
-            .map_err(|e| format!("Failed to open directory: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("打开目录失败: {e}"),
+                    format!("Failed to open directory: {e}"),
+                )
+            })?;
     }
     Ok(())
 }
@@ -1168,7 +1268,10 @@ pub async fn open_app_data_dir(state: State<'_, AppState>) -> Result<(), String>
 pub async fn open_file_in_folder(file_path: String) -> Result<(), String> {
     let path = std::path::PathBuf::from(&file_path);
     if !path.exists() {
-        return Err(format!("File does not exist: {}", file_path));
+        return Err(crate::tr!(
+            format!("文件不存在: {file_path}"),
+            format!("File does not exist: {file_path}"),
+        ));
     }
 
     #[cfg(target_os = "windows")]
@@ -1176,7 +1279,12 @@ pub async fn open_file_in_folder(file_path: String) -> Result<(), String> {
         Command::new("explorer")
             .arg(format!("/select,{}", path.display()))
             .spawn()
-            .map_err(|e| format!("Failed to open explorer: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("打开资源管理器失败: {e}"),
+                    format!("Failed to open explorer: {e}"),
+                )
+            })?;
     }
     #[cfg(target_os = "macos")]
     {
@@ -1184,7 +1292,12 @@ pub async fn open_file_in_folder(file_path: String) -> Result<(), String> {
             .arg("-R")
             .arg(&path)
             .spawn()
-            .map_err(|e| format!("Failed to open finder: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("打开访达失败: {e}"),
+                    format!("Failed to open finder: {e}"),
+                )
+            })?;
     }
     #[cfg(target_os = "linux")]
     {
@@ -1192,7 +1305,12 @@ pub async fn open_file_in_folder(file_path: String) -> Result<(), String> {
         Command::new("xdg-open")
             .arg(parent)
             .spawn()
-            .map_err(|e| format!("Failed to open directory: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("打开目录失败: {e}"),
+                    format!("Failed to open directory: {e}"),
+                )
+            })?;
     }
     Ok(())
 }
@@ -1259,10 +1377,13 @@ pub async fn test_node_delay(
     timeout_ms: Option<u32>,
     skip_cache: Option<bool>,
     state: State<'_, AppState>,
-) -> Result<u32, String> {
+) -> Result<u32, CommandError> {
     let status = state.engine.get_status();
     if !status.running {
-        return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
+        return Err(CommandError::core_not_running(
+            "Mihomo 内核未运行，请在设置中启动内核后再进行测速",
+            "The Mihomo core is not running. Start the core in Settings before testing latency.",
+        ));
     }
 
     let (default_url, default_timeout) = {
@@ -1292,7 +1413,7 @@ pub async fn test_node_delay(
                 Some(actual_timeout),
             )
             .await
-            .map_err(|err| err.to_string());
+            .map_err(CommandError::from);
     }
 
     let res = state
@@ -1332,7 +1453,7 @@ pub async fn test_node_delay(
     }
     crate::tray::update_tray_menu(&app);
 
-    res.map_err(|err| err.to_string())
+    res.map_err(CommandError::from)
 }
 
 #[tauri::command]
@@ -1343,10 +1464,13 @@ pub async fn test_nodes_delay_batch(
     timeout_ms: Option<u32>,
     concurrency: Option<usize>,
     state: State<'_, AppState>,
-) -> Result<Vec<NodeLatencyResult>, String> {
+) -> Result<Vec<NodeLatencyResult>, CommandError> {
     let status = state.engine.get_status();
     if !status.running {
-        return Err("Mihomo 内核未运行，请在设置中启动内核后再进行测速".to_string());
+        return Err(CommandError::core_not_running(
+            "Mihomo 内核未运行，请在设置中启动内核后再进行测速",
+            "The Mihomo core is not running. Start the core in Settings before testing latency.",
+        ));
     }
 
     let (default_url, default_timeout) = {
@@ -1651,7 +1775,11 @@ pub async fn query_node_egress_info(
     state: State<'_, AppState>,
 ) -> Result<DirectEgressInfo, String> {
     if node_name.trim().is_empty() {
-        return Err("节点名称不能为空".to_string());
+        return Err(crate::tr!(
+            "节点名称不能为空",
+            "Node name cannot be empty"
+        )
+        .to_string());
     }
     if node_name == "DIRECT" {
         return crate::core::egress_probe::query_direct_egress_info(None, timeout_ms)
@@ -1661,7 +1789,11 @@ pub async fn query_node_egress_info(
 
     let status = state.engine.get_status();
     if !status.running {
-        return Err("Mihomo 内核未运行，请先启动内核后再探测节点出口 IP".to_string());
+        return Err(crate::tr!(
+            "Mihomo 内核未运行，请先启动内核后再探测节点出口 IP",
+            "The Mihomo core is not running. Start the core before probing the node egress IP."
+        )
+        .to_string());
     }
 
     let all_nodes = state.profile_manager.get_all_nodes();
@@ -1692,7 +1824,13 @@ pub async fn query_node_egress_info(
         let _ = state.sync_runtime_config().await;
         probe_port_opt = *state.egress_probe_port.read();
     }
-    let probe_port = probe_port_opt.ok_or_else(|| "未能分配内部出口探测监听端口".to_string())?;
+    let probe_port = probe_port_opt.ok_or_else(|| {
+        crate::tr!(
+            "未能分配内部出口探测监听端口",
+            "Failed to allocate an internal egress probe listener port"
+        )
+        .to_string()
+    })?;
 
     let _guard = state.egress_probe_lock.lock().await;
     state
@@ -1702,7 +1840,12 @@ pub async fn query_node_egress_info(
             &target_runtime_name,
         )
         .await
-        .map_err(|e| format!("切换节点探测通道失败: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("切换节点探测通道失败: {e}"),
+                format!("Failed to switch the node probe channel: {e}"),
+            )
+        })?;
 
     crate::core::egress_probe::query_proxy_egress_info(probe_port, timeout_ms)
         .await
@@ -1742,7 +1885,11 @@ pub async fn query_port_egress_info(
 pub async fn get_connections(state: State<'_, AppState>) -> Result<ConnectionSnapshot, String> {
     let status = state.engine.get_status();
     if !status.running {
-        return Err("Mihomo 内核未运行".to_string());
+        return Err(crate::tr!(
+            "Mihomo 内核未运行",
+            "The Mihomo core is not running"
+        )
+        .to_string());
     }
     state
         .engine
@@ -1756,7 +1903,11 @@ pub async fn get_connections(state: State<'_, AppState>) -> Result<ConnectionSna
 pub async fn close_connection(id: String, state: State<'_, AppState>) -> Result<(), String> {
     let status = state.engine.get_status();
     if !status.running {
-        return Err("Mihomo 内核未运行".to_string());
+        return Err(crate::tr!(
+            "Mihomo 内核未运行",
+            "The Mihomo core is not running"
+        )
+        .to_string());
     }
     state
         .engine
@@ -1770,7 +1921,11 @@ pub async fn close_connection(id: String, state: State<'_, AppState>) -> Result<
 pub async fn close_all_connections(state: State<'_, AppState>) -> Result<(), String> {
     let status = state.engine.get_status();
     if !status.running {
-        return Err("Mihomo 内核未运行".to_string());
+        return Err(crate::tr!(
+            "Mihomo 内核未运行",
+            "The Mihomo core is not running"
+        )
+        .to_string());
     }
     state
         .engine
@@ -1813,14 +1968,23 @@ fn resolve_sniffer_proxy_mapping(mappings: &[PortMapping], preferred_port: Optio
     if let Some(port) = preferred_port {
         if let Some(found) = mappings.iter().find(|m| m.port == port) {
             if !found.enabled {
-                return Err(format!(
-                    "当前监听端口 {} 尚未启用，请先启用该端口后再执行沙盒嗅探",
-                    port
+                return Err(crate::tr!(
+                    format!(
+                        "当前监听端口 {} 尚未启用，请先启用该端口后再执行沙盒嗅探",
+                        port
+                    ),
+                    format!(
+                        "Listener port {} is not enabled; enable it before running sandbox sniffing",
+                        port
+                    ),
                 ));
             }
             return Ok(found.clone());
         }
-        return Err(format!("未找到监听端口 {} 的配置映射", port));
+        return Err(crate::tr!(
+            format!("未找到监听端口 {} 的配置映射", port),
+            format!("No port mapping found for listener port {}", port),
+        ));
     }
 
     if let Some(found) = mappings.iter().find(|m| m.enabled && m.id != FIXED_DIRECT_PORT_ID) {
@@ -1831,7 +1995,11 @@ fn resolve_sniffer_proxy_mapping(mappings: &[PortMapping], preferred_port: Optio
         return Ok(found.clone());
     }
 
-    Err("未找到已启用的监听端口，请先启用至少一个端口映射后再执行沙盒嗅探".to_string())
+    Err(crate::tr!(
+        "未找到已启用的监听端口，请先启用至少一个端口映射后再执行沙盒嗅探",
+        "No enabled listener port found; enable at least one port mapping before running sandbox sniffing"
+    )
+    .to_string())
 }
 
 #[tauri::command]
@@ -1851,10 +2019,19 @@ pub async fn open_sniffer_webview(
 ) -> Result<u16, String> {
     let status = state.engine.get_status();
     if !status.running {
-        return Err("请先启动 Mihomo 内核后再进行流量链路嗅探".to_string());
+        return Err(crate::tr!(
+            "请先启动 Mihomo 内核后再进行流量链路嗅探",
+            "Start the Mihomo core before sniffing traffic chains"
+        )
+        .to_string());
     }
 
-    let parsed_url: tauri::Url = url.parse().map_err(|e| format!("无效的目标网址 ({}): {}", url, e))?;
+    let parsed_url: tauri::Url = url.parse().map_err(|e| {
+        crate::tr!(
+            format!("无效的目标网址 ({url}): {e}"),
+            format!("Invalid target URL ({url}): {e}"),
+        )
+    })?;
     let host_display = parsed_url.host_str().unwrap_or(&url).to_string();
 
     let mappings = state.port_router.get_port_mappings();
@@ -1865,7 +2042,12 @@ pub async fn open_sniffer_webview(
         InboundProtocol::Mixed | InboundProtocol::Http => "http",
     };
     let proxy_addr = format!("{}://127.0.0.1:{}", scheme, bound_port);
-    let proxy_url: tauri::Url = proxy_addr.parse().map_err(|e| format!("构造本地代理地址失败: {}", e))?;
+    let proxy_url: tauri::Url = proxy_addr.parse().map_err(|e| {
+        crate::tr!(
+            format!("构造本地代理地址失败: {e}"),
+            format!("Failed to build the local proxy address: {e}"),
+        )
+    })?;
 
     if let Some(existing_win) = app.get_webview_window(SNIFFER_WEBVIEW_LABEL) {
         let _ = existing_win.destroy();
@@ -1888,9 +2070,12 @@ pub async fn open_sniffer_webview(
     let app_for_load = app.clone();
     let host_for_load = host_display.clone();
     let window = tauri::WebviewWindowBuilder::new(&app, SNIFFER_WEBVIEW_LABEL, tauri::WebviewUrl::External(parsed_url))
-        .title(format!(
-            "⏳ [正在加载网页...] {} | 链路嗅探沙盒 (隔离出口 :{})",
-            host_display, bound_port
+        .title(crate::tr!(
+            format!("⏳ [正在加载网页...] {} | 链路嗅探沙盒 (隔离出口 :{})", host_display, bound_port),
+            format!(
+                "⏳ [Loading page...] {} | Chain Sniffer Sandbox (isolated exit :{})",
+                host_display, bound_port
+            ),
         ))
         .inner_size(960.0, 660.0)
         .min_inner_size(680.0, 460.0)
@@ -1908,23 +2093,40 @@ pub async fn open_sniffer_webview(
             }
             match payload.event() {
                 tauri::webview::PageLoadEvent::Started => {
-                    let _ = webview.set_title(&format!(
-                        "⏳ [正在加载网页...] {} | 链路嗅探沙盒 (隔离出口 :{})",
-                        host_for_load, bound_port
+                    let _ = webview.set_title(&crate::tr!(
+                        format!(
+                            "⏳ [正在加载网页...] {} | 链路嗅探沙盒 (隔离出口 :{})",
+                            host_for_load, bound_port
+                        ),
+                        format!(
+                            "⏳ [Loading page...] {} | Chain Sniffer Sandbox (isolated exit :{})",
+                            host_for_load, bound_port
+                        ),
                     ));
                     let _ = app_for_load.emit("sniffer-page-loading", url_str.to_string());
                 }
                 tauri::webview::PageLoadEvent::Finished => {
-                    let _ = webview.set_title(&format!(
-                        "✅ [页面加载完成，可关闭此窗口] {} | 链路嗅探沙盒 (隔离出口 :{})",
-                        host_for_load, bound_port
+                    let _ = webview.set_title(&crate::tr!(
+                        format!(
+                            "✅ [页面加载完成，可关闭此窗口] {} | 链路嗅探沙盒 (隔离出口 :{})",
+                            host_for_load, bound_port
+                        ),
+                        format!(
+                            "✅ [Page loaded; you can close this window] {} | Chain Sniffer Sandbox (isolated exit :{})",
+                            host_for_load, bound_port
+                        ),
                     ));
                     let _ = app_for_load.emit("sniffer-page-loaded", url_str.to_string());
                 }
             }
         })
         .build()
-        .map_err(|e| format!("创建内置嗅探沙盒窗口失败: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("创建内置嗅探沙盒窗口失败: {e}"),
+                format!("Failed to create the built-in sniffer sandbox window: {e}"),
+            )
+        })?;
 
     let _ = window.show();
     let _ = window.set_focus();

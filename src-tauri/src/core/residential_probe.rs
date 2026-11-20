@@ -50,7 +50,13 @@ fn proxy_dialer(proxy: &Value) -> Result<Option<&str>, String> {
         .map(str::trim)
         .filter(|target| !target.is_empty())
         .map(Some)
-        .ok_or_else(|| "订阅数据中存在非法的 dialer-proxy 引用，无法进行住宅代理连通性测试".to_string())
+        .ok_or_else(|| {
+            crate::tr!(
+                "订阅数据中存在非法的 dialer-proxy 引用，无法进行住宅代理连通性测试",
+                "Subscription data contains an invalid dialer-proxy reference; the residential proxy connectivity test cannot run"
+            )
+            .to_string()
+        })
 }
 
 /// Resolves the upstream node selected by the user and collects its imported dialer chain.
@@ -65,15 +71,30 @@ pub fn prepare_probe(
     node_name: &str,
 ) -> Result<ResidentialProbeChain, String> {
     exit.validate()?;
-    exit.proxy_type()
-        .ok_or_else(|| format!("住宅代理出口「{}」协议无效，仅支持 http 或 socks5", exit.name))?;
+    exit.proxy_type().ok_or_else(|| {
+        crate::tr!(
+            format!("住宅代理出口「{}」协议无效，仅支持 http 或 socks5", exit.name),
+            format!(
+                "Residential proxy exit \"{}\" has an invalid protocol; only http or socks5 are supported",
+                exit.name
+            ),
+        )
+    })?;
 
     let requested = node_name.trim();
     if requested.is_empty() {
-        return Err("请选择用于住宅代理链的上游节点".to_string());
+        return Err(crate::tr!(
+            "请选择用于住宅代理链的上游节点",
+            "Select an upstream node for the residential proxy chain"
+        )
+        .to_string());
     }
     if requested.eq_ignore_ascii_case("DIRECT") {
-        return Err("住宅代理链的上游节点不能是 DIRECT".to_string());
+        return Err(crate::tr!(
+            "住宅代理链的上游节点不能是 DIRECT",
+            "The upstream node of a residential proxy chain cannot be DIRECT"
+        )
+        .to_string());
     }
 
     let by_name: HashMap<&str, &Value> = raw_proxies
@@ -81,7 +102,11 @@ pub fn prepare_probe(
         .filter_map(|proxy| proxy_name(proxy).map(|name| (name, proxy)))
         .collect();
     if by_name.contains_key(PROBE_EXIT_PROXY_NAME) {
-        return Err("住宅代理测试代理名称与订阅节点冲突，请重命名该节点后重试".to_string());
+        return Err(crate::tr!(
+            "住宅代理测试代理名称与订阅节点冲突，请重命名该节点后重试",
+            "The residential probe proxy name conflicts with a subscription node; rename that node and try again"
+        )
+        .to_string());
     }
 
     let upstream = if let Some(profile) = profile {
@@ -91,9 +116,15 @@ pub fn prepare_probe(
         } else if requested.starts_with(&format!("[{}] ", profile.name)) && by_name.contains_key(requested) {
             requested.to_string()
         } else {
-            return Err(format!(
-                "上游节点「{}」在订阅「{}」中不存在或尚未导入（不会回退直连）",
-                requested, profile.name
+            return Err(crate::tr!(
+                format!(
+                    "上游节点「{}」在订阅「{}」中不存在或尚未导入（不会回退直连）",
+                    requested, profile.name
+                ),
+                format!(
+                    "Upstream node \"{}\" does not exist in subscription \"{}\" or has not been imported (no fallback to direct)",
+                    requested, profile.name
+                ),
             ));
         }
     } else if by_name.contains_key(requested) {
@@ -101,13 +132,22 @@ pub fn prepare_probe(
     } else {
         let suffix = format!("] {}", requested);
         let mut matches = by_name.keys().copied().filter(|name| name.ends_with(&suffix));
-        let first = matches
-            .next()
-            .ok_or_else(|| format!("上游节点「{}」不存在或尚未导入（不会回退直连）", requested))?;
+        let first = matches.next().ok_or_else(|| {
+            crate::tr!(
+                format!("上游节点「{}」不存在或尚未导入（不会回退直连）", requested),
+                format!(
+                    "Upstream node \"{}\" does not exist or has not been imported (no fallback to direct)",
+                    requested
+                ),
+            )
+        })?;
         if matches.next().is_some() {
-            return Err(format!(
-                "上游节点「{}」在多个订阅中同名，请选择所属订阅后再测试",
-                requested
+            return Err(crate::tr!(
+                format!("上游节点「{}」在多个订阅中同名，请选择所属订阅后再测试", requested),
+                format!(
+                    "Upstream node \"{}\" exists in multiple subscriptions; select its subscription before testing",
+                    requested
+                ),
             ));
         }
         first.to_string()
@@ -128,14 +168,23 @@ fn collect_dialer_chain(by_name: &HashMap<&str, &Value>, upstream: &str) -> Resu
     let mut current = upstream;
     loop {
         if !visited.insert(current) {
-            return Err(format!(
-                "上游节点「{}」存在循环 dialer-proxy 引用，无法进行住宅代理连通性测试",
-                upstream
+            return Err(crate::tr!(
+                format!("上游节点「{}」存在循环 dialer-proxy 引用，无法进行住宅代理连通性测试", upstream),
+                format!(
+                    "Upstream node \"{}\" has a circular dialer-proxy reference; the residential proxy connectivity test cannot run",
+                    upstream
+                ),
             ));
         }
-        let proxy = *by_name
-            .get(current)
-            .ok_or_else(|| format!("上游节点「{}」引用了未导入的 dialer-proxy「{}」", upstream, current))?;
+        let proxy = *by_name.get(current).ok_or_else(|| {
+            crate::tr!(
+                format!("上游节点「{}」引用了未导入的 dialer-proxy「{}」", upstream, current),
+                format!(
+                    "Upstream node \"{}\" references an unimported dialer-proxy \"{}\"",
+                    upstream, current
+                ),
+            )
+        })?;
         ordered.push(proxy.clone());
         match proxy_dialer(proxy)? {
             Some(dialer) if !dialer.eq_ignore_ascii_case("DIRECT") => current = dialer,
@@ -147,10 +196,12 @@ fn collect_dialer_chain(by_name: &HashMap<&str, &Value>, upstream: &str) -> Resu
 }
 
 fn exit_proxy_value(chain: &ResidentialProbeChain) -> Result<Value, String> {
-    let proxy_type = chain
-        .exit
-        .proxy_type()
-        .ok_or_else(|| format!("住宅代理出口「{}」协议无效", chain.exit.name))?;
+    let proxy_type = chain.exit.proxy_type().ok_or_else(|| {
+        crate::tr!(
+            format!("住宅代理出口「{}」协议无效", chain.exit.name),
+            format!("Residential proxy exit \"{}\" has an invalid protocol", chain.exit.name),
+        )
+    })?;
     let mut mapping = Mapping::new();
     mapping.insert(
         Value::String("name".to_string()),
@@ -192,7 +243,11 @@ pub fn build_probe_config(
         .iter()
         .any(|proxy| proxy_name(proxy) == Some(chain.upstream.as_str()))
     {
-        return Err("住宅代理测试链缺少所选上游节点，无法执行连通性测试".to_string());
+        return Err(crate::tr!(
+            "住宅代理测试链缺少所选上游节点，无法执行连通性测试",
+            "The residential probe chain is missing the selected upstream node; the connectivity test cannot run"
+        )
+        .to_string());
     }
     let mut config = MinimalRuntimeConfig::new(controller_port, "", "warning");
     config.allow_lan = false;
@@ -221,17 +276,35 @@ pub fn build_probe_config(
 }
 
 fn allocate_loopback_ports() -> Result<(u16, u16), String> {
-    let first = std::net::TcpListener::bind(("127.0.0.1", 0))
-        .map_err(|err| format!("无法分配住宅代理测试监听端口: {}", err))?;
-    let second = std::net::TcpListener::bind(("127.0.0.1", 0))
-        .map_err(|err| format!("无法分配住宅代理测试监听端口: {}", err))?;
+    let first = std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|err| {
+        crate::tr!(
+            format!("无法分配住宅代理测试监听端口: {err}"),
+            format!("Failed to allocate a residential probe listener port: {err}"),
+        )
+    })?;
+    let second = std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|err| {
+        crate::tr!(
+            format!("无法分配住宅代理测试监听端口: {err}"),
+            format!("Failed to allocate a residential probe listener port: {err}"),
+        )
+    })?;
     let listener_port = first
         .local_addr()
-        .map_err(|err| format!("无法读取住宅代理测试监听端口: {}", err))?
+        .map_err(|err| {
+            crate::tr!(
+                format!("无法读取住宅代理测试监听端口: {err}"),
+                format!("Failed to read the residential probe listener port: {err}"),
+            )
+        })?
         .port();
     let controller_port = second
         .local_addr()
-        .map_err(|err| format!("无法读取住宅代理测试监听端口: {}", err))?
+        .map_err(|err| {
+            crate::tr!(
+                format!("无法读取住宅代理测试监听端口: {err}"),
+                format!("Failed to read the residential probe listener port: {err}"),
+            )
+        })?
         .port();
     drop(first);
     drop(second);
@@ -284,20 +357,32 @@ impl Drop for ProbeWorkspace {
 async fn wait_for_listener(child: &mut IsolatedCoreProcess, port: u16) -> Result<(), String> {
     let deadline = Instant::now() + STARTUP_TIMEOUT;
     loop {
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| format!("读取住宅代理测试内核状态失败: {}", error))?
-        {
-            return Err(format!(
-                "住宅代理测试内核提前退出（{}），请检查上游节点订阅配置是否有效",
-                status
+        if let Some(status) = child.try_wait().map_err(|error| {
+            crate::tr!(
+                format!("读取住宅代理测试内核状态失败: {error}"),
+                format!("Failed to read the residential probe core status: {error}"),
+            )
+        })? {
+            return Err(crate::tr!(
+                format!(
+                    "住宅代理测试内核提前退出（{}），请检查上游节点订阅配置是否有效",
+                    status
+                ),
+                format!(
+                    "The residential probe core exited early ({}); check whether the upstream node subscription configuration is valid",
+                    status
+                ),
             ));
         }
         if tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
             return Ok(());
         }
         if Instant::now() >= deadline {
-            return Err("住宅代理测试内核启动超时，请稍后重试".to_string());
+            return Err(crate::tr!(
+                "住宅代理测试内核启动超时，请稍后重试",
+                "The residential probe core startup timed out; try again later"
+            )
+            .to_string());
         }
         tokio::time::sleep(LISTENER_POLL_INTERVAL).await;
     }
@@ -342,38 +427,64 @@ async fn run_probe(
     timeout_ms: Option<u64>,
     endpoints: Option<&[egress_probe::ProbeEndpoint]>,
 ) -> Result<ResidentialProxyTestResult, String> {
-    let binary = CoreSupervisor::resolve_sidecar_path(app_handle)
-        .map_err(|err| format!("无法定位 Mihomo 内核，住宅代理连通性测试未执行: {}", err))?;
+    let binary = CoreSupervisor::resolve_sidecar_path(app_handle).map_err(|err| {
+        crate::tr!(
+            format!("无法定位 Mihomo 内核，住宅代理连通性测试未执行: {err}"),
+            format!(
+                "Failed to locate the Mihomo core; the residential proxy connectivity test did not run: {err}"
+            ),
+        )
+    })?;
     let (listener_port, controller_port) = allocate_loopback_ports()?;
     let config = build_probe_config(chain, listener_port, controller_port)?;
-    let yaml = config
-        .to_yaml()
-        .map_err(|err| format!("生成住宅代理测试配置失败: {}", err))?;
+    let yaml = config.to_yaml().map_err(|err| {
+        crate::tr!(
+            format!("生成住宅代理测试配置失败: {err}"),
+            format!("Failed to generate the residential probe configuration: {err}"),
+        )
+    })?;
 
     let start = move || -> Result<ProbeWorkspace, String> {
         let work_dir = std::env::temp_dir().join(format!("mihomo-multi-residential-probe-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&work_dir).map_err(|err| format!("创建住宅代理测试临时目录失败: {}", err))?;
+        std::fs::create_dir_all(&work_dir).map_err(|err| {
+            crate::tr!(
+                format!("创建住宅代理测试临时目录失败: {err}"),
+                format!("Failed to create the residential probe temporary directory: {err}"),
+            )
+        })?;
         let mut workspace = ProbeWorkspace::new(work_dir);
         let config_path = workspace.path.join("probe.yaml");
-        write_private_config(&config_path, yaml.as_bytes())
-            .map_err(|err| format!("写入住宅代理测试配置失败: {}", err))?;
-        workspace.child = Some(
-            IsolatedCoreProcess::spawn(&binary, &workspace.path, &config_path)
-                .map_err(|err| format!("启动住宅代理测试内核失败: {}", err))?,
-        );
+        write_private_config(&config_path, yaml.as_bytes()).map_err(|err| {
+            crate::tr!(
+                format!("写入住宅代理测试配置失败: {err}"),
+                format!("Failed to write the residential probe configuration: {err}"),
+            )
+        })?;
+        workspace.child = Some(IsolatedCoreProcess::spawn(&binary, &workspace.path, &config_path).map_err(|err| {
+            crate::tr!(
+                format!("启动住宅代理测试内核失败: {err}"),
+                format!("Failed to start the residential probe core: {err}"),
+            )
+        })?);
         Ok(workspace)
     };
     #[cfg(target_os = "macos")]
-    let mut workspace = tokio::task::spawn_blocking(start)
-        .await
-        .map_err(|error| format!("住宅代理测试内核启动任务失败: {}", error))??;
+    let mut workspace = tokio::task::spawn_blocking(start).await.map_err(|error| {
+        crate::tr!(
+            format!("住宅代理测试内核启动任务失败: {error}"),
+            format!("The residential probe core startup task failed: {error}"),
+        )
+    })??;
     // Linux parent-death signals follow the spawning thread, which must remain alive.
     #[cfg(not(target_os = "macos"))]
     let mut workspace = start()?;
-    let child = workspace
-        .child
-        .as_mut()
-        .ok_or_else(|| "住宅代理测试内核未能启动，请稍后重试".to_string())?;
+    let child = workspace.child.as_mut().ok_or_else(|| {
+        crate::tr!(
+            "住宅代理测试内核未能启动，请稍后重试",
+            "The residential probe core could not start; try again later"
+        )
+        .to_string()
+    })?;
     wait_for_listener(child, listener_port).await?;
 
     let per_api_timeout = bounded_timeout_ms(timeout_ms);
@@ -409,12 +520,23 @@ async fn run_probe(
     )
     .await
     .map_err(|_| {
-        format!(
-            "住宅代理连通性测试超时（{} ms），请检查上游节点与住宅代理出口",
-            per_api_timeout
+        crate::tr!(
+            format!(
+                "住宅代理连通性测试超时（{} ms），请检查上游节点与住宅代理出口",
+                per_api_timeout
+            ),
+            format!(
+                "Residential proxy connectivity test timed out after {} ms; check the upstream node and residential proxy exit",
+                per_api_timeout
+            ),
         )
     })?
-    .map_err(|err| format!("住宅代理链路探测失败（未回退直连）: {}", err))?;
+    .map_err(|err| {
+        crate::tr!(
+            format!("住宅代理链路探测失败（未回退直连）: {err}"),
+            format!("Residential proxy chain probe failed (no fallback to direct): {err}"),
+        )
+    })?;
 
     let latency_ms = egress
         .latency_ms

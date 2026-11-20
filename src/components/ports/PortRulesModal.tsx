@@ -46,6 +46,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   PRESET_SERVICES,
   type PresetService,
+  presetServiceI18nKey,
   SERVICE_CATEGORIES,
 } from '../../constants/presetServices'
 import * as api from '../../services/tauri'
@@ -207,6 +208,10 @@ function getServiceTestUrl(
   return undefined
 }
 
+function findPresetForRule(rule: PortRule): PresetService | undefined {
+  return PRESET_SERVICES.find((service) => service.name === rule.name)
+}
+
 export const PortRulesModal: React.FC<PortRulesModalProps> = ({
   isOpen,
   onClose,
@@ -228,6 +233,34 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
   const isGlobal = mode === 'global'
 
   const { t } = useTranslation()
+
+  // 预置服务与分类文案按 id 映射到当前语言；词条缺失时回退到内置名称/描述
+  const presetDisplayName = useCallback(
+    (preset: PresetService) => {
+      const key = presetServiceI18nKey(preset.id, 'name')
+      const text = t(key)
+      return text === key ? preset.name : text
+    },
+    [t],
+  )
+  const presetDisplayDescription = useCallback(
+    (preset: PresetService) => {
+      const key = presetServiceI18nKey(preset.id, 'description')
+      const text = t(key)
+      return text === key ? preset.description : text
+    },
+    [t],
+  )
+  const categoryDisplayLabel = useCallback(
+    (category: PresetService['category'] | 'all') => {
+      const matched = SERVICE_CATEGORIES.find((c) => c.id === category)
+      if (!matched) return category
+      const text = t(matched.labelKey)
+      return text === matched.labelKey ? category : text
+    },
+    [t],
+  )
+
   // 视图切换：'list' 列表视图 | 'add' 添加规则视图 | 'edit' 编辑规则视图
   const [view, setView] = useState<'list' | 'add' | 'edit'>('list')
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
@@ -274,13 +307,21 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
 
   // 当前目标网站名称用于展示
   const currentTargetSiteName = useMemo(() => {
-    if (activeTab === 'preset') return selectedPreset?.name || ''
+    if (activeTab === 'preset') {
+      return selectedPreset ? presetDisplayName(selectedPreset) : ''
+    }
     const first = customDomains
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean)[0]
     return customName.trim() || first || ''
-  }, [activeTab, selectedPreset, customName, customDomains])
+  }, [
+    activeTab,
+    selectedPreset,
+    customName,
+    customDomains,
+    presetDisplayName,
+  ])
 
   // 是否满足测速条件：必须有目标网站 URL，且目标出口已选择，且非直连
   const canTestDelay = Boolean(
@@ -333,7 +374,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         toast.success(t('rules.appendedDomains', { count: added.length }))
       }
     },
-    [customDomains, customName],
+    [customDomains, customName, t],
   )
   // 确保所有 profile 节点已拉取
   useEffect(() => {
@@ -421,7 +462,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         ) : null,
       }
     })
-  }, [allAvailableNodes, latencies])
+  }, [allAvailableNodes, latencies, t])
 
   // 其他可用端口（全局模式包含所有非直连已启用端口，单端口模式排除自身和固定直连端口）
   const otherPorts = useMemo(() => {
@@ -513,7 +554,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         ) : null,
       }
     })
-  }, [otherPorts, profiles, latencies])
+  }, [otherPorts, profiles, latencies, t])
   // 获取目标端口当前活跃生效的出口节点名称
   const targetPortActiveNode = useMemo(() => {
     if (targetType !== 'port') return null
@@ -538,15 +579,15 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     }
   }, [targetType, targetValue, otherPorts, profiles])
 
-  // 将 PRESET_SERVICES 转换为强大的 SelectOption
+  // 将 PRESET_SERVICES 转换为强大的 SelectOption（展示文案随语言切换）
   const presetSelectOptions = useMemo<SelectOption<string>[]>(() => {
     return PRESET_SERVICES.map((s) => {
-      const catLabel =
-        SERVICE_CATEGORIES.find((c) => c.id === s.category)?.label || s.category
+      const catLabel = categoryDisplayLabel(s.category)
+      const displayName = presetDisplayName(s)
       const alreadyExists = rules.some((r) => r.name === s.name)
       return {
         value: s.id,
-        label: s.name,
+        label: displayName,
         disabled: alreadyExists,
         icon: (
           <div className="w-5 h-5 rounded-md bg-muted/80 flex items-center justify-center shrink-0 text-foreground border border-border/50">
@@ -575,10 +616,10 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           </div>
         ),
         group: catLabel,
-        searchTarget: `${s.name} ${s.domains.join(' ')} ${catLabel}`,
+        searchTarget: `${displayName} ${s.name} ${s.domains.join(' ')} ${catLabel}`,
       }
     })
-  }, [rules])
+  }, [rules, presetDisplayName, categoryDisplayLabel, t])
 
   // 初始化目标出口默认值
   const ensureDefaultTarget = () => {
@@ -671,7 +712,9 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
       const duplicatePreset = rules.find((r) => r.name === selectedPreset.name)
       if (duplicatePreset) {
         toast.warning(
-          t('rules.warnPresetExists', { name: selectedPreset.name }),
+          t('rules.warnPresetExists', {
+            name: presetDisplayName(selectedPreset),
+          }),
         )
         return
       }
@@ -721,7 +764,12 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     setRules((prev) => [newRule, ...prev])
     handleBackToList()
     toast.success(
-      t('rules.ruleAdded', { name: newRule.name || t('rules.newRuleDefault') }),
+      t('rules.ruleAdded', {
+        name:
+          (activeTab === 'preset' && selectedPreset
+            ? presetDisplayName(selectedPreset)
+            : newRule.name) || t('rules.newRuleDefault'),
+      }),
     )
   }
 
@@ -731,13 +779,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     setTestResult(null)
 
     // 尝试匹配预置服务
-    const matchedPreset = PRESET_SERVICES.find(
-      (s) =>
-        s.name === rule.name ||
-        (s.iconKey === rule.icon &&
-          s.domains.length === rule.payloads.length &&
-          s.domains.every((d, i) => d === rule.payloads[i])),
-    )
+    const matchedPreset = findPresetForRule(rule)
 
     if (matchedPreset) {
       setActiveTab('preset')
@@ -820,7 +862,10 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     handleBackToList()
     toast.success(
       t('rules.ruleUpdated', {
-        name: updatedRule.name || t('rules.ruleDefault'),
+        name:
+          (activeTab === 'preset' && selectedPreset
+            ? presetDisplayName(selectedPreset)
+            : updatedRule.name) || t('rules.ruleDefault'),
       }),
     )
   }
@@ -986,6 +1031,12 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                   egressText = rule.targetValue
                 }
 
+                // 已保存规则仅存储规范名称，展示时按预置 id 映射当前语言
+                const matchedPreset = findPresetForRule(rule)
+                const ruleDisplayName = matchedPreset
+                  ? presetDisplayName(matchedPreset)
+                  : rule.name || rule.payloads[0]
+
                 return (
                   <div
                     key={rule.id}
@@ -1002,7 +1053,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                       <div className="min-w-0 space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-semibold text-foreground truncate">
-                            {rule.name || rule.payloads[0]}
+                            {ruleDisplayName}
                           </span>
                           <span className="text-[10px] px-1.5 py-0.2 rounded bg-muted text-muted-foreground font-mono">
                             {rule.matchType}
@@ -1188,7 +1239,9 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                         className="w-3.5 h-3.5"
                       />
                     </div>
-                    {selectedPreset?.name || t('rules.presetServiceFallback')}
+                    {selectedPreset
+                      ? presetDisplayName(selectedPreset)
+                      : t('rules.presetServiceFallback')}
                   </span>
                 </div>
                 {selectedPreset && (
@@ -1228,11 +1281,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                           className="w-3.5 h-3.5 text-primary"
                         />
                         {t('rules.presetDomainsLabel', {
-                          name: selectedPreset.name,
+                          name: presetDisplayName(selectedPreset),
                           count: selectedPreset.domains.length,
                         })}
                       </span>
-                      <span>{selectedPreset.description}</span>
+                      <span>{presetDisplayDescription(selectedPreset)}</span>
                     </div>
                     <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
                       {selectedPreset.domains.map((dom) => (

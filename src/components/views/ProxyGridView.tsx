@@ -108,9 +108,7 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
                   : egressInfo
                     ? t('proxies.copyIpTitle', {
                         ip: egressInfo.ip,
-                        region: egressInfo.region
-                          ? ` (${egressInfo.region})`
-                          : '',
+                        region: ` (${egressInfo.region || t('common.unknown')})`,
                       })
                     : t('proxies.detectIpTitle')
               }
@@ -206,7 +204,7 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
 )
 
 export const ProxyGridView: React.FC = () => {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const profiles = useAppStore((state) => state.profiles)
   const fetchProfiles = useAppStore((state) => state.fetchProfiles)
   const profileNodes = useAppStore((state) => state.profileNodes)
@@ -501,7 +499,7 @@ export const ProxyGridView: React.FC = () => {
         return valB - valA
       }
       if (sortBy === 'name-asc') {
-        return a.name.localeCompare(b.name, 'zh-Hans-CN')
+        return a.name.localeCompare(b.name, locale)
       }
       return 0
     })
@@ -512,6 +510,7 @@ export const ProxyGridView: React.FC = () => {
     selectedProtocolFilter,
     sortBy,
     latencies,
+    locale,
   ])
 
   // Batch speed test handler
@@ -551,7 +550,7 @@ export const ProxyGridView: React.FC = () => {
         toast.success(
           t('proxies.copiedIpToast', {
             ip: cached.ip,
-            region: cached.region ? ` (${cached.region})` : '',
+            region: ` (${cached.region || t('common.unknown')})`,
           }),
         )
         return
@@ -567,7 +566,7 @@ export const ProxyGridView: React.FC = () => {
         toast.success(
           t('proxies.copiedIpToast', {
             ip: info.ip,
-            region: info.region ? ` (${info.region})` : '',
+            region: ` (${info.region || t('common.unknown')})`,
           }),
         )
       } catch (err) {
@@ -578,7 +577,7 @@ export const ProxyGridView: React.FC = () => {
         )
       }
     },
-    [nodeEgressIps, probeNodeEgressIp],
+    [nodeEgressIps, probeNodeEgressIp, t],
   )
 
   // Profile select dropdown options
@@ -606,16 +605,14 @@ export const ProxyGridView: React.FC = () => {
             <span className="truncate">{proxyError}</span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {proxyError.includes('未运行') && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setActiveTab('settings')}
-                className="!text-[11px] !py-0.5 !px-2 h-6"
-              >
-                {t('proxies.goToSettings')}
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setActiveTab('settings')}
+              className="!text-[11px] !py-0.5 !px-2 h-6"
+            >
+              {t('proxies.goToSettings')}
+            </Button>
             <button
               type="button"
               onClick={() => setProxyError(null)}
@@ -745,7 +742,11 @@ export const ProxyGridView: React.FC = () => {
                   }`}
                 >
                   <RegionFlag code={r.code} size="sm" />
-                  <span>{r.code}</span>
+                  <span>
+                    {r.code === 'OTHER'
+                      ? t('residentialI18n.test.otherRegion')
+                      : r.code}
+                  </span>
                   <span className="opacity-70 text-[10px]">({r.count})</span>
                 </button>
               ))}

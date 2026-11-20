@@ -378,7 +378,7 @@ export const createPortSlice: StateCreator<
       const errMsg = err instanceof Error ? err.message : String(err)
       set((state) => ({
         testingFbPortIds: { ...state.testingFbPortIds, [id]: false },
-        portError: errMsg.includes('未运行') ? errMsg : state.portError,
+        portError: api.isCoreNotRunningError(err) ? errMsg : state.portError,
       }))
       get()
         .fetchFallbackStatuses()
@@ -423,7 +423,7 @@ export const createPortSlice: StateCreator<
         ),
         testingPortIds: { ...state.testingPortIds, [id]: false },
         testingFbPortIds: { ...state.testingFbPortIds, [id]: false },
-        portError: errMsg.includes('未运行') ? errMsg : state.portError,
+        portError: api.isCoreNotRunningError(err) ? errMsg : state.portError,
       }))
       if (hasFb) {
         get()
@@ -488,7 +488,7 @@ export const createPortSlice: StateCreator<
         isTestingAllPorts: false,
         testingPortIds: { ...state.testingPortIds, ...cleanTestingMap },
         testingFbPortIds: { ...state.testingFbPortIds, ...cleanTestingFbMap },
-        portError: errMsg.includes('未运行') ? errMsg : state.portError,
+        portError: api.isCoreNotRunningError(err) ? errMsg : state.portError,
       }))
       return []
     }

@@ -143,39 +143,67 @@ impl ResidentialProxy {
     pub fn validate(&self) -> Result<(), String> {
         let id = self.id.trim();
         if id.is_empty() {
-            return Err("住宅代理出口 ID 不能为空".to_string());
+            return Err(crate::tr!(
+                "住宅代理出口 ID 不能为空",
+                "Residential proxy exit ID cannot be empty"
+            )
+            .to_string());
         }
         let name = self.name.trim();
         if name.is_empty() {
-            return Err("住宅代理出口名称不能为空".to_string());
+            return Err(crate::tr!(
+                "住宅代理出口名称不能为空",
+                "Residential proxy exit name cannot be empty"
+            )
+            .to_string());
         }
         if self.proxy_type().is_none() {
-            return Err(format!("住宅代理出口「{}」协议无效，仅支持 http 或 socks5", name));
+            return Err(crate::tr!(
+                format!("住宅代理出口「{name}」协议无效，仅支持 http 或 socks5"),
+                format!(
+                    "Residential proxy exit \"{name}\" has an invalid protocol; only http or socks5 are supported"
+                ),
+            ));
         }
         let server = self.server.trim();
         if server.is_empty() {
-            return Err(format!("住宅代理出口「{}」服务器地址不能为空", name));
+            return Err(crate::tr!(
+                format!("住宅代理出口「{name}」服务器地址不能为空"),
+                format!("Residential proxy exit \"{name}\" server address cannot be empty"),
+            ));
         }
         if server.chars().any(char::is_whitespace) || server.contains("://") || server.contains('/') {
-            return Err(format!(
-                "住宅代理出口「{}」服务器地址格式无效，请仅填写主机名或 IP",
-                name
+            return Err(crate::tr!(
+                format!("住宅代理出口「{name}」服务器地址格式无效，请仅填写主机名或 IP"),
+                format!(
+                    "Residential proxy exit \"{name}\" server address is invalid; enter only a hostname or IP address"
+                ),
             ));
         }
         let host = server.trim_start_matches('[').trim_end_matches(']');
         if host.contains(':') && host.parse::<std::net::Ipv6Addr>().is_err() {
-            return Err(format!(
-                "住宅代理出口「{}」服务器地址不应包含端口，请将端口填写在端口字段",
-                name
+            return Err(crate::tr!(
+                format!("住宅代理出口「{name}」服务器地址不应包含端口，请将端口填写在端口字段"),
+                format!(
+                    "Residential proxy exit \"{name}\" server address must not include a port; use the port field instead"
+                ),
             ));
         }
         if self.port == 0 {
-            return Err(format!("住宅代理出口「{}」端口必须在 1-65535 之间", name));
+            return Err(crate::tr!(
+                format!("住宅代理出口「{name}」端口必须在 1-65535 之间"),
+                format!("Residential proxy exit \"{name}\" port must be between 1 and 65535"),
+            ));
         }
         let has_username = !self.username.trim().is_empty();
         let has_password = !self.password.is_empty();
         if has_username != has_password {
-            return Err(format!("住宅代理出口「{}」用户名与密码必须同时填写或同时留空", name));
+            return Err(crate::tr!(
+                format!("住宅代理出口「{name}」用户名与密码必须同时填写或同时留空"),
+                format!(
+                    "Residential proxy exit \"{name}\" username and password must both be set or both be empty"
+                ),
+            ));
         }
         Ok(())
     }
@@ -196,7 +224,10 @@ pub fn validate_residential_proxies(proxies: &[ResidentialProxy]) -> Result<(), 
     for proxy in proxies {
         proxy.validate()?;
         if !ids.insert(proxy.id.trim().to_string()) {
-            return Err(format!("住宅代理出口 ID「{}」重复", proxy.id.trim()));
+            return Err(crate::tr!(
+                format!("住宅代理出口 ID「{}」重复", proxy.id.trim()),
+                format!("Residential proxy exit ID \"{}\" is duplicated", proxy.id.trim()),
+            ));
         }
     }
     Ok(())
@@ -218,9 +249,15 @@ pub fn validate_residential_proxy_removal(
             .iter()
             .find(|mapping| mapping.residential_proxy_id.as_deref().map(str::trim) == Some(proxy.id.trim()))
         {
-            return Err(format!(
-                "住宅代理出口「{}」仍被端口 {} 使用（包括已停用的端口），请先解除引用再删除",
-                proxy.name, mapping.port
+            return Err(crate::tr!(
+                format!(
+                    "住宅代理出口「{}」仍被端口 {} 使用（包括已停用的端口），请先解除引用再删除",
+                    proxy.name, mapping.port
+                ),
+                format!(
+                    "Residential proxy exit \"{}\" is still used by port {} (including disabled ports); remove the reference before deleting it",
+                    proxy.name, mapping.port
+                ),
             ));
         }
     }

@@ -52,6 +52,8 @@ impl PortRouter {
             node_name: "DIRECT".to_string(),
             enabled: false,
             latency: None,
+            // Persisted verbatim: the frontend detects this exact untouched default and renders it
+            // in the active language, so the stored value must stay locale-independent.
             description: Some("直连监听 (直通流量不走代理)".to_string()),
             fallback_profile_id: None,
             fallback_node_name: None,
@@ -97,8 +99,12 @@ impl PortRouter {
     }
 
     fn persist_metadata(&self) -> AppResult<()> {
-        let content = serde_json::to_string_pretty(&*self.ports.read())
-            .map_err(|e| AppError::Internal(format!("Failed to serialize ports: {}", e)))?;
+        let content = serde_json::to_string_pretty(&*self.ports.read()).map_err(|e| {
+            AppError::Internal(crate::tr!(
+                format!("序列化端口映射失败: {e}"),
+                format!("Failed to serialize ports: {e}"),
+            ))
+        })?;
         atomic_write_file(&self.metadata_path, content.as_bytes())?;
         Ok(())
     }
@@ -159,14 +165,24 @@ impl PortRouter {
                 return Ok(candidate);
             }
         }
-        Err(AppError::InvalidConfig("未能在可用范围内找到空闲端口".to_string()))
+        Err(AppError::InvalidConfig(
+            crate::tr!(
+                "未能在可用范围内找到空闲端口",
+                "No free port found in the available range"
+            )
+            .to_string(),
+        ))
     }
 
     pub fn save_port_mapping(&self, mut mapping: PortMapping, ctx: &PortProbeContext) -> AppResult<PortMapping> {
         // Validate port range
         if !(1024..=65535).contains(&mapping.port) {
             return Err(AppError::InvalidConfig(
-                "Port number must be between 1024 and 65535".to_string(),
+                crate::tr!(
+                    "端口号必须在 1024 到 65535 之间",
+                    "Port number must be between 1024 and 65535"
+                )
+                .to_string(),
             ));
         }
 
@@ -180,14 +196,26 @@ impl PortRouter {
         let is_direct = mapping.id == crate::models::FIXED_DIRECT_PORT_ID || mapping.node_name == "DIRECT";
         if let Some(exit_id) = mapping.residential_proxy_id.as_deref() {
             if is_direct {
-                return Err(AppError::InvalidConfig("直连监听不能配置住宅代理链".to_string()));
+                return Err(AppError::InvalidConfig(
+                    crate::tr!(
+                        "直连监听不能配置住宅代理链",
+                        "The direct listener cannot be configured with a residential proxy chain"
+                    )
+                    .to_string(),
+                ));
             }
             let exit = ctx
                 .residential_proxies
                 .iter()
                 .find(|proxy| proxy.id.trim() == exit_id)
                 .ok_or_else(|| {
-                    AppError::InvalidConfig(format!("引用的住宅代理出口不存在，无法保存端口 {}", mapping.port))
+                    AppError::InvalidConfig(crate::tr!(
+                        format!("引用的住宅代理出口不存在，无法保存端口 {}", mapping.port),
+                        format!(
+                            "The referenced residential proxy exit does not exist; cannot save port {}",
+                            mapping.port
+                        ),
+                    ))
                 })?;
             exit.validate().map_err(AppError::InvalidConfig)?;
             if mapping
@@ -201,7 +229,11 @@ impl PortRouter {
                 || mapping.manual_fallback
             {
                 return Err(AppError::InvalidConfig(
-                    "住宅代理链端口不支持备用节点或手动降级，以避免出口被静默切换".to_string(),
+                    crate::tr!(
+                        "住宅代理链端口不支持备用节点或手动降级，以避免出口被静默切换",
+                        "Residential proxy chain ports do not support fallback nodes or manual failover, to avoid silently switching the exit"
+                    )
+                    .to_string(),
                 ));
             }
             // Chain listeners must send every destination through the chain; CN bypass and
@@ -211,11 +243,15 @@ impl PortRouter {
 
         if !is_direct {
             if mapping.profile_id.trim().is_empty() {
-                return Err(AppError::InvalidConfig("Profile ID cannot be empty".to_string()));
+                return Err(AppError::InvalidConfig(
+                    crate::tr!("订阅 ID 不能为空", "Profile ID cannot be empty").to_string(),
+                ));
             }
 
             if mapping.node_name.trim().is_empty() {
-                return Err(AppError::InvalidConfig("Node name cannot be empty".to_string()));
+                return Err(AppError::InvalidConfig(
+                    crate::tr!("节点名称不能为空", "Node name cannot be empty").to_string(),
+                ));
             }
         }
 
@@ -251,20 +287,28 @@ impl PortRouter {
             // Check if any other mapping uses the same port
             for existing in guard.iter() {
                 if existing.id != mapping_id && existing.port == mapping.port {
-                    return Err(AppError::InvalidConfig(format!(
-                        "Port {} is already used by mapping '{}' (ID: {})",
-                        mapping.port,
-                        existing.description.as_deref().unwrap_or(&existing.node_name),
-                        existing.id
+                    return Err(AppError::InvalidConfig(crate::tr!(
+                        format!(
+                            "端口 {} 已被映射「{}」(ID: {}) 使用",
+                            mapping.port,
+                            existing.description.as_deref().unwrap_or(&existing.node_name),
+                            existing.id
+                        ),
+                        format!(
+                            "Port {} is already used by mapping \"{}\" (ID: {})",
+                            mapping.port,
+                            existing.description.as_deref().unwrap_or(&existing.node_name),
+                            existing.id
+                        ),
                     )));
                 }
             }
 
             // Check reserved ports
             if ctx.reserved_ports.contains(&mapping.port) {
-                return Err(AppError::InvalidConfig(format!(
-                    "Port {} is reserved by the system or controller",
-                    mapping.port
+                return Err(AppError::InvalidConfig(crate::tr!(
+                    format!("端口 {} 被系统或控制器保留", mapping.port),
+                    format!("Port {} is reserved by the system or controller", mapping.port),
                 )));
             }
 
@@ -309,7 +353,11 @@ impl PortRouter {
     pub fn delete_port_mapping(&self, id: &str) -> AppResult<()> {
         if id == crate::models::FIXED_DIRECT_PORT_ID {
             return Err(AppError::InvalidConfig(
-                "固定直连监听卡片为系统内置卡片，不可删除".to_string(),
+                crate::tr!(
+                    "固定直连监听卡片为系统内置卡片，不可删除",
+                    "The fixed direct listener is a built-in card and cannot be deleted"
+                )
+                .to_string(),
             ));
         }
         let removed = {
@@ -323,17 +371,20 @@ impl PortRouter {
             info!("Port mapping '{}' on port {} deleted", id, mapping.port);
             Ok(())
         } else {
-            Err(AppError::PortMappingNotFound(format!(
-                "Port mapping with ID '{}' not found",
-                id
+            Err(AppError::PortMappingNotFound(crate::tr!(
+                format!("未找到 ID 为 '{}' 的端口映射", id),
+                format!("Port mapping with ID '{}' not found", id),
             )))
         }
     }
 
     pub fn toggle_port_mapping(&self, id: &str, enabled: bool, ctx: &PortProbeContext) -> AppResult<PortMapping> {
-        let mut target = self
-            .get_port_mapping_by_id(id)
-            .ok_or_else(|| AppError::PortMappingNotFound(format!("Port mapping with ID '{}' not found", id)))?;
+        let mut target = self.get_port_mapping_by_id(id).ok_or_else(|| {
+            AppError::PortMappingNotFound(crate::tr!(
+                format!("未找到 ID 为 '{}' 的端口映射", id),
+                format!("Port mapping with ID '{}' not found", id),
+            ))
+        })?;
 
         if target.enabled == enabled {
             return Ok(target);
@@ -344,9 +395,9 @@ impl PortRouter {
             let guard = self.ports.read();
             for existing in guard.iter() {
                 if existing.id != id && existing.port == target.port && existing.enabled {
-                    return Err(AppError::InvalidConfig(format!(
-                        "Port {} is already active on another mapping",
-                        target.port
+                    return Err(AppError::InvalidConfig(crate::tr!(
+                        format!("端口 {} 已在另一个映射中启用", target.port),
+                        format!("Port {} is already active on another mapping", target.port),
                     )));
                 }
             }
@@ -382,19 +433,30 @@ impl PortRouter {
     }
 
     pub fn toggle_manual_fallback(&self, id: &str, manual_fallback: bool) -> AppResult<PortMapping> {
-        let mut target = self
-            .get_port_mapping_by_id(id)
-            .ok_or_else(|| AppError::PortMappingNotFound(format!("Port mapping with ID '{}' not found", id)))?;
+        let mut target = self.get_port_mapping_by_id(id).ok_or_else(|| {
+            AppError::PortMappingNotFound(crate::tr!(
+                format!("未找到 ID 为 '{}' 的端口映射", id),
+                format!("Port mapping with ID '{}' not found", id),
+            ))
+        })?;
 
         if target.residential_proxy_id.is_some() {
             return Err(AppError::InvalidConfig(
-                "住宅代理链端口不支持手动降级，以避免出口被静默切换".to_string(),
+                crate::tr!(
+                    "住宅代理链端口不支持手动降级，以避免出口被静默切换",
+                    "Residential proxy chain ports do not support manual failover, to avoid silently switching the exit"
+                )
+                .to_string(),
             ));
         }
 
         if target.fallback_node_name.as_ref().is_none_or(|fb| fb.trim().is_empty()) {
             return Err(AppError::InvalidConfig(
-                "该端口未配置备用节点，无法切换备用模式".to_string(),
+                crate::tr!(
+                    "该端口未配置备用节点，无法切换备用模式",
+                    "This port has no fallback node configured, so fallback mode cannot be switched"
+                )
+                .to_string(),
             ));
         }
 
@@ -444,9 +506,9 @@ impl PortRouter {
         if found {
             Ok(())
         } else {
-            Err(AppError::PortMappingNotFound(format!(
-                "Port mapping with ID '{}' not found",
-                id
+            Err(AppError::PortMappingNotFound(crate::tr!(
+                format!("未找到 ID 为 '{}' 的端口映射", id),
+                format!("Port mapping with ID '{}' not found", id),
             )))
         }
     }

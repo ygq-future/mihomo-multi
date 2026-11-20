@@ -129,8 +129,11 @@ export const App: React.FC = () => {
       .listen<AutoUpdateEventPayload>('profile-update-failed', (event) => {
         const payload = event.payload
         toast.error(
-          `订阅「${payload.profileName}」拉取失败：${payload.error || '网络或解析异常'}`,
-          '订阅自动更新失败',
+          t('app.profileUpdateFailed', {
+            name: payload.profileName,
+            error: payload.error || t('app.profileUpdateFallbackError'),
+          }),
+          t('app.profileUpdateFailedTitle'),
         )
       })
       .catch(() => {})
@@ -146,7 +149,7 @@ export const App: React.FC = () => {
 
     scope
       .listen<string>('port-toggle-error', (event) => {
-        toast.error(event.payload, '托盘端口切换失败')
+        toast.error(event.payload, t('app.portToggleFailedTitle'))
       })
       .catch(() => {})
 
@@ -168,15 +171,19 @@ export const App: React.FC = () => {
         fetchStatus().catch(() => {})
         fetchConfig().catch(() => {})
 
+        const reason = payload.reason
+          ? t('app.kernelCrashedReason', { reason: payload.reason })
+          : ''
+
         if (payload.systemProxySuspended) {
           toast.error(
-            `Mihomo 内核异常退出${payload.reason ? `（${payload.reason}）` : ''}。为防止全系统断网，已自动关闭系统代理并切换为 DIRECT 直连。`,
-            '内核异常退出与断网保护',
+            t('app.kernelCrashedProtection', { reason }),
+            t('app.kernelCrashedProtectionTitle'),
           )
         } else {
           toast.error(
-            `Mihomo 内核异常退出${payload.reason ? `（${payload.reason}）` : ''}，请检查内核运行日志。`,
-            '内核异常停止',
+            t('app.kernelCrashed', { reason }),
+            t('app.kernelCrashedTitle'),
           )
         }
       })
@@ -189,8 +196,8 @@ export const App: React.FC = () => {
         fetchConfig().catch(() => {})
 
         toast.success(
-          `Mihomo 内核已恢复运行，系统代理已自动恢复绑定至端口 :${payload.port}。`,
-          '系统代理自动恢复',
+          t('app.proxyRestored', { port: payload.port }),
+          t('app.proxyRestoredTitle'),
         )
       })
       .catch(() => {})

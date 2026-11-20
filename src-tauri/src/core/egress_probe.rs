@@ -55,7 +55,7 @@ pub fn parse_probe_response(
             } else if !city.is_empty() {
                 city.to_string()
             } else {
-                "未知区域".to_string()
+                String::new()
             };
             let country_code = v["country_code"].as_str().map(|s| s.to_uppercase());
             let isp = v["isp"]
@@ -76,7 +76,7 @@ pub fn parse_probe_response(
             } else if !country.is_empty() {
                 country.to_string()
             } else {
-                "未知区域".to_string()
+                String::new()
             };
             let country_code = v["country_code"].as_str().map(|s| s.to_uppercase());
             let isp = v["connection"]["isp"]
@@ -114,7 +114,7 @@ pub fn parse_probe_response(
                 }
             }
             let region = if parts.is_empty() {
-                "中国".to_string()
+                String::new()
             } else {
                 parts.join(" · ")
             };
@@ -134,7 +134,7 @@ pub fn parse_probe_response(
             } else if !country.is_empty() {
                 country.to_string()
             } else {
-                "未知区域".to_string()
+                String::new()
             };
             let country_code = v["country_code"].as_str().map(|s| s.to_uppercase());
             let isp = v["org"].as_str().map(|s| s.trim().to_string());
@@ -145,7 +145,10 @@ pub fn parse_probe_response(
     let (ip, region, country_code, isp) = res?;
 
     if ip.parse::<std::net::Ipv4Addr>().is_err() {
-        return Err(format!("IP '{}' 不是合法的 IPv4 地址，已自动过滤", ip));
+        return Err(crate::tr!(
+            format!("IP '{}' 不是合法的 IPv4 地址，已自动过滤", ip),
+            format!("IP '{}' is not a valid IPv4 address and was filtered out", ip)
+        ));
     }
 
     Ok((ip, region, country_code, isp))
@@ -269,9 +272,15 @@ async fn query_egress_over_endpoints<'a>(
         }
     }
 
-    Err(AppError::Internal(format!(
-        "所有出口 IP 探测接口均失败，最后一次错误: {}",
-        last_err
+    Err(AppError::Internal(crate::tr!(
+        format!(
+            "所有出口 IP 探测接口均失败，最后一次错误: {}",
+            last_err
+        ),
+        format!(
+            "All egress IP probe endpoints failed; last error: {}",
+            last_err
+        )
     )))
 }
 
@@ -351,7 +360,9 @@ mod tests {
         }"#;
         let res = parse_probe_response("ip.sb", payload_ipv6);
         assert!(res.is_err());
-        assert!(res.unwrap_err().contains("不是合法的 IPv4 地址"));
+        assert!(res
+            .unwrap_err()
+            .contains(crate::tr!("不是合法的 IPv4 地址", "not a valid IPv4 address")));
     }
 
     #[test]

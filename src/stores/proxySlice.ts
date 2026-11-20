@@ -10,6 +10,7 @@ import type {
   PortMapping,
 } from '../types'
 import { DEFAULT_TIMEOUT_MS } from '../constants'
+import { t } from '../i18n'
 
 export interface ProxySlice {
   latencies: Record<string, number | null>
@@ -130,7 +131,7 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
         return {
           latencies: { ...state.latencies, [nodeName]: null },
           testingNodeNames: nextTesting,
-          proxyError: errMsg.includes('未运行') ? errMsg : state.proxyError,
+          proxyError: api.isCoreNotRunningError(err) ? errMsg : state.proxyError,
         }
       })
       return null
@@ -188,7 +189,7 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
       // The listener protocol matters for SOCKS5-only ports.
       const info = await api.queryPortEgressInfo(port, protocol)
       if (route !== portProbeRoute(get(), port)) {
-        throw new Error('链路配置已变化，请重新检测出口 IP')
+        throw new Error(t('errors.chainConfigChanged'))
       }
       set((state) => {
         const nextProbing = { ...state.probingPortEgress }
@@ -235,7 +236,7 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
       const errMsg = err instanceof Error ? err.message : String(err)
       set({
         isTestingAll: false,
-        proxyError: errMsg.includes('未运行') ? errMsg : get().proxyError,
+        proxyError: api.isCoreNotRunningError(err) ? errMsg : get().proxyError,
       })
       return []
     }

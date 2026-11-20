@@ -292,9 +292,12 @@ pub async fn check_app_update(state: &AppState) -> AppResult<AppUpdateCheckResul
         }
     }
 
-    Err(AppError::Internal(format!(
-        "检查软件更新失败，已尝试所有网络出口：{}",
-        failures.join("; ")
+    Err(AppError::Internal(crate::tr!(
+        format!("检查软件更新失败，已尝试所有网络出口：{}", failures.join("; ")),
+        format!(
+            "Failed to check for updates; all network egresses were tried: {}",
+            failures.join("; ")
+        ),
     )))
 }
 
@@ -308,30 +311,37 @@ async fn check_app_update_via(egress: UpdateEgress) -> AppResult<AppUpdateCheckR
 
     info!(url = %api_url, egress = %egress.label(), "Checking for latest app release from GitHub");
 
-    let res = client
-        .get(&api_url)
-        .send()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to query GitHub releases: {}", e)))?;
+    let res = client.get(&api_url).send().await.map_err(|e| {
+        AppError::Internal(crate::tr!(
+            format!("查询 GitHub 发行版失败: {e}"),
+            format!("Failed to query GitHub releases: {e}"),
+        ))
+    })?;
 
     if !res.status().is_success() {
         let status = res.status();
         let body = res.text().await.unwrap_or_default();
         if status.as_u16() == 403 && body.to_lowercase().contains("rate limit") {
             return Err(AppError::Internal(
-                "GitHub API 访问频次超限 (403 Rate Limit Exceeded)".to_string(),
+                crate::tr!(
+                    "GitHub API 访问频次超限 (403 Rate Limit Exceeded)",
+                    "GitHub API rate limit exceeded (403 Rate Limit Exceeded)"
+                )
+                .to_string(),
             ));
         }
-        return Err(AppError::Internal(format!(
-            "GitHub API responded with status {}: {}",
-            status, body
+        return Err(AppError::Internal(crate::tr!(
+            format!("GitHub API 返回状态 {}: {}", status, body),
+            format!("GitHub API responded with status {}: {}", status, body),
         )));
     }
 
-    let release: GitHubReleaseResponse = res
-        .json()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to parse GitHub release JSON: {}", e)))?;
+    let release: GitHubReleaseResponse = res.json().await.map_err(|e| {
+        AppError::Internal(crate::tr!(
+            format!("解析 GitHub 发行版 JSON 失败: {e}"),
+            format!("Failed to parse GitHub release JSON: {e}"),
+        ))
+    })?;
 
     let has_update = is_newer_version(APP_VERSION, &release.tag_name);
     let is_installed = detect_is_installed();
@@ -389,9 +399,12 @@ pub async fn download_and_install_update(
     }
 
     let Some((egress, mut res)) = selected else {
-        return Err(AppError::Internal(format!(
-            "下载更新包失败，已尝试所有网络出口：{}",
-            failures.join("; ")
+        return Err(AppError::Internal(crate::tr!(
+            format!("下载更新包失败，已尝试所有网络出口：{}", failures.join("; ")),
+            format!(
+                "Failed to download the update package; all network egresses were tried: {}",
+                failures.join("; ")
+            ),
         )));
     };
 
@@ -423,7 +436,12 @@ pub async fn download_and_install_update(
     while let Some(chunk) = res
         .chunk()
         .await
-        .map_err(|e| AppError::Internal(format!("Download stream error: {}", e)))?
+        .map_err(|e| {
+            AppError::Internal(crate::tr!(
+                format!("下载流读取失败: {e}"),
+                format!("Download stream error: {e}"),
+            ))
+        })?
     {
         file.write_all(&chunk).map_err(AppError::Io)?;
         downloaded_bytes += chunk.len() as u64;
@@ -472,8 +490,12 @@ pub async fn download_and_install_update(
             #[cfg(target_os = "windows")]
             {
                 let mut cmd = std::process::Command::new(&dest_path);
-                cmd.spawn()
-                    .map_err(|e| AppError::Internal(format!("Failed to launch installer: {}", e)))?;
+                cmd.spawn().map_err(|e| {
+                    AppError::Internal(crate::tr!(
+                        format!("启动安装程序失败: {e}"),
+                        format!("Failed to launch installer: {e}"),
+                    ))
+                })?;
             }
 
             #[cfg(target_os = "macos")]
@@ -481,7 +503,12 @@ pub async fn download_and_install_update(
                 std::process::Command::new("open")
                     .arg(&dest_path)
                     .spawn()
-                    .map_err(|e| AppError::Internal(format!("Failed to open package: {}", e)))?;
+                    .map_err(|e| {
+                        AppError::Internal(crate::tr!(
+                            format!("打开更新包失败: {e}"),
+                            format!("Failed to open package: {e}"),
+                        ))
+                    })?;
             }
 
             #[cfg(target_os = "linux")]
@@ -489,7 +516,12 @@ pub async fn download_and_install_update(
                 std::process::Command::new("xdg-open")
                     .arg(&dest_path)
                     .spawn()
-                    .map_err(|e| AppError::Internal(format!("Failed to open package: {}", e)))?;
+                    .map_err(|e| {
+                        AppError::Internal(crate::tr!(
+                            format!("打开更新包失败: {e}"),
+                            format!("Failed to open package: {e}"),
+                        ))
+                    })?;
             }
 
             let app_handle = app.clone();
@@ -501,7 +533,11 @@ pub async fn download_and_install_update(
             Ok(AppUpdateInstallResult {
                 package_type: "installer".to_string(),
                 file_path: dest_path.to_string_lossy().to_string(),
-                message: "安装程序已启动，正在关闭旧进程...".to_string(),
+                message: crate::tr!(
+                    "安装程序已启动，正在关闭旧进程...",
+                    "The installer has started; closing the old process..."
+                )
+                .to_string(),
             })
         }
         AppPackageType::Portable => {
@@ -511,9 +547,15 @@ pub async fn download_and_install_update(
             Ok(AppUpdateInstallResult {
                 package_type: "portable".to_string(),
                 file_path: dest_path.to_string_lossy().to_string(),
-                message: format!(
-                    "便携包已成功下载至软件目录「{}」，已在文件管理器中定位，请关闭程序后解压替换。",
-                    dest_path.display()
+                message: crate::tr!(
+                    format!(
+                        "便携包已成功下载至软件目录「{}」，已在文件管理器中定位，请关闭程序后解压替换。",
+                        dest_path.display()
+                    ),
+                    format!(
+                        "The portable package was downloaded to \"{}\" and revealed in the file manager. Close the app, then extract and replace it.",
+                        dest_path.display()
+                    ),
                 ),
             })
         }
@@ -522,7 +564,10 @@ pub async fn download_and_install_update(
 
 pub fn open_file_in_folder(path: &Path) -> AppResult<()> {
     if !path.exists() {
-        return Err(AppError::Internal(format!("File does not exist: {}", path.display())));
+        return Err(AppError::Internal(crate::tr!(
+            format!("文件不存在: {}", path.display()),
+            format!("File does not exist: {}", path.display()),
+        )));
     }
 
     #[cfg(target_os = "windows")]
@@ -530,7 +575,12 @@ pub fn open_file_in_folder(path: &Path) -> AppResult<()> {
         std::process::Command::new("explorer")
             .arg(format!("/select,{}", path.display()))
             .spawn()
-            .map_err(|e| AppError::Internal(format!("Failed to open explorer: {}", e)))?;
+            .map_err(|e| {
+                AppError::Internal(crate::tr!(
+                    format!("打开资源管理器失败: {e}"),
+                    format!("Failed to open explorer: {e}"),
+                ))
+            })?;
     }
     #[cfg(target_os = "macos")]
     {
@@ -538,7 +588,12 @@ pub fn open_file_in_folder(path: &Path) -> AppResult<()> {
             .arg("-R")
             .arg(path)
             .spawn()
-            .map_err(|e| AppError::Internal(format!("Failed to open finder: {}", e)))?;
+            .map_err(|e| {
+                AppError::Internal(crate::tr!(
+                    format!("打开访达失败: {e}"),
+                    format!("Failed to open finder: {e}"),
+                ))
+            })?;
     }
     #[cfg(target_os = "linux")]
     {
@@ -546,7 +601,12 @@ pub fn open_file_in_folder(path: &Path) -> AppResult<()> {
         std::process::Command::new("xdg-open")
             .arg(parent)
             .spawn()
-            .map_err(|e| AppError::Internal(format!("Failed to open directory: {}", e)))?;
+            .map_err(|e| {
+                AppError::Internal(crate::tr!(
+                    format!("打开目录失败: {e}"),
+                    format!("Failed to open directory: {e}"),
+                ))
+            })?;
     }
     Ok(())
 }

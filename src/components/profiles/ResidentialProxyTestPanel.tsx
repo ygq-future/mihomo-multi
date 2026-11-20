@@ -268,7 +268,7 @@ export const ResidentialProxyTestPanel: React.FC<
         : result
           ? t('residentialI18n.test.livePassed', {
               ip: result.egress.ip,
-              region: result.egress.region,
+              region: result.egress.region || t('common.unknown'),
               latency: result.latencyMs,
             })
           : ''
@@ -439,7 +439,7 @@ export const ResidentialProxyTestPanel: React.FC<
               {result.egress.ip}
             </span>
             <span className="text-muted-foreground truncate max-w-full">
-              {result.egress.region}
+              {result.egress.region || t('common.unknown')}
             </span>
           </div>
           <p className="text-[10px] text-muted-foreground leading-relaxed break-all">

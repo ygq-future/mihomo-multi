@@ -55,6 +55,10 @@ import {
 
 const DIRECT_EGRESS_CACHE_KEY = 'mihomo_direct_egress_cache'
 
+// Persisted by the backend when the fixed DIRECT listener is created; only the
+// untouched default is re-rendered in the active language.
+const BUILTIN_DIRECT_DESCRIPTION = '直连监听 (直通流量不走代理)'
+
 function loadCachedDirectEgress(): DirectEgressInfo | null {
   try {
     const raw = localStorage.getItem(DIRECT_EGRESS_CACHE_KEY)
@@ -75,6 +79,19 @@ function saveCachedDirectEgress(info: DirectEgressInfo) {
 
 export const PortTableView: React.FC = () => {
   const { t } = useTranslation()
+  const formatLatencyLabel = useCallback(
+    (
+      value: number | null | undefined,
+      isTestingValue: boolean,
+      compact = true,
+    ) => {
+      if (isTestingValue) return t('ports.latencyTesting')
+      if (value === undefined) return compact ? '--' : t('ports.untested')
+      if (value === null) return t('ports.latencyTimeout')
+      return compact ? String(value) : `${value} ms`
+    },
+    [t],
+  )
   const {
     coreStatus,
     config,
@@ -148,7 +165,7 @@ export const PortTableView: React.FC = () => {
         saveCachedDirectEgress(info)
         if (isManual) {
           toast.success(
-            t('ports.egressDetectDone', { ip: info.ip, region: info.region }),
+            t('ports.egressDetectDone', { ip: info.ip, region: info.region || t('common.unknown') }),
           )
         }
         return info
@@ -187,7 +204,11 @@ export const PortTableView: React.FC = () => {
       if (cached && !forceRefresh) {
         await navigator.clipboard.writeText(cached.ip).catch(() => {})
         toast.success(
-          `已复制${label}出口 IP: ${cached.ip}${cached.region ? ` (${cached.region})` : ''}`,
+          t('ports.copiedNodeEgress', {
+            label,
+            ip: cached.ip,
+            region: cached.region ? ` (${cached.region})` : '',
+          }),
         )
         return
       }
@@ -196,11 +217,18 @@ export const PortTableView: React.FC = () => {
         const info = await probeNodeEgressIp(nodeName, profileId, cacheKey)
         await navigator.clipboard.writeText(info.ip).catch(() => {})
         toast.success(
-          `已复制${label}出口 IP: ${info.ip}${info.region ? ` (${info.region})` : ''}`,
+          t('ports.copiedNodeEgress', {
+            label,
+            ip: info.ip,
+            region: info.region ? ` (${info.region})` : '',
+          }),
         )
       } catch (err) {
         toast.error(
-          `探测${label}出口 IP 失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('ports.probeNodeEgressFail', {
+            label,
+            err: err instanceof Error ? err.message : String(err),
+          }),
         )
       }
     },
@@ -212,7 +240,12 @@ export const PortTableView: React.FC = () => {
       if (directEgressInfo && !forceRefresh) {
         await navigator.clipboard.writeText(directEgressInfo.ip).catch(() => {})
         toast.success(
-          `已复制直连出口 IP: ${directEgressInfo.ip}${directEgressInfo.region ? ` (${directEgressInfo.region})` : ''}`,
+          t('ports.copiedDirectEgress', {
+            ip: directEgressInfo.ip,
+            region: directEgressInfo.region
+              ? ` (${directEgressInfo.region})`
+              : '',
+          }),
         )
         return
       }
@@ -220,13 +253,16 @@ export const PortTableView: React.FC = () => {
       if (info) {
         await navigator.clipboard.writeText(info.ip).catch(() => {})
         toast.success(
-          `已复制直连出口 IP: ${info.ip}${info.region ? ` (${info.region})` : ''}`,
+          t('ports.copiedDirectEgress', {
+            ip: info.ip,
+            region: info.region ? ` (${info.region})` : '',
+          }),
         )
       } else {
-        toast.error('直连出口 IP 检测失败')
+        toast.error(t('ports.directEgressFail'))
       }
     },
-    [directEgressInfo, handleProbeDirectEgress],
+    [directEgressInfo, handleProbeDirectEgress, t],
   )
 
   const handleCopyChainEgressIp = useCallback(
@@ -236,18 +272,23 @@ export const PortTableView: React.FC = () => {
         try {
           await navigator.clipboard.writeText(info.ip)
           toast.success(
-            `已复制链路出口 IP: ${info.ip}${info.region ? ` (${info.region})` : ''}`,
+            t('ports.copiedChainEgress', {
+              ip: info.ip,
+              region: info.region ? ` (${info.region})` : '',
+            }),
           )
         } catch {
-          toast.error('复制到剪贴板失败，请手动复制')
+          toast.error(t('ports.copyClipboardFail'))
         }
       } catch (err) {
         toast.error(
-          `链路出口检测失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('ports.chainEgressFail', {
+            err: err instanceof Error ? err.message : String(err),
+          }),
         )
       }
     },
-    [probePortEgressIp],
+    [probePortEgressIp, t],
   )
 
   // Auto-probe on first mount if no cache exists
@@ -1026,6 +1067,14 @@ export const PortTableView: React.FC = () => {
                     : m.latency
               const latencyProps = getLatencyBadgeProps(latency, isTesting)
 
+              // User-edited descriptions stay verbatim; only the untouched
+              // built-in description of the fixed DIRECT listener is localized.
+              const descriptionText =
+                m.id === FIXED_DIRECT_PORT_ID &&
+                m.description?.trim() === BUILTIN_DIRECT_DESCRIPTION
+                  ? t('directPort.defaultDesc')
+                  : m.description
+
               // 1. Inbound listener protocol badge (Mixed / Socks5 / Http)
               const inboundBadgeVariant =
                 m.protocol === 'mixed'
@@ -1369,7 +1418,7 @@ export const PortTableView: React.FC = () => {
                           className="truncate"
                           title={
                             directEgressInfo
-                              ? `${directEgressInfo.region}${
+                              ? `${directEgressInfo.region || t('common.unknown')}${
                                   directEgressInfo.isp
                                     ? ` · ${directEgressInfo.isp}`
                                     : ''
@@ -1378,7 +1427,7 @@ export const PortTableView: React.FC = () => {
                           }
                         >
                           {directEgressInfo
-                            ? `${directEgressInfo.region}${
+                            ? `${directEgressInfo.region || t('common.unknown')}${
                                 directEgressInfo.isp
                                   ? ` · ${directEgressInfo.isp}`
                                   : ''
@@ -1392,12 +1441,12 @@ export const PortTableView: React.FC = () => {
                         )}
                       </div>
 
-                      {m.description?.trim() && (
+                      {descriptionText?.trim() && (
                         <div
                           className="text-[10px] text-muted-foreground truncate italic pt-0.5"
-                          title={m.description}
+                          title={descriptionText}
                         >
-                          {m.description}
+                          {descriptionText}
                         </div>
                       )}
                     </div>
@@ -1586,7 +1635,11 @@ export const PortTableView: React.FC = () => {
                         {residentialProxy && (
                           <span
                             className="font-mono text-[10px] text-muted-foreground/70 truncate shrink-0"
-                            title={`住宅代理 ${residentialProxy.protocol.toUpperCase()} ${residentialProxy.server}:${residentialProxy.port}`}
+                            title={t('ports.residentialProxyTooltip', {
+                              protocol: residentialProxy.protocol.toUpperCase(),
+                              server: residentialProxy.server,
+                              port: residentialProxy.port,
+                            })}
                           >
                             {residentialProxy.protocol.toUpperCase()}{' '}
                             {residentialProxy.server}:{residentialProxy.port}
@@ -1969,9 +2022,7 @@ export const PortTableView: React.FC = () => {
                                   <Loader2 className="w-2.5 h-2.5 animate-spin" />
                                 </span>
                               ) : (
-                                latencyProps.label
-                                  .replace(' ms', '')
-                                  .replace('未测速', '--')
+                                formatLatencyLabel(latency, isTesting)
                               )}
                             </Badge>
                           </button>
@@ -1986,7 +2037,11 @@ export const PortTableView: React.FC = () => {
                               className="focus:outline-none flex items-center shrink-0"
                               title={t('ports.fallbackLatencyTitle', {
                                 node: m.fallbackNodeName ?? '',
-                                label: fbLatencyProps.label,
+                                label: formatLatencyLabel(
+                                  fbLatency,
+                                  isTestingFb,
+                                  false,
+                                ),
                               })}
                             >
                               <Badge
@@ -2001,9 +2056,7 @@ export const PortTableView: React.FC = () => {
                                     <Loader2 className="w-2.5 h-2.5 animate-spin" />
                                   </span>
                                 ) : (
-                                  fbLatencyProps.label
-                                    .replace(' ms', '')
-                                    .replace('未测速', '--')
+                                  formatLatencyLabel(fbLatency, isTestingFb)
                                 )}
                               </Badge>
                             </button>

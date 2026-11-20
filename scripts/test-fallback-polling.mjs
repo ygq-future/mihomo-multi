@@ -34,7 +34,7 @@ const status = {
 
 function createStore(api) {
   const { createPortSlice } = loadSource('../src/stores/portSlice.ts', {
-    '../services/tauri': api,
+    '../services/tauri': { isCoreNotRunningError: () => false, ...api },
   })
   let state
   let onChange = () => {}
@@ -238,6 +238,7 @@ test('IPC callers share the active status request and can retry failures', async
       },
     },
     '../constants': { APP_VERSION: 'test' },
+    '../i18n': { t: (key) => key },
   })
   const first = api.getPortFallbackStatuses()
   const second = api.getPortFallbackStatuses()

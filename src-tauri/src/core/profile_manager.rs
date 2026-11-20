@@ -22,7 +22,12 @@ fn current_unix_timestamp() -> u64 {
 /// Helper function to parse ProxyNode list from Clash YAML string
 pub fn parse_nodes_from_yaml(yaml_content: &str) -> AppResult<Vec<ProxyNode>> {
     let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml_content)
-        .map_err(|err| AppError::InvalidConfig(format!("Failed to parse YAML: {}", err)))?;
+        .map_err(|err| {
+            AppError::InvalidConfig(crate::tr!(
+                format!("解析 YAML 失败: {err}"),
+                format!("Failed to parse YAML: {err}"),
+            ))
+        })?;
 
     let proxies_val = match root.get("proxies") {
         Some(v) => v,
@@ -96,7 +101,12 @@ pub fn parse_nodes_from_yaml(yaml_content: &str) -> AppResult<Vec<ProxyNode>> {
 /// Helper function to extract raw proxies YAML array
 pub fn extract_raw_proxies_from_yaml(yaml_content: &str) -> AppResult<Vec<serde_yaml_ng::Value>> {
     let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml_content)
-        .map_err(|err| AppError::InvalidConfig(format!("Failed to parse YAML: {}", err)))?;
+        .map_err(|err| {
+            AppError::InvalidConfig(crate::tr!(
+                format!("解析 YAML 失败: {err}"),
+                format!("Failed to parse YAML: {err}"),
+            ))
+        })?;
 
     if let Some(proxies_val) = root.get("proxies")
         && let Some(seq) = proxies_val.as_sequence()
@@ -310,9 +320,9 @@ impl ProfileManager {
             node.profile_name = Some(profile_name.to_string());
             node.runtime_name = Some(format!("[{}] {}", profile_name, node.name));
             if !node_names.insert(node.name.clone()) {
-                return Err(AppError::InvalidConfig(format!(
-                    "订阅中存在重复节点名称「{}」",
-                    node.name
+                return Err(AppError::InvalidConfig(crate::tr!(
+                    format!("订阅中存在重复节点名称「{}」", node.name),
+                    format!("Subscription contains a duplicate node name \"{}\"", node.name),
                 )));
             }
         }
@@ -332,12 +342,21 @@ impl ProfileManager {
                 .map(str::trim)
                 .filter(|target| !target.is_empty())
                 .ok_or_else(|| {
-                    AppError::InvalidConfig(format!("节点「{}」的 dialer-proxy 必须是非空节点名称", name))
+                    AppError::InvalidConfig(crate::tr!(
+                        format!("节点「{}」的 dialer-proxy 必须是非空节点名称", name),
+                        format!("Node \"{}\" dialer-proxy must be a non-empty node name", name),
+                    ))
                 })?;
             if !node_names.contains(target) && target != "DIRECT" {
-                return Err(AppError::InvalidConfig(format!(
-                    "节点「{}」的 dialer-proxy「{}」不在本订阅节点中；仅支持节点间引用或 DIRECT，不支持代理组引用",
-                    name, target
+                return Err(AppError::InvalidConfig(crate::tr!(
+                    format!(
+                        "节点「{}」的 dialer-proxy「{}」不在本订阅节点中；仅支持节点间引用或 DIRECT，不支持代理组引用",
+                        name, target
+                    ),
+                    format!(
+                        "Node \"{}\" dialer-proxy \"{}\" is not a node in this subscription; only node-to-node references or DIRECT are supported, not proxy groups",
+                        name, target
+                    ),
                 )));
             }
             dialers.insert(name.trim(), target);
@@ -351,9 +370,9 @@ impl ProfileManager {
                     break;
                 }
                 if !active.insert(current) {
-                    return Err(AppError::InvalidConfig(format!(
-                        "节点「{}」存在循环 dialer-proxy 引用",
-                        name
+                    return Err(AppError::InvalidConfig(crate::tr!(
+                        format!("节点「{}」存在循环 dialer-proxy 引用", name),
+                        format!("Node \"{}\" has a circular dialer-proxy reference", name),
                     )));
                 }
                 if next == "DIRECT" {
@@ -453,7 +472,9 @@ impl ProfileManager {
     pub fn add_in_memory_profile(&self, name: String, yaml_content: &str) -> AppResult<ProfileItem> {
         let trimmed_name = name.trim().to_string();
         if trimmed_name.is_empty() {
-            return Err(AppError::InvalidConfig("Profile name cannot be empty".to_string()));
+            return Err(AppError::InvalidConfig(
+                crate::tr!("订阅名称不能为空", "Profile name cannot be empty").to_string(),
+            ));
         }
 
         let id = Uuid::new_v4().to_string();
@@ -498,10 +519,14 @@ impl ProfileManager {
         let trimmed_url = url.trim().to_string();
 
         if trimmed_name.is_empty() {
-            return Err(AppError::InvalidConfig("Profile name cannot be empty".to_string()));
+            return Err(AppError::InvalidConfig(
+                crate::tr!("订阅名称不能为空", "Profile name cannot be empty").to_string(),
+            ));
         }
         if trimmed_url.is_empty() {
-            return Err(AppError::InvalidConfig("Subscription URL cannot be empty".to_string()));
+            return Err(AppError::InvalidConfig(
+                crate::tr!("订阅 URL 不能为空", "Subscription URL cannot be empty").to_string(),
+            ));
         }
 
         let yaml_content = self.fetch_remote_yaml(&trimmed_url).await?;
@@ -550,12 +575,14 @@ impl ProfileManager {
         let source_path = PathBuf::from(source_file_path.trim());
 
         if trimmed_name.is_empty() {
-            return Err(AppError::InvalidConfig("Profile name cannot be empty".to_string()));
+            return Err(AppError::InvalidConfig(
+                crate::tr!("订阅名称不能为空", "Profile name cannot be empty").to_string(),
+            ));
         }
         if !source_path.exists() {
-            return Err(AppError::InvalidConfig(format!(
-                "Source file not found at: {}",
-                source_path.display()
+            return Err(AppError::InvalidConfig(crate::tr!(
+                format!("源文件不存在: {}", source_path.display()),
+                format!("Source file not found at: {}", source_path.display()),
             )));
         }
 
@@ -604,7 +631,10 @@ impl ProfileManager {
     pub fn update_profile_with_yaml(&self, id: &str, yaml_content: &str) -> AppResult<ProfileItem> {
         let existing = self
             .get_profile_by_id(id)
-            .ok_or_else(|| AppError::ProfileNotFound(format!("Profile with ID '{}' not found", id)))?;
+            .ok_or_else(|| AppError::ProfileNotFound(crate::tr!(
+                format!("未找到 ID 为 '{}' 的订阅", id),
+                format!("Profile with ID '{}' not found", id),
+            )))?;
 
         let entry = Self::index_yaml_content(id, &existing.name, yaml_content)?;
         let node_count = entry.nodes.len();
@@ -622,7 +652,10 @@ impl ProfileManager {
             let item = guard
                 .iter_mut()
                 .find(|p| p.id == id)
-                .ok_or_else(|| AppError::ProfileNotFound(format!("Profile with ID '{}' not found", id)))?;
+                .ok_or_else(|| AppError::ProfileNotFound(crate::tr!(
+                format!("未找到 ID 为 '{}' 的订阅", id),
+                format!("Profile with ID '{}' not found", id),
+            )))?;
 
             item.last_updated_at = current_unix_timestamp();
             item.node_count = node_count;
@@ -646,14 +679,21 @@ impl ProfileManager {
     pub async fn update_profile(&self, id: &str) -> AppResult<ProfileItem> {
         let existing = self
             .get_profile_by_id(id)
-            .ok_or_else(|| AppError::ProfileNotFound(format!("Profile with ID '{}' not found", id)))?;
+            .ok_or_else(|| AppError::ProfileNotFound(crate::tr!(
+                format!("未找到 ID 为 '{}' 的订阅", id),
+                format!("Profile with ID '{}' not found", id),
+            )))?;
 
         let yaml_content = match existing.profile_type {
             ProfileType::Remote => {
                 let url = existing
                     .url
                     .as_deref()
-                    .ok_or_else(|| AppError::InvalidConfig("Remote profile is missing URL".to_string()))?;
+                    .ok_or_else(|| {
+                        AppError::InvalidConfig(
+                            crate::tr!("远程订阅缺少 URL", "Remote profile is missing URL").to_string(),
+                        )
+                    })?;
                 self.fetch_remote_yaml(url).await?
             }
             ProfileType::Local => {
@@ -680,7 +720,9 @@ impl ProfileManager {
     ) -> AppResult<ProfileItem> {
         let trimmed_name = name.trim().to_string();
         if trimmed_name.is_empty() {
-            return Err(AppError::InvalidConfig("Profile name cannot be empty".to_string()));
+            return Err(AppError::InvalidConfig(
+                crate::tr!("订阅名称不能为空", "Profile name cannot be empty").to_string(),
+            ));
         }
 
         let (updated_item, name_changed) = {
@@ -688,7 +730,10 @@ impl ProfileManager {
             let item = guard
                 .iter_mut()
                 .find(|p| p.id == id)
-                .ok_or_else(|| AppError::ProfileNotFound(format!("Profile with ID '{}' not found", id)))?;
+                .ok_or_else(|| AppError::ProfileNotFound(crate::tr!(
+                format!("未找到 ID 为 '{}' 的订阅", id),
+                format!("Profile with ID '{}' not found", id),
+            )))?;
 
             let name_changed = item.name != trimmed_name;
             item.name = trimmed_name.clone();
@@ -768,14 +813,20 @@ impl ProfileManager {
             info!("Profile '{}' (ID: {}) deleted and purged from index", profile.name, id);
             Ok(())
         } else {
-            Err(AppError::ProfileNotFound(format!("Profile with ID '{}' not found", id)))
+            Err(AppError::ProfileNotFound(crate::tr!(
+                format!("未找到 ID 为 '{}' 的订阅", id),
+                format!("Profile with ID '{}' not found", id),
+            )))
         }
     }
 
     /// Instant in-memory retrieval of nodes for a profile
     pub fn get_profile_nodes(&self, id: &str) -> AppResult<Vec<ProxyNode>> {
         if !self.profiles.read().iter().any(|p| p.id == id) {
-            return Err(AppError::ProfileNotFound(format!("Profile with ID '{}' not found", id)));
+            return Err(AppError::ProfileNotFound(crate::tr!(
+                format!("未找到 ID 为 '{}' 的订阅", id),
+                format!("Profile with ID '{}' not found", id),
+            )));
         }
 
         {

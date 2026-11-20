@@ -71,11 +71,14 @@ impl DriftGuard {
                 mapping_id: mapping.id.clone(),
                 port: mapping.port,
                 profile_id: mapping.profile_id.clone(),
-                profile_name: "系统直连".to_string(),
+                profile_name: crate::tr!("系统直连".to_string(), "System Direct".to_string()),
                 node_name: "DIRECT".to_string(),
                 enabled: mapping.enabled,
                 status: DriftStatus::Healthy,
-                message: "内置直连监听，流量直通不走代理，状态正常".to_string(),
+                message: crate::tr!(
+                    "内置直连监听，流量直通不走代理，状态正常".to_string(),
+                    "Built-in DIRECT listener: traffic bypasses the proxy and is healthy".to_string()
+                ),
                 fallback_action: "DIRECT".to_string(),
                 suggestions: Vec::new(),
             };
@@ -89,14 +92,26 @@ impl DriftGuard {
         let is_chain = chain_exit_id.is_some();
         if let Some(exit_id) = chain_exit_id {
             let invalid_message = match residential_proxies.iter().find(|proxy| proxy.id.trim() == exit_id) {
-                None => Some(format!(
-                    "住宅代理出口 (ID: {}) 已不存在，链式端口不可用（不会回退直连）",
-                    exit_id
+                None => Some(crate::tr!(
+                    format!(
+                        "住宅代理出口 (ID: {}) 已不存在，链式端口不可用（不会回退直连）",
+                        exit_id
+                    ),
+                    format!(
+                        "Residential exit (ID: {}) no longer exists; chain port unavailable (no DIRECT fallback)",
+                        exit_id
+                    )
                 )),
                 Some(exit) => exit.validate().err().map(|err| {
-                    format!(
-                        "住宅代理出口「{}」配置无效（{}），链式端口不可用（不会回退直连）",
-                        exit.name, err
+                    crate::tr!(
+                        format!(
+                            "住宅代理出口「{}」配置无效（{}），链式端口不可用（不会回退直连）",
+                            exit.name, err
+                        ),
+                        format!(
+                            "Residential exit \"{}\" is misconfigured ({}); chain port unavailable (no DIRECT fallback)",
+                            exit.name, err
+                        )
                     )
                 }),
             };
@@ -108,7 +123,9 @@ impl DriftGuard {
                     profile_name: profile_map
                         .get(&mapping.profile_id)
                         .cloned()
-                        .unwrap_or_else(|| "未知订阅".to_string()),
+                        .unwrap_or_else(|| {
+                            crate::tr!("未知订阅".to_string(), "Unknown Subscription".to_string())
+                        }),
                     node_name: mapping.node_name.clone(),
                     enabled: mapping.enabled,
                     status: DriftStatus::NodeMissing,
@@ -122,19 +139,31 @@ impl DriftGuard {
         let profile_name = profile_map
             .get(&mapping.profile_id)
             .cloned()
-            .unwrap_or_else(|| "未知订阅".to_string());
+            .unwrap_or_else(|| crate::tr!("未知订阅".to_string(), "Unknown Subscription".to_string()));
 
         // 1. Check if profile exists
         if !profile_map.contains_key(&mapping.profile_id) {
             let message = if is_chain {
-                format!(
-                    "关联的订阅配置 (ID: {}) 已被移除，住宅代理链不可用（不会回退直连）",
-                    mapping.profile_id
+                crate::tr!(
+                    format!(
+                        "关联的订阅配置 (ID: {}) 已被移除，住宅代理链不可用（不会回退直连）",
+                        mapping.profile_id
+                    ),
+                    format!(
+                        "Linked subscription (ID: {}) was removed; residential chain unavailable (no DIRECT fallback)",
+                        mapping.profile_id
+                    )
                 )
             } else {
-                format!(
-                    "关联的订阅配置 (ID: {}) 已被移除，端口流量已安全直连 (DIRECT)",
-                    mapping.profile_id
+                crate::tr!(
+                    format!(
+                        "关联的订阅配置 (ID: {}) 已被移除，端口流量已安全直连 (DIRECT)",
+                        mapping.profile_id
+                    ),
+                    format!(
+                        "Linked subscription (ID: {}) was removed; port traffic safely uses DIRECT",
+                        mapping.profile_id
+                    )
                 )
             };
             return PortDriftReport {
@@ -160,14 +189,26 @@ impl DriftGuard {
             Some(Ok(names)) => names,
             Some(Err(err)) => {
                 let message = if is_chain {
-                    format!(
-                        "读取订阅「{}」节点失败 ({})，住宅代理链不可用（不会回退直连）",
-                        profile_name, err
+                    crate::tr!(
+                        format!(
+                            "读取订阅「{}」节点失败 ({})，住宅代理链不可用（不会回退直连）",
+                            profile_name, err
+                        ),
+                        format!(
+                            "Failed to read nodes for subscription \"{}\" ({}); residential chain unavailable (no DIRECT fallback)",
+                            profile_name, err
+                        )
                     )
                 } else {
-                    format!(
-                        "读取订阅「{}」节点失败 ({})，端口流量已安全直连 (DIRECT)",
-                        profile_name, err
+                    crate::tr!(
+                        format!(
+                            "读取订阅「{}」节点失败 ({})，端口流量已安全直连 (DIRECT)",
+                            profile_name, err
+                        ),
+                        format!(
+                            "Failed to read nodes for subscription \"{}\" ({}); port traffic safely uses DIRECT",
+                            profile_name, err
+                        )
                     )
                 };
                 return PortDriftReport {
@@ -189,14 +230,26 @@ impl DriftGuard {
             }
             None => {
                 let message = if is_chain {
-                    format!(
-                        "关联的订阅配置 (ID: {}) 已被移除，住宅代理链不可用（不会回退直连）",
-                        mapping.profile_id
+                    crate::tr!(
+                        format!(
+                            "关联的订阅配置 (ID: {}) 已被移除，住宅代理链不可用（不会回退直连）",
+                            mapping.profile_id
+                        ),
+                        format!(
+                            "Linked subscription (ID: {}) was removed; residential chain unavailable (no DIRECT fallback)",
+                            mapping.profile_id
+                        )
                     )
                 } else {
-                    format!(
-                        "关联的订阅配置 (ID: {}) 已被移除，端口流量已安全直连 (DIRECT)",
-                        mapping.profile_id
+                    crate::tr!(
+                        format!(
+                            "关联的订阅配置 (ID: {}) 已被移除，端口流量已安全直连 (DIRECT)",
+                            mapping.profile_id
+                        ),
+                        format!(
+                            "Linked subscription (ID: {}) was removed; port traffic safely uses DIRECT",
+                            mapping.profile_id
+                        )
                     )
                 };
                 return PortDriftReport {
@@ -220,12 +273,27 @@ impl DriftGuard {
 
         if candidate_names.is_empty() {
             let message = if is_chain {
-                format!(
-                    "订阅「{}」中无可用代理节点，住宅代理链不可用（不会回退直连）",
-                    profile_name
+                crate::tr!(
+                    format!(
+                        "订阅「{}」中无可用代理节点，住宅代理链不可用（不会回退直连）",
+                        profile_name
+                    ),
+                    format!(
+                        "Subscription \"{}\" has no usable proxy nodes; residential chain unavailable (no DIRECT fallback)",
+                        profile_name
+                    )
                 )
             } else {
-                format!("订阅「{}」中无可用代理节点，端口流量已安全直连 (DIRECT)", profile_name)
+                crate::tr!(
+                    format!(
+                        "订阅「{}」中无可用代理节点，端口流量已安全直连 (DIRECT)",
+                        profile_name
+                    ),
+                    format!(
+                        "Subscription \"{}\" has no usable proxy nodes; port traffic safely uses DIRECT",
+                        profile_name
+                    )
+                )
             };
             return PortDriftReport {
                 mapping_id: mapping.id.clone(),
@@ -261,15 +329,27 @@ impl DriftGuard {
             .unwrap_or(false);
         if main_node_exists {
             let message = if is_chain {
-                "节点正常绑定，住宅代理链已启用".to_string()
+                crate::tr!(
+                    "节点正常绑定，住宅代理链已启用".to_string(),
+                    "Node binding healthy; residential chain is active".to_string()
+                )
             } else if let Some(fb) = &mapping.fallback_node_name {
                 if fallback_node_exists {
-                    format!("节点正常绑定 (备用节点: {})", fb)
+                    crate::tr!(
+                        format!("节点正常绑定 (备用节点: {})", fb),
+                        format!("Node binding healthy (fallback node: {})", fb)
+                    )
                 } else {
-                    format!("主节点正常绑定，但配置的备用节点「{}」在订阅中已不存在", fb)
+                    crate::tr!(
+                        format!("主节点正常绑定，但配置的备用节点「{}」在订阅中已不存在", fb),
+                        format!(
+                            "Primary node is healthy, but the configured fallback node \"{}\" no longer exists in the subscription",
+                            fb
+                        )
+                    )
                 }
             } else {
-                "节点正常绑定".to_string()
+                crate::tr!("节点正常绑定".to_string(), "Node binding healthy".to_string())
             };
 
             return PortDriftReport {
@@ -298,9 +378,15 @@ impl DriftGuard {
                 node_name: mapping.node_name.clone(),
                 enabled: mapping.enabled,
                 status: DriftStatus::NodeMissing,
-                message: format!(
-                    "上游节点「{}」在订阅「{}」中已失效或被重命名，住宅代理链不可用（不会回退直连）",
-                    mapping.node_name, profile_name
+                message: crate::tr!(
+                    format!(
+                        "上游节点「{}」在订阅「{}」中已失效或被重命名，住宅代理链不可用（不会回退直连）",
+                        mapping.node_name, profile_name
+                    ),
+                    format!(
+                        "Upstream node \"{}\" is invalid or renamed in subscription \"{}\"; residential chain unavailable (no DIRECT fallback)",
+                        mapping.node_name, profile_name
+                    )
                 ),
                 fallback_action: "REJECT".to_string(),
                 suggestions,
@@ -318,9 +404,15 @@ impl DriftGuard {
                 node_name: mapping.node_name.clone(),
                 enabled: mapping.enabled,
                 status: DriftStatus::NodeMissing,
-                message: format!(
-                    "主节点「{}」已在订阅中失效，端口流量已自动降级至备用节点「{}」",
-                    mapping.node_name, fb
+                message: crate::tr!(
+                    format!(
+                        "主节点「{}」已在订阅中失效，端口流量已自动降级至备用节点「{}」",
+                        mapping.node_name, fb
+                    ),
+                    format!(
+                        "Primary node \"{}\" is invalid in the subscription; port traffic automatically degraded to fallback node \"{}\"",
+                        mapping.node_name, fb
+                    )
                 ),
                 fallback_action: format!("FALLBACK:{}", fb),
                 suggestions,
@@ -334,9 +426,15 @@ impl DriftGuard {
                 node_name: mapping.node_name.clone(),
                 enabled: mapping.enabled,
                 status: DriftStatus::NodeMissing,
-                message: format!(
-                    "绑定节点「{}」在订阅「{}」中已失效或被重命名，端口流量已安全直连 (DIRECT)",
-                    mapping.node_name, profile_name
+                message: crate::tr!(
+                    format!(
+                        "绑定节点「{}」在订阅「{}」中已失效或被重命名，端口流量已安全直连 (DIRECT)",
+                        mapping.node_name, profile_name
+                    ),
+                    format!(
+                        "Bound node \"{}\" is invalid or renamed in subscription \"{}\"; port traffic safely uses DIRECT",
+                        mapping.node_name, profile_name
+                    )
                 ),
                 fallback_action: "DIRECT".to_string(),
                 suggestions,
@@ -739,13 +837,16 @@ proxies:
         let report = DriftGuard::check_single(&mapping, &manager, std::slice::from_ref(&exit));
         assert_eq!(report.status, DriftStatus::ProfileMissing);
         assert_eq!(report.fallback_action, "REJECT");
-        assert!(report.message.contains("不会回退直连"));
-        assert!(!report.message.contains("DIRECT"));
+        assert!(report
+            .message
+            .contains(crate::tr!("不会回退直连", "no DIRECT fallback")));
 
         let report = DriftGuard::check_single(&mapping, &manager, &[]);
         assert_eq!(report.status, DriftStatus::NodeMissing);
         assert_eq!(report.fallback_action, "REJECT");
-        assert!(report.message.contains("住宅代理出口"));
+        assert!(report
+            .message
+            .contains(crate::tr!("住宅代理出口", "Residential exit")));
 
         // Non-chain mappings keep the existing DIRECT drift semantics.
         mapping.residential_proxy_id = None;

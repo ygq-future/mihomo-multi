@@ -16,8 +16,11 @@ pub enum UpdateEgress {
 impl UpdateEgress {
     pub fn label(self) -> String {
         match self {
-            Self::Proxy { port, protocol } => format!("{} 端口 {}", protocol, port),
-            Self::Direct => "直连".to_string(),
+            Self::Proxy { port, protocol } => crate::tr!(
+                format!("{} 端口 {}", protocol, port),
+                format!("{} port {}", protocol, port),
+            ),
+            Self::Direct => crate::tr!("直连", "Direct").to_string(),
         }
     }
 }
@@ -62,8 +65,12 @@ pub fn build_update_client(
                 InboundProtocol::Mixed | InboundProtocol::Http => "http",
             };
             let proxy_url = format!("{}://127.0.0.1:{}", scheme, port);
-            let proxy = reqwest::Proxy::all(&proxy_url)
-                .map_err(|e| AppError::Internal(format!("Invalid proxy configuration for port {}: {}", port, e)))?;
+            let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| {
+                AppError::Internal(crate::tr!(
+                    format!("端口 {} 的代理配置无效: {}", port, e),
+                    format!("Invalid proxy configuration for port {}: {}", port, e),
+                ))
+            })?;
             builder = builder.proxy(proxy);
         }
         UpdateEgress::Direct => {
@@ -73,9 +80,12 @@ pub fn build_update_client(
         }
     }
 
-    builder
-        .build()
-        .map_err(|e| AppError::Internal(format!("Failed to build HTTP client: {}", e)))
+    builder.build().map_err(|e| {
+        AppError::Internal(crate::tr!(
+            format!("构建 HTTP 客户端失败: {e}"),
+            format!("Failed to build HTTP client: {e}"),
+        ))
+    })
 }
 
 /// Fetches a URL as bytes, trying every egress candidate in order.
@@ -106,10 +116,13 @@ pub async fn fetch_bytes_with_fallback(
         }
     }
 
-    Err(AppError::Internal(format!(
-        "所有更新网络出口均失败（{}）: {}",
-        url,
-        failures.join("; ")
+    Err(AppError::Internal(crate::tr!(
+        format!("所有更新网络出口均失败（{}）: {}", url, failures.join("; ")),
+        format!(
+            "All update network egresses failed ({}): {}",
+            url,
+            failures.join("; ")
+        ),
     )))
 }
 
@@ -141,10 +154,13 @@ pub async fn fetch_text_with_fallback(
         }
     }
 
-    Err(AppError::Internal(format!(
-        "所有更新网络出口均失败（{}）: {}",
-        url,
-        failures.join("; ")
+    Err(AppError::Internal(crate::tr!(
+        format!("所有更新网络出口均失败（{}）: {}", url, failures.join("; ")),
+        format!(
+            "All update network egresses failed ({}): {}",
+            url,
+            failures.join("; ")
+        ),
     )))
 }
 

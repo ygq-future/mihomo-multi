@@ -51,7 +51,7 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
         toast.success(
           t('residentialI18n.nodes.copiedToast', {
             ip: cached.ip,
-            region: cached.region ? ` (${cached.region})` : '',
+            region: ` (${cached.region || t('common.unknown')})`,
           }),
         )
         return
@@ -62,7 +62,7 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
         toast.success(
           t('residentialI18n.nodes.copiedToast', {
             ip: info.ip,
-            region: info.region ? ` (${info.region})` : '',
+            region: ` (${info.region || t('common.unknown')})`,
           }),
         )
       } catch (err) {
@@ -199,9 +199,7 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
                               : egressInfo
                                 ? t('residentialI18n.nodes.copyIpTitle', {
                                     ip: egressInfo.ip,
-                                    region: egressInfo.region
-                                      ? ` (${egressInfo.region})`
-                                      : '',
+                                    region: ` (${egressInfo.region || t('common.unknown')})`,
                                   })
                                 : t('residentialI18n.nodes.detectIpTitle')
                           }

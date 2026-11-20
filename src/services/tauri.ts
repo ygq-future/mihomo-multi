@@ -1,5 +1,6 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke as tauriInvoke, type InvokeArgs, type InvokeOptions } from '@tauri-apps/api/core'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import { t } from '../i18n'
 import type {
   AppConfig,
   AppStatus,
@@ -41,6 +42,29 @@ import {
   DEFAULT_TEST_URL,
   DEFAULT_TIMEOUT_MS,
 } from '../constants'
+
+class CommandError extends Error {
+  constructor(message: string, readonly code: string) {
+    super(message)
+    this.name = 'CommandError'
+  }
+}
+
+export function isCoreNotRunningError(error: unknown): boolean {
+  return error instanceof CommandError && error.code === 'CORE_NOT_RUNNING'
+}
+
+async function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
+  try {
+    return await tauriInvoke<T>(command, args, options)
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && 'message' in error &&
+        typeof error.code === 'string' && typeof error.message === 'string') {
+      throw new CommandError(error.message, error.code)
+    }
+    throw error
+  }
+}
 
 function isTauriEnvironment(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -298,7 +322,7 @@ export async function queryPortEgressInfo(
   timeoutMs?: number | null,
 ): Promise<DirectEgressInfo> {
   if (!isTauriEnvironment()) {
-    throw new Error('链路出口检测仅支持桌面应用环境')
+    throw new Error(t('errors.chainEgressDesktopOnly'))
   }
   return invoke<DirectEgressInfo>('query_port_egress_info', {
     port,
@@ -342,7 +366,7 @@ export async function testResidentialProxy(
   nodeName: string,
 ): Promise<ResidentialProxyTestResult> {
   if (!isTauriEnvironment()) {
-    throw new Error('住宅出口测试需要桌面应用环境（需运行 Mihomo 内核）')
+    throw new Error(t('residentialI18n.test.desktopRequired'))
   }
   return invoke<ResidentialProxyTestResult>('test_residential_proxy', {
     residentialProxyId,
@@ -1063,9 +1087,15 @@ export async function appReady(): Promise<void> {
  * tooltip text and tray error dialogs follow the UI language. The backend keeps the
  * locale while lightweight mode has destroyed the webview.
  */
-export async function setUiLocale(locale: 'zh-CN' | 'en-US'): Promise<void> {
-  if (!isTauriEnvironment()) return
-  return invoke<void>('set_ui_locale', { locale })
+let localeSyncQueue: Promise<void> = Promise.resolve()
+
+export function setUiLocale(locale: 'zh-CN' | 'en-US'): Promise<void> {
+  if (!isTauriEnvironment()) return Promise.resolve()
+  const request = localeSyncQueue.catch(() => {}).then(() =>
+    invoke<void>('set_ui_locale', { locale }),
+  )
+  localeSyncQueue = request
+  return request
 }
 
 export async function getRulesInfo(): Promise<MrsRulesInfo> {
@@ -1178,11 +1208,11 @@ export async function openConfigFilePicker(): Promise<string | null> {
     directory: false,
     filters: [
       {
-        name: 'Clash YAML 配置文件',
+        name: t('filePicker.clashYaml'),
         extensions: ['yaml', 'yml'],
       },
       {
-        name: '所有文件',
+        name: t('filePicker.allFiles'),
         extensions: ['*'],
       },
     ],

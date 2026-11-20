@@ -414,7 +414,13 @@ pub fn exempt_all_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
 
     #[cfg(not(windows))]
     {
-        Err(AppError::Internal("UWP Loopback 仅支持 Windows 操作系统".to_string()))
+        Err(AppError::Internal(
+            crate::tr!(
+                "UWP Loopback 仅支持 Windows 操作系统",
+                "UWP Loopback is only supported on Windows"
+            )
+            .to_string(),
+        ))
     }
 }
 
@@ -428,7 +434,13 @@ pub fn clear_all_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
 
     #[cfg(not(windows))]
     {
-        Err(AppError::Internal("UWP Loopback 仅支持 Windows 操作系统".to_string()))
+        Err(AppError::Internal(
+            crate::tr!(
+                "UWP Loopback 仅支持 Windows 操作系统",
+                "UWP Loopback is only supported on Windows"
+            )
+            .to_string(),
+        ))
     }
 }
 
@@ -913,7 +925,12 @@ mod windows {
             .args(["-NoProfile", "-Command", &ps_cmd])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
-            .map_err(|e| AppError::Internal(format!("启动提权进程失败: {}", e)))?;
+            .map_err(|e| {
+                AppError::Internal(crate::tr!(
+                    format!("启动提权进程失败: {e}"),
+                    format!("Failed to start the elevated process: {e}"),
+                ))
+            })?;
 
         if output.status.code() == Some(1223) {
             return Ok(false);
@@ -936,8 +953,20 @@ mod windows {
 
         let lines: Vec<String> = sids.iter().map(|sid| loopback_exempt_line("a", sid)).collect();
 
-        if !run_elevated_loopback_script(&lines, "执行 UWP 回环豁免失败")? {
-            return Err(AppError::Internal("用户取消了管理员权限授权 (UAC)".to_string()));
+        if !run_elevated_loopback_script(
+            &lines,
+            crate::tr!(
+                "执行 UWP 回环豁免失败",
+                "Failed to run UWP loopback exemptions"
+            ),
+        )? {
+            return Err(AppError::Internal(
+                crate::tr!(
+                    "用户取消了管理员权限授权 (UAC)",
+                    "The administrator authorization request (UAC) was cancelled"
+                )
+                .to_string(),
+            ));
         }
 
         info!(count = sids.len(), "已完成所有 UWP 应用容器回环豁免");
@@ -954,15 +983,29 @@ mod windows {
             .args(["-NoProfile", "-Command", ps_cmd])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
-            .map_err(|e| AppError::Internal(format!("启动提权进程失败: {}", e)))?;
+            .map_err(|e| {
+                AppError::Internal(crate::tr!(
+                    format!("启动提权进程失败: {e}"),
+                    format!("Failed to start the elevated process: {e}"),
+                ))
+            })?;
 
         if output.status.code() == Some(1223) {
-            return Err(AppError::Internal("用户取消了管理员权限授权 (UAC)".to_string()));
+            return Err(AppError::Internal(
+                crate::tr!(
+                    "用户取消了管理员权限授权 (UAC)",
+                    "The administrator authorization request (UAC) was cancelled"
+                )
+                .to_string(),
+            ));
         }
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::Internal(format!("清除 UWP 回环豁免失败: {}", stderr.trim())));
+            return Err(AppError::Internal(crate::tr!(
+                format!("清除 UWP 回环豁免失败: {}", stderr.trim()),
+                format!("Failed to clear UWP loopback exemptions: {}", stderr.trim()),
+            )));
         }
 
         info!("已清除所有 UWP 应用容器回环豁免");
@@ -996,7 +1039,13 @@ mod windows {
             lines.push(loopback_exempt_line("a", sid));
         }
 
-        if !run_elevated_loopback_script(&lines, "执行 UWP 回环豁免自动维护失败")? {
+        if !run_elevated_loopback_script(
+            &lines,
+            crate::tr!(
+                "执行 UWP 回环豁免自动维护失败",
+                "Failed to run automatic UWP loopback exemption maintenance"
+            ),
+        )? {
             warn!("用户取消了管理员权限授权 (UAC)，跳过 UWP 回环豁免自动维护");
             return Ok((0, 0));
         }

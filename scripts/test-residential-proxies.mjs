@@ -247,7 +247,7 @@ test('a probe finishing after a chain change cannot publish its previous exit IP
   const pending = store.getState().probePortEgressIp(21001, 'mixed')
   store.setState({ portMappings: [{ ...mapping, nodeName: 'Upstream B' }] })
   completeProbe({ ip: '192.0.2.10' })
-  await assert.rejects(pending, /链路配置已变化/)
+  await assert.rejects(pending, /Chain configuration changed/)
   assert.deepEqual(plain(store.getState().portEgressIps), {})
   assert.equal(store.getState().probingPortEgress[21001], undefined)
 })

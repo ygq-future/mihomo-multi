@@ -521,19 +521,42 @@ impl MinimalRuntimeConfig {
 
             let build_chain = (|| -> Result<(String, serde_yaml_ng::Value), String> {
                 if mapping.id == crate::models::FIXED_DIRECT_PORT_ID || mapping.node_name == "DIRECT" {
-                    return Err("直连监听不能配置住宅代理链".to_string());
+                    return Err(crate::tr!(
+                        "直连监听不能配置住宅代理链",
+                        "The direct listener cannot be configured with a residential proxy chain"
+                    )
+                    .to_string());
                 }
 
                 let exit = params
                     .residential_proxies
                     .iter()
                     .find(|proxy| proxy.id.trim() == exit_id)
-                    .ok_or_else(|| "引用的住宅代理出口不存在（不会回退直连）".to_string())?;
+                    .ok_or_else(|| {
+                        crate::tr!(
+                            "引用的住宅代理出口不存在（不会回退直连）",
+                            "The referenced residential proxy exit does not exist (no fallback to direct)"
+                        )
+                        .to_string()
+                    })?;
                 exit.validate()?;
-                let proxy_type = exit.proxy_type().ok_or_else(|| "住宅代理出口协议无效".to_string())?;
+                let proxy_type = exit.proxy_type().ok_or_else(|| {
+                    crate::tr!(
+                        "住宅代理出口协议无效",
+                        "The residential proxy exit protocol is invalid"
+                    )
+                    .to_string()
+                })?;
 
-                let upstream = resolve_node_target(&mapping.node_name, &mapping.profile_id)
-                    .ok_or_else(|| format!("上游节点「{}」不存在（不会回退直连）", mapping.node_name))?;
+                let upstream = resolve_node_target(&mapping.node_name, &mapping.profile_id).ok_or_else(|| {
+                    crate::tr!(
+                        format!("上游节点「{}」不存在（不会回退直连）", mapping.node_name),
+                        format!(
+                            "Upstream node \"{}\" does not exist (no fallback to direct)",
+                            mapping.node_name
+                        ),
+                    )
+                })?;
 
                 let mut dialer_cursor = upstream.as_str();
                 let mut visited_dialers: HashSet<&str> = HashSet::new();
@@ -542,15 +565,24 @@ impl MinimalRuntimeConfig {
                         break;
                     }
                     if !available_proxy_names.contains(dialer) {
-                        return Err(format!(
-                            "上游节点「{}」引用了未导入的 dialer-proxy「{}」，不支持嵌套代理链",
-                            mapping.node_name, dialer
+                        return Err(crate::tr!(
+                            format!(
+                                "上游节点「{}」引用了未导入的 dialer-proxy「{}」，不支持嵌套代理链",
+                                mapping.node_name, dialer
+                            ),
+                            format!(
+                                "Upstream node \"{}\" references an unimported dialer-proxy \"{}\"; nested proxy chains are not supported",
+                                mapping.node_name, dialer
+                            ),
                         ));
                     }
                     if !visited_dialers.insert(dialer_cursor) {
-                        return Err(format!(
-                            "上游节点「{}」存在循环 dialer-proxy 引用，无法生成代理链",
-                            mapping.node_name
+                        return Err(crate::tr!(
+                            format!("上游节点「{}」存在循环 dialer-proxy 引用，无法生成代理链", mapping.node_name),
+                            format!(
+                                "Upstream node \"{}\" has a circular dialer-proxy reference; cannot generate the proxy chain",
+                                mapping.node_name
+                            ),
                         ));
                     }
                     dialer_cursor = dialer;
@@ -558,7 +590,13 @@ impl MinimalRuntimeConfig {
 
                 let chain_name = chain_proxy_name(mapping.port);
                 if available_proxy_names.contains(&chain_name) || !generated_chain_names.insert(chain_name.clone()) {
-                    return Err(format!("生成的链式出口名称「{}」与现有节点冲突", chain_name));
+                    return Err(crate::tr!(
+                        format!("生成的链式出口名称「{}」与现有节点冲突", chain_name),
+                        format!(
+                            "Generated chain exit name \"{}\" conflicts with an existing node",
+                            chain_name
+                        ),
+                    ));
                 }
 
                 let mut entry = serde_yaml_ng::Mapping::new();

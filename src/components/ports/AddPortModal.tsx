@@ -11,7 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import type React from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import { useTranslation } from '../../i18n'
@@ -70,6 +70,7 @@ function compareNodesByLatencyAndName(
   a: { displayName: string; name: string },
   b: { displayName: string; name: string },
   latencies: Record<string, number | null>,
+  locale: string,
 ): number {
   const scoreA = getNodeLatencyScore(a.displayName, a.name, latencies)
   const scoreB = getNodeLatencyScore(b.displayName, b.name, latencies)
@@ -78,7 +79,7 @@ function compareNodesByLatencyAndName(
     return scoreA - scoreB
   }
 
-  return a.displayName.localeCompare(b.displayName, 'zh-Hans-CN')
+  return a.displayName.localeCompare(b.displayName, locale)
 }
 
 export const AddPortModal: React.FC<AddPortModalProps> = ({
@@ -95,6 +96,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     portMappings,
     driftReports,
     fetchProfileNodes,
+    setDriftReports,
     fetchConfig,
     savePortMapping,
     fetchStatus,
@@ -130,6 +132,38 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     if (!initialMapping) return null
     return driftReports.find((r) => r.mappingId === initialMapping.id) || null
   }, [initialMapping, driftReports])
+
+  // Drift prose is rendered by the backend in the active UI locale. Refresh whenever the editor
+  // opens or the language changes so cached reports never keep the previous language on screen.
+  const driftLocaleRef = useRef(locale)
+  const driftRequestSeqRef = useRef(0)
+  const driftRequestChainRef = useRef<Promise<void>>(Promise.resolve())
+  useEffect(() => {
+    const localeChanged = driftLocaleRef.current !== locale
+    driftLocaleRef.current = locale
+    if (!localeChanged && (!isOpen || !isEditing)) return
+    const requestSeq = ++driftRequestSeqRef.current
+    // Serialize the locale sync and the drift read. A superseded request never reaches the
+    // backend and never writes its stale-language result over a newer locale's reports.
+    const run = async () => {
+      if (requestSeq !== driftRequestSeqRef.current) return
+      await api.setUiLocale(locale)
+      if (requestSeq !== driftRequestSeqRef.current) return
+      const reports = await api.getDriftReports().catch(() => null)
+      if (reports && requestSeq === driftRequestSeqRef.current) {
+        setDriftReports(reports)
+      }
+    }
+    const chained = driftRequestChainRef.current.catch(() => {}).then(run)
+    driftRequestChainRef.current = chained.catch((error: unknown) => {
+      console.error('[i18n] Failed to refresh localized drift reports:', error)
+    })
+    return () => {
+      if (requestSeq === driftRequestSeqRef.current) {
+        driftRequestSeqRef.current += 1
+      }
+    }
+  }, [isOpen, isEditing, locale, setDriftReports])
 
   // Initialize or reset fields when opened
   useEffect(() => {
@@ -393,9 +427,9 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       if (isBoundA !== isBoundB) {
         return isBoundA ? 1 : -1
       }
-      return compareNodesByLatencyAndName(a, b, latencies)
+      return compareNodesByLatencyAndName(a, b, latencies, locale)
     })
-  }, [allAvailableNodes, boundNodeMap, latencies, isChainMode])
+  }, [allAvailableNodes, boundNodeMap, latencies, isChainMode, locale])
 
   const nodeOptions = useMemo(() => {
     return sortedNodes.map((n) => {
@@ -519,7 +553,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           n.uniqueKey !== selectedNode.uniqueKey &&
           extractRegion(n.name).code === selectedNodeRegion.code,
       )
-      .sort((a, b) => compareNodesByLatencyAndName(a, b, latencies))
+      .sort((a, b) => compareNodesByLatencyAndName(a, b, latencies, locale))
 
     const options: SelectOption<string>[] = [
       {
@@ -565,6 +599,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     latencies,
     t,
     formatRegionName,
+    locale,
   ])
 
   const mainLatency = selectedNode

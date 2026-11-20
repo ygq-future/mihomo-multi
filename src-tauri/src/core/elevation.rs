@@ -61,9 +61,15 @@ pub fn relaunch_as_admin(extra_args: &[String]) -> AppResult<()> {
         )
     };
     if (result as isize) <= 32 {
-        return Err(AppError::Internal(format!(
-            "以管理员身份重启失败（ShellExecuteW 返回 {}），请手动右键以管理员身份运行",
-            result as isize
+        return Err(AppError::Internal(crate::tr!(
+            format!(
+                "以管理员身份重启失败（ShellExecuteW 返回 {}），请手动右键以管理员身份运行",
+                result as isize
+            ),
+            format!(
+                "Failed to restart with administrator privileges (ShellExecuteW returned {}); right-click and choose \"Run as administrator\" manually",
+                result as isize
+            ),
         )));
     }
     Ok(())
@@ -71,7 +77,13 @@ pub fn relaunch_as_admin(extra_args: &[String]) -> AppResult<()> {
 
 #[cfg(not(windows))]
 pub fn relaunch_as_admin(_extra_args: &[String]) -> AppResult<()> {
-    Err(AppError::Internal("当前平台不支持管理员重启".to_string()))
+    Err(AppError::Internal(
+        crate::tr!(
+            "当前平台不支持管理员重启",
+            "Restarting with administrator privileges is not supported on this platform"
+        )
+        .to_string(),
+    ))
 }
 
 #[cfg(windows)]

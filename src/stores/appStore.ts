@@ -12,6 +12,7 @@ import type {
 } from '../types'
 import { isVersionNewer, loadCachedAppUpdate } from '../utils/appUpdateCache'
 import { APP_VERSION } from '../constants'
+import { t } from '../i18n'
 import { type PortSlice, createPortSlice } from './portSlice'
 import { type ProfileSlice, createProfileSlice } from './profileSlice'
 import { type ProxySlice, createProxySlice } from './proxySlice'
@@ -279,11 +280,11 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
 
   saveResidentialProxy: async (proxy) => {
     if (!api.isDesktopEnvironment()) {
-      throw new Error('住宅出口管理仅支持桌面应用环境')
+      throw new Error(t('errors.residentialManagementDesktopOnly'))
     }
     const current = get().config
     if (!current) {
-      throw new Error('配置尚未加载，请稍后重试')
+      throw new Error(t('errors.configNotLoaded'))
     }
     const list = current.residentialProxies ?? []
     const exists = list.some((item) => item.id === proxy.id)
@@ -312,18 +313,20 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
 
   deleteResidentialProxy: async (id) => {
     if (!api.isDesktopEnvironment()) {
-      throw new Error('住宅出口管理仅支持桌面应用环境')
+      throw new Error(t('errors.residentialManagementDesktopOnly'))
     }
     const current = get().config
     if (!current) {
-      throw new Error('配置尚未加载，请稍后重试')
+      throw new Error(t('errors.configNotLoaded'))
     }
     const referenced = get().portMappings.filter(
       (mapping) => mapping.residentialProxyId === id,
     )
     if (referenced.length > 0) {
-      const ports = referenced.map((mapping) => mapping.port).join('、')
-      throw new Error(`该住宅出口正被端口 ${ports} 使用，请先解除绑定`)
+      const ports = referenced
+        .map((mapping) => mapping.port)
+        .join(t('common.listSeparator'))
+      throw new Error(t('errors.residentialProxyInUse', { ports }))
     }
     const nextList = (current.residentialProxies ?? []).filter(
       (item) => item.id !== id,

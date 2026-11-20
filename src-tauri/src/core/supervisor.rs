@@ -551,9 +551,15 @@ fn spawn_macos_parent_watchdog(probe_pid: libc::pid_t) -> Result<libc::pid_t, Ap
     let parent_pid = std::process::id() as libc::pid_t;
     let mut fds: [libc::c_int; 2] = [0; 2];
     if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-        return Err(AppError::Supervisor(format!(
-            "无法创建 macOS 父进程监视管道: {}",
-            std::io::Error::last_os_error()
+        return Err(AppError::Supervisor(crate::tr!(
+            format!(
+                "无法创建 macOS 父进程监视管道: {}",
+                std::io::Error::last_os_error()
+            ),
+            format!(
+                "Failed to create the macOS parent watchdog pipe: {}",
+                std::io::Error::last_os_error()
+            ),
         )));
     }
     let read_fd = fds[0];
@@ -565,9 +571,15 @@ fn spawn_macos_parent_watchdog(probe_pid: libc::pid_t) -> Result<libc::pid_t, Ap
             libc::close(read_fd);
             libc::close(write_fd);
         }
-        return Err(AppError::Supervisor(format!(
-            "无法创建 macOS 父进程监视子进程: {}",
-            std::io::Error::last_os_error()
+        return Err(AppError::Supervisor(crate::tr!(
+            format!(
+                "无法创建 macOS 父进程监视子进程: {}",
+                std::io::Error::last_os_error()
+            ),
+            format!(
+                "Failed to create the macOS parent watchdog child process: {}",
+                std::io::Error::last_os_error()
+            ),
         )));
     }
     if watchdog_pid == 0 {
@@ -585,9 +597,11 @@ fn spawn_macos_parent_watchdog(probe_pid: libc::pid_t) -> Result<libc::pid_t, Ap
         Ok(watchdog_pid)
     } else {
         terminate_macos_watchdog(watchdog_pid);
-        Err(AppError::Supervisor(
-            "macOS 父进程监视子进程未能建立，已终止住宅代理测试内核以避免孤儿进程".to_string(),
-        ))
+        Err(AppError::Supervisor(crate::tr!(
+            "macOS 父进程监视子进程未能建立，已终止住宅代理测试内核以避免孤儿进程",
+            "The macOS parent watchdog could not be established; the residential probe core was terminated to avoid an orphan process"
+        )
+        .to_string()))
     }
 }
 
@@ -636,9 +650,12 @@ impl IsolatedCoreProcess {
             }
         }
 
-        let child = cmd
-            .spawn()
-            .map_err(|err| AppError::SidecarExecution(format!("Failed to spawn isolated Mihomo process: {}", err)))?;
+        let child = cmd.spawn().map_err(|err| {
+            AppError::SidecarExecution(crate::tr!(
+                format!("启动隔离的 Mihomo 测试进程失败: {err}"),
+                format!("Failed to spawn isolated Mihomo process: {err}"),
+            ))
+        })?;
         #[cfg(any(windows, target_os = "macos"))]
         let mut child = child;
 
@@ -651,16 +668,20 @@ impl IsolatedCoreProcess {
                     job
                 } else {
                     terminate_isolated_child(&mut child, "job-object-assign-failure");
-                    return Err(AppError::Supervisor(
-                        "无法将住宅代理测试内核加入 Windows Job Object，已终止测试进程以避免孤儿进程".to_string(),
-                    ));
+                    return Err(AppError::Supervisor(crate::tr!(
+                        "无法将住宅代理测试内核加入 Windows Job Object，已终止测试进程以避免孤儿进程",
+                        "Failed to add the residential probe core to a Windows Job Object; the test process was terminated to avoid an orphan process"
+                    )
+                    .to_string()));
                 }
             }
             None => {
                 terminate_isolated_child(&mut child, "job-object-create-failure");
-                return Err(AppError::Supervisor(
-                    "无法创建 Windows Job Object，已终止住宅代理测试内核以避免孤儿进程".to_string(),
-                ));
+                return Err(AppError::Supervisor(crate::tr!(
+                    "无法创建 Windows Job Object，已终止住宅代理测试内核以避免孤儿进程",
+                    "Failed to create a Windows Job Object; the residential probe core was terminated to avoid an orphan process"
+                )
+                .to_string()));
             }
         };
 
@@ -974,9 +995,15 @@ impl CoreSupervisor {
             false,
             None,
         ) {
-            let err_msg = format!(
-                "外部控制器端口 {} 已被本地其他应用程序占用，无法启动 Mihomo 内核。请在「设置」中修改控制器端口（例如 9090），或关闭占用该端口的程序。",
-                config.controller_port
+            let err_msg = crate::tr!(
+                format!(
+                    "外部控制器端口 {} 已被本地其他应用程序占用，无法启动 Mihomo 内核。请在「设置」中修改控制器端口（例如 9090），或关闭占用该端口的程序。",
+                    config.controller_port
+                ),
+                format!(
+                    "The external controller port {} is already used by another local application, so the Mihomo core cannot start. Change the controller port in Settings (for example 9090), or close the program occupying it.",
+                    config.controller_port
+                ),
             );
             inner.last_error = Some(err_msg.clone());
             return Err(AppError::SidecarExecution(err_msg));
@@ -1062,10 +1089,12 @@ impl CoreSupervisor {
             cmd.creation_flags(0x08000000);
         }
 
-        let mut child = match cmd
-            .spawn()
-            .map_err(|err| AppError::SidecarExecution(format!("Failed to spawn Mihomo sidecar: {}", err)))
-        {
+        let mut child = match cmd.spawn().map_err(|err| {
+            AppError::SidecarExecution(crate::tr!(
+                format!("启动 Mihomo 内核失败: {err}"),
+                format!("Failed to spawn Mihomo sidecar: {err}"),
+            ))
+        }) {
             Ok(c) => c,
             Err(e) => {
                 inner.last_error = Some(e.to_string());
@@ -1084,10 +1113,17 @@ impl CoreSupervisor {
         std::thread::sleep(std::time::Duration::from_millis(150));
         match child.try_wait() {
             Ok(Some(status)) => {
-                let err_msg = format!(
-                    "Mihomo 内核启动失败并异常退出 (退出码: {})。详情请查看日志文件: {}",
-                    status,
-                    today_log_path.display()
+                let err_msg = crate::tr!(
+                    format!(
+                        "Mihomo 内核启动失败并异常退出 (退出码: {})。详情请查看日志文件: {}",
+                        status,
+                        today_log_path.display()
+                    ),
+                    format!(
+                        "The Mihomo core failed to start and exited unexpectedly (exit code: {}). See the log file for details: {}",
+                        status,
+                        today_log_path.display()
+                    ),
                 );
                 inner.last_error = Some(err_msg.clone());
                 return Err(AppError::SidecarExecution(err_msg));
@@ -1139,7 +1175,10 @@ impl CoreSupervisor {
                     match child.try_wait() {
                         Ok(Some(status)) => {
                             let (should_report, err_msg) =
-                                inner.record_crash(format!("Mihomo 内核异常退出 (退出码: {})", status));
+                                inner.record_crash(crate::tr!(
+                                format!("Mihomo 内核异常退出 (退出码: {})", status),
+                                format!("The Mihomo core exited unexpectedly (exit code: {})", status),
+                            ));
                             drop(inner);
 
                             if should_report && let Some(ref handler) = *crash_handler_clone.read() {
@@ -1149,7 +1188,10 @@ impl CoreSupervisor {
                         }
                         Err(err) => {
                             let (should_report, err_msg) =
-                                inner.record_crash(format!("检查 Mihomo 子进程状态异常: {}", err));
+                                inner.record_crash(crate::tr!(
+                                format!("检查 Mihomo 子进程状态异常: {}", err),
+                                format!("Failed to check the Mihomo child process status: {}", err),
+                            ));
                             drop(inner);
 
                             if should_report && let Some(ref handler) = *crash_handler_clone.read() {
@@ -1205,12 +1247,18 @@ impl CoreSupervisor {
                 Ok(None) => (true, None),
                 Ok(Some(status)) => {
                     let (should_report, err_msg) =
-                        inner.record_crash(format!("Mihomo 内核异常退出 (退出码: {})", status));
+                        inner.record_crash(crate::tr!(
+                                format!("Mihomo 内核异常退出 (退出码: {})", status),
+                                format!("The Mihomo core exited unexpectedly (exit code: {})", status),
+                            ));
                     let err = if should_report { Some(err_msg) } else { None };
                     (false, err)
                 }
                 Err(e) => {
-                    let (should_report, err_msg) = inner.record_crash(format!("检查 Mihomo 子进程异常: {}", e));
+                    let (should_report, err_msg) = inner.record_crash(crate::tr!(
+                        format!("检查 Mihomo 子进程异常: {}", e),
+                        format!("Failed to check the Mihomo child process: {}", e),
+                    ));
                     let err = if should_report { Some(err_msg) } else { None };
                     (false, err)
                 }

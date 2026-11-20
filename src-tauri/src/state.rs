@@ -317,10 +317,21 @@ impl AppState {
             if config.tun_enabled {
                 config.tun_enabled = false;
             }
-            let p = port.ok_or_else(|| "启用系统代理必须指定端口".to_string())?;
+            let p = port.ok_or_else(|| {
+                crate::tr!(
+                    "启用系统代理必须指定端口",
+                    "A port must be specified to enable the system proxy"
+                )
+                .to_string()
+            })?;
             let mappings = self.port_router.get_port_mappings();
             if !mappings.iter().any(|m| m.port == p && m.enabled) {
-                return Err(format!("端口 {} 未在监听列表中或未启用，无法设为系统代理", p));
+                return Err(crate::tr!(
+                    format!("端口 {p} 未在监听列表中或未启用，无法设为系统代理"),
+                    format!(
+                        "Port {p} is not in the listener list or is disabled; it cannot be set as the system proxy"
+                    ),
+                ));
             }
 
             crate::core::sysproxy::apply_system_proxy(p, &config.system_proxy_bypass_user)
@@ -347,10 +358,21 @@ impl AppState {
         let mut config = self.config.read().clone();
 
         if enabled {
-            let p = port.ok_or_else(|| "启用终端环境变量代理必须指定端口".to_string())?;
+            let p = port.ok_or_else(|| {
+                crate::tr!(
+                    "启用终端环境变量代理必须指定端口",
+                    "A port must be specified to enable the terminal proxy"
+                )
+                .to_string()
+            })?;
             let mappings = self.port_router.get_port_mappings();
             if !mappings.iter().any(|m| m.port == p && m.enabled) {
-                return Err(format!("端口 {} 未在监听列表中或未启用，无法设为终端代理", p));
+                return Err(crate::tr!(
+                    format!("端口 {p} 未在监听列表中或未启用，无法设为终端代理"),
+                    format!(
+                        "Port {p} is not in the listener list or is disabled; it cannot be set as the terminal proxy"
+                    ),
+                ));
             }
 
             crate::core::sysproxy::apply_env_proxy(p, &config.system_proxy_bypass_user).map_err(|e| e.to_string())?;
@@ -374,10 +396,21 @@ impl AppState {
         let mut config = self.config.read().clone();
 
         if enabled {
-            let p = port.ok_or_else(|| "启用 TUN 模式必须指定绑定端口".to_string())?;
+            let p = port.ok_or_else(|| {
+                crate::tr!(
+                    "启用 TUN 模式必须指定绑定端口",
+                    "A binding port must be specified to enable TUN mode"
+                )
+                .to_string()
+            })?;
             let mappings = self.port_router.get_port_mappings();
             if !mappings.iter().any(|m| m.port == p && m.enabled) {
-                return Err(format!("端口 {} 未在监听列表中或未启用，无法作为 TUN 出口", p));
+                return Err(crate::tr!(
+                    format!("端口 {p} 未在监听列表中或未启用，无法作为 TUN 出口"),
+                    format!(
+                        "Port {p} is not in the listener list or is disabled; it cannot be used as the TUN exit"
+                    ),
+                ));
             }
             if config.system_proxy_enabled {
                 let _ = crate::core::sysproxy::clear_system_proxy();
@@ -757,22 +790,35 @@ impl AppState {
                 .iter()
                 .find(|proxy| proxy.id.trim() == residential_proxy_id.trim())
                 .cloned()
-                .ok_or_else(|| "住宅代理出口不存在或尚未保存，请先保存设置后再测试".to_string())?;
+                .ok_or_else(|| {
+                    crate::tr!(
+                        "住宅代理出口不存在或尚未保存，请先保存设置后再测试",
+                        "The residential proxy exit does not exist or has not been saved; save the settings before testing"
+                    )
+                    .to_string()
+                })?;
             (exit, config.timeout_ms as u64)
         };
 
         let requested = node_name.trim();
         if requested.is_empty() {
-            return Err("请选择用于住宅代理链的上游节点".to_string());
+            return Err(crate::tr!(
+                "请选择用于住宅代理链的上游节点",
+                "Select an upstream node for the residential proxy chain"
+            )
+            .to_string());
         }
         let profile = if profile_id.trim().is_empty() {
             None
         } else {
-            Some(
-                self.profile_manager
-                    .get_profile_by_id(profile_id.trim())
-                    .ok_or_else(|| format!("订阅不存在，无法定位住宅代理链的上游节点「{}」", requested))?,
-            )
+            Some(self.profile_manager.get_profile_by_id(profile_id.trim()).ok_or_else(|| {
+                crate::tr!(
+                    format!("订阅不存在，无法定位住宅代理链的上游节点「{requested}」"),
+                    format!(
+                        "Subscription does not exist; cannot locate the upstream node \"{requested}\" for the residential proxy chain"
+                    ),
+                )
+            })?)
         };
         let raw_proxies = self.profile_manager.get_raw_proxies_for_all_profiles();
         let chain = crate::core::residential_probe::prepare_probe(&raw_proxies, profile.as_ref(), &exit, requested)?;
