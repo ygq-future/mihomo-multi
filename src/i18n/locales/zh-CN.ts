@@ -238,6 +238,15 @@ export const zhCN = {
   'ports.autoFallbackActive': '自动兜底中',
   'ports.standby': '待命',
   'ports.clickEnableManual': '点击主动启用',
+  'ports.swapPrimaryFallbackTitle':
+    '一键交换主备节点（也可直接拖动备用节点至主节点）',
+  'ports.dragFallbackHint': '拖动至主节点可交换位置',
+  'ports.dropToSwapHint': '松开交换',
+  'ports.swapSuccess':
+    '端口 {port} 已交换主备节点：主「{primary}」 / 备「{fallback}」',
+  'ports.swapFail': '交换主备节点失败: {err}',
+  'ports.swapDuplicateNodeErr':
+    '备用节点「{node}」已被端口 {port} 绑定为主节点，无法交换为主节点',
   'ports.detectDirectEgressTitle': '点击检测直连出口 IP、归属地与延迟',
   'ports.detectEgress': '检测出口',
   'ports.testChainLatencyTitle':
@@ -339,6 +348,9 @@ export const zhCN = {
   'addPort.fallbackHint': '主节点超时故障时自动降级至此节点，恢复后自动切回。',
   'addPort.primaryShort': '主',
   'addPort.fallbackShort': '备',
+  'addPort.swapPrimaryFallbackTitle': '一键交换主备节点',
+  'addPort.swapBoundWarning':
+    '备用节点「{node}」已被端口 {port} 绑定为主节点，无法交换为主节点',
   'addPort.bypassCnChainDisabled':
     '链路模式已强制关闭：该端口全量流量固定从住宅出口发出',
   'addPort.bypassCnTitle': '智能绕过大陆网站 (直连)',

@@ -31,6 +31,7 @@ export interface PortSlice {
     id: string,
     manualFallback: boolean,
   ) => Promise<PortMapping>
+  swapPortFallback: (id: string) => Promise<PortMapping>
   testPortDelay: (
     id: string,
     testUrl?: string,
@@ -353,6 +354,94 @@ export const createPortSlice: StateCreator<
       }))
       const errMsg = err instanceof Error ? err.message : String(err)
       set({ portError: errMsg })
+      throw err
+    }
+  },
+
+  swapPortFallback: async (id) => {
+    const previousMappings = get().portMappings
+    const previousFallbackStatuses = get().fallbackStatuses
+    const target = previousMappings.find((p) => p.id === id)
+
+    if (target?.fallbackNodeName) {
+      const storeState = get() as unknown as {
+        profiles?: Array<{ id: string; name: string }>
+        latencies?: Record<string, number | null>
+      }
+      const oldProfileId = target.profileId
+      const oldNodeName = target.nodeName
+      const newProfileId = target.fallbackProfileId?.trim() || oldProfileId
+      const newNodeName = target.fallbackNodeName
+
+      const newProfile = storeState.profiles?.find((p) => p.id === newProfileId)
+      const newRuntimeKey = newProfile
+        ? `[${newProfile.name}] ${newNodeName}`
+        : newNodeName
+      const cachedNewLatency =
+        storeState.latencies && newRuntimeKey in storeState.latencies
+          ? storeState.latencies[newRuntimeKey]
+          : storeState.latencies && newNodeName in storeState.latencies
+            ? storeState.latencies[newNodeName]
+            : previousFallbackStatuses[id]?.fallbackLatency
+
+      const optimisticMapping: PortMapping = {
+        ...target,
+        profileId: newProfileId,
+        nodeName: newNodeName,
+        fallbackProfileId: oldProfileId,
+        fallbackNodeName: oldNodeName,
+        manualFallback: false,
+        latency: cachedNewLatency ?? null,
+      }
+
+      const existingFb = previousFallbackStatuses[id]
+      const nextFallbackStatuses = existingFb
+        ? {
+            ...previousFallbackStatuses,
+            [id]: {
+              ...existingFb,
+              primaryNode: newNodeName,
+              fallbackNode: oldNodeName,
+              activeNode: newNodeName,
+              isFallbackActive: false,
+              manualFallback: false,
+              primaryLatency: existingFb.fallbackLatency,
+              fallbackLatency: existingFb.primaryLatency,
+            },
+          }
+        : previousFallbackStatuses
+
+      set({
+        portMappings: previousMappings.map((p) =>
+          p.id === id ? optimisticMapping : p,
+        ),
+        fallbackStatuses: nextFallbackStatuses,
+        portError: null,
+      })
+    }
+
+    try {
+      const updated = await api.swapPortFallback(id)
+      set((state) => ({
+        portMappings: state.portMappings.map((p) =>
+          p.id === id ? updated : p,
+        ),
+        portEgressIps: {},
+      }))
+      get()
+        .fetchFallbackStatuses()
+        .catch(() => {})
+      get()
+        .fetchDriftReports()
+        .catch(() => {})
+      return updated
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      set({
+        portMappings: previousMappings,
+        fallbackStatuses: previousFallbackStatuses,
+        portError: errMsg,
+      })
       throw err
     }
   },

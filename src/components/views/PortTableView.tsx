@@ -1,9 +1,11 @@
 import {
   AlertTriangle,
+  ArrowUpDown,
   Building2,
   Copy,
   Edit2,
   Globe,
+  GripVertical,
   Loader2,
   Network,
   Plus,
@@ -16,7 +18,14 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import { useTranslation } from '../../i18n'
@@ -111,6 +120,7 @@ export const PortTableView: React.FC = () => {
     deletePortMapping,
     togglePortMapping,
     toggleManualFallback,
+    swapPortFallback,
     testPortDelay,
     testPortFallbackDelay,
     testAllPortsDelay,
@@ -156,6 +166,39 @@ export const PortTableView: React.FC = () => {
   )
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false)
   const [isEgressLoading, setIsEgressLoading] = useState(false)
+  const [swappingPortIds, setSwappingPortIds] = useState<
+    Record<string, boolean>
+  >({})
+  const [recentlySwappedIds, setRecentlySwappedIds] = useState<
+    Record<string, boolean>
+  >({})
+  const [fallbackDrag, setFallbackDrag] = useState<{
+    mappingId: string
+    dx: number
+    dy: number
+    isOverPrimary: boolean
+  } | null>(null)
+  const primaryRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const fallbackRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const pendingSwapAnimRef = useRef<
+    Record<
+      string,
+      {
+        primaryStartX: number
+        primaryStartY: number
+        fallbackStartX: number
+        fallbackStartY: number
+      }
+    >
+  >({})
+  const swapCleanupTimersRef = useRef<
+    Record<string, ReturnType<typeof setTimeout>>
+  >({})
+  const swapHighlightTimersRef = useRef<
+    Record<string, ReturnType<typeof setTimeout>>
+  >({})
+  const justDraggedRef = useRef<Record<string, number>>({})
+  const dragCleanupRef = useRef<(() => void) | null>(null)
   const handleProbeDirectEgress = useCallback(
     async (port?: number | null, isManual = false) => {
       setIsProbingDirect(true)
@@ -680,6 +723,273 @@ export const PortTableView: React.FC = () => {
       )
     }
   }
+
+  const handleSwapPrimaryFallback = useCallback(
+    async (
+      m: PortMapping,
+      options?: {
+        fromDrag?: {
+          dx: number
+          dy: number
+          deltaY: number
+          primaryShiftY: number
+        }
+      },
+    ) => {
+      if (
+        !m.fallbackNodeName ||
+        m.residentialProxyId ||
+        swappingPortIds[m.id]
+      ) {
+        return
+      }
+
+      const targetProfileId = m.fallbackProfileId?.trim() || m.profileId
+      const targetNodeName = m.fallbackNodeName
+      const conflict = portMappings.find(
+        (other) =>
+          other.id !== m.id &&
+          !other.residentialProxyId &&
+          other.profileId === targetProfileId &&
+          other.nodeName === targetNodeName,
+      )
+      if (conflict) {
+        toast.error(
+          t('ports.swapDuplicateNodeErr', {
+            node: targetNodeName,
+            port: conflict.port,
+          }),
+        )
+        return
+      }
+
+      const prefersReducedMotion =
+        typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
+      if (!prefersReducedMotion) {
+        if (options?.fromDrag) {
+          const { dx, dy, deltaY, primaryShiftY } = options.fromDrag
+          pendingSwapAnimRef.current[m.id] = {
+            primaryStartX: dx,
+            primaryStartY: deltaY + dy,
+            fallbackStartX: 0,
+            fallbackStartY: -deltaY + primaryShiftY,
+          }
+        } else {
+          const pEl = primaryRowRefs.current[m.id]
+          const fEl = fallbackRowRefs.current[m.id]
+          if (pEl && fEl) {
+            const deltaY =
+              fEl.getBoundingClientRect().top - pEl.getBoundingClientRect().top
+            if (Math.abs(deltaY) > 1) {
+              pendingSwapAnimRef.current[m.id] = {
+                primaryStartX: 0,
+                primaryStartY: deltaY,
+                fallbackStartX: 0,
+                fallbackStartY: -deltaY,
+              }
+            }
+          }
+        }
+      }
+
+      setSwappingPortIds((prev) => ({ ...prev, [m.id]: true }))
+      setRecentlySwappedIds((prev) => ({ ...prev, [m.id]: true }))
+      clearTimeout(swapHighlightTimersRef.current[m.id])
+      swapHighlightTimersRef.current[m.id] = setTimeout(() => {
+        setRecentlySwappedIds((prev) => {
+          const next = { ...prev }
+          delete next[m.id]
+          return next
+        })
+        delete swapHighlightTimersRef.current[m.id]
+      }, 550)
+
+      try {
+        const updated = await swapPortFallback(m.id)
+        toast.success(
+          t('ports.swapSuccess', {
+            port: updated.port,
+            primary: updated.nodeName,
+            fallback: updated.fallbackNodeName ?? '',
+          }),
+        )
+      } catch (err) {
+        delete pendingSwapAnimRef.current[m.id]
+        toast.error(
+          t('ports.swapFail', {
+            err: err instanceof Error ? err.message : String(err),
+          }),
+        )
+      } finally {
+        setSwappingPortIds((prev) => ({ ...prev, [m.id]: false }))
+      }
+    },
+    [portMappings, swappingPortIds, swapPortFallback, t],
+  )
+
+  useEffect(() => {
+    const cleanupTimers = swapCleanupTimersRef.current
+    const highlightTimers = swapHighlightTimersRef.current
+    return () => {
+      dragCleanupRef.current?.()
+      for (const timer of Object.values(cleanupTimers)) {
+        clearTimeout(timer)
+      }
+      for (const timer of Object.values(highlightTimers)) {
+        clearTimeout(timer)
+      }
+    }
+  }, [])
+
+  const startFallbackDrag = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>, m: PortMapping) => {
+      if (e.button !== 0 && e.pointerType === 'mouse') return
+      if (swappingPortIds[m.id]) return
+      const target = e.target as HTMLElement | null
+      if (target?.closest('[data-no-drag="true"]')) return
+
+      const pEl = primaryRowRefs.current[m.id]
+      const fEl = fallbackRowRefs.current[m.id]
+      if (!pEl || !fEl) return
+
+      const primaryRect = pEl.getBoundingClientRect()
+      const fallbackRect = fEl.getBoundingClientRect()
+      const deltaY = fallbackRect.top - primaryRect.top
+      if (deltaY <= 4) return
+
+      dragCleanupRef.current?.()
+
+      const pointerId = e.pointerId
+      const startX = e.clientX
+      const startY = e.clientY
+      let active = false
+      let dx = 0
+      let dy = 0
+      let isOverPrimary = false
+
+      const cleanup = () => {
+        window.removeEventListener('pointermove', onPointerMove)
+        window.removeEventListener('pointerup', onPointerUp)
+        window.removeEventListener('pointercancel', onPointerCancel)
+        window.removeEventListener('blur', onPointerCancel)
+        document.body.style.userSelect = ''
+        document.body.style.cursor = ''
+        dragCleanupRef.current = null
+      }
+
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        if (moveEvent.pointerId !== pointerId) return
+        const rawDx = moveEvent.clientX - startX
+        const rawDy = moveEvent.clientY - startY
+        if (!active) {
+          if (Math.hypot(rawDx, rawDy) < 6) return
+          active = true
+          document.body.style.userSelect = 'none'
+          document.body.style.cursor = 'grabbing'
+        }
+
+        dx = Math.max(-28, Math.min(28, rawDx * 0.35))
+        dy = Math.max(-(deltaY + 26), Math.min(18, rawDy))
+
+        const draggedTop = fallbackRect.top + dy
+        const draggedCenterY = draggedTop + fallbackRect.height / 2
+        const inHorizontalBounds =
+          moveEvent.clientX >= primaryRect.left - 36 &&
+          moveEvent.clientX <= primaryRect.right + 36
+        const movedUpEnough = dy < -Math.max(10, deltaY * 0.35)
+        const touchesPrimary =
+          draggedCenterY <= primaryRect.bottom + 4 ||
+          moveEvent.clientY <= primaryRect.bottom + 4
+        isOverPrimary = inHorizontalBounds && movedUpEnough && touchesPrimary
+
+        setFallbackDrag({
+          mappingId: m.id,
+          dx,
+          dy,
+          isOverPrimary,
+        })
+      }
+
+      const finishDrag = (shouldSwap: boolean) => {
+        cleanup()
+        if (active) {
+          justDraggedRef.current[m.id] = Date.now()
+        }
+        setFallbackDrag(null)
+        if (active && shouldSwap) {
+          void handleSwapPrimaryFallback(m, {
+            fromDrag: {
+              dx,
+              dy,
+              deltaY,
+              primaryShiftY: 4,
+            },
+          })
+        }
+      }
+
+      const onPointerUp = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== pointerId) return
+        finishDrag(isOverPrimary)
+      }
+
+      const onPointerCancel = () => {
+        finishDrag(false)
+      }
+
+      dragCleanupRef.current = cleanup
+      window.addEventListener('pointermove', onPointerMove)
+      window.addEventListener('pointerup', onPointerUp)
+      window.addEventListener('pointercancel', onPointerCancel)
+      window.addEventListener('blur', onPointerCancel)
+    },
+    [swappingPortIds, handleSwapPrimaryFallback],
+  )
+
+  useLayoutEffect(() => {
+    if (portMappings.length === 0) return
+    const pendingEntries = Object.entries(pendingSwapAnimRef.current)
+    if (pendingEntries.length === 0) return
+
+    for (const [id, anim] of pendingEntries) {
+      delete pendingSwapAnimRef.current[id]
+      const pEl = primaryRowRefs.current[id]
+      const fEl = fallbackRowRefs.current[id]
+      if (!pEl || !fEl) continue
+
+      clearTimeout(swapCleanupTimersRef.current[id])
+
+      pEl.style.transition = 'none'
+      pEl.style.transform = `translate3d(${anim.primaryStartX}px, ${anim.primaryStartY}px, 0)`
+      pEl.style.zIndex = '20'
+
+      fEl.style.transition = 'none'
+      fEl.style.transform = `translate3d(${anim.fallbackStartX}px, ${anim.fallbackStartY}px, 0)`
+      fEl.style.zIndex = '10'
+
+      void pEl.offsetHeight
+
+      requestAnimationFrame(() => {
+        pEl.style.transition = 'transform 340ms cubic-bezier(0.22, 1, 0.36, 1)'
+        pEl.style.transform = 'translate3d(0, 0, 0)'
+
+        fEl.style.transition = 'transform 340ms cubic-bezier(0.22, 1, 0.36, 1)'
+        fEl.style.transform = 'translate3d(0, 0, 0)'
+      })
+
+      swapCleanupTimersRef.current[id] = setTimeout(() => {
+        pEl.style.transition = ''
+        pEl.style.transform = ''
+        pEl.style.zIndex = ''
+        fEl.style.transition = ''
+        fEl.style.transform = ''
+        fEl.style.zIndex = ''
+        delete swapCleanupTimersRef.current[id]
+      }, 360)
+    }
+  }, [portMappings])
 
   const handleBatchDelayTest = async () => {
     await testAllPortsDelay()
@@ -1660,291 +1970,433 @@ export const PortTableView: React.FC = () => {
                       )}
                     </div>
                   ) : (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-2 min-w-0">
-                        <div className="flex items-center gap-1.5 font-medium text-xs text-foreground min-w-0 flex-1">
-                          <RegionFlag
-                            code={extractRegion(m.nodeName).code}
-                            size="md"
-                          />
-                          {profileName && (
-                            <span
-                              className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
-                              title={t('ports.belongsToProfile', {
-                                name: profileName,
-                              })}
-                            >
-                              {profileName}
-                            </span>
-                          )}
-                          <div className="relative flex items-center flex-1 min-w-0 group/name">
-                            <span
-                              className="truncate flex-1 font-semibold text-foreground"
-                              title={
-                                profileName
-                                  ? `[${profileName}] ${m.nodeName}`
-                                  : m.nodeName
-                              }
-                            >
-                              {m.nodeName}
-                            </span>
-                            <button
-                              type="button"
-                              disabled={isProbingPrimary}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void handleCopyNodeEgressIp(
-                                  m.nodeName,
-                                  m.profileId,
-                                  nodeKey,
-                                  hasFallback
-                                    ? t('ports.primaryNodeLabel')
-                                    : t('ports.nodeLabel'),
-                                  false,
-                                )
+                    <div className="space-y-1.5 relative">
+                      {(() => {
+                        const isDraggingThis = fallbackDrag?.mappingId === m.id
+                        const isDropReady = Boolean(
+                          isDraggingThis && fallbackDrag?.isOverPrimary,
+                        )
+                        const isRecentlySwapped = Boolean(
+                          recentlySwappedIds[m.id],
+                        )
+                        const isSwappingThis = Boolean(swappingPortIds[m.id])
+                        const canClickFallback =
+                          m.enabled && !isAutoFallbackActive && !isSwappingThis
+
+                        return (
+                          <>
+                            <div
+                              ref={(el) => {
+                                primaryRowRefs.current[m.id] = el
                               }}
-                              className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-5 px-2 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer disabled:opacity-70 transition-all duration-200 ease-out ${
-                                isProbingPrimary
-                                  ? 'opacity-100 scale-100 translate-x-0 pointer-events-auto'
-                                  : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/name:opacity-100 group-hover/name:scale-100 group-hover/name:translate-x-0 group-hover/name:pointer-events-auto'
+                              className={`flex items-center justify-between gap-2 min-w-0 rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 transition-[background-color,box-shadow,transform] duration-150 ${
+                                isDropReady
+                                  ? 'bg-primary/15 ring-1 ring-primary/60 translate-y-1'
+                                  : isDraggingThis
+                                    ? 'bg-primary/[0.04] ring-1 ring-dashed ring-primary/40'
+                                    : isRecentlySwapped
+                                      ? 'bg-primary/10 ring-1 ring-primary/40'
+                                      : ''
                               }`}
-                              title={
-                                isProbingPrimary
-                                  ? t('ports.probingEgressIp')
-                                  : primaryEgressInfo
-                                    ? t('ports.clickCopyNodeIp', {
-                                        ip: primaryEgressInfo.ip,
-                                        region: primaryEgressInfo.region
-                                          ? ` (${primaryEgressInfo.region})`
-                                          : '',
-                                      })
-                                    : t('ports.clickProbeNodeIp')
-                              }
                             >
-                              {isProbingPrimary ? (
-                                <>
-                                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                  <span>{t('ports.probingShort')}</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-2.5 h-2.5" />
-                                  <span>{t('ports.copyIpShort')}</span>
-                                </>
-                              )}
-                            </button>
-                          </div>
-                          {isDrifted && (
-                            <Badge
-                              variant={
-                                drift?.status === 'empty_profile'
-                                  ? 'warning'
-                                  : 'danger'
-                              }
-                              size="sm"
-                              dot
-                              className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
-                              title={
-                                drift?.message ||
-                                t('ports.nodeMissingDirectTitle')
-                              }
-                            >
-                              {drift?.status === 'profile_missing'
-                                ? t('ports.profileDeletedDirect')
-                                : drift?.status === 'empty_profile'
-                                  ? t('ports.profileEmptyDirect')
-                                  : t('ports.nodeDriftDirect')}
-                            </Badge>
-                          )}
-                        </div>
-
-                        {/* Main Node Status Badge (正常 / 异常) */}
-                        <Badge
-                          variant={isPrimaryTimeout ? 'danger' : 'success'}
-                          size="sm"
-                          dot
-                          className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
-                          title={
-                            isPrimaryTimeout
-                              ? t('ports.primaryTimeoutTitle')
-                              : t('ports.primaryHealthyTitle')
-                          }
-                        >
-                          {isPrimaryTimeout
-                            ? t('ports.abnormal')
-                            : t('ports.normal')}
-                        </Badge>
-                      </div>
-
-                      {/* Fallback Node Row (Clickable to manually lock fallback) */}
-                      {hasFallback && (
-                        <button
-                          type="button"
-                          disabled={!m.enabled || isAutoFallbackActive}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (!m.enabled || isAutoFallbackActive) return
-                            handleToggleManualFallback(m.id, isManualFallback)
-                          }}
-                          className={`w-full flex items-center justify-between gap-1.5 text-[11px] px-2 py-1 rounded-md border select-none transition-all ${
-                            !m.enabled
-                              ? 'bg-muted/10 border-border/40 text-muted-foreground/50 cursor-not-allowed'
-                              : isManualFallback
-                                ? 'bg-primary/10 border-primary/40 text-foreground cursor-pointer hover:border-primary/70 hover:bg-primary/15 group/fb'
-                                : isAutoFallbackActive
-                                  ? 'bg-amber-500/10 border-amber-500/30 text-foreground cursor-not-allowed opacity-90'
-                                  : 'bg-muted/20 border-dashed border-border/80 text-muted-foreground cursor-pointer hover:border-primary/50 hover:bg-primary/5 hover:text-foreground group/fb'
-                          }`}
-                          title={
-                            !m.enabled
-                              ? t('ports.fallbackDisabledTitle')
-                              : isManualFallback
-                                ? t('ports.fallbackManualTitle')
-                                : isAutoFallbackActive
-                                  ? t('ports.fallbackAutoTitle')
-                                  : t('ports.fallbackStandbyTitle')
-                          }
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
-                            <ShieldCheck
-                              className={`w-3 h-3 shrink-0 ${
-                                isManualFallback
-                                  ? 'text-primary animate-pulse'
-                                  : isAutoFallbackActive
-                                    ? 'text-amber-500 animate-pulse'
-                                    : 'text-muted-foreground/60 group-hover/fb:text-primary'
-                              }`}
-                            />
-                            {fbProfileName && (
-                              <span
-                                className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
-                                title={t('ports.belongsToProfile', {
-                                  name: fbProfileName,
-                                })}
-                              >
-                                {fbProfileName}
-                              </span>
-                            )}
-                            <RegionFlag
-                              code={
-                                extractRegion(m.fallbackNodeName || '').code
-                              }
-                              size="sm"
-                            />
-                            <div className="relative flex items-center flex-1 min-w-0 group/fbname">
-                              <span
-                                className="truncate font-medium text-[11px] flex-1 min-w-0 text-left"
-                                title={
-                                  fbProfileName
-                                    ? `[${fbProfileName}] ${m.fallbackNodeName}`
-                                    : m.fallbackNodeName || ''
-                                }
-                              >
-                                {m.fallbackNodeName}
-                              </span>
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  e.preventDefault()
-                                  if (isProbingFallback || !m.fallbackNodeName)
-                                    return
-                                  void handleCopyNodeEgressIp(
-                                    m.fallbackNodeName,
-                                    m.fallbackProfileId || m.profileId,
-                                    fbNodeKey,
-                                    t('ports.fallbackNodeLabel'),
-                                    false,
-                                  )
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || e.key === ' ') {
-                                    e.stopPropagation()
-                                    e.preventDefault()
-                                    if (
-                                      isProbingFallback ||
-                                      !m.fallbackNodeName
-                                    )
-                                      return
-                                    void handleCopyNodeEgressIp(
-                                      m.fallbackNodeName,
-                                      m.fallbackProfileId || m.profileId,
-                                      fbNodeKey,
-                                      t('ports.fallbackNodeLabel'),
-                                      false,
-                                    )
-                                  }
-                                }}
-                                className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-[18px] px-1.5 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer transition-all duration-200 ease-out ${
-                                  isProbingFallback
-                                    ? 'opacity-80 scale-100 translate-x-0 pointer-events-auto'
-                                    : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/fbname:opacity-100 group-hover/fbname:scale-100 group-hover/fbname:translate-x-0 group-hover/fbname:pointer-events-auto'
-                                }`}
-                                title={
-                                  isProbingFallback
-                                    ? t('ports.probingFallbackIp')
-                                    : fallbackEgressInfo
-                                      ? t('ports.clickCopyFallbackIp', {
-                                          ip: fallbackEgressInfo.ip,
-                                          region: fallbackEgressInfo.region
-                                            ? ` (${fallbackEgressInfo.region})`
-                                            : '',
-                                        })
-                                      : t('ports.clickProbeFallbackIp')
-                                }
-                              >
-                                {isProbingFallback ? (
-                                  <>
-                                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                    <span>{t('ports.probingShort')}</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="w-2.5 h-2.5" />
-                                    <span>{t('ports.copyIpShort')}</span>
-                                  </>
+                              <div className="flex items-center gap-1.5 font-medium text-xs text-foreground min-w-0 flex-1">
+                                <RegionFlag
+                                  code={extractRegion(m.nodeName).code}
+                                  size="md"
+                                />
+                                {profileName && (
+                                  <span
+                                    className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
+                                    title={t('ports.belongsToProfile', {
+                                      name: profileName,
+                                    })}
+                                  >
+                                    {profileName}
+                                  </span>
                                 )}
-                              </span>
-                            </div>
-                          </div>
+                                <div className="relative flex items-center flex-1 min-w-0 group/name">
+                                  <span
+                                    className="truncate flex-1 font-semibold text-foreground"
+                                    title={
+                                      profileName
+                                        ? `[${profileName}] ${m.nodeName}`
+                                        : m.nodeName
+                                    }
+                                  >
+                                    {m.nodeName}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={isProbingPrimary}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      void handleCopyNodeEgressIp(
+                                        m.nodeName,
+                                        m.profileId,
+                                        nodeKey,
+                                        hasFallback
+                                          ? t('ports.primaryNodeLabel')
+                                          : t('ports.nodeLabel'),
+                                        false,
+                                      )
+                                    }}
+                                    className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-5 px-2 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer disabled:opacity-70 transition-all duration-200 ease-out ${
+                                      isDraggingThis
+                                        ? 'opacity-0 pointer-events-none'
+                                        : isProbingPrimary
+                                          ? 'opacity-100 scale-100 translate-x-0 pointer-events-auto'
+                                          : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/name:opacity-100 group-hover/name:scale-100 group-hover/name:translate-x-0 group-hover/name:pointer-events-auto'
+                                    }`}
+                                    title={
+                                      isProbingPrimary
+                                        ? t('ports.probingEgressIp')
+                                        : primaryEgressInfo
+                                          ? t('ports.clickCopyNodeIp', {
+                                              ip: primaryEgressInfo.ip,
+                                              region: primaryEgressInfo.region
+                                                ? ` (${primaryEgressInfo.region})`
+                                                : '',
+                                            })
+                                          : t('ports.clickProbeNodeIp')
+                                    }
+                                  >
+                                    {isProbingPrimary ? (
+                                      <>
+                                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                        <span>{t('ports.probingShort')}</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="w-2.5 h-2.5" />
+                                        <span>{t('ports.copyIpShort')}</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                                {isDrifted && (
+                                  <Badge
+                                    variant={
+                                      drift?.status === 'empty_profile'
+                                        ? 'warning'
+                                        : 'danger'
+                                    }
+                                    size="sm"
+                                    dot
+                                    className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
+                                    title={
+                                      drift?.message ||
+                                      t('ports.nodeMissingDirectTitle')
+                                    }
+                                  >
+                                    {drift?.status === 'profile_missing'
+                                      ? t('ports.profileDeletedDirect')
+                                      : drift?.status === 'empty_profile'
+                                        ? t('ports.profileEmptyDirect')
+                                        : t('ports.nodeDriftDirect')}
+                                  </Badge>
+                                )}
+                              </div>
 
-                          {isManualFallback ? (
-                            <Badge
-                              variant="primary"
-                              size="sm"
-                              dot
-                              className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-primary/20 text-primary border-primary/40 font-medium animate-pulse group-hover/fb:bg-primary/30"
-                            >
-                              <span className="group-hover/fb:hidden">
-                                {t('ports.manualLocked')}
-                              </span>
-                              <span className="hidden group-hover/fb:inline">
-                                {t('ports.clickRestoreAuto')}
-                              </span>
-                            </Badge>
-                          ) : isAutoFallbackActive ? (
-                            <Badge
-                              variant="warning"
-                              size="sm"
-                              dot
-                              className="!text-[9px] !py-0 !px-1.5 shrink-0 animate-pulse"
-                              title={t('ports.autoFallbackActiveTitle')}
-                            >
-                              {t('ports.autoFallbackActive')}
-                            </Badge>
-                          ) : (
-                            <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0 bg-secondary/80 px-1.5 py-0.5 rounded transition-colors group-hover/fb:text-primary group-hover/fb:bg-primary/10">
-                              <span className="group-hover/fb:hidden">
-                                {t('ports.standby')}
-                              </span>
-                              <span className="hidden group-hover/fb:inline">
-                                {t('ports.clickEnableManual')}
-                              </span>
-                            </span>
-                          )}
-                        </button>
-                      )}
+                              {/* Main Node Status Badge (正常 / 异常) */}
+                              <Badge
+                                variant={
+                                  isPrimaryTimeout ? 'danger' : 'success'
+                                }
+                                size="sm"
+                                dot
+                                className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
+                                title={
+                                  isPrimaryTimeout
+                                    ? t('ports.primaryTimeoutTitle')
+                                    : t('ports.primaryHealthyTitle')
+                                }
+                              >
+                                {isPrimaryTimeout
+                                  ? t('ports.abnormal')
+                                  : t('ports.normal')}
+                              </Badge>
+                            </div>
+
+                            {/* Fallback Node Row (Draggable onto Primary to swap, clickable to lock, + one-click swap button) */}
+                            {hasFallback && (
+                              <div
+                                ref={(el) => {
+                                  fallbackRowRefs.current[m.id] = el
+                                }}
+                                onPointerDown={(e) => startFallbackDrag(e, m)}
+                                style={
+                                  isDraggingThis && fallbackDrag
+                                    ? {
+                                        transform: `translate3d(${fallbackDrag.dx}px, ${fallbackDrag.dy}px, 0) scale(1.02)`,
+                                        transition:
+                                          'box-shadow 150ms ease, border-color 150ms ease',
+                                        zIndex: 30,
+                                      }
+                                    : {
+                                        transition:
+                                          'transform 220ms cubic-bezier(0.22, 1, 0.36, 1), background-color 150ms ease, border-color 150ms ease',
+                                      }
+                                }
+                                className={`relative w-full flex items-center justify-between gap-1 text-[11px] pl-1.5 pr-1 py-1 rounded-md border select-none touch-none group/fbrow ${
+                                  isDraggingThis
+                                    ? isDropReady
+                                      ? 'bg-card border-primary shadow-lg ring-1 ring-primary/60 text-foreground cursor-grabbing'
+                                      : 'bg-card border-primary/60 shadow-lg ring-1 ring-primary/40 text-foreground cursor-grabbing'
+                                    : !m.enabled
+                                      ? 'bg-muted/10 border-border/40 text-muted-foreground/60 hover:border-border/80'
+                                      : isManualFallback
+                                        ? 'bg-primary/10 border-primary/40 text-foreground hover:border-primary/70 hover:bg-primary/15 group/fb'
+                                        : isAutoFallbackActive
+                                          ? 'bg-amber-500/10 border-amber-500/30 text-foreground hover:border-amber-500/60'
+                                          : 'bg-muted/20 border-dashed border-border/80 text-muted-foreground hover:border-primary/50 hover:bg-primary/5 hover:text-foreground group/fb'
+                                }`}
+                              >
+                                <span
+                                  className={`inline-flex items-center shrink-0 transition-colors ${
+                                    isDraggingThis
+                                      ? 'text-primary cursor-grabbing'
+                                      : 'text-muted-foreground/45 group-hover/fbrow:text-primary/80 cursor-grab'
+                                  }`}
+                                  title={t('ports.dragFallbackHint')}
+                                >
+                                  <GripVertical className="w-3 h-3" />
+                                </span>
+
+                                <button
+                                  type="button"
+                                  disabled={!canClickFallback}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    const lastDragAt =
+                                      justDraggedRef.current[m.id] ?? 0
+                                    if (Date.now() - lastDragAt < 220) return
+                                    if (!canClickFallback) return
+                                    handleToggleManualFallback(
+                                      m.id,
+                                      isManualFallback,
+                                    )
+                                  }}
+                                  className={`flex-1 flex items-center justify-between gap-1.5 min-w-0 text-left focus:outline-none ${
+                                    isDraggingThis
+                                      ? 'cursor-grabbing'
+                                      : canClickFallback
+                                        ? 'cursor-pointer'
+                                        : 'cursor-grab'
+                                  }`}
+                                  title={
+                                    !m.enabled
+                                      ? `${t('ports.fallbackDisabledTitle')} · ${t('ports.dragFallbackHint')}`
+                                      : isManualFallback
+                                        ? t('ports.fallbackManualTitle')
+                                        : isAutoFallbackActive
+                                          ? `${t('ports.fallbackAutoTitle')} · ${t('ports.dragFallbackHint')}`
+                                          : t('ports.fallbackStandbyTitle')
+                                  }
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
+                                    <ShieldCheck
+                                      className={`w-3 h-3 shrink-0 ${
+                                        isManualFallback
+                                          ? 'text-primary animate-pulse'
+                                          : isAutoFallbackActive
+                                            ? 'text-amber-500 animate-pulse'
+                                            : 'text-muted-foreground/60 group-hover/fb:text-primary'
+                                      }`}
+                                    />
+                                    {fbProfileName && (
+                                      <span
+                                        className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none"
+                                        title={t('ports.belongsToProfile', {
+                                          name: fbProfileName,
+                                        })}
+                                      >
+                                        {fbProfileName}
+                                      </span>
+                                    )}
+                                    <RegionFlag
+                                      code={
+                                        extractRegion(m.fallbackNodeName || '')
+                                          .code
+                                      }
+                                      size="sm"
+                                    />
+                                    <div className="relative flex items-center flex-1 min-w-0 group/fbname">
+                                      <span
+                                        className="truncate font-medium text-[11px] flex-1 min-w-0 text-left"
+                                        title={
+                                          fbProfileName
+                                            ? `[${fbProfileName}] ${m.fallbackNodeName}`
+                                            : m.fallbackNodeName || ''
+                                        }
+                                      >
+                                        {m.fallbackNodeName}
+                                      </span>
+                                      <span
+                                        role="button"
+                                        tabIndex={0}
+                                        data-no-drag="true"
+                                        onPointerDown={(e) =>
+                                          e.stopPropagation()
+                                        }
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          e.preventDefault()
+                                          if (
+                                            isProbingFallback ||
+                                            !m.fallbackNodeName
+                                          )
+                                            return
+                                          void handleCopyNodeEgressIp(
+                                            m.fallbackNodeName,
+                                            m.fallbackProfileId || m.profileId,
+                                            fbNodeKey,
+                                            t('ports.fallbackNodeLabel'),
+                                            false,
+                                          )
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (
+                                            e.key === 'Enter' ||
+                                            e.key === ' '
+                                          ) {
+                                            e.stopPropagation()
+                                            e.preventDefault()
+                                            if (
+                                              isProbingFallback ||
+                                              !m.fallbackNodeName
+                                            )
+                                              return
+                                            void handleCopyNodeEgressIp(
+                                              m.fallbackNodeName,
+                                              m.fallbackProfileId ||
+                                                m.profileId,
+                                              fbNodeKey,
+                                              t('ports.fallbackNodeLabel'),
+                                              false,
+                                            )
+                                          }
+                                        }}
+                                        className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-[18px] px-1.5 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer transition-all duration-200 ease-out ${
+                                          isDraggingThis
+                                            ? 'opacity-0 pointer-events-none'
+                                            : isProbingFallback
+                                              ? 'opacity-80 scale-100 translate-x-0 pointer-events-auto'
+                                              : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/fbname:opacity-100 group-hover/fbname:scale-100 group-hover/fbname:translate-x-0 group-hover/fbname:pointer-events-auto'
+                                        }`}
+                                        title={
+                                          isProbingFallback
+                                            ? t('ports.probingFallbackIp')
+                                            : fallbackEgressInfo
+                                              ? t('ports.clickCopyFallbackIp', {
+                                                  ip: fallbackEgressInfo.ip,
+                                                  region:
+                                                    fallbackEgressInfo.region
+                                                      ? ` (${fallbackEgressInfo.region})`
+                                                      : '',
+                                                })
+                                              : t('ports.clickProbeFallbackIp')
+                                        }
+                                      >
+                                        {isProbingFallback ? (
+                                          <>
+                                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                            <span>
+                                              {t('ports.probingShort')}
+                                            </span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Copy className="w-2.5 h-2.5" />
+                                            <span>
+                                              {t('ports.copyIpShort')}
+                                            </span>
+                                          </>
+                                        )}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {isDropReady ? (
+                                    <Badge
+                                      variant="primary"
+                                      size="sm"
+                                      className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-primary/15 text-primary border-primary/40 font-medium"
+                                    >
+                                      {t('ports.dropToSwapHint')}
+                                    </Badge>
+                                  ) : isManualFallback ? (
+                                    <Badge
+                                      variant="primary"
+                                      size="sm"
+                                      dot
+                                      className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-primary/20 text-primary border-primary/40 font-medium animate-pulse group-hover/fb:bg-primary/30"
+                                    >
+                                      <span className="group-hover/fb:hidden">
+                                        {t('ports.manualLocked')}
+                                      </span>
+                                      <span className="hidden group-hover/fb:inline">
+                                        {t('ports.clickRestoreAuto')}
+                                      </span>
+                                    </Badge>
+                                  ) : isAutoFallbackActive ? (
+                                    <Badge
+                                      variant="warning"
+                                      size="sm"
+                                      dot
+                                      className="!text-[9px] !py-0 !px-1.5 shrink-0 animate-pulse"
+                                      title={t('ports.autoFallbackActiveTitle')}
+                                    >
+                                      {t('ports.autoFallbackActive')}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0 bg-secondary/80 px-1.5 py-0.5 rounded transition-colors group-hover/fb:text-primary group-hover/fb:bg-primary/10">
+                                      <span className="group-hover/fb:hidden">
+                                        {t('ports.standby')}
+                                      </span>
+                                      <span className="hidden group-hover/fb:inline">
+                                        {t('ports.clickEnableManual')}
+                                      </span>
+                                    </span>
+                                  )}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  data-no-drag="true"
+                                  disabled={
+                                    isSwappingThis ||
+                                    isTesting ||
+                                    isTestingFb ||
+                                    Boolean(togglingPortIds[m.id])
+                                  }
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    void handleSwapPrimaryFallback(m)
+                                  }}
+                                  className={`inline-flex items-center justify-center w-5 h-5 rounded shrink-0 transition-colors focus:outline-none ${
+                                    isSwappingThis
+                                      ? 'text-primary cursor-wait'
+                                      : 'text-muted-foreground/75 hover:text-primary hover:bg-primary/15 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
+                                  }`}
+                                  title={t('ports.swapPrimaryFallbackTitle')}
+                                  aria-label={t(
+                                    'ports.swapPrimaryFallbackTitle',
+                                  )}
+                                >
+                                  <ArrowUpDown
+                                    className={`w-3 h-3 transition-transform duration-300 ${
+                                      isRecentlySwapped
+                                        ? 'rotate-180 text-primary'
+                                        : ''
+                                    }`}
+                                  />
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        )
+                      })()}
                       {m.description?.trim() && (
                         <div
                           className="text-[10px] text-muted-foreground truncate italic pt-0.5"

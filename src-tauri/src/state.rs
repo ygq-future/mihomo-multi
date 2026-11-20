@@ -766,6 +766,26 @@ impl AppState {
         Ok(updated)
     }
 
+    pub async fn swap_port_fallback(&self, id: &str) -> AppResult<PortMapping> {
+        let saved = self
+            .port_router
+            .swap_port_fallback(id, |new_profile_id, new_node_name| {
+                let profile_name = self
+                    .profile_manager
+                    .get_profile_by_id(new_profile_id)
+                    .map(|profile| profile.name);
+                let runtime_name = profile_name.map(|pname| format!("[{}] {}", pname, new_node_name));
+                runtime_name
+                    .as_deref()
+                    .and_then(|rn| self.latency_probe.get_latency(rn))
+                    .or_else(|| self.latency_probe.get_latency(new_node_name))
+                    .flatten()
+            })?;
+        self.sync_runtime_with_event(PortChangeEvent::Saved(saved.clone()))
+            .await?;
+        Ok(saved)
+    }
+
     /// Validates and runs a residential exit connectivity probe using only saved state.
     ///
     /// The probe runs in a disposable isolated Mihomo instance, so the live runtime config,

@@ -474,6 +474,11 @@ pub async fn toggle_manual_fallback(
 }
 
 #[tauri::command]
+pub async fn swap_port_fallback(id: String, state: State<'_, AppState>) -> Result<PortMapping, String> {
+    state.swap_port_fallback(&id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub async fn test_port_mapping_delay(
     app: AppHandle,
     id: String,

@@ -266,6 +266,15 @@ export const enUS: Record<TranslationKey, string> = {
   'ports.autoFallbackActive': 'Fallback',
   'ports.standby': 'Standby',
   'ports.clickEnableManual': 'Click to Lock',
+  'ports.swapPrimaryFallbackTitle':
+    'Swap primary and backup nodes (or drag backup onto primary)',
+  'ports.dragFallbackHint': 'Drag onto primary node to swap',
+  'ports.dropToSwapHint': 'Drop to swap',
+  'ports.swapSuccess':
+    'Port {port} swapped: Primary "{primary}" / Backup "{fallback}"',
+  'ports.swapFail': 'Failed to swap primary and backup nodes: {err}',
+  'ports.swapDuplicateNodeErr':
+    'Backup node "{node}" is already bound as primary on port {port}',
   'ports.detectDirectEgressTitle':
     'Click to detect direct egress IP, region, and latency',
   'ports.detectEgress': 'Detect Exit',
@@ -378,6 +387,9 @@ export const enUS: Record<TranslationKey, string> = {
     'Automatically fails over when primary times out, and recovers when primary is back.',
   'addPort.primaryShort': 'Pri',
   'addPort.fallbackShort': 'Fb',
+  'addPort.swapPrimaryFallbackTitle': 'Swap primary and backup nodes',
+  'addPort.swapBoundWarning':
+    'Backup node "{node}" is already bound as primary on port {port}',
   'addPort.bypassCnChainDisabled':
     'Disabled in chain mode: all traffic exits via residential proxy',
   'addPort.bypassCnTitle': 'Smart Bypass Mainland China (Direct)',

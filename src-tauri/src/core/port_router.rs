@@ -478,6 +478,122 @@ impl PortRouter {
         Ok(target)
     }
 
+    pub fn swap_port_fallback<F>(&self, id: &str, resolve_latency: F) -> AppResult<PortMapping>
+    where
+        F: FnOnce(&str, &str) -> Option<u32>,
+    {
+        let (previous, updated) = {
+            let mut guard = self.ports.write();
+            let pos = guard.iter().position(|p| p.id == id).ok_or_else(|| {
+                AppError::PortMappingNotFound(crate::tr!(
+                    format!("未找到 ID 为 '{}' 的端口映射", id),
+                    format!("Port mapping with ID '{}' not found", id),
+                ))
+            })?;
+
+            let current = &guard[pos];
+            if current.id == crate::models::FIXED_DIRECT_PORT_ID || current.node_name == "DIRECT" {
+                return Err(AppError::InvalidConfig(
+                    crate::tr!(
+                        "直连监听不支持交换主备节点",
+                        "The direct listener does not support swapping primary and backup nodes"
+                    )
+                    .to_string(),
+                ));
+            }
+
+            if current.residential_proxy_id.is_some() {
+                return Err(AppError::InvalidConfig(
+                    crate::tr!(
+                        "住宅代理链端口不支持交换主备节点",
+                        "Residential proxy chain ports do not support swapping primary and backup nodes"
+                    )
+                    .to_string(),
+                ));
+            }
+
+            let new_node_name = current
+                .fallback_node_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .ok_or_else(|| {
+                    AppError::InvalidConfig(
+                        crate::tr!(
+                            "该端口未配置备用节点，无法交换主备节点",
+                            "This port has no fallback node configured, so primary and backup cannot be swapped"
+                        )
+                        .to_string(),
+                    )
+                })?
+                .to_string();
+
+            let old_profile_id = current.profile_id.clone();
+            let old_node_name = current.node_name.clone();
+            let new_profile_id = current
+                .fallback_profile_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|pid| !pid.is_empty())
+                .unwrap_or(&old_profile_id)
+                .to_string();
+
+            if new_profile_id == old_profile_id && new_node_name == old_node_name {
+                return Err(AppError::InvalidConfig(
+                    crate::tr!(
+                        "主节点与备用节点相同，无需交换",
+                        "Primary and backup nodes are identical"
+                    )
+                    .to_string(),
+                ));
+            }
+
+            for existing in guard.iter() {
+                if existing.id != id
+                    && existing.residential_proxy_id.is_none()
+                    && existing.profile_id == new_profile_id
+                    && existing.node_name == new_node_name
+                {
+                    return Err(AppError::DuplicateNodeBinding {
+                        node_name: new_node_name,
+                        port: existing.port,
+                    });
+                }
+            }
+
+            let previous = current.clone();
+            let new_latency = resolve_latency(&new_profile_id, &new_node_name);
+            let mut updated = previous.clone();
+            updated.profile_id = new_profile_id;
+            updated.node_name = new_node_name;
+            updated.fallback_profile_id = Some(old_profile_id);
+            updated.fallback_node_name = Some(old_node_name);
+            updated.manual_fallback = false;
+            updated.latency = new_latency;
+
+            guard[pos] = updated.clone();
+            (previous, updated)
+        };
+
+        if let Err(err) = self.persist_metadata() {
+            let mut guard = self.ports.write();
+            if let Some(pos) = guard.iter().position(|p| p.id == id) {
+                guard[pos] = previous;
+            }
+            return Err(err);
+        }
+
+        info!(
+            "Port mapping '{}' on port {} swapped primary and backup nodes (primary='{}', fallback='{}')",
+            id,
+            updated.port,
+            updated.node_name,
+            updated.fallback_node_name.as_deref().unwrap_or("")
+        );
+
+        Ok(updated)
+    }
+
     pub fn clear_port_latencies(&self, mappings: &[PortMapping]) -> AppResult<()> {
         if mappings.is_empty() {
             return Ok(());
@@ -772,6 +888,78 @@ mod tests {
         assert!(matches!(
             router.save_port_mapping(duplicate, &ctx),
             Err(AppError::DuplicateNodeBinding { .. })
+        ));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_swap_port_fallback_swaps_nodes_clears_manual_and_persists() {
+        let temp_dir = std::env::temp_dir().join(format!("test_port_router_swap_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = PortProbeContext::default();
+
+        let mut m = create_test_mapping("map-swap", 10100, "prof-1", "HK-Primary", false);
+        m.fallback_profile_id = Some("prof-2".to_string());
+        m.fallback_node_name = Some("HK-Backup".to_string());
+        m.manual_fallback = true;
+        m.latency = Some(120);
+        router.save_port_mapping(m, &ctx).expect("save mapping");
+
+        let swapped = router
+            .swap_port_fallback("map-swap", |pid, node| {
+                assert_eq!(pid, "prof-2");
+                assert_eq!(node, "HK-Backup");
+                Some(45)
+            })
+            .expect("swap should succeed");
+
+        assert_eq!(swapped.profile_id, "prof-2");
+        assert_eq!(swapped.node_name, "HK-Backup");
+        assert_eq!(swapped.fallback_profile_id.as_deref(), Some("prof-1"));
+        assert_eq!(swapped.fallback_node_name.as_deref(), Some("HK-Primary"));
+        assert!(!swapped.manual_fallback);
+        assert_eq!(swapped.latency, Some(45));
+
+        let reloaded = PortRouter::new(temp_dir.clone());
+        let persisted = reloaded.get_port_mapping_by_id("map-swap").expect("persisted");
+        assert_eq!(persisted.profile_id, "prof-2");
+        assert_eq!(persisted.node_name, "HK-Backup");
+        assert_eq!(persisted.fallback_profile_id.as_deref(), Some("prof-1"));
+        assert_eq!(persisted.fallback_node_name.as_deref(), Some("HK-Primary"));
+        assert!(!persisted.manual_fallback);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_swap_port_fallback_rejects_missing_fallback_and_duplicate_binding() {
+        let temp_dir = std::env::temp_dir().join(format!("test_port_router_swap_guard_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = PortProbeContext::default();
+
+        let no_fb = create_test_mapping("map-nofb", 10101, "prof-1", "JP-01", false);
+        router.save_port_mapping(no_fb, &ctx).unwrap();
+        assert!(matches!(
+            router.swap_port_fallback("map-nofb", |_, _| None),
+            Err(AppError::InvalidConfig(_))
+        ));
+
+        let other_primary = create_test_mapping("map-other", 10102, "prof-1", "SG-02", false);
+        router.save_port_mapping(other_primary, &ctx).unwrap();
+
+        let mut conflict = create_test_mapping("map-conflict", 10103, "prof-1", "SG-01", false);
+        conflict.fallback_node_name = Some("SG-02".to_string());
+        router.save_port_mapping(conflict, &ctx).unwrap();
+
+        let err = router
+            .swap_port_fallback("map-conflict", |_, _| None)
+            .expect_err("cannot promote node already bound on another port");
+        assert!(matches!(
+            err,
+            AppError::DuplicateNodeBinding { node_name, port } if node_name == "SG-02" && port == 10102
         ));
 
         let _ = std::fs::remove_dir_all(&temp_dir);

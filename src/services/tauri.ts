@@ -290,6 +290,22 @@ export async function toggleManualFallback(
   })
 }
 
+export async function swapPortFallback(id: string): Promise<PortMapping> {
+  if (!isTauriEnvironment()) {
+    return {
+      id,
+      port: 7891,
+      protocol: 'mixed',
+      profileId: 'mock-profile',
+      nodeName: 'mock-node',
+      enabled: true,
+      bypassCn: true,
+      manualFallback: false,
+    }
+  }
+  return invoke<PortMapping>('swap_port_fallback', { id })
+}
+
 export async function testPortFallbackDelay(
   id: string,
   testUrl?: string,

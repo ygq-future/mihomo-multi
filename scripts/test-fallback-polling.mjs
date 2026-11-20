@@ -280,3 +280,79 @@ test('testPortDelay refreshes fallback statuses when primary node times out', as
   assert.equal(store.get().fallbackStatuses['port-1']?.isFallbackActive, true)
   assert.equal(store.get().portMappings[0].latency, null)
 })
+
+test('swapPortFallback optimistically swaps primary/backup nodes and resets manualFallback', async () => {
+  let finishSwap
+  const store = createStore({
+    swapPortFallback: () =>
+      new Promise((resolve) => {
+        finishSwap = resolve
+      }),
+    getPortFallbackStatuses: async () => [
+      {
+        ...status,
+        primaryNode: 'backup',
+        fallbackNode: 'primary',
+        activeNode: 'backup',
+        isFallbackActive: false,
+        manualFallback: false,
+        primaryLatency: 43,
+        fallbackLatency: 42,
+      },
+    ],
+    getDriftReports: async () => [],
+  })
+  store.set({
+    portMappings: [
+      {
+        ...store.get().portMappings[0],
+        manualFallback: true,
+      },
+    ],
+    fallbackStatuses: {
+      'port-1': {
+        ...status,
+        isFallbackActive: true,
+        manualFallback: true,
+        activeNode: 'backup',
+      },
+    },
+  })
+
+  const pending = store.get().swapPortFallback('port-1')
+  assert.equal(store.get().portMappings[0].nodeName, 'backup')
+  assert.equal(store.get().portMappings[0].fallbackNodeName, 'primary')
+  assert.equal(store.get().portMappings[0].fallbackProfileId, 'profile-1')
+  assert.equal(store.get().portMappings[0].manualFallback, false)
+  assert.equal(store.get().portMappings[0].latency, 43)
+  assert.equal(store.get().fallbackStatuses['port-1']?.isFallbackActive, false)
+
+  finishSwap({
+    ...store.get().portMappings[0],
+    latency: 43,
+  })
+  const updated = await pending
+  assert.equal(updated.nodeName, 'backup')
+  assert.equal(updated.fallbackNodeName, 'primary')
+})
+
+test('swapPortFallback rolls back optimistic state when backend rejects', async () => {
+  const store = createStore({
+    swapPortFallback: async () => {
+      throw new Error('DuplicateNodeBinding')
+    },
+  })
+  store.set({
+    fallbackStatuses: { 'port-1': status },
+  })
+
+  await assert.rejects(
+    store.get().swapPortFallback('port-1'),
+    /DuplicateNodeBinding/,
+  )
+  assert.equal(store.get().portMappings[0].nodeName, 'primary')
+  assert.equal(store.get().portMappings[0].fallbackNodeName, 'backup')
+  assert.equal(store.get().portMappings[0].latency, 42)
+  assert.equal(store.get().fallbackStatuses['port-1']?.primaryNode, 'primary')
+  assert.match(store.get().portError, /DuplicateNodeBinding/)
+})

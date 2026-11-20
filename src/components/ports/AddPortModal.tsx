@@ -2,6 +2,7 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowRight,
+  ArrowUpDown,
   Building2,
   Loader2,
   Network,
@@ -1476,6 +1477,40 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
                 >
                   {mainLatencyProps.label}
                 </Badge>
+                {selectedFallbackNode &&
+                  !isChainMode &&
+                  (() => {
+                    const swapBlockedPort = boundNodeMap.get(
+                      selectedFallbackNode.uniqueKey,
+                    )
+                    return (
+                      <button
+                        type="button"
+                        disabled={Boolean(swapBlockedPort)}
+                        onClick={() => {
+                          if (swapBlockedPort) return
+                          const prevProfileId = selectedProfileId
+                          const prevNodeName = selectedNodeName
+                          setSelectedProfileId(selectedFallbackNode.profileId)
+                          setSelectedNodeName(selectedFallbackNode.name)
+                          setFallbackProfileId(prevProfileId)
+                          setFallbackNodeName(prevNodeName)
+                        }}
+                        className="inline-flex items-center justify-center w-6 h-6 rounded-md border border-border/70 bg-background/60 text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={
+                          swapBlockedPort
+                            ? t('addPort.swapBoundWarning', {
+                                node: selectedFallbackNode.name,
+                                port: swapBlockedPort,
+                              })
+                            : t('addPort.swapPrimaryFallbackTitle')
+                        }
+                        aria-label={t('addPort.swapPrimaryFallbackTitle')}
+                      >
+                        <ArrowUpDown className="w-3 h-3" />
+                      </button>
+                    )
+                  })()}
               </div>
             </div>
 
