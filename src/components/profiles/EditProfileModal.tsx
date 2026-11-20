@@ -1,6 +1,7 @@
 import { AlertCircle, Pencil } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
+import { useTranslation } from '../../i18n'
 import type { ProfileItem } from '../../types'
 import { Button, Input, Modal, Select } from '../common'
 import { PROFILE_INTERVAL_OPTIONS } from '../../constants/profile'
@@ -23,6 +24,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   onClose,
   onSubmit,
 }) => {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [intervalMins, setIntervalMins] = useState<number>(0)
@@ -42,10 +44,24 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   const isRemote = profile.type === 'remote'
 
+  const intervalOptions = PROFILE_INTERVAL_OPTIONS.map(({ value }) => {
+    let label: string
+    if (value === 0) {
+      label = t('profileMain.intervalOptionManualOnly')
+    } else if (value % 1440 === 0) {
+      label = t('profileMain.intervalOptionDays', { count: value / 1440 })
+    } else if (value % 60 === 0) {
+      label = t('profileMain.intervalOptionHours', { count: value / 60 })
+    } else {
+      label = t('profileMain.intervalOptionMinutes', { count: value })
+    }
+    return { value, label }
+  })
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) {
-      setError('请输入订阅名称')
+      setError(t('profileMain.errProfileNameRequired'))
       return
     }
     if (
@@ -53,7 +69,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       (!url.trim() ||
         (!url.startsWith('http://') && !url.startsWith('https://')))
     ) {
-      setError('请输入有效的 http:// 或 https:// 订阅链接')
+      setError(t('profileMain.errUrlInvalid'))
       return
     }
 
@@ -78,7 +94,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="编辑订阅配置"
+      title={t('profileMain.editProfileTitle')}
       subtitle={profile.name}
       icon={<Pencil className="w-4 h-4" />}
       maxWidth="md"
@@ -90,10 +106,10 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
             onClick={onClose}
             disabled={loading}
           >
-            取消
+            {t('common.cancel')}
           </Button>
           <Button type="submit" form="edit-profile-form" loading={loading}>
-            保存修改
+            {t('profileMain.saveChanges')}
           </Button>
         </>
       }
@@ -112,18 +128,18 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
         <Input
           id="edit-profile-name"
-          label="订阅名称"
+          label={t('profileMain.profileNameLabel')}
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="例如：机场主力节点"
+          placeholder={t('profileMain.profileNamePlaceholder')}
           disabled={loading}
         />
 
         {isRemote ? (
           <Input
             id="edit-profile-url"
-            label="订阅链接 URL"
+            label={t('profileMain.urlLabel')}
             required
             type="url"
             value={url}
@@ -134,7 +150,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
         ) : (
           <div className="space-y-1.5">
             <span className="text-xs font-medium text-foreground">
-              本地配置文件路径
+              {t('profileMain.localFilePath')}
             </span>
             <div className="px-3 py-2 rounded-lg bg-background/50 border border-border text-xs font-mono text-muted-foreground truncate">
               {profile.filePath}
@@ -147,12 +163,12 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
             htmlFor="edit-profile-interval"
             className="text-xs font-medium text-foreground"
           >
-            自动更新周期
+            {t('profileMain.autoUpdateInterval')}
           </label>
           <Select
             value={intervalMins}
             onChange={(val) => setIntervalMins(Number(val))}
-            options={PROFILE_INTERVAL_OPTIONS}
+            options={intervalOptions}
             disabled={loading}
           />
         </div>

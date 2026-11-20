@@ -642,4 +642,238 @@ export const enUS: Record<TranslationKey, string> = {
   'multiSelect.searchPlaceholder': 'Search...',
   'multiSelect.clearSearch': 'Clear search',
   'multiSelect.selectedRatio': '{selected}/{total}',
+
+  // Profile Main (profile list and profile modals)
+  'profileMain.importedProfilesLabel': 'Imported profiles:',
+  'profileMain.totalNodesLabel': 'Total nodes:',
+  'profileMain.residentialExits': 'Residential exits',
+  'profileMain.residentialExitsTitle':
+    'Manage authenticated residential proxy exits used by port chains',
+  'profileMain.refreshAllTitle': 'Refresh all profiles',
+  'profileMain.noProfilesTitle': 'No profiles yet',
+  'profileMain.refreshing': 'Refreshing...',
+  'profileMain.refreshAll': 'Refresh all',
+  'profileMain.importLocalYaml': 'Import local YAML',
+  'profileMain.addRemote': 'Add remote profile',
+  'profileMain.loadingList': 'Loading profiles...',
+  'profileMain.emptyTitle': 'No profiles added yet',
+  'profileMain.emptyDesc':
+    'Supports standard Clash / Mihomo subscription URLs and local config files containing proxies. Nodes are parsed automatically with optional scheduled silent updates.',
+  'profileMain.emptyCta': 'Add a remote profile now',
+  'profileMain.typeRemote': 'Remote profile',
+  'profileMain.typeLocal': 'Local file',
+  'profileMain.nodeCount': '{count} nodes',
+  'profileMain.copyLinkTitle': 'Copy link or file path',
+  'profileMain.viewNodes': 'View nodes ({count})',
+  'profileMain.revealFileTitle': 'Show this profile file in the file explorer',
+  'profileMain.editProfileTitle': 'Edit profile',
+  'profileMain.refreshProfileTitle': 'Refresh / re-fetch profile',
+  'profileMain.updating': 'Updating',
+  'profileMain.deleteProfileTitle': 'Delete profile',
+  'profileMain.deleteModalTitle': 'Delete this profile?',
+  'profileMain.deleteModalSubtitle':
+    'This permanently removes the profile and all of its cached nodes',
+  'profileMain.deleteNodeCount': 'Contains {count} nodes',
+  'profileMain.confirmDelete': 'Delete',
+  'profileMain.neverUpdated': 'Never updated',
+  'profileMain.intervalManual': 'Manual update',
+  'profileMain.intervalEveryMinutes': 'Every {count} min',
+  'profileMain.intervalEveryHours': 'Every {count} h',
+  'profileMain.intervalEveryDays': 'Every {count} d',
+  'profileMain.intervalOptionManualOnly':
+    'No auto update (manual refresh only)',
+  'profileMain.intervalOptionMinutes': 'Auto update every {count} minutes',
+  'profileMain.intervalOptionHours': 'Auto update every {count} hours',
+  'profileMain.intervalOptionDays': 'Auto update every {count} days',
+  'profileMain.errConfigNameRequired': 'Please enter a config name',
+  'profileMain.errProfileNameRequired': 'Please enter a profile name',
+  'profileMain.errLocalPathRequired':
+    'Please enter the absolute path of the local YAML file',
+  'profileMain.errUrlInvalid':
+    'Please enter a valid http:// or https:// subscription URL',
+  'profileMain.addLocalTitle': 'Import local YAML profile',
+  'profileMain.addLocalSubtitle':
+    'Copy a local Clash config file and parse its nodes',
+  'profileMain.importing': 'Importing...',
+  'profileMain.confirmImport': 'Import',
+  'profileMain.configNameLabel': 'Config name',
+  'profileMain.configNamePlaceholder': 'e.g. Local backup nodes',
+  'profileMain.filePathLabel': 'Absolute file path',
+  'profileMain.filePathPlaceholder':
+    'e.g. C:\\Users\\Desktop\\clash_config.yaml',
+  'profileMain.browse': 'Browse...',
+  'profileMain.filePathHint':
+    'The file will be copied and its proxies node pool extracted',
+  'profileMain.addRemoteTitle': 'Add remote profile',
+  'profileMain.addRemoteSubtitle':
+    'Import a standard Clash / Mihomo subscription URL',
+  'profileMain.fetching': 'Fetching and parsing...',
+  'profileMain.confirmAdd': 'Add',
+  'profileMain.profileNameLabel': 'Profile name',
+  'profileMain.profileNamePlaceholder': 'e.g. Primary provider nodes',
+  'profileMain.urlLabel': 'Subscription URL',
+  'profileMain.urlHelper':
+    'Requests automatically carry a standard Clash User-Agent for compatibility',
+  'profileMain.autoUpdateInterval': 'Auto update interval',
+  'profileMain.saveChanges': 'Save changes',
+  'profileMain.localFilePath': 'Local config file path',
+  'profileMain.toastRemoteAdded':
+    'Remote profile "{name}" was added and parsed successfully',
+  'profileMain.toastLocalImported':
+    'Local config "{name}" was imported successfully',
+  'profileMain.toastUpdated': 'Profile "{name}" was updated successfully',
+  'profileMain.toastRefreshed':
+    'Profile "{name}" was refreshed with {count} nodes',
+  'profileMain.toastRefreshFailed': 'Refresh failed: {error}',
+  'profileMain.toastRefreshAllSuccess':
+    'Successfully refreshed all {count} profiles',
+  'profileMain.toastRefreshAllFailed':
+    'All {count} profiles failed to refresh. Check the network or configs',
+  'profileMain.toastRefreshAllPartial':
+    'Refresh complete: {success} succeeded, {failed} failed',
+  'profileMain.toastCopied': 'Link/path copied to clipboard',
+  'profileMain.toastCopyFailed': 'Copy failed, please copy manually',
+  'profileMain.toastOpenFolderFailed':
+    'Failed to open the containing folder: {error}',
+  'profileMain.toastDeleted': 'Profile "{name}" was deleted',
+  'profileMain.toastDeleteFailed': 'Delete failed: {error}',
+
+  // Residential Proxy i18n (ProfileNodesModal / ResidentialProxyManager / ResidentialProxyTestPanel)
+  'residentialI18n.common.close': 'Close',
+  'residentialI18n.common.cancel': 'Cancel',
+  'residentialI18n.common.retry': 'Retry',
+  'residentialI18n.common.loadConfigFailed':
+    'Failed to load the configuration, please retry',
+
+  'residentialI18n.nodes.title': '{name} — Node List',
+  'residentialI18n.nodes.subtitle': '{count} available proxy nodes parsed',
+  'residentialI18n.nodes.footer': 'Showing {shown} / {total} nodes',
+  'residentialI18n.nodes.searchPlaceholder':
+    'Search node name, protocol, or server address...',
+  'residentialI18n.nodes.loading': 'Reading and parsing nodes...',
+  'residentialI18n.nodes.emptyNoNodes':
+    'This profile contains no proxies entries.',
+  'residentialI18n.nodes.emptyNoMatch': 'No matching nodes found.',
+  'residentialI18n.nodes.probingTitle': 'Detecting egress IP...',
+  'residentialI18n.nodes.copyIpTitle':
+    'Click to copy node egress IP: {ip}{region}',
+  'residentialI18n.nodes.detectIpTitle':
+    'Click to detect and copy this node\u2019s egress IP',
+  'residentialI18n.nodes.probing': 'Detecting',
+  'residentialI18n.nodes.copyIp': 'Copy IP',
+  'residentialI18n.nodes.copiedToast': 'Copied node egress IP: {ip}{region}',
+  'residentialI18n.nodes.detectFailed': 'Failed to detect egress IP: {err}',
+
+  'residentialI18n.manager.titleEditor': 'Residential Exit Settings',
+  'residentialI18n.manager.titleList': 'Residential Exit Management',
+  'residentialI18n.manager.subtitleEditor':
+    'Authenticated HTTP / SOCKS5 residential proxy, stored only in local config',
+  'residentialI18n.manager.subtitleList':
+    'Residential exits used by port chains · {count} configured',
+  'residentialI18n.manager.desktopOnlyNotice':
+    'You are in the browser preview, so residential exits cannot be saved to the desktop backend. Use the desktop app for this feature.',
+  'residentialI18n.manager.loadingConfig':
+    'Loading residential exit configuration...',
+  'residentialI18n.manager.emptyTitle': 'No residential exits configured',
+  'residentialI18n.manager.emptyDesc':
+    'Add an authenticated HTTP / SOCKS5 residential proxy, then select it in a port mapping to build a fixed upstream node → residential exit → target chain.',
+  'residentialI18n.manager.addFirst': 'Add First Residential Exit',
+  'residentialI18n.manager.addExit': 'Add Residential Exit',
+  'residentialI18n.manager.backToList': 'Back to List',
+  'residentialI18n.manager.saveChanges': 'Save Changes',
+  'residentialI18n.manager.nameLabel': 'Name',
+  'residentialI18n.manager.namePlaceholder': 'e.g. US Static Residential 01',
+  'residentialI18n.manager.nameRequired':
+    'Please enter a residential exit name',
+  'residentialI18n.manager.serverLabel': 'Server Address',
+  'residentialI18n.manager.serverPlaceholder':
+    'gate.example.com or 203.0.113.10',
+  'residentialI18n.manager.serverRequired':
+    'Please enter the residential proxy server address',
+  'residentialI18n.manager.serverInvalid':
+    'Enter only a host name or IP, without protocol prefix, path, or spaces',
+  'residentialI18n.manager.portLabel': 'Port',
+  'residentialI18n.manager.portInvalid':
+    'Residential proxy port must be an integer between 1 and 65535',
+  'residentialI18n.manager.protocolLabel': 'Proxy Protocol',
+  'residentialI18n.manager.usernameLabel': 'Username (optional)',
+  'residentialI18n.manager.usernamePlaceholder': 'username',
+  'residentialI18n.manager.passwordLabel': 'Password (optional)',
+  'residentialI18n.manager.passwordPlaceholder': 'password',
+  'residentialI18n.manager.showPassword': 'Show password',
+  'residentialI18n.manager.hidePassword': 'Hide password',
+  'residentialI18n.manager.credentialsHint':
+    'Fill in both username and password, or leave both empty; credentials are written only to the local config file and never uploaded.',
+  'residentialI18n.manager.credentialsPair':
+    'Residential proxy username and password must both be filled in or both left empty',
+  'residentialI18n.manager.chainNotePrefix':
+    'Ports bound to this exit are forced through',
+  'residentialI18n.manager.chainNoteStrong':
+    'upstream node → residential exit → target',
+  'residentialI18n.manager.chainNoteSuffix':
+    '. Bypass CN, fallback nodes, and rule-based routing are disabled; if the upstream node is unavailable the port rejects connections instead of falling back to direct.',
+  'residentialI18n.manager.createdToast': 'Residential exit "{name}" added',
+  'residentialI18n.manager.updatedToast': 'Residential exit "{name}" updated',
+  'residentialI18n.manager.deletedToast': 'Residential exit "{name}" deleted',
+  'residentialI18n.manager.deleteFailed': 'Delete failed: {err}',
+  'residentialI18n.manager.usedByPortsTitle': 'In use by ports {ports}',
+  'residentialI18n.manager.portsInUse': '{count} port(s) in use',
+  'residentialI18n.manager.unused': 'Unused',
+  'residentialI18n.manager.credentialConfigured': 'Credentials configured',
+  'residentialI18n.manager.authConfigured': 'Authenticated',
+  'residentialI18n.manager.noAuth': 'No authentication',
+  'residentialI18n.manager.portsList': 'Ports {ports}',
+  'residentialI18n.manager.confirmDelete': 'Confirm Delete',
+  'residentialI18n.manager.testChainTitle':
+    'Test the actual chain egress with saved credentials',
+  'residentialI18n.manager.collapseTest': 'Hide Test',
+  'residentialI18n.manager.testConnection': 'Test Connection',
+  'residentialI18n.manager.editAria': 'Edit residential exit {name}',
+  'residentialI18n.manager.editTitle': 'Edit residential exit',
+  'residentialI18n.manager.deleteAria': 'Delete residential exit {name}',
+  'residentialI18n.manager.deleteBlockedTitle':
+    'In use by ports {ports}; unbind them first',
+  'residentialI18n.manager.deleteTitle': 'Delete residential exit',
+  'residentialI18n.manager.desktopOnly': 'Desktop app only',
+  'residentialI18n.manager.referencedNote':
+    'Residential exits referenced by ports cannot be deleted; unbind them from those ports first.',
+
+  'residentialI18n.test.nodeCount': '{count} nodes',
+  'residentialI18n.test.desktopRequired':
+    'Residential exit testing requires the desktop app (Mihomo core)',
+  'residentialI18n.test.selectFirst':
+    'Select a profile and upstream node before testing',
+  'residentialI18n.test.passedToast':
+    'Residential exit test passed: {ip} · {latency} ms',
+  'residentialI18n.test.liveFailed': 'Residential exit test failed: {err}',
+  'residentialI18n.test.liveProfilesFailed': 'Failed to load profiles: {err}',
+  'residentialI18n.test.liveNodesFailed': 'Failed to load nodes: {err}',
+  'residentialI18n.test.livePassed':
+    'Residential exit test passed: {ip}, {region}, {latency} ms',
+  'residentialI18n.test.previewNote':
+    'Residential exit testing is only supported in the desktop app; the browser preview makes no real connections.',
+  'residentialI18n.test.profileLabel': 'Profile',
+  'residentialI18n.test.profileAria': 'Profile for the residential exit test',
+  'residentialI18n.test.loadingProfiles': 'Loading profiles...',
+  'residentialI18n.test.profilesLoadFailed': 'Failed to load profiles',
+  'residentialI18n.test.profilesLoadFailedWith':
+    'Failed to load profiles: {err}',
+  'residentialI18n.test.noProfiles': 'No profiles',
+  'residentialI18n.test.selectProfile': 'Select a profile',
+  'residentialI18n.test.nodeLabel': 'Upstream Node',
+  'residentialI18n.test.nodeAria':
+    'Upstream node for the residential exit test',
+  'residentialI18n.test.selectProfileFirst': 'Select a profile first',
+  'residentialI18n.test.loadingNodes': 'Loading nodes...',
+  'residentialI18n.test.nodesLoadFailed': 'Failed to load nodes',
+  'residentialI18n.test.nodesLoadFailedWith': 'Failed to load nodes: {err}',
+  'residentialI18n.test.noNodes': 'No nodes in this profile',
+  'residentialI18n.test.selectNode': 'Select an upstream node',
+  'residentialI18n.test.chainNote':
+    'Actual path: selected upstream node → saved residential exit ({protocol} {server}:{port}) → target. Saved credentials are used; save changes before re-testing.',
+  'residentialI18n.test.testingNote':
+    'Connecting to the residential exit through the upstream node...',
+  'residentialI18n.test.passed': 'Test passed',
+  'residentialI18n.test.testConnection': 'Test Connection',
+  'residentialI18n.test.otherRegion': 'Other regions',
 }

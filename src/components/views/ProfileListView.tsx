@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
+import { useTranslation } from '../../i18n'
 import { useAppStore } from '../../stores/appStore'
 import type { ProfileItem } from '../../types'
 import { Button, Modal, toast } from '../common'
@@ -26,6 +27,7 @@ import { ProfileNodesModal } from '../profiles/ProfileNodesModal'
 import { ResidentialProxyManager } from '../profiles/ResidentialProxyManager'
 
 export const ProfileListView: React.FC = () => {
+  const { t, locale } = useTranslation()
   const {
     profiles,
     config,
@@ -63,12 +65,12 @@ export const ProfileListView: React.FC = () => {
     intervalMins: number,
   ) => {
     await addRemoteProfile(name, url, intervalMins)
-    toast.success(`远程订阅「${name}」已成功添加并解析`)
+    toast.success(t('profileMain.toastRemoteAdded', { name }))
   }
 
   const handleAddLocal = async (name: string, filePath: string) => {
     await addLocalProfile(name, filePath)
-    toast.success(`本地配置「${name}」已成功导入`)
+    toast.success(t('profileMain.toastLocalImported', { name }))
   }
 
   const handleEditProfile = async (
@@ -78,18 +80,23 @@ export const ProfileListView: React.FC = () => {
     intervalMins: number,
   ) => {
     await editProfile(id, name, url, intervalMins)
-    toast.success(`订阅「${name}」配置已成功更新`)
+    toast.success(t('profileMain.toastUpdated', { name }))
   }
 
   const handleRefresh = async (profile: ProfileItem) => {
     try {
       const updated = await updateProfile(profile.id)
       toast.success(
-        `订阅「${profile.name}」已刷新，现有 ${updated.nodeCount} 个节点`,
+        t('profileMain.toastRefreshed', {
+          name: profile.name,
+          count: updated.nodeCount,
+        }),
       )
     } catch (err) {
       toast.error(
-        `刷新失败：${err instanceof Error ? err.message : String(err)}`,
+        t('profileMain.toastRefreshFailed', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     }
   }
@@ -115,12 +122,19 @@ export const ProfileListView: React.FC = () => {
       const failedCount = results.filter((r) => r.status === 'rejected').length
 
       if (failedCount === 0) {
-        toast.success(`已成功刷新全部 ${successCount} 个订阅配置`)
+        toast.success(
+          t('profileMain.toastRefreshAllSuccess', { count: successCount }),
+        )
       } else if (successCount === 0) {
-        toast.error(`全部 ${failedCount} 个订阅刷新失败，请检查网络或配置`)
+        toast.error(
+          t('profileMain.toastRefreshAllFailed', { count: failedCount }),
+        )
       } else {
         toast.warning(
-          `订阅刷新完成：${successCount} 个成功，${failedCount} 个失败`,
+          t('profileMain.toastRefreshAllPartial', {
+            success: successCount,
+            failed: failedCount,
+          }),
         )
       }
     } finally {
@@ -133,13 +147,13 @@ export const ProfileListView: React.FC = () => {
     try {
       await navigator.clipboard.writeText(textToCopy)
       setCopiedId(profile.id)
-      toast.success('链接/路径已成功复制到剪贴板')
+      toast.success(t('profileMain.toastCopied'))
       setTimeout(
         () => setCopiedId((id) => (id === profile.id ? null : id)),
         2000,
       )
     } catch {
-      toast.error('复制失败，请手动复制')
+      toast.error(t('profileMain.toastCopyFailed'))
     }
   }
 
@@ -148,7 +162,9 @@ export const ProfileListView: React.FC = () => {
       await openFileInFolder(profile.filePath)
     } catch (err) {
       toast.error(
-        `打开文件所在目录失败：${err instanceof Error ? err.message : String(err)}`,
+        t('profileMain.toastOpenFolderFailed', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     }
   }
@@ -157,19 +173,23 @@ export const ProfileListView: React.FC = () => {
     if (!deletingProfile) return
     try {
       await deleteProfile(deletingProfile.id)
-      toast.success(`订阅「${deletingProfile.name}」已删除`)
+      toast.success(
+        t('profileMain.toastDeleted', { name: deletingProfile.name }),
+      )
       setDeletingProfile(null)
     } catch (err) {
       toast.error(
-        `删除失败：${err instanceof Error ? err.message : String(err)}`,
+        t('profileMain.toastDeleteFailed', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       )
     }
   }
 
   const formatTimestamp = (timestamp: number) => {
-    if (!timestamp) return '未更新'
+    if (!timestamp) return t('profileMain.neverUpdated')
     const date = new Date(timestamp * 1000)
-    return date.toLocaleString('zh-CN', {
+    return date.toLocaleString(locale, {
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
@@ -179,14 +199,12 @@ export const ProfileListView: React.FC = () => {
   }
 
   const formatInterval = (mins: number) => {
-    if (mins === 0) return '手动更新'
-    if (mins < 60) return `每 ${mins} 分钟`
+    if (mins === 0) return t('profileMain.intervalManual')
+    if (mins < 60) return t('profileMain.intervalEveryMinutes', { count: mins })
     if (mins >= 1440 && mins % 1440 === 0) {
-      const days = mins / 1440
-      return `每 ${days} 天`
+      return t('profileMain.intervalEveryDays', { count: mins / 1440 })
     }
-    const hours = Math.round(mins / 60)
-    return `每 ${hours} 小时`
+    return t('profileMain.intervalEveryHours', { count: Math.round(mins / 60) })
   }
 
   const totalNodes = profiles.reduce((acc, p) => acc + p.nodeCount, 0)
@@ -194,28 +212,28 @@ export const ProfileListView: React.FC = () => {
   return (
     <div className="h-full flex flex-col p-6 space-y-4 w-full overflow-hidden">
       {/* Top Sticky Header Card */}
-      <div className="bg-card border border-border rounded-xl p-4 shadow-sm shrink-0 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+      <div className="bg-card border border-border rounded-xl p-4 shadow-sm shrink-0 flex items-center justify-between gap-3 overflow-x-auto">
+        <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
           <div>
-            已导入配置:{' '}
+            {t('profileMain.importedProfilesLabel')}{' '}
             <b className="text-foreground font-mono">{profiles.length}</b>
           </div>
           <div>•</div>
           <div>
-            总解析节点:{' '}
+            {t('profileMain.totalNodesLabel')}{' '}
             <b className="text-foreground font-mono">{totalNodes}</b>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
           <Button
             variant="outline"
             size="sm"
             onClick={() => setIsResidentialManagerOpen(true)}
-            title="管理供端口链路使用的认证型住宅代理出口"
+            title={t('profileMain.residentialExitsTitle')}
             icon={<Building2 className="w-3.5 h-3.5" />}
           >
-            住宅出口
+            {t('profileMain.residentialExits')}
             {(config?.residentialProxies?.length ?? 0) > 0
               ? ` (${config?.residentialProxies?.length})`
               : ''}
@@ -226,7 +244,11 @@ export const ProfileListView: React.FC = () => {
             size="sm"
             disabled={isRefreshDisabled}
             onClick={handleRefreshAll}
-            title={profiles.length === 0 ? '暂无订阅配置' : '刷新全部订阅'}
+            title={
+              profiles.length === 0
+                ? t('profileMain.noProfilesTitle')
+                : t('profileMain.refreshAllTitle')
+            }
             icon={
               <RefreshCw
                 className={`w-3.5 h-3.5 ${
@@ -235,7 +257,9 @@ export const ProfileListView: React.FC = () => {
               />
             }
           >
-            {isRefreshingAll ? '正在刷新...' : '刷新全部'}
+            {isRefreshingAll
+              ? t('profileMain.refreshing')
+              : t('profileMain.refreshAll')}
           </Button>
 
           <Button
@@ -244,7 +268,7 @@ export const ProfileListView: React.FC = () => {
             onClick={() => setIsLocalModalOpen(true)}
             icon={<FileCode className="w-3.5 h-3.5" />}
           >
-            导入本地 YAML
+            {t('profileMain.importLocalYaml')}
           </Button>
 
           <Button
@@ -253,7 +277,7 @@ export const ProfileListView: React.FC = () => {
             onClick={() => setIsRemoteModalOpen(true)}
             icon={<Plus className="w-3.5 h-3.5" />}
           >
-            添加远程订阅
+            {t('profileMain.addRemote')}
           </Button>
         </div>
       </div>
@@ -263,7 +287,7 @@ export const ProfileListView: React.FC = () => {
         {profileLoading && profiles.length === 0 ? (
           <div className="py-24 flex flex-col items-center justify-center space-y-3 text-muted-foreground">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            <span className="text-xs">正在加载订阅列表...</span>
+            <span className="text-xs">{t('profileMain.loadingList')}</span>
           </div>
         ) : profiles.length === 0 ? (
           /* Empty State */
@@ -273,11 +297,10 @@ export const ProfileListView: React.FC = () => {
             </div>
             <div className="space-y-1 max-w-sm">
               <h3 className="text-sm font-semibold text-foreground">
-                尚未添加任何订阅配置
+                {t('profileMain.emptyTitle')}
               </h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                支持标准 Clash / Mihomo 订阅 URL 以及包含 proxies
-                的本地配置文件，系统将自动解析可用节点池并支持自动定时静默更新。
+                {t('profileMain.emptyDesc')}
               </p>
             </div>
             <div className="flex items-center gap-2 pt-2">
@@ -286,7 +309,7 @@ export const ProfileListView: React.FC = () => {
                 onClick={() => setIsRemoteModalOpen(true)}
                 icon={<Plus className="w-3.5 h-3.5" />}
               >
-                立即添加远程订阅
+                {t('profileMain.emptyCta')}
               </Button>
             </div>
           </div>
@@ -327,7 +350,9 @@ export const ProfileListView: React.FC = () => {
                             {profile.name}
                           </h4>
                           <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                            {isRemote ? '远程订阅' : '本地文件'}
+                            {isRemote
+                              ? t('profileMain.typeRemote')
+                              : t('profileMain.typeLocal')}
                           </span>
                         </div>
                       </div>
@@ -339,7 +364,9 @@ export const ProfileListView: React.FC = () => {
                             : 'bg-muted text-muted-foreground border-border'
                         }`}
                       >
-                        {profile.nodeCount} 节点
+                        {t('profileMain.nodeCount', {
+                          count: profile.nodeCount,
+                        })}
                       </span>
                     </div>
 
@@ -355,7 +382,7 @@ export const ProfileListView: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleCopyLink(profile)}
-                        title="复制链接或文件路径"
+                        title={t('profileMain.copyLinkTitle')}
                         className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
                       >
                         {isCopied ? (
@@ -391,14 +418,14 @@ export const ProfileListView: React.FC = () => {
                       onClick={() => setNodesModalProfile(profile)}
                       icon={<ListFilter className="w-3 h-3" />}
                     >
-                      查看节点 ({profile.nodeCount})
+                      {t('profileMain.viewNodes', { count: profile.nodeCount })}
                     </Button>
 
                     <div className="flex items-center gap-0.5">
                       <button
                         type="button"
                         onClick={() => handleOpenFolder(profile)}
-                        title="在文件资源管理器中定位此配置文件"
+                        title={t('profileMain.revealFileTitle')}
                         className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
                       >
                         <FolderOpen className="w-3 h-3" />
@@ -407,7 +434,7 @@ export const ProfileListView: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setEditingProfile(profile)}
-                        title="编辑订阅配置"
+                        title={t('profileMain.editProfileTitle')}
                         className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
                       >
                         <Pencil className="w-3 h-3" />
@@ -418,7 +445,7 @@ export const ProfileListView: React.FC = () => {
                         size="sm"
                         disabled={isUpdating}
                         onClick={() => handleRefresh(profile)}
-                        title="刷新/重新拉取订阅"
+                        title={t('profileMain.refreshProfileTitle')}
                         className="!text-[10px] !px-1.5 !py-0.5 h-6 gap-1 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10"
                         icon={
                           <RefreshCw
@@ -428,12 +455,14 @@ export const ProfileListView: React.FC = () => {
                           />
                         }
                       >
-                        {isUpdating ? '更新中' : '刷新'}
+                        {isUpdating
+                          ? t('profileMain.updating')
+                          : t('common.refresh')}
                       </Button>
                       <button
                         type="button"
                         onClick={() => setDeletingProfile(profile)}
-                        title="删除订阅"
+                        title={t('profileMain.deleteProfileTitle')}
                         className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                       >
                         <Trash2 className="w-3 h-3" />
@@ -483,8 +512,8 @@ export const ProfileListView: React.FC = () => {
         <Modal
           isOpen={Boolean(deletingProfile)}
           onClose={() => setDeletingProfile(null)}
-          title="确认删除订阅配置？"
-          subtitle="此操作将永久移除该订阅及其所有关联节点缓存"
+          title={t('profileMain.deleteModalTitle')}
+          subtitle={t('profileMain.deleteModalSubtitle')}
           icon={<Trash2 className="w-4 h-4 text-destructive" />}
           maxWidth="sm"
           footer={
@@ -494,10 +523,10 @@ export const ProfileListView: React.FC = () => {
                 size="sm"
                 onClick={() => setDeletingProfile(null)}
               >
-                取消
+                {t('common.cancel')}
               </Button>
               <Button variant="danger" size="sm" onClick={handleDeleteConfirm}>
-                确认删除
+                {t('profileMain.confirmDelete')}
               </Button>
             </>
           }
@@ -507,7 +536,9 @@ export const ProfileListView: React.FC = () => {
               {deletingProfile.name}
             </span>
             <div className="text-muted-foreground text-[11px] font-mono truncate mt-0.5">
-              包含 {deletingProfile.nodeCount} 个节点
+              {t('profileMain.deleteNodeCount', {
+                count: deletingProfile.nodeCount,
+              })}
             </div>
           </div>
         </Modal>

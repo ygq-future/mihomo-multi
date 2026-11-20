@@ -1,6 +1,7 @@
 import { Compass, Copy, Loader2, Radio, Server } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from '../../i18n'
 import { useAppStore } from '../../stores/appStore'
 import type { ProfileItem, ProxyNode } from '../../types'
 import { isNodeEgressProbing, lookupNodeEgressInfo } from '../../utils/proxy'
@@ -17,6 +18,7 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
   isOpen,
   onClose,
 }) => {
+  const { t } = useTranslation()
   const profileNodes = useAppStore((state) => state.profileNodes)
   const fetchProfileNodes = useAppStore((state) => state.fetchProfileNodes)
   const nodeEgressIps = useAppStore((state) => state.nodeEgressIps)
@@ -47,7 +49,10 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
       if (cached) {
         await navigator.clipboard.writeText(cached.ip).catch(() => {})
         toast.success(
-          `已复制节点出口 IP: ${cached.ip}${cached.region ? ` (${cached.region})` : ''}`,
+          t('residentialI18n.nodes.copiedToast', {
+            ip: cached.ip,
+            region: cached.region ? ` (${cached.region})` : '',
+          }),
         )
         return
       }
@@ -55,15 +60,20 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
         const info = await probeNodeEgressIp(node.name, profile.id, runtimeKey)
         await navigator.clipboard.writeText(info.ip).catch(() => {})
         toast.success(
-          `已复制节点出口 IP: ${info.ip}${info.region ? ` (${info.region})` : ''}`,
+          t('residentialI18n.nodes.copiedToast', {
+            ip: info.ip,
+            region: info.region ? ` (${info.region})` : '',
+          }),
         )
       } catch (err) {
         toast.error(
-          `探测出口 IP 失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('residentialI18n.nodes.detectFailed', {
+            err: err instanceof Error ? err.message : String(err),
+          }),
         )
       }
     },
-    [profile, nodeEgressIps, probeNodeEgressIp],
+    [profile, nodeEgressIps, probeNodeEgressIp, t],
   )
 
   if (!profile) return null
@@ -99,18 +109,21 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={`${profile.name} — 包含节点列表`}
-      subtitle={`共解析到 ${nodes.length} 个可用代理节点`}
+      title={t('residentialI18n.nodes.title', { name: profile.name })}
+      subtitle={t('residentialI18n.nodes.subtitle', { count: nodes.length })}
       icon={<Compass className="w-4 h-4" />}
       maxWidth="2xl"
       noPadding
       footer={
         <div className="w-full flex items-center justify-between text-xs text-muted-foreground">
           <span>
-            展示 {filteredNodes.length} / {nodes.length} 个节点
+            {t('residentialI18n.nodes.footer', {
+              shown: filteredNodes.length,
+              total: nodes.length,
+            })}
           </span>
           <Button variant="outline" size="sm" onClick={onClose}>
-            关闭
+            {t('residentialI18n.common.close')}
           </Button>
         </div>
       }
@@ -119,7 +132,7 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
         {/* Search Bar */}
         <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0">
           <Input
-            placeholder="搜索节点名称、协议或服务器地址..."
+            placeholder={t('residentialI18n.nodes.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -130,13 +143,15 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
           {loading ? (
             <div className="py-16 flex flex-col items-center justify-center text-center space-y-2 text-muted-foreground">
               <Loader2 className="w-6 h-6 animate-spin text-primary" />
-              <span className="text-xs">正在读取并解析节点...</span>
+              <span className="text-xs">
+                {t('residentialI18n.nodes.loading')}
+              </span>
             </div>
           ) : filteredNodes.length === 0 ? (
             <div className="py-12 text-center text-xs text-muted-foreground">
               {nodes.length === 0
-                ? '此订阅配置文件未包含任何 proxies 代理节点。'
-                : '没有找到匹配的节点。'}
+                ? t('residentialI18n.nodes.emptyNoNodes')
+                : t('residentialI18n.nodes.emptyNoMatch')}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 [contain:layout_style]">
@@ -180,21 +195,26 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
                           }`}
                           title={
                             isProbing
-                              ? '正在探测出口 IP...'
+                              ? t('residentialI18n.nodes.probingTitle')
                               : egressInfo
-                                ? `点击复制节点出口 IP: ${egressInfo.ip}${egressInfo.region ? ` (${egressInfo.region})` : ''}`
-                                : '点击探测并复制该节点出口 IP'
+                                ? t('residentialI18n.nodes.copyIpTitle', {
+                                    ip: egressInfo.ip,
+                                    region: egressInfo.region
+                                      ? ` (${egressInfo.region})`
+                                      : '',
+                                  })
+                                : t('residentialI18n.nodes.detectIpTitle')
                           }
                         >
                           {isProbing ? (
                             <>
                               <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                              <span>探测中</span>
+                              <span>{t('residentialI18n.nodes.probing')}</span>
                             </>
                           ) : (
                             <>
                               <Copy className="w-2.5 h-2.5" />
-                              <span>复制IP</span>
+                              <span>{t('residentialI18n.nodes.copyIp')}</span>
                             </>
                           )}
                         </button>

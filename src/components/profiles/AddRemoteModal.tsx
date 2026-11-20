@@ -1,6 +1,7 @@
 import { AlertCircle, Globe } from 'lucide-react'
 import type React from 'react'
 import { useState } from 'react'
+import { useTranslation } from '../../i18n'
 import { Button, Input, Modal, Select } from '../common'
 import { PROFILE_INTERVAL_OPTIONS } from '../../constants/profile'
 
@@ -15,23 +16,38 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
   onClose,
   onSubmit,
 }) => {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [intervalMins, setIntervalMins] = useState<number>(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const intervalOptions = PROFILE_INTERVAL_OPTIONS.map(({ value }) => {
+    let label: string
+    if (value === 0) {
+      label = t('profileMain.intervalOptionManualOnly')
+    } else if (value % 1440 === 0) {
+      label = t('profileMain.intervalOptionDays', { count: value / 1440 })
+    } else if (value % 60 === 0) {
+      label = t('profileMain.intervalOptionHours', { count: value / 60 })
+    } else {
+      label = t('profileMain.intervalOptionMinutes', { count: value })
+    }
+    return { value, label }
+  })
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) {
-      setError('请输入订阅名称')
+      setError(t('profileMain.errProfileNameRequired'))
       return
     }
     if (
       !url.trim() ||
       (!url.startsWith('http://') && !url.startsWith('https://'))
     ) {
-      setError('请输入有效的 http:// 或 https:// 订阅链接')
+      setError(t('profileMain.errUrlInvalid'))
       return
     }
 
@@ -54,8 +70,8 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="添加远程订阅"
-      subtitle="导入标准 Clash / Mihomo 远程订阅链接"
+      title={t('profileMain.addRemoteTitle')}
+      subtitle={t('profileMain.addRemoteSubtitle')}
       icon={<Globe className="w-4 h-4" />}
       maxWidth="md"
       footer={
@@ -66,10 +82,10 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
             onClick={onClose}
             disabled={loading}
           >
-            取消
+            {t('common.cancel')}
           </Button>
           <Button type="submit" form="add-remote-form" loading={loading}>
-            {loading ? '正在拉取解析...' : '确认添加'}
+            {loading ? t('profileMain.fetching') : t('profileMain.confirmAdd')}
           </Button>
         </>
       }
@@ -84,9 +100,9 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
 
         <Input
           id="remote-name"
-          label="订阅名称"
+          label={t('profileMain.profileNameLabel')}
           required
-          placeholder="例如：机场主力节点"
+          placeholder={t('profileMain.profileNamePlaceholder')}
           value={name}
           onChange={(e) => setName(e.target.value)}
           disabled={loading}
@@ -95,14 +111,14 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
 
         <Input
           id="remote-url"
-          label="订阅链接 URL"
+          label={t('profileMain.urlLabel')}
           required
           type="url"
           placeholder="https://subscribe.example.com/api/v1/client/subscribe?token=..."
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           disabled={loading}
-          helperText="请求将自动携带标准 Clash User-Agent 进行兼容拉取"
+          helperText={t('profileMain.urlHelper')}
         />
 
         <div className="space-y-1.5">
@@ -110,12 +126,12 @@ export const AddRemoteModal: React.FC<AddRemoteModalProps> = ({
             htmlFor="remote-interval"
             className="text-xs font-medium text-foreground"
           >
-            自动更新周期
+            {t('profileMain.autoUpdateInterval')}
           </label>
           <Select
             value={intervalMins}
             onChange={(val) => setIntervalMins(Number(val))}
-            options={PROFILE_INTERVAL_OPTIONS}
+            options={intervalOptions}
             disabled={loading}
           />
         </div>

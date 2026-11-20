@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from '../../i18n'
 import { getProfiles, testResidentialProxy } from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import type {
@@ -30,6 +31,7 @@ interface ResidentialProxyTestPanelProps {
 export const ResidentialProxyTestPanel: React.FC<
   ResidentialProxyTestPanelProps
 > = ({ proxy, isDesktop }) => {
+  const { t, locale } = useTranslation()
   const {
     profiles: storeProfiles,
     profileNodes,
@@ -186,35 +188,40 @@ export const ResidentialProxyTestPanel: React.FC<
       profiles.map((profile) => ({
         value: profile.id,
         label: profile.name,
-        description: `${profile.nodeCount} 个节点`,
+        description: t('residentialI18n.test.nodeCount', {
+          count: profile.nodeCount,
+        }),
         icon: <Layers className="w-3.5 h-3.5 text-primary" />,
       })),
-    [profiles],
+    [profiles, t],
   )
 
-  const nodeOptions = useMemo(
-    () =>
-      selectedNodes.map((node) => {
-        const region = extractRegion(node.name)
-        return {
-          value: node.name,
-          label: node.name,
-          description: `${formatProtocolName(node.type)} · ${region.name || region.code}`,
-          icon: <RegionFlag code={region.code} size="sm" />,
-        }
-      }),
-    [selectedNodes],
-  )
+  const nodeOptions = useMemo(() => {
+    const regionNames = new Intl.DisplayNames([locale], { type: 'region' })
+    return selectedNodes.map((node) => {
+      const region = extractRegion(node.name)
+      const regionName =
+        region.code === 'OTHER'
+          ? t('residentialI18n.test.otherRegion')
+          : regionNames.of(region.code) || region.code
+      return {
+        value: node.name,
+        label: node.name,
+        description: `${formatProtocolName(node.type)} · ${regionName}`,
+        icon: <RegionFlag code={region.code} size="sm" />,
+      }
+    })
+  }, [selectedNodes, locale, t])
 
   const canTest = isDesktop && Boolean(profileId) && Boolean(nodeName)
 
   const handleTest = async () => {
     if (!isDesktop) {
-      setError('住宅出口测试需要桌面应用环境（需运行 Mihomo 内核）')
+      setError(t('residentialI18n.test.desktopRequired'))
       return
     }
     if (!profileId || !nodeName) {
-      setError('请先选择订阅与上游节点后再测试')
+      setError(t('residentialI18n.test.selectFirst'))
       return
     }
     const scope = scopeKeyRef.current
@@ -233,7 +240,10 @@ export const ResidentialProxyTestPanel: React.FC<
       }
       setResult(next)
       toast.success(
-        `住宅出口测试通过：${next.egress.ip} · ${next.latencyMs} ms`,
+        t('residentialI18n.test.passedToast', {
+          ip: next.egress.ip,
+          latency: next.latencyMs,
+        }),
       )
     } catch (err) {
       if (!isMountedRef.current || seq !== requestSeqRef.current) return
@@ -250,13 +260,17 @@ export const ResidentialProxyTestPanel: React.FC<
     : null
 
   const liveMessage = error
-    ? `住宅出口测试失败：${error}`
+    ? t('residentialI18n.test.liveFailed', { err: error })
     : profilesError
-      ? `订阅加载失败：${profilesError}`
+      ? t('residentialI18n.test.liveProfilesFailed', { err: profilesError })
       : nodesError
-        ? `节点加载失败：${nodesError}`
+        ? t('residentialI18n.test.liveNodesFailed', { err: nodesError })
         : result
-          ? `住宅出口测试通过：${result.egress.ip}，${result.egress.region}，${result.latencyMs} 毫秒`
+          ? t('residentialI18n.test.livePassed', {
+              ip: result.egress.ip,
+              region: result.egress.region,
+              latency: result.latencyMs,
+            })
           : ''
 
   return (
@@ -272,19 +286,17 @@ export const ResidentialProxyTestPanel: React.FC<
       {!isDesktop && (
         <div className="flex items-start gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/5 px-2 py-1.5 text-[10px] leading-relaxed text-amber-600 dark:text-amber-400">
           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" />
-          <span>
-            住宅出口测试仅支持桌面应用环境，浏览器预览不会发起真实连接。
-          </span>
+          <span>{t('residentialI18n.test.previewNote')}</span>
         </div>
       )}
 
       <div className="grid grid-cols-2 gap-2">
         <div className="min-w-0">
           <span className="block text-[10px] font-medium text-muted-foreground mb-1">
-            订阅
+            {t('residentialI18n.test.profileLabel')}
           </span>
           <Select
-            ariaLabel="测试住宅出口的订阅"
+            ariaLabel={t('residentialI18n.test.profileAria')}
             size="sm"
             value={profileId}
             onChange={(value) => {
@@ -296,22 +308,22 @@ export const ResidentialProxyTestPanel: React.FC<
             disabled={isLoadingProfiles || Boolean(profilesError)}
             placeholder={
               isLoadingProfiles
-                ? '正在加载订阅...'
+                ? t('residentialI18n.test.loadingProfiles')
                 : profilesError
-                  ? '订阅加载失败'
+                  ? t('residentialI18n.test.profilesLoadFailed')
                   : profiles.length === 0
-                    ? '暂无订阅'
-                    : '选择订阅'
+                    ? t('residentialI18n.test.noProfiles')
+                    : t('residentialI18n.test.selectProfile')
             }
             prefixIcon={<Layers className="w-3.5 h-3.5 text-primary" />}
           />
         </div>
         <div className="min-w-0">
           <span className="block text-[10px] font-medium text-muted-foreground mb-1">
-            上游节点
+            {t('residentialI18n.test.nodeLabel')}
           </span>
           <Select
-            ariaLabel="测试住宅出口的上游节点"
+            ariaLabel={t('residentialI18n.test.nodeAria')}
             size="sm"
             value={nodeName}
             onChange={(value) => setNodeName(String(value))}
@@ -319,14 +331,14 @@ export const ResidentialProxyTestPanel: React.FC<
             disabled={!profileId || isLoadingNodes || Boolean(nodesError)}
             placeholder={
               !profileId
-                ? '先选择订阅'
+                ? t('residentialI18n.test.selectProfileFirst')
                 : isLoadingNodes
-                  ? '正在加载节点...'
+                  ? t('residentialI18n.test.loadingNodes')
                   : nodesError
-                    ? '节点加载失败'
+                    ? t('residentialI18n.test.nodesLoadFailed')
                     : selectedNodes.length === 0
-                      ? '该订阅暂无节点'
-                      : '选择上游节点'
+                      ? t('residentialI18n.test.noNodes')
+                      : t('residentialI18n.test.selectNode')
             }
             prefixIcon={<Network className="w-3.5 h-3.5 text-primary" />}
           />
@@ -337,7 +349,9 @@ export const ResidentialProxyTestPanel: React.FC<
         <div className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive">
           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" />
           <span className="flex-1 min-w-0 leading-relaxed break-words">
-            订阅加载失败：{profilesError}
+            {t('residentialI18n.test.profilesLoadFailedWith', {
+              err: profilesError,
+            })}
           </span>
           <Button
             type="button"
@@ -347,7 +361,7 @@ export const ResidentialProxyTestPanel: React.FC<
             disabled={isLoadingProfiles}
             onClick={() => void loadProfiles()}
           >
-            重试
+            {t('residentialI18n.common.retry')}
           </Button>
         </div>
       )}
@@ -356,7 +370,7 @@ export const ResidentialProxyTestPanel: React.FC<
         <div className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive">
           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" />
           <span className="flex-1 min-w-0 leading-relaxed break-words">
-            节点加载失败：{nodesError}
+            {t('residentialI18n.test.nodesLoadFailedWith', { err: nodesError })}
           </span>
           <Button
             type="button"
@@ -365,16 +379,18 @@ export const ResidentialProxyTestPanel: React.FC<
             disabled={isLoadingNodes}
             onClick={() => setNodesRetryToken((token) => token + 1)}
           >
-            重试
+            {t('residentialI18n.common.retry')}
           </Button>
         </div>
       )}
 
       <div className="flex items-start justify-between gap-2">
         <p className="text-[10px] text-muted-foreground leading-relaxed min-w-0">
-          实际链路：所选上游节点 → 已保存的住宅出口（
-          {proxy.protocol.toUpperCase()} {proxy.server}:{proxy.port}
-          ）→ 目标。凭据使用已保存配置，修改后需先保存再测试。
+          {t('residentialI18n.test.chainNote', {
+            protocol: proxy.protocol.toUpperCase(),
+            server: proxy.server,
+            port: proxy.port,
+          })}
         </p>
         <Button
           type="button"
@@ -385,14 +401,14 @@ export const ResidentialProxyTestPanel: React.FC<
           onClick={() => void handleTest()}
           icon={!isTesting && <Cable className="w-3.5 h-3.5" />}
         >
-          测试连接
+          {t('residentialI18n.test.testConnection')}
         </Button>
       </div>
 
       {isTesting && (
         <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-[10px] text-muted-foreground">
           <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
-          <span>正在经上游节点连接住宅出口，请稍候...</span>
+          <span>{t('residentialI18n.test.testingNote')}</span>
         </div>
       )}
 
@@ -406,7 +422,9 @@ export const ResidentialProxyTestPanel: React.FC<
       {result && latencyProps && (
         <div className="rounded-md border border-emerald-500/25 bg-emerald-500/5 px-2 py-1.5 space-y-1">
           <div className="flex items-center gap-x-2 gap-y-1 flex-wrap text-[11px]">
-            <span className="font-semibold text-foreground">测试通过</span>
+            <span className="font-semibold text-foreground">
+              {t('residentialI18n.test.passed')}
+            </span>
             <Badge
               variant={latencyProps.variant}
               dot={latencyProps.dot}

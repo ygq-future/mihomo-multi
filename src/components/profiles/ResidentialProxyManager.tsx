@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from '../../i18n'
 import { isDesktopEnvironment } from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import type { ResidentialProxy, ResidentialProxyProtocol } from '../../types'
@@ -58,6 +59,8 @@ function newProxyId(): string {
 export const ResidentialProxyManager: React.FC<
   ResidentialProxyManagerProps
 > = ({ isOpen, onClose }) => {
+  const { t, locale } = useTranslation()
+  const portSeparator = locale === 'zh-CN' ? '、' : ', '
   const {
     config,
     portMappings,
@@ -120,7 +123,9 @@ export const ResidentialProxyManager: React.FC<
       await fetchConfig()
       const state = useAppStore.getState()
       if (!state.config) {
-        throw new Error(state.error || '配置加载失败，请重试')
+        throw new Error(
+          state.error || t('residentialI18n.common.loadConfigFailed'),
+        )
       }
     } catch (err) {
       configRequestedRef.current = false
@@ -128,7 +133,7 @@ export const ResidentialProxyManager: React.FC<
     } finally {
       setLoadingConfig(false)
     }
-  }, [fetchConfig])
+  }, [fetchConfig, t])
 
   useEffect(() => {
     if (!isOpen || config) return
@@ -179,25 +184,25 @@ export const ResidentialProxyManager: React.FC<
       : Number.NaN
 
     if (!name) {
-      setError('请填写住宅出口名称')
+      setError(t('residentialI18n.manager.nameRequired'))
       return
     }
     if (!server) {
-      setError('请填写住宅代理服务器地址')
+      setError(t('residentialI18n.manager.serverRequired'))
       return
     }
     if (/[\s/]/.test(server) || server.includes('://')) {
-      setError('服务器地址只填主机名或 IP，不要包含协议前缀、路径或空格')
+      setError(t('residentialI18n.manager.serverInvalid'))
       return
     }
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      setError('住宅代理端口必须为 1 ~ 65535 之间的整数')
+      setError(t('residentialI18n.manager.portInvalid'))
       return
     }
     const hasUsername = username.length > 0
     const hasPassword = form.password.length > 0
     if (hasUsername !== hasPassword) {
-      setError('住宅代理用户名与密码必须同时填写，或同时留空')
+      setError(t('residentialI18n.manager.credentialsPair'))
       return
     }
 
@@ -213,7 +218,9 @@ export const ResidentialProxyManager: React.FC<
         password: form.password,
       })
       toast.success(
-        editingId ? `住宅出口「${name}」已更新` : `住宅出口「${name}」已添加`,
+        editingId
+          ? t('residentialI18n.manager.updatedToast', { name })
+          : t('residentialI18n.manager.createdToast', { name }),
       )
       setView('list')
       setEditingId(null)
@@ -230,12 +237,14 @@ export const ResidentialProxyManager: React.FC<
     setError(null)
     try {
       await deleteResidentialProxy(proxy.id)
-      toast.success(`住宅出口「${proxy.name}」已删除`)
+      toast.success(
+        t('residentialI18n.manager.deletedToast', { name: proxy.name }),
+      )
       setConfirmingDeleteId(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
-      toast.error(`删除失败: ${message}`)
+      toast.error(t('residentialI18n.manager.deleteFailed', { err: message }))
     } finally {
       setDeletingId(null)
     }
@@ -251,7 +260,7 @@ export const ResidentialProxyManager: React.FC<
           onClick={backToList}
           disabled={saving}
         >
-          返回列表
+          {t('residentialI18n.manager.backToList')}
         </Button>
         <Button
           type="submit"
@@ -261,7 +270,9 @@ export const ResidentialProxyManager: React.FC<
           loading={saving}
           disabled={saving || !isDesktop}
         >
-          {editingId ? '保存修改' : '添加住宅出口'}
+          {editingId
+            ? t('residentialI18n.manager.saveChanges')
+            : t('residentialI18n.manager.addExit')}
         </Button>
       </>
     ) : (
@@ -273,7 +284,7 @@ export const ResidentialProxyManager: React.FC<
           onClick={onClose}
           disabled={deletingId !== null}
         >
-          关闭
+          {t('residentialI18n.common.close')}
         </Button>
         <Button
           type="button"
@@ -283,7 +294,7 @@ export const ResidentialProxyManager: React.FC<
           disabled={!isDesktop || !config}
           icon={<Plus className="w-3.5 h-3.5" />}
         >
-          添加住宅出口
+          {t('residentialI18n.manager.addExit')}
         </Button>
       </>
     )
@@ -292,11 +303,17 @@ export const ResidentialProxyManager: React.FC<
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={view === 'editor' ? '住宅出口配置' : '住宅出口管理'}
+      title={
+        view === 'editor'
+          ? t('residentialI18n.manager.titleEditor')
+          : t('residentialI18n.manager.titleList')
+      }
       subtitle={
         view === 'editor'
-          ? '认证型 HTTP / SOCKS5 住宅代理，仅保存在本机配置'
-          : `供端口链路使用的住宅代理出口 · 已配置 ${proxies.length} 个`
+          ? t('residentialI18n.manager.subtitleEditor')
+          : t('residentialI18n.manager.subtitleList', {
+              count: proxies.length,
+            })
       }
       icon={<Building2 className="w-4 h-4 text-primary" />}
       maxWidth="xl"
@@ -305,9 +322,7 @@ export const ResidentialProxyManager: React.FC<
       {!isDesktop && (
         <div className="mb-3 p-3 text-xs bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-400 rounded-lg flex items-start gap-2 leading-relaxed">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>
-            当前为浏览器预览环境，住宅出口配置无法保存到桌面后端。请在桌面应用中使用该功能。
-          </span>
+          <span>{t('residentialI18n.manager.desktopOnlyNotice')}</span>
         </div>
       )}
       {loadError && (
@@ -324,14 +339,14 @@ export const ResidentialProxyManager: React.FC<
             disabled={loadingConfig}
             onClick={() => void loadConfig()}
           >
-            重试
+            {t('residentialI18n.common.retry')}
           </Button>
         </div>
       )}
       {view === 'editor' ? (
         <form
           id="residential-proxy-form"
-          aria-label="住宅出口配置"
+          aria-label={t('residentialI18n.manager.titleEditor')}
           onSubmit={handleSubmit}
           className="space-y-4"
         >
@@ -345,28 +360,31 @@ export const ResidentialProxyManager: React.FC<
           <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground">
             <ShieldCheck className="w-4 h-4 shrink-0 text-amber-500" />
             <span>
-              绑定该出口的端口将强制走
-              <b className="text-foreground"> 上游节点 → 住宅出口 → 目标</b>
-              ，绕过大陆、备用节点与网站分流规则均不生效；上游节点不可用时端口直接拒绝连接，不会回退直连。
+              {t('residentialI18n.manager.chainNotePrefix')}
+              <b className="text-foreground">
+                {t('residentialI18n.manager.chainNoteStrong')}
+              </b>
+              {t('residentialI18n.manager.chainNoteSuffix')}
             </span>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <Input
               id="residential-name"
-              label="名称"
+              label={t('residentialI18n.manager.nameLabel')}
               required
               value={form.name}
               onChange={(e) =>
                 setForm((prev) => ({ ...prev, name: e.target.value }))
               }
-              placeholder="例如：美国静态住宅 01"
+              placeholder={t('residentialI18n.manager.namePlaceholder')}
               prefixIcon={<Building2 className="w-3.5 h-3.5" />}
             />
 
             <div>
               <span className="block text-xs font-medium text-foreground mb-1.5">
-                代理协议 <span className="text-destructive">*</span>
+                {t('residentialI18n.manager.protocolLabel')}{' '}
+                <span className="text-destructive">*</span>
               </span>
               <Segmented<ResidentialProxyProtocol>
                 value={form.protocol}
@@ -386,19 +404,19 @@ export const ResidentialProxyManager: React.FC<
             <div className="col-span-2">
               <Input
                 id="residential-server"
-                label="服务器地址"
+                label={t('residentialI18n.manager.serverLabel')}
                 required
                 value={form.server}
                 onChange={(e) =>
                   setForm((prev) => ({ ...prev, server: e.target.value }))
                 }
-                placeholder="gate.example.com 或 203.0.113.10"
+                placeholder={t('residentialI18n.manager.serverPlaceholder')}
                 prefixIcon={<Server className="w-3.5 h-3.5" />}
               />
             </div>
             <Input
               id="residential-port"
-              label="端口"
+              label={t('residentialI18n.manager.portLabel')}
               required
               integerOnly
               inputMode="numeric"
@@ -413,13 +431,13 @@ export const ResidentialProxyManager: React.FC<
           <div className="grid grid-cols-2 gap-3">
             <Input
               id="residential-username"
-              label="认证用户名 (可选)"
+              label={t('residentialI18n.manager.usernameLabel')}
               autoComplete="off"
               value={form.username}
               onChange={(e) =>
                 setForm((prev) => ({ ...prev, username: e.target.value }))
               }
-              placeholder="username"
+              placeholder={t('residentialI18n.manager.usernamePlaceholder')}
               prefixIcon={<UserRound className="w-3.5 h-3.5" />}
             />
 
@@ -428,7 +446,7 @@ export const ResidentialProxyManager: React.FC<
                 htmlFor="residential-password"
                 className="block text-xs font-medium text-foreground mb-1.5"
               >
-                认证密码 (可选)
+                {t('residentialI18n.manager.passwordLabel')}
               </label>
               <div className="flex items-center gap-2">
                 <Input
@@ -442,7 +460,7 @@ export const ResidentialProxyManager: React.FC<
                       password: e.target.value,
                     }))
                   }
-                  placeholder="password"
+                  placeholder={t('residentialI18n.manager.passwordPlaceholder')}
                   prefixIcon={<KeyRound className="w-3.5 h-3.5" />}
                 />
                 <Button
@@ -451,8 +469,16 @@ export const ResidentialProxyManager: React.FC<
                   size="sm"
                   className="px-2"
                   onClick={() => setShowPassword((prev) => !prev)}
-                  aria-label={showPassword ? '隐藏密码' : '显示密码'}
-                  title={showPassword ? '隐藏密码' : '显示密码'}
+                  aria-label={
+                    showPassword
+                      ? t('residentialI18n.manager.hidePassword')
+                      : t('residentialI18n.manager.showPassword')
+                  }
+                  title={
+                    showPassword
+                      ? t('residentialI18n.manager.hidePassword')
+                      : t('residentialI18n.manager.showPassword')
+                  }
                   icon={
                     showPassword ? (
                       <EyeOff className="w-3.5 h-3.5" />
@@ -467,7 +493,7 @@ export const ResidentialProxyManager: React.FC<
 
           <p className="text-[10px] text-muted-foreground leading-relaxed flex items-center gap-1.5">
             <Lock className="w-3 h-3" />
-            用户名与密码需同时填写或同时留空；凭据仅写入本机配置文件，不会上传。
+            {t('residentialI18n.manager.credentialsHint')}
           </p>
         </form>
       ) : (
@@ -482,7 +508,9 @@ export const ResidentialProxyManager: React.FC<
           {loadingConfig && proxies.length === 0 ? (
             <div className="py-16 flex flex-col items-center justify-center gap-3 text-muted-foreground">
               <Loader2 className="w-7 h-7 animate-spin text-primary" />
-              <span className="text-xs">正在加载住宅出口配置...</span>
+              <span className="text-xs">
+                {t('residentialI18n.manager.loadingConfig')}
+              </span>
             </div>
           ) : proxies.length === 0 ? (
             <div className="border border-dashed border-border rounded-xl p-10 flex flex-col items-center justify-center text-center space-y-3 bg-card/30">
@@ -491,12 +519,10 @@ export const ResidentialProxyManager: React.FC<
               </div>
               <div className="space-y-1 max-w-sm">
                 <h3 className="text-sm font-semibold text-foreground">
-                  尚未配置住宅出口
+                  {t('residentialI18n.manager.emptyTitle')}
                 </h3>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  添加认证型 HTTP / SOCKS5
-                  住宅代理后，可在端口映射中选择该出口，形成「上游节点 →
-                  住宅出口 → 目标」的固定链路。
+                  {t('residentialI18n.manager.emptyDesc')}
                 </p>
               </div>
               <Button
@@ -507,7 +533,7 @@ export const ResidentialProxyManager: React.FC<
                 disabled={!isDesktop || !config}
                 icon={<Plus className="w-3.5 h-3.5" />}
               >
-                添加第一个住宅出口
+                {t('residentialI18n.manager.addFirst')}
               </Button>
             </div>
           ) : (
@@ -551,9 +577,14 @@ export const ResidentialProxyManager: React.FC<
                                 variant="primary"
                                 size="sm"
                                 className="shrink-0"
-                                title={`正被端口 ${usedPorts.join('、')} 使用`}
+                                title={t(
+                                  'residentialI18n.manager.usedByPortsTitle',
+                                  { ports: usedPorts.join(portSeparator) },
+                                )}
                               >
-                                {usedPorts.length} 个端口使用中
+                                {t('residentialI18n.manager.portsInUse', {
+                                  count: usedPorts.length,
+                                })}
                               </Badge>
                             ) : (
                               <Badge
@@ -561,7 +592,7 @@ export const ResidentialProxyManager: React.FC<
                                 size="sm"
                                 className="shrink-0"
                               >
-                                未使用
+                                {t('residentialI18n.manager.unused')}
                               </Badge>
                             )}
                           </div>
@@ -579,23 +610,35 @@ export const ResidentialProxyManager: React.FC<
                                   className="truncate"
                                   title={proxy.username}
                                 >
-                                  {proxy.username || '已配置凭据'}
+                                  {proxy.username ||
+                                    t(
+                                      'residentialI18n.manager.credentialConfigured',
+                                    )}
                                 </span>
                                 <Lock className="w-3 h-3 shrink-0 ml-0.5" />
-                                <span className="shrink-0">已配置认证</span>
+                                <span className="shrink-0">
+                                  {t('residentialI18n.manager.authConfigured')}
+                                </span>
                               </>
                             ) : (
                               <>
                                 <KeyRound className="w-3 h-3 shrink-0" />
-                                <span className="shrink-0">无认证</span>
+                                <span className="shrink-0">
+                                  {t('residentialI18n.manager.noAuth')}
+                                </span>
                               </>
                             )}
                             {isReferenced && (
                               <span
                                 className="truncate ml-1"
-                                title={`端口 ${usedPorts.join('、')}`}
+                                title={t('residentialI18n.manager.portsList', {
+                                  ports: usedPorts.join(portSeparator),
+                                })}
                               >
-                                · 端口 {usedPorts.join('、')}
+                                ·{' '}
+                                {t('residentialI18n.manager.portsList', {
+                                  ports: usedPorts.join(portSeparator),
+                                })}
                               </span>
                             )}
                           </div>
@@ -612,7 +655,7 @@ export const ResidentialProxyManager: React.FC<
                               loading={deletingId === proxy.id}
                               onClick={() => void handleDelete(proxy)}
                             >
-                              确认删除
+                              {t('residentialI18n.manager.confirmDelete')}
                             </Button>
                             <Button
                               type="button"
@@ -621,7 +664,7 @@ export const ResidentialProxyManager: React.FC<
                               disabled={deletingId === proxy.id}
                               onClick={() => setConfirmingDeleteId(null)}
                             >
-                              取消
+                              {t('residentialI18n.common.cancel')}
                             </Button>
                           </>
                         ) : (
@@ -637,10 +680,14 @@ export const ResidentialProxyManager: React.FC<
                                 )
                               }}
                               aria-expanded={isTestingOpen}
-                              title="使用已保存凭据测试实际链路出口"
+                              title={t(
+                                'residentialI18n.manager.testChainTitle',
+                              )}
                               icon={<Cable className="w-3.5 h-3.5" />}
                             >
-                              {isTestingOpen ? '收起测试' : '测试连接'}
+                              {isTestingOpen
+                                ? t('residentialI18n.manager.collapseTest')
+                                : t('residentialI18n.manager.testConnection')}
                             </Button>
                             <Button
                               type="button"
@@ -648,11 +695,14 @@ export const ResidentialProxyManager: React.FC<
                               size="icon"
                               disabled={!isDesktop}
                               onClick={() => startEdit(proxy)}
-                              aria-label={`编辑住宅出口 ${proxy.name}`}
+                              aria-label={t(
+                                'residentialI18n.manager.editAria',
+                                { name: proxy.name },
+                              )}
                               title={
                                 isDesktop
-                                  ? '编辑住宅出口'
-                                  : '仅支持桌面应用环境'
+                                  ? t('residentialI18n.manager.editTitle')
+                                  : t('residentialI18n.manager.desktopOnly')
                               }
                               icon={<Pencil className="w-3.5 h-3.5" />}
                             />
@@ -665,13 +715,21 @@ export const ResidentialProxyManager: React.FC<
                                 setTestingProxyId(null)
                                 setConfirmingDeleteId(proxy.id)
                               }}
-                              aria-label={`删除住宅出口 ${proxy.name}`}
+                              aria-label={t(
+                                'residentialI18n.manager.deleteAria',
+                                { name: proxy.name },
+                              )}
                               title={
                                 isReferenced
-                                  ? `正被端口 ${usedPorts.join('、')} 使用，请先解除绑定`
+                                  ? t(
+                                      'residentialI18n.manager.deleteBlockedTitle',
+                                      {
+                                        ports: usedPorts.join(portSeparator),
+                                      },
+                                    )
                                   : isDesktop
-                                    ? '删除住宅出口'
-                                    : '仅支持桌面应用环境'
+                                    ? t('residentialI18n.manager.deleteTitle')
+                                    : t('residentialI18n.manager.desktopOnly')
                               }
                               className={
                                 isReferenced
@@ -697,7 +755,7 @@ export const ResidentialProxyManager: React.FC<
                 (proxy) => (usageByProxyId[proxy.id] ?? []).length > 0,
               ) && (
                 <p className="text-[10px] text-muted-foreground leading-relaxed pt-1">
-                  被端口引用的住宅出口不能删除，需先在对应端口中解除绑定。
+                  {t('residentialI18n.manager.referencedNote')}
                 </p>
               )}
             </div>

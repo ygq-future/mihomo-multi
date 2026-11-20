@@ -1,6 +1,7 @@
 import { AlertCircle, FileCode, FolderOpen } from 'lucide-react'
 import type React from 'react'
 import { useState } from 'react'
+import { useTranslation } from '../../i18n'
 import { openConfigFilePicker } from '../../services/tauri'
 import { Button, Input, Modal } from '../common'
 interface AddLocalModalProps {
@@ -19,6 +20,7 @@ export const AddLocalModal: React.FC<AddLocalModalProps> = ({
   onClose,
   onSubmit,
 }) => {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [filePath, setFilePath] = useState('')
   const [loading, setLoading] = useState(false)
@@ -43,11 +45,11 @@ export const AddLocalModal: React.FC<AddLocalModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) {
-      setError('请输入配置名称')
+      setError(t('profileMain.errConfigNameRequired'))
       return
     }
     if (!filePath.trim()) {
-      setError('请输入本地 YAML 文件绝对路径')
+      setError(t('profileMain.errLocalPathRequired'))
       return
     }
 
@@ -69,8 +71,8 @@ export const AddLocalModal: React.FC<AddLocalModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="导入本地 YAML 订阅"
-      subtitle="复制本地 Clash 格式配置文件并解析节点"
+      title={t('profileMain.addLocalTitle')}
+      subtitle={t('profileMain.addLocalSubtitle')}
       icon={<FileCode className="w-4 h-4" />}
       maxWidth="md"
       footer={
@@ -81,10 +83,12 @@ export const AddLocalModal: React.FC<AddLocalModalProps> = ({
             onClick={onClose}
             disabled={loading}
           >
-            取消
+            {t('common.cancel')}
           </Button>
           <Button type="submit" form="add-local-form" loading={loading}>
-            {loading ? '正在解析导入...' : '确认导入'}
+            {loading
+              ? t('profileMain.importing')
+              : t('profileMain.confirmImport')}
           </Button>
         </>
       }
@@ -99,9 +103,9 @@ export const AddLocalModal: React.FC<AddLocalModalProps> = ({
 
         <Input
           id="local-name"
-          label="配置名称"
+          label={t('profileMain.configNameLabel')}
           required
-          placeholder="例如：本地备份节点"
+          placeholder={t('profileMain.configNamePlaceholder')}
           value={name}
           onChange={(e) => setName(e.target.value)}
           disabled={loading}
@@ -113,7 +117,7 @@ export const AddLocalModal: React.FC<AddLocalModalProps> = ({
             htmlFor="local-path"
             className="text-xs font-medium text-foreground flex items-center gap-1"
           >
-            <span>文件绝对路径</span>
+            <span>{t('profileMain.filePathLabel')}</span>
             <span className="text-destructive">*</span>
           </label>
           <div className="flex gap-2 items-center">
@@ -121,7 +125,7 @@ export const AddLocalModal: React.FC<AddLocalModalProps> = ({
               <Input
                 id="local-path"
                 required
-                placeholder="例如：C:\Users\Desktop\clash_config.yaml"
+                placeholder={t('profileMain.filePathPlaceholder')}
                 value={filePath}
                 onChange={(e) => setFilePath(e.target.value)}
                 disabled={loading}
@@ -134,11 +138,11 @@ export const AddLocalModal: React.FC<AddLocalModalProps> = ({
               disabled={loading}
               icon={<FolderOpen className="w-3.5 h-3.5" />}
             >
-              浏览...
+              {t('profileMain.browse')}
             </Button>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            系统将复制该文件并提取其中 proxies 节点池
+            {t('profileMain.filePathHint')}
           </p>
         </div>
       </form>
