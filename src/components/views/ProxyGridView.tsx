@@ -717,12 +717,29 @@ export const ProxyGridView: React.FC = () => {
               <Globe className="w-3.5 h-3.5 text-primary shrink-0" />
               {t('proxies.regionLabel')}
             </span>
-              <div className="flex-1 flex flex-wrap items-center gap-1.5">
+            <div className="flex-1 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleRegionFilterChange('all')}
+                className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${
+                  selectedRegionFilter === 'all'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'bg-secondary/70 text-muted-foreground hover:bg-secondary hover:text-foreground'
+                }`}
+              >
+                {t('proxies.allCount', { count: allNodes.length })}
+              </button>
+              {availableRegions.map((r) => (
                 <button
+                  key={r.code}
                   type="button"
-                  onClick={() => handleRegionFilterChange('all')}
-                  className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${
-                    selectedRegionFilter === 'all'
+                  onClick={() =>
+                    handleRegionFilterChange(
+                      selectedRegionFilter === r.code ? 'all' : r.code,
+                    )
+                  }
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
+                    selectedRegionFilter === r.code
                       ? 'bg-primary text-primary-foreground shadow-sm'
                       : 'bg-secondary/70 text-muted-foreground hover:bg-secondary hover:text-foreground'
                   }`}
@@ -731,27 +748,7 @@ export const ProxyGridView: React.FC = () => {
                   <span>{r.code}</span>
                   <span className="opacity-70 text-[10px]">({r.count})</span>
                 </button>
-                {availableRegions.map((r) => (
-                  <button
-                    key={r.code}
-                    type="button"
-                    onClick={() =>
-                      handleRegionFilterChange(
-                        selectedRegionFilter === r.code ? 'all' : r.code,
-                      )
-                    }
-                    className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
-                      selectedRegionFilter === r.code
-                        ? 'bg-primary text-primary-foreground shadow-sm'
-                        : 'bg-secondary/70 text-muted-foreground hover:bg-secondary hover:text-foreground'
-                    }`}
-                  >
-                    <RegionFlag code={r.code} size="sm" />
-                    <span>{r.code}</span>
-                    <span className="opacity-70 text-[10px]">({r.count})</span>
-                  </button>
-                ))}
-              </div>
+              ))}
             </div>
             {/* Row 2: Protocol Filters */}
             {availableProtocols.length > 0 && (

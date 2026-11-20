@@ -173,7 +173,6 @@ function formatLastCheckTime(ts: number | null): string {
   return new Date(ts).toLocaleString()
 }
 
-
 export const SettingView: React.FC = () => {
   const { t, locale, setLocale } = useTranslation()
   const themeOptions = useMemo(
