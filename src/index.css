@@ -159,3 +159,50 @@ input[type="number"] {
     opacity: 1;
   }
 }
+
+@property --scroll-fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --scroll-fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+.scroll-fade-y {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  --scroll-fade-size: 1.125rem;
+  scroll-padding-block: var(--scroll-fade-size);
+}
+
+@supports (animation-timeline: scroll()) and (mask-composite: subtract) {
+  .scroll-fade-y {
+    mask: linear-gradient(#000, #000) subtract,
+      linear-gradient(to bottom, #000, transparent) 0 0 / 100%
+      var(--scroll-fade-top) no-repeat,
+      linear-gradient(to bottom, transparent, #000) 0 100% / 100%
+      var(--scroll-fade-bottom) no-repeat;
+    animation: reveal-scroll-fade-top linear both, hide-scroll-fade-bottom
+      linear both;
+    animation-timeline: scroll(self block);
+    animation-range: 0 var(--scroll-fade-size),
+      calc(100% - var(--scroll-fade-size)) 100%;
+  }
+}
+
+@keyframes reveal-scroll-fade-top {
+  to {
+    --scroll-fade-top: var(--scroll-fade-size);
+  }
+}
+
+@keyframes hide-scroll-fade-bottom {
+  from {
+    --scroll-fade-bottom: var(--scroll-fade-size);
+  }
+}

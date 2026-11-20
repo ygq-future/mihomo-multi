@@ -16,6 +16,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// How often ports skipped as occupied are re-probed for availability.
 const OCCUPIED_PORT_RECHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+/// How often active Mihomo connections are sampled to record per-port process history.
+const PROCESS_HISTORY_SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// How long a silent lightweight startup keeps its hidden webview alive so the frontend can
 /// synchronize the tray locale before the webview is destroyed. If the frontend never calls
@@ -293,6 +295,25 @@ pub fn run() {
                 }
             });
 
+            // Background port process history sampler: periodically snapshots Mihomo active
+            // connections so short-lived client processes are retained per inbound port.
+            let history_state = app_state.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut ticker = tokio::time::interval(PROCESS_HISTORY_SAMPLE_INTERVAL);
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                ticker.tick().await;
+                loop {
+                    ticker.tick().await;
+                    history_state.sample_port_process_history().await;
+                }
+            });
+
+            // Warm up executable icon cache for historical port processes off the UI thread.
+            let icon_warm_state = app_state.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                icon_warm_state.warm_process_icons();
+            });
+
             // Start background profile auto-updater
             app_state.auto_updater.start(app_handle.clone(), app_state.clone());
 
@@ -394,6 +415,8 @@ pub fn run() {
             close_sniffer_webview,
             close_connection,
             close_all_connections,
+            get_port_process_history,
+            clear_port_process_history,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {

@@ -386,3 +386,14 @@ export interface SniffedAccessLogEntry {
   rule: string
   timestampMs: number
 }
+
+export interface PortProcessUsageItem {
+  processName: string
+  processPath?: string | null
+  firstSeenAt: number
+  lastSeenAt: number
+  hitCount: number
+  isActive: boolean
+  activeConnectionCount: number
+  iconDataUrl?: string | null
+}

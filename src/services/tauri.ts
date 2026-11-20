@@ -37,6 +37,7 @@ import type {
   PortDriftReport,
   PortFallbackStatus,
   PortMapping,
+  PortProcessUsageItem,
   ProfileItem,
   ProxyNode,
   ResidentialProxyTestResult,
@@ -1220,6 +1221,20 @@ export async function closeConnection(id: string): Promise<void> {
 export async function closeAllConnections(): Promise<void> {
   if (!isTauriEnvironment()) return
   return invoke<void>('close_all_connections')
+}
+
+export async function getPortProcessHistory(
+  port: number,
+): Promise<PortProcessUsageItem[]> {
+  if (!isTauriEnvironment()) {
+    return []
+  }
+  return invoke<PortProcessUsageItem[]>('get_port_process_history', { port })
+}
+
+export async function clearPortProcessHistory(port: number): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('clear_port_process_history', { port })
 }
 
 export async function openSnifferWebview(

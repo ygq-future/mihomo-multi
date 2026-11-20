@@ -808,6 +808,32 @@ pub struct SniffedAccessLogEntry {
     pub timestamp_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PortProcessRecord {
+    pub process_name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub process_path: Option<String>,
+    pub first_seen_at: u64,
+    pub last_seen_at: u64,
+    pub hit_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PortProcessUsageItem {
+    pub process_name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub process_path: Option<String>,
+    pub first_seen_at: u64,
+    pub last_seen_at: u64,
+    pub hit_count: u64,
+    pub is_active: bool,
+    pub active_connection_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub icon_data_url: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

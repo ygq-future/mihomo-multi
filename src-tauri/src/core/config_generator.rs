@@ -401,7 +401,7 @@ pub struct MinimalRuntimeConfig {
 }
 
 fn default_find_process_mode() -> String {
-    "off".to_string()
+    "always".to_string()
 }
 
 fn default_keep_alive_interval() -> u32 {
@@ -1070,7 +1070,7 @@ password: pass
         assert!(!yaml.contains("7893"));
         // MATCH,DIRECT is always present
         assert!(yaml.contains("MATCH,DIRECT"));
-        assert!(yaml.contains("find-process-mode: 'off'") || yaml.contains("find-process-mode: off"));
+        assert!(yaml.contains("find-process-mode: 'always'") || yaml.contains("find-process-mode: always"));
         assert!(yaml.contains("keep-alive-interval: 30"));
         assert!(yaml.contains("tcp-concurrent: true"));
         assert!(yaml.contains("unified-delay: true"));

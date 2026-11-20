@@ -6,6 +6,7 @@ import {
   Edit2,
   Globe,
   GripVertical,
+  History,
   Loader2,
   Network,
   Plus,
@@ -41,6 +42,7 @@ import type {
   LanIpInfo,
   PortDriftReport,
   PortMapping,
+  PortProcessUsageItem,
   ProfileItem,
 } from '../../types'
 import {
@@ -60,6 +62,10 @@ import {
 } from '../common'
 import { AddPortModal } from '../ports/AddPortModal'
 import { EditDirectPortModal } from '../ports/EditDirectPortModal'
+import {
+  PortProcessHistoryModal,
+  PortProcessList,
+} from '../ports/PortProcessHistoryModal'
 import { PortRulesModal } from '../ports/PortRulesModal'
 import { QuickCopyMenu } from '../ports/QuickCopyMenu'
 import { ProfileBadgeTooltip } from '../profiles/ProfileBadgeTooltip'
@@ -152,6 +158,36 @@ export const PortTableView: React.FC = () => {
   const [deletingMapping, setDeletingMapping] = useState<PortMapping | null>(
     null,
   )
+  const [deleteProcesses, setDeleteProcesses] = useState<
+    PortProcessUsageItem[]
+  >([])
+  const [isLoadingDeleteProcesses, setIsLoadingDeleteProcesses] =
+    useState(false)
+  const [historyModalPort, setHistoryModalPort] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!deletingMapping) {
+      setDeleteProcesses([])
+      setIsLoadingDeleteProcesses(false)
+      return
+    }
+    let cancelled = false
+    setIsLoadingDeleteProcesses(true)
+    api
+      .getPortProcessHistory(deletingMapping.port)
+      .then((list) => {
+        if (!cancelled) setDeleteProcesses(list)
+      })
+      .catch(() => {
+        if (!cancelled) setDeleteProcesses([])
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingDeleteProcesses(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [deletingMapping])
   const [isDeleting, setIsDeleting] = useState(false)
   const [togglingPortIds, setTogglingPortIds] = useState<
     Record<string, boolean>
@@ -2533,6 +2569,14 @@ export const PortTableView: React.FC = () => {
                         }
                         isEnvProxyLoading={isEnvProxyLoading}
                       />
+                      <button
+                        type="button"
+                        onClick={() => setHistoryModalPort(m.port)}
+                        className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                        title={t('ports.processHistoryActionTitle')}
+                      >
+                        <History className="w-3 h-3" />
+                      </button>
                       {isDirectCard ? (
                         <button
                           type="button"
@@ -2666,12 +2710,13 @@ export const PortTableView: React.FC = () => {
             port: deletingMapping.port,
           })}
           icon={<Trash2 className="w-4 h-4 text-destructive" />}
-          maxWidth="sm"
+          maxWidth={deleteProcesses.length > 0 ? 'md' : 'sm'}
           footer={
             <>
               <Button
                 variant="outline"
                 size="sm"
+                autoFocus
                 onClick={() => setDeletingMapping(null)}
                 disabled={isDeleting}
               >
@@ -2688,15 +2733,57 @@ export const PortTableView: React.FC = () => {
             </>
           }
         >
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            {deletingMapping.residentialProxyId
-              ? t('ports.deleteModalDescChain', { port: deletingMapping.port })
-              : t('ports.deleteModalDescNormal', {
-                  port: deletingMapping.port,
-                })}
-          </p>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {deletingMapping.residentialProxyId
+                ? t('ports.deleteModalDescChain', {
+                    port: deletingMapping.port,
+                  })
+                : t('ports.deleteModalDescNormal', {
+                    port: deletingMapping.port,
+                  })}
+            </p>
+            {isLoadingDeleteProcesses ? (
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-1">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                <span>{t('ports.processHistoryLoading')}</span>
+              </div>
+            ) : (
+              deleteProcesses.length > 0 && (
+                <div className="rounded-lg border border-border bg-muted/25 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-border/60 bg-amber-500/[0.08] flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span className="text-xs font-medium text-amber-700 dark:text-amber-300 leading-snug">
+                        {t('ports.deleteProcessWarningTitle', {
+                          port: deletingMapping.port,
+                        })}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-mono tabular-nums font-medium text-amber-700 dark:text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded shrink-0">
+                      {deleteProcesses.length}
+                    </span>
+                  </div>
+                  <div className="p-2">
+                    <PortProcessList items={deleteProcesses} compact />
+                  </div>
+                  <div className="px-3 py-1.5 border-t border-border/60 bg-muted/20">
+                    <p className="text-[11px] text-muted-foreground leading-snug">
+                      {t('ports.deleteProcessWarningDesc')}
+                    </p>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
         </Modal>
       )}
+
+      <PortProcessHistoryModal
+        isOpen={historyModalPort !== null}
+        port={historyModalPort}
+        onClose={() => setHistoryModalPort(null)}
+      />
     </div>
   )
 }

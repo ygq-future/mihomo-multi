@@ -1,11 +1,16 @@
 use crate::core::auto_updater::AutoUpdater;
 use crate::core::config_generator::RuntimeGeneratorParams;
+use crate::core::icon_cache::ExecutableIconCache;
 use crate::core::kernel_engine::KernelEngine;
 use crate::core::latency_probe::{AppLatencyEventEmitter, LatencyProbe};
 use crate::core::port_router::{PortChangeEvent, PortProbeContext, PortRouter};
+use crate::core::process_history::PortProcessHistoryStore;
 use crate::core::profile_manager::ProfileManager;
 use crate::error::AppResult;
-use crate::models::{AppConfig, EnvProxyStatus, PortMapping, ResidentialProxyTestResult, SystemProxyStatus, TunStatus};
+use crate::models::{
+    AppConfig, EnvProxyStatus, PortMapping, PortProcessUsageItem, ResidentialProxyTestResult, SystemProxyStatus,
+    TunStatus,
+};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -32,6 +37,8 @@ pub struct AppState {
     /// Serializes disposable residential-chain connectivity probes so only one isolated
     /// Mihomo instance and one transient config exist at a time.
     pub residential_probe_lock: Arc<tokio::sync::Mutex<()>>,
+    pub process_history: Arc<PortProcessHistoryStore>,
+    pub icon_cache: Arc<ExecutableIconCache>,
 }
 
 impl AppState {
@@ -71,6 +78,8 @@ impl AppState {
             &app_dir,
             latency_emitter.clone(),
         ));
+        let process_history = Arc::new(PortProcessHistoryStore::new(&app_dir));
+        let icon_cache = Arc::new(ExecutableIconCache::new(&app_dir));
         let app_handle = Arc::new(RwLock::new(None));
         let config_clone = config.clone();
         let suspended_proxy_clone = suspended_system_proxy.clone();
@@ -151,6 +160,8 @@ impl AppState {
             egress_probe_port,
             egress_probe_lock,
             residential_probe_lock,
+            process_history,
+            icon_cache,
         }
     }
 
@@ -514,6 +525,8 @@ impl AppState {
             let _ = crate::core::sysproxy::clear_env_proxy();
         }
         self.auto_updater.stop();
+        let _ = self.process_history.flush();
+        let _ = self.icon_cache.save_if_dirty();
         let _ = self.engine.stop();
     }
     /// Ensures system proxy is active either by restoring a crash-suspended proxy or applying configured proxy.
@@ -723,6 +736,12 @@ impl AppState {
         }
         let ctx = self.port_probe_context();
         let saved = self.port_router.save_port_mapping(mapping, &ctx)?;
+        if let Some(old) = previous.as_ref()
+            && old.port != saved.port
+            && !self.port_router.get_port_mappings().iter().any(|m| m.port == old.port)
+        {
+            let _ = self.process_history.clear_port(old.port);
+        }
         if chain_changed {
             let mut targets = vec![crate::core::config_generator::chain_proxy_name(saved.port)];
             if let Some(old) = previous
@@ -740,15 +759,100 @@ impl AppState {
     pub async fn delete_port_mapping(&self, id: &str) -> AppResult<()> {
         let previous = self.port_router.get_port_mapping_by_id(id);
         self.port_router.delete_port_mapping(id)?;
-        if let Some(mapping) = previous
-            && mapping.residential_proxy_id.is_some()
-        {
-            self.latency_probe
-                .remove_latencies(&[crate::core::config_generator::chain_proxy_name(mapping.port)])?;
+        if let Some(mapping) = previous {
+            if mapping.residential_proxy_id.is_some() {
+                self.latency_probe
+                    .remove_latencies(&[crate::core::config_generator::chain_proxy_name(mapping.port)])?;
+            }
+            if !self
+                .port_router
+                .get_port_mappings()
+                .iter()
+                .any(|m| m.port == mapping.port)
+            {
+                let _ = self.process_history.clear_port(mapping.port);
+            }
         }
         self.sync_runtime_with_event(PortChangeEvent::Deleted(id.to_string()))
             .await?;
         Ok(())
+    }
+
+    pub async fn sample_port_process_history(&self) {
+        if !self.engine.get_status().running {
+            return;
+        }
+        let allowed_ports: HashSet<u16> = self
+            .port_router
+            .get_port_mappings()
+            .into_iter()
+            .map(|m| m.port)
+            .collect();
+        if allowed_ports.is_empty() {
+            return;
+        }
+        if let Ok(snapshot) = self.engine.adapter().get_connections().await {
+            self.process_history.record_snapshot(&snapshot, &allowed_ports);
+            let paths: Vec<String> = snapshot
+                .connections
+                .iter()
+                .filter_map(|c| c.metadata.process_path.clone())
+                .collect();
+            if !paths.is_empty() {
+                let cache = self.icon_cache.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    cache.warm_paths(paths);
+                })
+                .await;
+            }
+        }
+    }
+
+    pub fn warm_process_icons(&self) {
+        let paths = self.process_history.all_process_paths();
+        if !paths.is_empty() {
+            self.icon_cache.warm_paths(paths);
+        }
+    }
+
+    pub async fn get_port_process_history(&self, port: u16) -> Vec<PortProcessUsageItem> {
+        let live_snapshot = if self.engine.get_status().running {
+            self.engine.adapter().get_connections().await.ok()
+        } else {
+            None
+        };
+        if let Some(ref snapshot) = live_snapshot {
+            let allowed_ports: HashSet<u16> = self
+                .port_router
+                .get_port_mappings()
+                .into_iter()
+                .map(|m| m.port)
+                .collect();
+            self.process_history.record_snapshot(snapshot, &allowed_ports);
+        }
+        let mut items = self.process_history.get_port_usage(port, live_snapshot.as_ref());
+        let paths_to_warm: Vec<String> = items
+            .iter()
+            .filter_map(|item| item.process_path.clone())
+            .collect();
+        if !paths_to_warm.is_empty() {
+            let cache = self.icon_cache.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                cache.warm_paths(paths_to_warm);
+            })
+            .await;
+        }
+        for item in &mut items {
+            item.icon_data_url = item
+                .process_path
+                .as_deref()
+                .and_then(|path| self.icon_cache.get_cached(path));
+        }
+        items
+    }
+
+    pub fn clear_port_process_history(&self, port: u16) -> AppResult<()> {
+        self.process_history.clear_port(port)
     }
 
     pub async fn toggle_port_mapping(&self, id: &str, enabled: bool) -> AppResult<PortMapping> {
@@ -1177,5 +1281,78 @@ mod tests {
         restarted.delete_port_mapping("chain-1").await.expect("delete chain");
         assert_eq!(restarted.latency_probe.get_latency(&target), None);
         std::fs::remove_dir_all(directory).expect("remove isolated application directory");
+    }
+
+    #[tokio::test]
+    async fn port_process_history_is_cleared_on_delete_and_port_change() {
+        let temp_dir = std::env::temp_dir().join(format!("mhm_state_hist_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let state = AppState::new(temp_dir.clone());
+
+        let port_a = save_mapping_on_free_port(&state, "hist-port", "node-a").await;
+        let port_b = state
+            .get_next_available_port(Some(port_a + 1), None)
+            .expect("find second free port");
+
+        let allowed: HashSet<u16> = [port_a, port_b].into_iter().collect();
+        let conn = crate::models::ConnectionItem {
+            id: "conn-1".to_string(),
+            metadata: crate::models::ConnectionMetadata {
+                inbound_port: Some(port_a.to_string()),
+                process: Some("chrome.exe".to_string()),
+                process_path: Some(r"C:\Chrome\chrome.exe".to_string()),
+                ..Default::default()
+            },
+            upload: 0,
+            download: 0,
+            start: "2026-11-20T00:00:00Z".to_string(),
+            chains: vec!["DIRECT".to_string()],
+            rule: format!("IN-PORT,{port_a},DIRECT"),
+            rule_payload: None,
+        };
+        state.process_history.record_snapshot(
+            &crate::models::ConnectionSnapshot {
+                connections: vec![conn],
+                ..Default::default()
+            },
+            &allowed,
+        );
+        assert_eq!(state.get_port_process_history(port_a).await.len(), 1);
+
+        let mut updated = state
+            .port_router
+            .get_port_mapping_by_id("hist-port")
+            .expect("mapping exists");
+        updated.port = port_b;
+        state.save_port_mapping(updated).await.expect("move port");
+        assert!(state.get_port_process_history(port_a).await.is_empty());
+
+        let conn_b = crate::models::ConnectionItem {
+            id: "conn-2".to_string(),
+            metadata: crate::models::ConnectionMetadata {
+                inbound_port: Some(port_b.to_string()),
+                process: Some("curl.exe".to_string()),
+                ..Default::default()
+            },
+            upload: 0,
+            download: 0,
+            start: "2026-11-20T00:00:00Z".to_string(),
+            chains: vec!["DIRECT".to_string()],
+            rule: format!("IN-PORT,{port_b},DIRECT"),
+            rule_payload: None,
+        };
+        state.process_history.record_snapshot(
+            &crate::models::ConnectionSnapshot {
+                connections: vec![conn_b],
+                ..Default::default()
+            },
+            &allowed,
+        );
+        assert_eq!(state.get_port_process_history(port_b).await.len(), 1);
+
+        state.delete_port_mapping("hist-port").await.expect("delete mapping");
+        assert!(state.get_port_process_history(port_b).await.is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

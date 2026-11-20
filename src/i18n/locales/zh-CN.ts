@@ -268,6 +268,27 @@ export const zhCN = {
     '删除后，Mihomo 将立即释放端口 {port}，该端口的「上游节点 → 住宅出口」链路将立即失效。',
   'ports.deleteModalDescNormal':
     '删除后，Mihomo 将立即释放端口 {port}，绑定的代理节点将不再接收该端口的流量。',
+  'ports.processHistoryTitle': '端口进程记录',
+  'ports.processHistorySubtitle': '端口 {port} 历史与当前经过的应用进程',
+  'ports.processHistoryActionTitle': '查看经过此端口的应用进程记录',
+  'ports.processHistoryLoading': '正在检查端口关联应用...',
+  'ports.processHistoryEmpty': '暂无通过此端口的本机应用进程记录',
+  'ports.processHistoryEmptyHint':
+    '当本机应用通过该端口发起代理连接时，会自动记录进程名称与路径。',
+  'ports.processHistoryActiveBadge': '当前活跃 · {count}',
+  'ports.processHistoryHits': '记录 {count} 次',
+  'ports.processHistoryLastSeen': '最近使用：{time}',
+  'ports.processHistoryRefresh': '刷新',
+  'ports.processHistoryClear': '清空记录',
+  'ports.processHistoryCleared': '已清空端口 {port} 的进程历史记录',
+  'ports.deleteProcessWarningTitle':
+    '检测到以下应用曾通过或正在使用端口 {port}',
+  'ports.deleteProcessWarningDesc':
+    '请先检查并在对应应用中解绑该代理端口，避免删除后应用无法联网，确认无误后再删除。',
+  'ports.timeJustNow': '刚刚',
+  'ports.timeMinutesAgo': '{count} 分钟前',
+  'ports.timeHoursAgo': '{count} 小时前',
+  'ports.timeDaysAgo': '{count} 天前',
   // Add/Edit Port Modal
   'addPort.residentialLoadFail': '住宅出口配置加载失败，请重试',
   'addPort.protocolText': '{protocol} 协议',

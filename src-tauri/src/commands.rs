@@ -6,8 +6,8 @@ use crate::error::CommandError;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
     DriftStatus, EnvProxyStatus, FIXED_DIRECT_PORT_ID, InboundProtocol, LanIpInfo, NodeLatencyResult, PortDriftReport,
-    PortFallbackStatus, PortMapping, ProfileItem, ProxyNode, ResidentialProxyTestResult, SniffedAccessLogEntry,
-    SystemProxyStatus, TunStatus, UwpAppInfo, UwpLoopbackStats, validate_residential_proxies,
+    PortFallbackStatus, PortMapping, PortProcessUsageItem, ProfileItem, ProxyNode, ResidentialProxyTestResult,
+    SniffedAccessLogEntry, SystemProxyStatus, TunStatus, UwpAppInfo, UwpLoopbackStats, validate_residential_proxies,
     validate_residential_proxy_removal,
 };
 use crate::state::AppState;
@@ -1938,6 +1938,19 @@ pub async fn close_all_connections(state: State<'_, AppState>) -> Result<(), Str
         .close_all_connections()
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_port_process_history(
+    port: u16,
+    state: State<'_, AppState>,
+) -> Result<Vec<PortProcessUsageItem>, String> {
+    Ok(state.get_port_process_history(port).await)
+}
+
+#[tauri::command]
+pub async fn clear_port_process_history(port: u16, state: State<'_, AppState>) -> Result<(), String> {
+    state.clear_port_process_history(port).map_err(|err| err.to_string())
 }
 
 #[tauri::command]

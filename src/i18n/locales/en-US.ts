@@ -299,6 +299,31 @@ export const enUS: Record<TranslationKey, string> = {
     'Mihomo will immediately release port {port}, and its Upstream → Residential Exit chain will stop working.',
   'ports.deleteModalDescNormal':
     'Mihomo will immediately release port {port}, and the bound proxy node will no longer receive traffic from it.',
+  'ports.processHistoryTitle': 'Port Process History',
+  'ports.processHistorySubtitle':
+    'Applications currently or previously using port {port}',
+  'ports.processHistoryActionTitle':
+    'View application process history for this port',
+  'ports.processHistoryLoading':
+    'Checking applications associated with this port...',
+  'ports.processHistoryEmpty':
+    'No local application process records on this port',
+  'ports.processHistoryEmptyHint':
+    'Local apps that route connections through this port will be recorded automatically.',
+  'ports.processHistoryActiveBadge': 'Active · {count}',
+  'ports.processHistoryHits': '{count} hits',
+  'ports.processHistoryLastSeen': 'Last seen: {time}',
+  'ports.processHistoryRefresh': 'Refresh',
+  'ports.processHistoryClear': 'Clear History',
+  'ports.processHistoryCleared': 'Cleared process history for port {port}',
+  'ports.deleteProcessWarningTitle':
+    'The following apps were seen using or are using port {port}',
+  'ports.deleteProcessWarningDesc':
+    'Please check and unbind this proxy port in those apps before deleting to prevent connectivity loss.',
+  'ports.timeJustNow': 'just now',
+  'ports.timeMinutesAgo': '{count}m ago',
+  'ports.timeHoursAgo': '{count}h ago',
+  'ports.timeDaysAgo': '{count}d ago',
   // Add/Edit Port Modal
   'addPort.residentialLoadFail':
     'Failed to load residential exits, please retry',
