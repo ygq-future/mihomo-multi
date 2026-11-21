@@ -24,7 +24,7 @@ export function SpeedSelect({
       {...props}
       renderOptionAction={(option) =>
         option.value && testOption ? (
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="ml-1 flex items-center gap-1.5 shrink-0">
             {renderOptionStatus?.(option)}
             <button
               type="button"
@@ -39,7 +39,7 @@ export function SpeedSelect({
                 event.stopPropagation()
                 void testOption(option)
               }}
-              className="shrink-0 min-h-6 min-w-6 flex items-center justify-center rounded hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+              className="shrink-0 min-h-6 min-w-6 px-1.5 flex items-center justify-center rounded hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
             >
               {testingValues?.[option.value] ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
