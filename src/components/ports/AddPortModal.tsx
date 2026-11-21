@@ -64,13 +64,9 @@ function getNodeLatencyScore(
   latencies: Record<string, number | null>,
 ): number {
   const lat = nodeKeyHasLatency(displayName, rawName, latencies)
-  if (lat !== undefined && lat !== null) {
-    return lat
-  }
-  if (lat === null) {
-    return 900000
-  }
-  return 999999
+  if (lat === null) return Number.POSITIVE_INFINITY
+  if (lat === undefined) return Number.MAX_SAFE_INTEGER
+  return lat
 }
 
 function compareNodesByLatencyAndName(
@@ -448,15 +444,23 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const sortedNodes = useMemo(() => {
     const list = [...allAvailableNodes]
     return list.sort((a, b) => {
-      const isBoundA = !isChainMode && boundNodeMap.has(a.uniqueKey)
-      const isBoundB = !isChainMode && boundNodeMap.has(b.uniqueKey)
-
-      if (isBoundA !== isBoundB) {
-        return isBoundA ? 1 : -1
+      const latencyA = nodeKeyHasLatency(a.displayName, a.name, latencies)
+      const latencyB = nodeKeyHasLatency(b.displayName, b.name, latencies)
+      if ((latencyA === null) !== (latencyB === null)) {
+        return latencyA === null ? 1 : -1
       }
+
+      if (latencyA !== null && selectedNodeRegion) {
+        const sameRegionA =
+          extractRegion(a.name).code === selectedNodeRegion.code
+        const sameRegionB =
+          extractRegion(b.name).code === selectedNodeRegion.code
+        if (sameRegionA !== sameRegionB) return sameRegionA ? -1 : 1
+      }
+
       return compareNodesByLatencyAndName(a, b, latencies, locale)
     })
-  }, [allAvailableNodes, boundNodeMap, latencies, isChainMode, locale])
+  }, [allAvailableNodes, latencies, locale, selectedNodeRegion])
 
   const nodeOptions = useMemo(() => {
     return sortedNodes.map((n) => {
