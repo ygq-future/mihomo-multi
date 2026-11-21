@@ -25,6 +25,7 @@ import type {
   NodeAnalyticsSummary,
 } from '../../types'
 import { formatBytes } from '../../utils/traffic'
+import { extractRegion, getRegionSearchKeywords } from '../../utils/proxy'
 import { Badge, Button, Input, Modal, Segmented, Slider } from '../common'
 
 type SortField =
@@ -60,6 +61,32 @@ function scoreColorClass(score: number): string {
   if (score >= 70) return 'text-blue-500'
   if (score >= 55) return 'text-amber-500'
   return 'text-rose-500'
+}
+
+function successRateColorClass(rate: number): string {
+  if (rate >= 95) return 'text-emerald-500 font-medium'
+  if (rate >= 85) return 'text-blue-500 font-medium'
+  if (rate >= 70) return 'text-amber-500 font-medium'
+  return 'text-rose-500 font-medium'
+}
+
+function latencyColorClass(ms: number): string {
+  if (ms <= 120) return 'text-emerald-500 font-medium'
+  if (ms <= 260) return 'text-blue-500 font-medium'
+  if (ms <= 500) return 'text-amber-500 font-medium'
+  return 'text-rose-500 font-medium'
+}
+
+function jitterColorClass(ms: number): string {
+  if (ms <= 25) return 'text-emerald-500/85'
+  if (ms <= 60) return 'text-amber-500/90'
+  return 'text-rose-500/90'
+}
+
+function anomalyCountColorClass(count: number): string {
+  if (count <= 0) return 'text-muted-foreground'
+  if (count <= 2) return 'text-amber-500 font-medium'
+  return 'text-rose-500 font-medium'
 }
 
 function scoreBarFill(score: number): string {
@@ -372,7 +399,13 @@ export const AnalyticsDashboardView: React.FC = () => {
     if (!dashboard) return []
     const q = search.trim().toLowerCase()
     const list = q
-      ? dashboard.nodes.filter((n) => n.nodeName.toLowerCase().includes(q))
+      ? dashboard.nodes.filter((n) => {
+          if (n.nodeName.toLowerCase().includes(q)) return true
+          const region = extractRegion(n.nodeName)
+          return getRegionSearchKeywords(region).some((kw) =>
+            kw.toLowerCase().includes(q),
+          )
+        })
       : [...dashboard.nodes]
     list.sort((a, b) => {
       const av =
@@ -760,12 +793,12 @@ export const AnalyticsDashboardView: React.FC = () => {
                 {t('analytics.tableTitle')} ({filteredNodes.length})
               </span>
               <div className="relative w-56">
-                <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={t('analytics.searchPlaceholder')}
-                  className="pl-8"
+                  className="pl-7"
                 />
               </div>
             </div>
@@ -830,35 +863,58 @@ export const AnalyticsDashboardView: React.FC = () => {
                         >
                           {node.score.toFixed(1)}
                         </td>
-                        <td className="px-2.5 py-2 text-right tabular-nums text-foreground">
+                        <td
+                          className={`px-2 py-2 text-right tabular-nums ${successRateColorClass(node.successRate)}`}
+                        >
                           {node.successRate.toFixed(0)}%
                         </td>
-                        <td className="px-2.5 py-2 text-right tabular-nums text-foreground">
+                        <td
+                          className={`px-2 py-2 text-right tabular-nums ${anomalyCountColorClass(node.timeoutCount)}`}
+                        >
                           {node.timeoutCount}
                         </td>
-                        <td className="px-2.5 py-2 text-right tabular-nums text-muted-foreground">
+                        <td
+                          className={`px-2 py-2 text-right tabular-nums ${
+                            node.timeoutDurationMs > 0
+                              ? 'text-amber-500'
+                              : 'text-muted-foreground'
+                          }`}
+                        >
                           {formatDurationMs(node.timeoutDurationMs)}
                         </td>
-                        <td className="px-2.5 py-2 text-right tabular-nums text-foreground">
+                        <td
+                          className={`px-2 py-2 text-right tabular-nums ${anomalyCountColorClass(node.connectionErrors)}`}
+                        >
                           {node.connectionErrors}
                         </td>
-                        <td className="px-2.5 py-2 text-right tabular-nums text-foreground">
+                        <td className="px-2 py-2 text-right tabular-nums text-foreground">
                           {formatSpeed(node.avgSpeedBps)}
                         </td>
-                        <td className="px-2.5 py-2 text-right tabular-nums text-emerald-500">
+                        <td className="px-2 py-2 text-right tabular-nums text-emerald-500 font-medium">
                           {formatSpeed(node.maxSpeedBps)}
                         </td>
-                        <td className="px-2.5 py-2 text-right tabular-nums text-muted-foreground">
+                        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
                           {formatSpeed(node.minSpeedBps)}
                         </td>
-                        <td className="px-2.5 py-2 text-right tabular-nums text-muted-foreground">
-                          {node.avgLatencyMs != null
-                            ? `${Math.round(node.avgLatencyMs)}ms${
-                                node.jitterMs != null
-                                  ? ` ±${Math.round(node.jitterMs)}`
-                                  : ''
-                              }`
-                            : '—'}
+                        <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap">
+                          {node.avgLatencyMs != null ? (
+                            <span>
+                              <span
+                                className={latencyColorClass(node.avgLatencyMs)}
+                              >
+                                {Math.round(node.avgLatencyMs)}ms
+                              </span>
+                              {node.jitterMs != null && (
+                                <span
+                                  className={`ml-1 text-[11px] ${jitterColorClass(node.jitterMs)}`}
+                                >
+                                  ±{Math.round(node.jitterMs)}
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </td>
                       </tr>
                     )
