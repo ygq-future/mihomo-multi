@@ -14,9 +14,10 @@ import {
   Zap,
 } from 'lucide-react'
 import type React from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import * as api from '../../services/tauri'
+import { useWindowVisibility } from '../../services/useWindowVisibility'
 import { toast } from '../../stores/toastStore'
 import type {
   AnalyticsTimelinePoint,
@@ -370,30 +371,51 @@ export const AnalyticsDashboardView: React.FC = () => {
   const [savingWeights, setSavingWeights] = useState<boolean>(false)
   const [clearModalOpen, setClearModalOpen] = useState<boolean>(false)
 
-  const fetchDashboard = useCallback(async (hours: number) => {
-    setLoading(true)
-    try {
-      const data = await api.getNodeAnalyticsDashboard(hours)
-      setDashboard(data)
-      setDraftWeights(data.weights)
-      setSelectedNodeName((prev) => {
-        if (prev && data.nodes.some((n) => n.nodeName === prev)) return prev
-        return data.nodes[0]?.nodeName ?? null
-      })
-    } catch (err) {
-      toast.error(String(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const isWindowVisible = useWindowVisibility()
+  const inFlightRef = useRef(false)
+  const weightsModalOpenRef = useRef(weightsModalOpen)
+  weightsModalOpenRef.current = weightsModalOpen
+
+  const fetchDashboard = useCallback(
+    async (hours: number, options?: { silent?: boolean }) => {
+      if (inFlightRef.current) return
+      inFlightRef.current = true
+      const silent = options?.silent ?? false
+      if (!silent) {
+        setLoading(true)
+      }
+      try {
+        const data = await api.getNodeAnalyticsDashboard(hours)
+        setDashboard(data)
+        if (!weightsModalOpenRef.current) {
+          setDraftWeights(data.weights)
+        }
+        setSelectedNodeName((prev) => {
+          if (prev && data.nodes.some((n) => n.nodeName === prev)) return prev
+          return data.nodes[0]?.nodeName ?? null
+        })
+      } catch (err) {
+        if (!silent) {
+          toast.error(String(err))
+        }
+      } finally {
+        inFlightRef.current = false
+        if (!silent) {
+          setLoading(false)
+        }
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
+    if (!isWindowVisible) return
     void fetchDashboard(windowHours)
     const timer = window.setInterval(() => {
-      void fetchDashboard(windowHours)
+      void fetchDashboard(windowHours, { silent: true })
     }, 10_000)
     return () => window.clearInterval(timer)
-  }, [fetchDashboard, windowHours])
+  }, [fetchDashboard, windowHours, isWindowVisible])
 
   const filteredNodes = useMemo(() => {
     if (!dashboard) return []

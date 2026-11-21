@@ -1151,7 +1151,7 @@ fn format_tray_tooltip_for(app: &AppHandle, locale: TrayLocale) -> String {
     let mappings = state.port_router.get_port_mappings();
     let total_ports = mappings.len();
     let enabled_ports = mappings.iter().filter(|m| m.enabled).count();
-
+    let core_running = state.engine.get_status().running;
     let config = state.config.read();
     let sys_proxy_str = if config.system_proxy_enabled {
         match config.system_proxy_port {
@@ -1178,7 +1178,7 @@ fn format_tray_tooltip_for(app: &AppHandle, locale: TrayLocale) -> String {
     } else {
         disabled.to_string()
     };
-    let core_status = if state.engine.get_status().running {
+    let core_status = if core_running {
         text.core_running
     } else {
         text.core_stopped

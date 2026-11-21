@@ -959,10 +959,7 @@ impl MinimalRuntimeConfig {
         {
             return Ok(false);
         }
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(AppError::Io)?;
-        }
-        std::fs::write(path, yaml).map_err(AppError::Io)?;
+        crate::core::profile_manager::atomic_write_file(path, yaml.as_bytes())?;
         Ok(true)
     }
 }

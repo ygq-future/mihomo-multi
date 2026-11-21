@@ -468,41 +468,69 @@ pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState)
     let was_running = state.engine.get_status().running;
     if was_running {
         info!("Stopping running Mihomo kernel to unlock binary file");
-        if let Err(e) = state.engine.stop() {
-            warn!("Failed to cleanly stop engine prior to kernel replacement: {}", e);
+        let engine = state.engine.clone();
+        match tokio::task::spawn_blocking(move || engine.stop()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => warn!("Failed to cleanly stop engine prior to kernel replacement: {}", e),
+            Err(e) => warn!("Engine stop task panicked prior to kernel replacement: {}", e),
         }
         // Give Windows a brief moment to finish process handle teardown
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
 
-    // 6. Clean replacement: remove target if exists, rename temp into place
-    if target_path.exists() {
-        std::fs::remove_file(&target_path).map_err(|e| {
+    // 6. Backup-then-swap replacement so a failed move never leaves the user without a kernel
+    let backup_path = target_path.with_file_name(format!(
+        ".bak_{}",
+        target_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("mihomo")
+    ));
+    let has_backup = if target_path.exists() {
+        let _ = std::fs::remove_file(&backup_path);
+        std::fs::rename(&target_path, &backup_path).map_err(|e| {
             AppError::Internal(crate::tr!(
                 format!(
-                    "删除旧内核文件失败 {}: {}",
+                    "备份旧内核文件失败 {}: {}",
                     target_path.display(),
                     e
                 ),
                 format!(
-                    "Failed to remove old kernel file at {}: {}",
+                    "Failed to back up old kernel file at {}: {}",
                     target_path.display(),
                     e
                 ),
             ))
         })?;
-    }
+        true
+    } else {
+        false
+    };
 
-    std::fs::rename(&temp_target, &target_path).map_err(|e| {
-        AppError::Internal(crate::tr!(
+    if let Err(e) = std::fs::rename(&temp_target, &target_path) {
+        if has_backup {
+            if let Err(restore_err) = std::fs::rename(&backup_path, &target_path) {
+                warn!("Failed to restore kernel backup after swap failure: {}", restore_err);
+            } else if was_running {
+                let engine = state.engine.clone();
+                let app_clone = app.clone();
+                let config = state.config.read().clone();
+                let _ = tokio::task::spawn_blocking(move || engine.start(Some(&app_clone), &config)).await;
+            }
+        }
+        return Err(AppError::Internal(crate::tr!(
             format!("放置新内核到 {} 失败: {}", target_path.display(), e),
             format!(
                 "Failed to place new kernel into {}: {}",
                 target_path.display(),
                 e
             ),
-        ))
-    })?;
+        )));
+    }
+
+    if has_backup {
+        let _ = std::fs::remove_file(&backup_path);
+    }
 
     // Thorough cleanup of any leftover temporary files
     cleanup_downloading_files(target_dir);
@@ -510,9 +538,13 @@ pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState)
     // 7. Restart engine if it was previously running
     if was_running {
         info!("Restarting Mihomo engine with upgraded kernel");
+        let engine = state.engine.clone();
+        let app_clone = app.clone();
         let config = state.config.read().clone();
-        if let Err(e) = state.engine.start(Some(app), &config) {
-            warn!("Failed to restart engine with new kernel: {}", e);
+        match tokio::task::spawn_blocking(move || engine.start(Some(&app_clone), &config)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => warn!("Failed to restart engine with new kernel: {}", e),
+            Err(e) => warn!("Engine restart task panicked with new kernel: {}", e),
         }
     }
     Ok(KernelUpgradeResult {

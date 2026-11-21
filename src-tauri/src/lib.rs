@@ -260,19 +260,40 @@ pub fn run() {
             }
             tauri::async_runtime::spawn(async move {
                 if let Some(pid) = restart_from_pid {
-                    crate::core::elevation::wait_for_process_exit(pid, 10_000);
+                    let _ = tokio::task::spawn_blocking(move || {
+                        crate::core::elevation::wait_for_process_exit(pid, 10_000);
+                    })
+                    .await;
                 }
                 let _ = state_clone.sync_runtime_config().await;
-                if let Err(err) = engine.start(Some(&handle), &config) {
-                    error!("Failed to auto-start Mihomo core: {}", err);
-                    let _ = handle.emit("core-status-changed", ());
-                } else {
-                    info!("Mihomo core auto-started successfully");
-                    if !state_clone.ensure_system_proxy_active() && !is_dev_instance {
-                        let _ = crate::core::sysproxy::clear_system_proxy();
+                let start_engine = engine.clone();
+                let start_handle = handle.clone();
+                let start_config = config.clone();
+                let start_res = tokio::task::spawn_blocking(move || {
+                    start_engine.start(Some(&start_handle), &start_config)
+                })
+                .await;
+                match start_res {
+                    Ok(Ok(_)) => {
+                        info!("Mihomo core auto-started successfully");
+                        let proxy_state = state_clone.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            if !proxy_state.ensure_system_proxy_active() && !is_dev_instance {
+                                let _ = crate::core::sysproxy::clear_system_proxy();
+                            }
+                        })
+                        .await;
+                        tray::update_tray_menu(&handle);
+                        let _ = handle.emit("core-status-changed", ());
                     }
-                    tray::update_tray_menu(&handle);
-                    let _ = handle.emit("core-status-changed", ());
+                    Ok(Err(err)) => {
+                        error!("Failed to auto-start Mihomo core: {}", err);
+                        let _ = handle.emit("core-status-changed", ());
+                    }
+                    Err(err) => {
+                        error!("Auto-start Mihomo core task failed: {}", err);
+                        let _ = handle.emit("core-status-changed", ());
+                    }
                 }
             });
 

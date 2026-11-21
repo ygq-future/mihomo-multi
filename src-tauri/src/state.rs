@@ -309,8 +309,8 @@ impl AppState {
     }
     /// Builds the current port probe context from active config and core status.
     pub fn port_probe_context(&self) -> PortProbeContext {
-        let cfg = self.config.read();
         let status = self.engine.get_status();
+        let cfg = self.config.read();
         let mut reserved_ports = vec![cfg.controller_port];
         if let Some(probe_port) = *self.egress_probe_port.read() {
             reserved_ports.push(probe_port);
@@ -591,6 +591,7 @@ impl AppState {
             let _ = crate::core::sysproxy::clear_env_proxy();
         }
         self.auto_updater.stop();
+        let _ = self.latency_probe.persist_cache();
         let _ = self.process_history.flush();
         let _ = self.node_analytics.flush();
         let _ = self.icon_cache.save_if_dirty();

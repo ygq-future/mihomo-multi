@@ -53,16 +53,28 @@ pub async fn start_core(app: AppHandle, state: State<'_, AppState>) -> Result<Co
             )
         })?;
     let config = state.config.read().clone();
-    let res = state.engine.start(Some(&app), &config).map_err(|err| err.to_string())?;
-    state.ensure_system_proxy_active();
+    let engine = state.engine.clone();
+    let app_clone = app.clone();
+    let res = tokio::task::spawn_blocking(move || engine.start(Some(&app_clone), &config))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+        .map_err(|err| err.to_string())?;
+    let proxy_state = state.inner().clone();
+    let _ = tokio::task::spawn_blocking(move || proxy_state.ensure_system_proxy_active()).await;
     crate::tray::update_tray_menu(&app);
     Ok(res)
 }
 
 #[tauri::command]
 pub async fn stop_core(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    state.deactivate_egress_on_core_stop();
-    state.engine.stop().map_err(|err| err.to_string())?;
+    let stop_state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        stop_state.deactivate_egress_on_core_stop();
+        stop_state.engine.stop()
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+    .map_err(|err| err.to_string())?;
     crate::tray::update_tray_menu(&app);
     Ok(())
 }
@@ -79,11 +91,14 @@ pub async fn restart_core(app: AppHandle, state: State<'_, AppState>) -> Result<
             )
         })?;
     let config = state.config.read().clone();
-    let res = state
-        .engine
-        .restart(Some(&app), &config)
+    let engine = state.engine.clone();
+    let app_clone = app.clone();
+    let res = tokio::task::spawn_blocking(move || engine.restart(Some(&app_clone), &config))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
         .map_err(|err| err.to_string())?;
-    state.ensure_system_proxy_active();
+    let proxy_state = state.inner().clone();
+    let _ = tokio::task::spawn_blocking(move || proxy_state.ensure_system_proxy_active()).await;
     crate::tray::update_tray_menu(&app);
     Ok(res)
 }
@@ -174,32 +189,36 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
         }
     }
 
-    if config.system_proxy_enabled != old_config.system_proxy_enabled
+    let sys_proxy_changed = config.system_proxy_enabled != old_config.system_proxy_enabled
         || config.system_proxy_port != old_config.system_proxy_port
-        || config.system_proxy_bypass_user != old_config.system_proxy_bypass_user
-    {
-        if config.system_proxy_enabled {
-            if let Some(port) = config.system_proxy_port {
-                let _ = crate::core::sysproxy::apply_system_proxy(port, &config.system_proxy_bypass_user);
-            }
-        } else {
-            let _ = crate::core::sysproxy::clear_system_proxy();
-        }
-    }
-
-    if config.env_proxy_enabled != old_config.env_proxy_enabled
+        || config.system_proxy_bypass_user != old_config.system_proxy_bypass_user;
+    let env_proxy_changed = config.env_proxy_enabled != old_config.env_proxy_enabled
         || config.env_proxy_port != old_config.env_proxy_port
-        || (config.env_proxy_enabled && config.system_proxy_bypass_user != old_config.system_proxy_bypass_user)
-    {
-        if config.env_proxy_enabled {
-            if let Some(port) = config.env_proxy_port {
-                let _ = crate::core::sysproxy::apply_env_proxy(port, &config.system_proxy_bypass_user);
+        || (config.env_proxy_enabled && config.system_proxy_bypass_user != old_config.system_proxy_bypass_user);
+    if sys_proxy_changed || env_proxy_changed {
+        let cfg_for_proxy = config.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            if sys_proxy_changed {
+                if cfg_for_proxy.system_proxy_enabled {
+                    if let Some(port) = cfg_for_proxy.system_proxy_port {
+                        let _ = crate::core::sysproxy::apply_system_proxy(port, &cfg_for_proxy.system_proxy_bypass_user);
+                    }
+                } else {
+                    let _ = crate::core::sysproxy::clear_system_proxy();
+                }
             }
-        } else {
-            let _ = crate::core::sysproxy::clear_env_proxy();
-        }
+            if env_proxy_changed {
+                if cfg_for_proxy.env_proxy_enabled {
+                    if let Some(port) = cfg_for_proxy.env_proxy_port {
+                        let _ = crate::core::sysproxy::apply_env_proxy(port, &cfg_for_proxy.system_proxy_bypass_user);
+                    }
+                } else {
+                    let _ = crate::core::sysproxy::clear_env_proxy();
+                }
+            }
+        })
+        .await;
     }
-
     let config_changed = *state.config.read() != config;
     if config_changed {
         state.persist_config(&config).map_err(|error| error.to_string())?;
@@ -213,7 +232,13 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
         || config.tun_enabled != old_config.tun_enabled)
         && let Ok(exe_path) = std::env::current_exe()
     {
-        crate::core::autostart::sync_autostart_state(&config, &exe_path).map_err(|e| {
+        let cfg_for_autostart = config.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::core::autostart::sync_autostart_state(&cfg_for_autostart, &exe_path)
+        })
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+        .map_err(|e| {
             crate::tr!(
                 format!("同步开机自启状态失败: {e}"),
                 format!("Failed to sync autostart state: {e}"),
@@ -294,7 +319,10 @@ pub async fn set_env_proxy(
     port: Option<u16>,
     state: State<'_, AppState>,
 ) -> Result<EnvProxyStatus, String> {
-    let status = state.apply_env_proxy_transition(enabled, port)?;
+    let state_clone = state.inner().clone();
+    let status = tokio::task::spawn_blocking(move || state_clone.apply_env_proxy_transition(enabled, port))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))??;
     crate::tray::update_tray_menu(&app);
     Ok(status)
 }
@@ -330,17 +358,28 @@ pub async fn set_tun(
     let config = state.prepare_tun_transition(enabled, port)?;
 
     if let Ok(exe_path) = std::env::current_exe() {
-        let _ = crate::core::autostart::sync_autostart_state(&config, &exe_path);
+        let cfg_for_autostart = config.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::core::autostart::sync_autostart_state(&cfg_for_autostart, &exe_path)
+        })
+        .await;
     }
 
     if enabled && !elevated {
-        let _ = state.engine.stop();
-        if let Err(e) =
-            crate::core::elevation::relaunch_as_admin(&[format!("--restart-from-pid={}", std::process::id())])
-        {
+        let engine_stop = state.engine.clone();
+        let _ = tokio::task::spawn_blocking(move || engine_stop.stop()).await;
+        let relaunch_arg = format!("--restart-from-pid={}", std::process::id());
+        let relaunch_res = tokio::task::spawn_blocking(move || {
+            crate::core::elevation::relaunch_as_admin(&[relaunch_arg])
+        })
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?;
+        if let Err(e) = relaunch_res {
             // UAC 被拒绝或启动失败：回滚开关并恢复内核，避免留下"已开启但内核已停止"的破损状态
             let rollback = state.rollback_tun_transition();
-            let _ = state.engine.start(Some(&app), &rollback);
+            let engine_start = state.engine.clone();
+            let app_clone = app.clone();
+            let _ = tokio::task::spawn_blocking(move || engine_start.start(Some(&app_clone), &rollback)).await;
             return Err(e.to_string());
         }
         let handle = app.clone();
@@ -353,7 +392,13 @@ pub async fn set_tun(
 
     let _ = state.sync_runtime_config().await;
     if enabled && !state.engine.get_status().running {
-        state.engine.start(Some(&app), &config).map_err(|e| e.to_string())?;
+        let engine_start = state.engine.clone();
+        let app_clone = app.clone();
+        let cfg_start = config.clone();
+        tokio::task::spawn_blocking(move || engine_start.start(Some(&app_clone), &cfg_start))
+            .await
+            .map_err(|e| format!("Task join error: {e}"))?
+            .map_err(|e| e.to_string())?;
     }
     crate::tray::update_tray_menu(&app);
     Ok(state.build_tun_status())
@@ -364,11 +409,20 @@ pub async fn restart_as_admin(app: AppHandle, state: State<'_, AppState>) -> Res
     if crate::core::elevation::is_elevated() {
         return Ok(());
     }
-    let _ = state.engine.stop();
-    if let Err(e) = crate::core::elevation::relaunch_as_admin(&[format!("--restart-from-pid={}", std::process::id())]) {
+    let engine_stop = state.engine.clone();
+    let _ = tokio::task::spawn_blocking(move || engine_stop.stop()).await;
+    let relaunch_arg = format!("--restart-from-pid={}", std::process::id());
+    let relaunch_res = tokio::task::spawn_blocking(move || {
+        crate::core::elevation::relaunch_as_admin(&[relaunch_arg])
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?;
+    if let Err(e) = relaunch_res {
         // UAC 被拒绝：恢复内核，避免留下无内核运行的破损状态
         let config = state.config.read().clone();
-        let _ = state.engine.start(Some(&app), &config);
+        let engine_start = state.engine.clone();
+        let app_clone = app.clone();
+        let _ = tokio::task::spawn_blocking(move || engine_start.start(Some(&app_clone), &config)).await;
         return Err(e.to_string());
     }
     let handle = app.clone();
@@ -382,18 +436,27 @@ pub async fn restart_as_admin(app: AppHandle, state: State<'_, AppState>) -> Res
 #[tauri::command]
 pub async fn get_uwp_loopback_status(state: State<'_, AppState>) -> Result<UwpLoopbackStats, String> {
     let auto_exempt = state.config.read().uwp_auto_exempt;
-    crate::core::sysproxy::get_uwp_loopback_stats(auto_exempt).map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(move || crate::core::sysproxy::get_uwp_loopback_stats(auto_exempt))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn refresh_uwp_loopback_status(state: State<'_, AppState>) -> Result<UwpLoopbackStats, String> {
     let auto_exempt = state.config.read().uwp_auto_exempt;
-    crate::core::sysproxy::refresh_and_cleanup_uwp_loopback(auto_exempt).map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(move || crate::core::sysproxy::refresh_and_cleanup_uwp_loopback(auto_exempt))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn exempt_all_uwp_loopback(state: State<'_, AppState>) -> Result<UwpLoopbackStats, String> {
-    let stats = crate::core::sysproxy::exempt_all_uwp_loopback().map_err(|e| e.to_string())?;
+    let stats = tokio::task::spawn_blocking(crate::core::sysproxy::exempt_all_uwp_loopback)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+        .map_err(|e| e.to_string())?;
     if !state.config.read().uwp_auto_exempt {
         let mut config = state.config.read().clone();
         config.uwp_auto_exempt = true;
@@ -404,7 +467,10 @@ pub async fn exempt_all_uwp_loopback(state: State<'_, AppState>) -> Result<UwpLo
 
 #[tauri::command]
 pub async fn clear_all_uwp_loopback(state: State<'_, AppState>) -> Result<UwpLoopbackStats, String> {
-    let stats = crate::core::sysproxy::clear_all_uwp_loopback().map_err(|e| e.to_string())?;
+    let stats = tokio::task::spawn_blocking(crate::core::sysproxy::clear_all_uwp_loopback)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+        .map_err(|e| e.to_string())?;
     if state.config.read().uwp_auto_exempt {
         let mut config = state.config.read().clone();
         config.uwp_auto_exempt = false;
@@ -415,7 +481,10 @@ pub async fn clear_all_uwp_loopback(state: State<'_, AppState>) -> Result<UwpLoo
 
 #[tauri::command]
 pub async fn get_uwp_app_list() -> Result<Vec<UwpAppInfo>, String> {
-    crate::core::sysproxy::get_uwp_app_list().map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(crate::core::sysproxy::get_uwp_app_list)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+        .map_err(|e| e.to_string())
 }
 
 // ----------------------------------------------------------------------------
@@ -864,6 +933,9 @@ pub async fn test_all_port_mappings_delay(
     };
 
     for res in &results {
+        if res.error.as_deref() == Some("Cancelled") {
+            continue;
+        }
         if let Some(mapping_id) = mapping_id_map.get(&res.name) {
             let _ = state.port_router.update_port_latency(mapping_id, res.latency);
         }
@@ -1679,8 +1751,11 @@ pub fn get_latency_cache(state: State<'_, AppState>) -> Result<std::collections:
 }
 
 #[tauri::command]
-pub fn clear_latency_cache(state: State<'_, AppState>) -> Result<(), String> {
-    state.latency_probe.clear_latencies();
+pub async fn clear_latency_cache(state: State<'_, AppState>) -> Result<(), String> {
+    let probe = state.latency_probe.clone();
+    tokio::task::spawn_blocking(move || probe.clear_latencies())
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?;
     Ok(())
 }
 

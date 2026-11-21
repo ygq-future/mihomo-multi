@@ -91,7 +91,8 @@ pub struct LatencyProbe {
     cache: Arc<RwLock<HashMap<String, Option<u32>>>>,
     storage_path: PathBuf,
     emitter: Arc<dyn LatencyEventEmitter>,
-    active_token: Arc<RwLock<Option<CancellationToken>>>,
+    active_token: Arc<RwLock<Option<(u64, CancellationToken)>>>,
+    batch_seq: Arc<std::sync::atomic::AtomicU64>,
     concurrency_pool: Arc<Semaphore>,
     persist_lock: Arc<parking_lot::Mutex<()>>,
     last_persisted_at: Arc<parking_lot::Mutex<Option<std::time::Instant>>>,
@@ -113,6 +114,7 @@ impl LatencyProbe {
             storage_path,
             emitter,
             active_token: Arc::new(RwLock::new(None)),
+            batch_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             concurrency_pool: Arc::new(Semaphore::new(DEFAULT_PROBE_CONCURRENCY)),
             persist_lock: Arc::new(parking_lot::Mutex::new(())),
             last_persisted_at: Arc::new(parking_lot::Mutex::new(None)),
@@ -264,7 +266,7 @@ impl LatencyProbe {
     /// Cancel any ongoing latency tests
     pub fn cancel_tests(&self) {
         let mut guard = self.active_token.write();
-        if let Some(token) = guard.take() {
+        if let Some((_, token)) = guard.take() {
             token.cancel();
             self.emitter.emit_progress(&LatencyProgressPayload {
                 is_testing: false,
@@ -279,7 +281,7 @@ impl LatencyProbe {
         self.active_token
             .read()
             .as_ref()
-            .map(|t| !t.is_cancelled())
+            .map(|(_, t)| !t.is_cancelled())
             .unwrap_or(false)
     }
     /// Internal helper executing bounded-concurrency delay probe with timeout guard.
@@ -435,11 +437,11 @@ impl LatencyProbe {
         // Cancel previous active run if any
         self.cancel_tests();
 
+        let batch_id = self.batch_seq.fetch_add(1, Ordering::SeqCst) + 1;
         let token = CancellationToken::new();
         {
-            *self.active_token.write() = Some(token.clone());
+            *self.active_token.write() = Some((batch_id, token.clone()));
         }
-
         let bounded_concurrency = concurrency
             .unwrap_or(DEFAULT_PROBE_CONCURRENCY)
             .clamp(MIN_PROBE_CONCURRENCY, MAX_PROBE_CONCURRENCY);
@@ -511,7 +513,20 @@ impl LatencyProbe {
                 // Slight stagger to prevent socket connection spikes
                 if index > 0 {
                     let stagger_ms = ((index % 8) as u64) * 20;
-                    tokio::time::sleep(Duration::from_millis(stagger_ms)).await;
+                    tokio::select! {
+                        biased;
+                        _ = token.cancelled() => {
+                            return (
+                                index,
+                                target.name.clone(),
+                                target.runtime_name.clone(),
+                                target.mapping_id.clone(),
+                                None,
+                                Some("Cancelled".to_string()),
+                            );
+                        }
+                        _ = tokio::time::sleep(Duration::from_millis(stagger_ms)) => {}
+                    }
                 }
 
                 if token.is_cancelled() {
@@ -529,14 +544,28 @@ impl LatencyProbe {
                 let timeout_duration = Duration::from_millis(u64::from(target_timeout) + 1500);
                 let test_fut = engine.test_delay(probe_target, url_opt.as_deref(), Some(target_timeout));
 
-                let result = match tokio::time::timeout(timeout_duration, test_fut).await {
-                    Ok(res) => res,
-                    Err(_) => Err(AppError::ExternalController(format!(
-                        "Latency test timed out after {}ms",
-                        target_timeout
-                    ))),
+                let result = tokio::select! {
+                    biased;
+                    _ = token.cancelled() => {
+                        return (
+                            index,
+                            target.name.clone(),
+                            target.runtime_name.clone(),
+                            target.mapping_id.clone(),
+                            None,
+                            Some("Cancelled".to_string()),
+                        );
+                    }
+                    res = tokio::time::timeout(timeout_duration, test_fut) => {
+                        match res {
+                            Ok(inner) => inner,
+                            Err(_) => Err(AppError::ExternalController(format!(
+                                "Latency test timed out after {}ms",
+                                target_timeout
+                            ))),
+                        }
+                    }
                 };
-
                 let (latency, error) = match result {
                     Ok(delay) => (Some(delay), None),
                     Err(err) => (None, Some(err.to_string())),
@@ -600,20 +629,24 @@ impl LatencyProbe {
         // Persist all accumulated latencies to disk atomically
         let _ = self.persist_cache();
 
-        // Mark testing finished
-        {
+        // Only clear active_token and emit finished if no newer batch has superseded this run.
+        let is_current_batch = {
             let mut guard = self.active_token.write();
-            if guard.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) || guard.is_some() {
+            if guard.as_ref().is_some_and(|(id, _)| *id == batch_id) {
                 *guard = None;
+                true
+            } else {
+                false
             }
+        };
+
+        if is_current_batch {
+            self.emitter.emit_progress(&LatencyProgressPayload {
+                is_testing: false,
+                total,
+                completed: completed_counter.load(Ordering::SeqCst),
+            });
         }
-
-        self.emitter.emit_progress(&LatencyProgressPayload {
-            is_testing: false,
-            total,
-            completed: completed_counter.load(Ordering::SeqCst),
-        });
-
         final_results
     }
 }
@@ -922,6 +955,42 @@ mod tests {
         let disk_third: HashMap<String, Option<u32>> =
             serde_json::from_str(&std::fs::read_to_string(temp_dir.join("latencies.json")).unwrap()).unwrap();
         assert_eq!(disk_third.get("Node-A").copied(), Some(Some(61)));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_superseded_batch_does_not_clear_active_token() {
+        let temp_dir = std::env::temp_dir().join(format!("test_supersede_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let fake_adapter = Arc::new(FakeControllerAdapter::new());
+        fake_adapter.set_node_delay("Slow-Node", 50);
+        fake_adapter.set_node_delay("Fast-Node", 20);
+        let emitter = Arc::new(MockLatencyEventEmitter::new());
+        let probe = Arc::new(LatencyProbe::new(fake_adapter, &temp_dir, emitter));
+
+        let p1 = probe.clone();
+        let batch1 = tokio::spawn(async move {
+            p1.test_nodes_batch(
+                &[BatchProbeTarget::new("Slow-Node"), BatchProbeTarget::new("Fast-Node")],
+                None,
+                Some(2000),
+                Some(1),
+            )
+            .await
+        });
+
+        // Yield so batch1 registers its token before batch2 supersedes it
+        tokio::task::yield_now().await;
+        let results2 = probe
+            .test_nodes_batch(&[BatchProbeTarget::new("Fast-Node")], None, Some(2000), Some(1))
+            .await;
+        let _ = batch1.await;
+
+        assert_eq!(results2.len(), 1);
+        assert_eq!(results2[0].latency, Some(20));
+        assert!(!probe.is_testing());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

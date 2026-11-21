@@ -773,11 +773,13 @@ impl SupervisorInner {
 #[derive(Clone)]
 pub struct CoreSupervisor {
     inner: Arc<Mutex<SupervisorInner>>,
+    /// Serializes start/stop/restart transitions without blocking `get_status()`.
+    /// Lock ordering: always acquire `lifecycle_lock` before `inner`.
+    lifecycle_lock: Arc<Mutex<()>>,
     work_dir: PathBuf,
     crash_handler: Arc<parking_lot::RwLock<Option<CrashCallback>>>,
     log_callback: Arc<parking_lot::RwLock<Option<LogLineCallback>>>,
 }
-
 impl CoreSupervisor {
     pub fn new(work_dir: PathBuf) -> Self {
         #[cfg(windows)]
@@ -802,6 +804,7 @@ impl CoreSupervisor {
 
         Self {
             inner: Arc::new(Mutex::new(inner)),
+            lifecycle_lock: Arc::new(Mutex::new(())),
             work_dir,
             crash_handler: Arc::new(parking_lot::RwLock::new(None)),
             log_callback: Arc::new(parking_lot::RwLock::new(None)),
@@ -828,6 +831,7 @@ impl CoreSupervisor {
 
         Self {
             inner: Arc::new(Mutex::new(inner)),
+            lifecycle_lock: Arc::new(Mutex::new(())),
             work_dir,
             crash_handler: Arc::new(parking_lot::RwLock::new(None)),
             log_callback: Arc::new(parking_lot::RwLock::new(None)),
@@ -977,32 +981,38 @@ impl CoreSupervisor {
     }
 
     pub fn start(&self, app_handle: Option<&tauri::AppHandle>, config: &AppConfig) -> AppResult<CoreStatus> {
-        let mut inner = self.inner.lock();
+        let _lifecycle = self.lifecycle_lock.lock();
+        self.start_locked(app_handle, config)
+    }
 
-        // If already running, check if process is still alive
-        if inner.simulated {
-            if inner.pid.is_some() {
-                info!("Simulated Mihomo core is already running with PID: {:?}", inner.pid);
-                inner.last_error = None;
-                return Ok(self.status_from_inner(&inner));
-            }
-        } else if let Some(ref mut child) = inner.child {
-            match child.try_wait() {
-                Ok(None) => {
-                    info!("Mihomo core is already running with PID: {:?}", inner.pid);
+    fn start_locked(&self, app_handle: Option<&tauri::AppHandle>, config: &AppConfig) -> AppResult<CoreStatus> {
+        let simulated = {
+            let mut inner = self.inner.lock();
+            if inner.simulated {
+                if inner.pid.is_some() {
+                    info!("Simulated Mihomo core is already running with PID: {:?}", inner.pid);
                     inner.last_error = None;
                     return Ok(self.status_from_inner(&inner));
                 }
-                Ok(Some(status)) => {
-                    warn!("Previous Mihomo process exited with status: {}", status);
-                    inner.child = None;
-                }
-                Err(err) => {
-                    warn!("Failed to check previous process status: {}", err);
-                    inner.child = None;
+            } else if let Some(ref mut child) = inner.child {
+                match child.try_wait() {
+                    Ok(None) => {
+                        info!("Mihomo core is already running with PID: {:?}", inner.pid);
+                        inner.last_error = None;
+                        return Ok(self.status_from_inner(&inner));
+                    }
+                    Ok(Some(status)) => {
+                        warn!("Previous Mihomo process exited with status: {}", status);
+                        inner.child = None;
+                    }
+                    Err(err) => {
+                        warn!("Failed to check previous process status: {}", err);
+                        inner.child = None;
+                    }
                 }
             }
-        }
+            inner.simulated
+        };
 
         // 1. Check if controller port is available before spawning
         if !crate::core::port_probe::is_port_available(
@@ -1021,13 +1031,13 @@ impl CoreSupervisor {
                     config.controller_port
                 ),
             );
-            inner.last_error = Some(err_msg.clone());
+            self.inner.lock().last_error = Some(err_msg.clone());
             return Err(AppError::SidecarExecution(err_msg));
         }
 
         // Ensure working directory and runtime configuration exist
         if let Err(e) = std::fs::create_dir_all(&self.work_dir).map_err(AppError::Io) {
-            inner.last_error = Some(e.to_string());
+            self.inner.lock().last_error = Some(e.to_string());
             return Err(e);
         }
 
@@ -1036,12 +1046,13 @@ impl CoreSupervisor {
             let minimal_config =
                 MinimalRuntimeConfig::new(config.controller_port, &config.controller_secret, &config.log_level);
             if let Err(e) = minimal_config.write_to_file(&runtime_yaml_path) {
-                inner.last_error = Some(e.to_string());
+                self.inner.lock().last_error = Some(e.to_string());
                 return Err(e);
             }
         }
 
-        if inner.simulated {
+        if simulated {
+            let mut inner = self.inner.lock();
             inner.pid = Some(99999);
             inner.start_time = Some(Instant::now());
             inner.version = Some("Mihomo (simulated) v1.19.0".to_string());
@@ -1058,12 +1069,11 @@ impl CoreSupervisor {
         let sidecar_path = match self.locate_sidecar(app_handle) {
             Ok(p) => p,
             Err(e) => {
-                inner.last_error = Some(e.to_string());
+                self.inner.lock().last_error = Some(e.to_string());
                 return Err(e);
             }
         };
         let version = self.query_version(&sidecar_path);
-
         // Clean up legacy Geo files (.dat / .metadb / .mmdb) to reclaim disk space
         crate::core::geo_manager::cleanup_legacy_geo_files(&self.work_dir);
 
@@ -1113,7 +1123,7 @@ impl CoreSupervisor {
         }) {
             Ok(c) => c,
             Err(e) => {
-                inner.last_error = Some(e.to_string());
+                self.inner.lock().last_error = Some(e.to_string());
                 return Err(e);
             }
         };
@@ -1141,7 +1151,7 @@ impl CoreSupervisor {
                         today_log_path.display()
                     ),
                 );
-                inner.last_error = Some(err_msg.clone());
+                self.inner.lock().last_error = Some(err_msg.clone());
                 return Err(AppError::SidecarExecution(err_msg));
             }
             Err(err) => {
@@ -1153,6 +1163,7 @@ impl CoreSupervisor {
         let pid = child.id();
         info!("Mihomo sidecar process spawned successfully, PID: {}", pid);
 
+        let mut inner = self.inner.lock();
         #[cfg(windows)]
         {
             if let Some(ref job) = inner.job_object {
@@ -1161,7 +1172,6 @@ impl CoreSupervisor {
         }
 
         inner.child = Some(child);
-        inner.start_time = Some(Instant::now());
         inner.pid = Some(pid);
         inner.version = version;
         inner.sidecar_path = sidecar_path;
@@ -1227,31 +1237,38 @@ impl CoreSupervisor {
     }
 
     pub fn stop(&self) -> AppResult<()> {
-        let mut inner = self.inner.lock();
-        inner.intentional_stop = true;
-        inner.generation += 1;
-        if inner.simulated {
-            inner.pid = None;
+        let _lifecycle = self.lifecycle_lock.lock();
+        self.stop_locked()
+    }
+
+    fn stop_locked(&self) -> AppResult<()> {
+        let (child, pid) = {
+            let mut inner = self.inner.lock();
+            inner.intentional_stop = true;
+            inner.generation += 1;
+            let pid = inner.pid;
             inner.start_time = None;
+            inner.pid = None;
             inner.last_error = None;
-            return Ok(());
-        }
-        if let Some(mut child) = inner.child.take() {
-            info!("Stopping Mihomo sidecar process (PID: {:?})", inner.pid);
+            if inner.simulated {
+                return Ok(());
+            }
+            (inner.child.take(), pid)
+        };
+        if let Some(mut child) = child {
+            info!("Stopping Mihomo sidecar process (PID: {:?})", pid);
             let _ = child.kill();
             let _ = child.wait();
             info!("Mihomo sidecar stopped");
         }
-        inner.start_time = None;
-        inner.pid = None;
-        inner.last_error = None;
         Ok(())
     }
 
     pub fn restart(&self, app_handle: Option<&tauri::AppHandle>, config: &AppConfig) -> AppResult<CoreStatus> {
-        self.stop()?;
+        let _lifecycle = self.lifecycle_lock.lock();
+        self.stop_locked()?;
         std::thread::sleep(std::time::Duration::from_millis(150));
-        self.start(app_handle, config)
+        self.start_locked(app_handle, config)
     }
 
     pub fn get_status(&self) -> CoreStatus {

@@ -862,27 +862,67 @@ export const SettingView: React.FC = () => {
       .catch(() => {})
   }, [fetchConfig])
 
+  const prevSyncedConfigRef = useRef<typeof config>(null)
+
   useEffect(() => {
-    if (config) {
+    if (!config) return
+    const prev = prevSyncedConfigRef.current
+    prevSyncedConfigRef.current = config
+
+    if (!prev || prev.controllerPort !== config.controllerPort) {
       setControllerPortInput(String(config.controllerPort))
+    }
+    if (!prev || prev.logLevel !== config.logLevel) {
       setLogLevel(config.logLevel)
+    }
+    if (!prev || prev.allowLan !== config.allowLan) {
       setAllowLan(config.allowLan ?? false)
+    }
+    if (!prev || prev.theme !== config.theme) {
       setTheme(config.theme ?? 'system')
+    }
+    if (!prev || prev.acrylicEffect !== config.acrylicEffect) {
       setAcrylicEffect(config.acrylicEffect ?? false)
+    }
+    if (!prev || prev.acrylicBlur !== config.acrylicBlur) {
       setAcrylicBlur(config.acrylicBlur ?? DEFAULT_ACRYLIC_BLUR)
+    }
+    if (!prev || prev.acrylicOpacity !== config.acrylicOpacity) {
       setAcrylicOpacity(config.acrylicOpacity ?? DEFAULT_ACRYLIC_OPACITY)
+    }
+    if (!prev || prev.backgroundImage !== config.backgroundImage) {
       setBgImage(config.backgroundImage ?? '')
+    }
+    if (!prev || prev.backgroundOpacity !== config.backgroundOpacity) {
       setBgOpacity(config.backgroundOpacity ?? DEFAULT_BACKGROUND_OPACITY)
+    }
+    if (!prev || prev.closeToTray !== config.closeToTray) {
       setCloseToTray(config.closeToTray ?? true)
+    }
+    if (!prev || prev.autoLaunch !== config.autoLaunch) {
       setAutoLaunch(config.autoLaunch ?? false)
+    }
+    if (!prev || prev.silentStart !== config.silentStart) {
       setSilentStart(config.silentStart ?? false)
+    }
+    if (!prev || prev.lightweightMode !== config.lightweightMode) {
       setLightweightMode(config.lightweightMode ?? false)
+    }
+    if (!prev || prev.checkUpdateOnStart !== config.checkUpdateOnStart) {
       setCheckUpdateOnStart(config.checkUpdateOnStart ?? true)
+    }
+    if (!prev || prev.testUrl !== config.testUrl) {
       setTestUrl(config.testUrl ?? DEFAULT_TEST_URL)
+    }
+    if (!prev || prev.timeoutMs !== config.timeoutMs) {
       setTimeoutMsInput(String(config.timeoutMs ?? DEFAULT_TIMEOUT_MS))
+    }
+    if (!prev || prev.fallbackInterval !== config.fallbackInterval) {
       setFallbackIntervalInput(
         String(config.fallbackInterval ?? DEFAULT_FALLBACK_INTERVAL),
       )
+    }
+    if (!prev || prev.fallbackLazy !== config.fallbackLazy) {
       setFallbackLazy(config.fallbackLazy ?? DEFAULT_FALLBACK_LAZY)
     }
   }, [config])

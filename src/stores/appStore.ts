@@ -140,9 +140,7 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
           currentCore.pid !== core.pid ||
           currentCore.controllerPort !== core.controllerPort ||
           currentCore.secret !== core.secret ||
-          currentCore.lastError !== core.lastError ||
-          currentCore.uptimeSeconds !== core.uptimeSeconds
-
+          currentCore.lastError !== core.lastError
         const appChanged =
           !currentApp ||
           currentApp.version !== appStatus.version ||

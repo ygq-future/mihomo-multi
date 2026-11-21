@@ -340,6 +340,33 @@ impl Drop for TempFileCleanup {
     }
 }
 
+#[cfg(windows)]
+fn replace_file_atomic(src: &Path, dst: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    };
+    let src_w: Vec<u16> = src.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let dst_w: Vec<u16> = dst.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let ok = unsafe {
+        MoveFileExW(
+            src_w.as_ptr(),
+            dst_w.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if ok != 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_file_atomic(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::rename(src, dst)
+}
+
 /// Atomically write bytes to a file by writing to a sibling temporary file and renaming it.
 pub fn atomic_write_file(path: &Path, content: &[u8]) -> AppResult<()> {
     // If file already exists and content is byte-for-byte identical, skip redundant write & rename
@@ -366,15 +393,14 @@ pub fn atomic_write_file(path: &Path, content: &[u8]) -> AppResult<()> {
 
     std::fs::write(&temp_path, content).map_err(AppError::Io)?;
 
-    let mut rename_result = std::fs::rename(&temp_path, path);
+    let mut rename_result = replace_file_atomic(&temp_path, path);
     if rename_result.is_err() {
-        let _ = std::fs::remove_file(path);
         for attempt in 0..5 {
-            rename_result = std::fs::rename(&temp_path, path);
+            std::thread::sleep(std::time::Duration::from_millis(10 * (attempt + 1)));
+            rename_result = replace_file_atomic(&temp_path, path);
             if rename_result.is_ok() {
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(10 * (attempt + 1)));
         }
     }
 
@@ -1505,6 +1531,28 @@ proxies:
         assert_eq!(info.remaining_bytes, Some(100 * 1024 * 1024 * 1024));
         assert!(info.never_expires);
         assert_eq!(manager.get_profile_nodes("sub-1").expect("nodes retained").len(), 3);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn atomic_write_file_replaces_existing_without_temp_residue() {
+        let temp_dir = std::env::temp_dir().join(format!("atomic_write_test_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let target = temp_dir.join("config.json");
+
+        atomic_write_file(&target, b"{\"v\":1}").expect("initial write");
+        assert_eq!(std::fs::read(&target).expect("read v1"), b"{\"v\":1}");
+
+        atomic_write_file(&target, b"{\"v\":2}").expect("overwrite");
+        assert_eq!(std::fs::read(&target).expect("read v2"), b"{\"v\":2}");
+
+        let leftover_temps: Vec<_> = std::fs::read_dir(&temp_dir)
+            .expect("read dir")
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".tmp_"))
+            .collect();
+        assert!(leftover_temps.is_empty(), "expected no leftover .tmp_ files");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

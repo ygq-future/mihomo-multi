@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FIXED_DIRECT_PORT_ID } from '../../constants'
 import { createEventScope } from '../../services/events'
 import * as api from '../../services/tauri'
+import { useWindowVisibility } from '../../services/useWindowVisibility'
 import { useTranslation } from '../../i18n'
 import type {
   PortMapping,
@@ -317,8 +318,19 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
       isPollingRef.current = false
     }
   }, [])
+  const isWindowVisible = useWindowVisibility()
+
   useEffect(() => {
-    if (!isOpen || !isSniffing) {
+    return () => {
+      if (isSandboxActiveRef.current) {
+        isSandboxActiveRef.current = false
+        void api.closeSnifferWebview().catch(() => {})
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isOpen || !isSniffing || !isWindowVisible) {
       return
     }
     void pollSnifferConnections()
@@ -326,7 +338,7 @@ export const TrafficSnifferPanel: React.FC<TrafficSnifferPanelProps> = ({
       void pollSnifferConnections()
     }, 300)
     return () => clearInterval(timer)
-  }, [isOpen, isSniffing, pollSnifferConnections])
+  }, [isOpen, isSniffing, isWindowVisible, pollSnifferConnections])
 
   const existingCustomDomainsSet = useMemo(() => {
     const set = new Set<string>()

@@ -140,8 +140,10 @@ export function useAppUpdateCheck(): void {
     }
   }, [config, runCheck])
 
+  const autoCheckEnabled = Boolean(config && config.checkUpdateOnStart !== false)
+
   useEffect(() => {
-    if (!config || config.checkUpdateOnStart === false) return
+    if (!autoCheckEnabled) return
 
     const maybeCheck = () => {
       if (isCheckingRef.current) return
@@ -152,5 +154,5 @@ export function useAppUpdateCheck(): void {
 
     const timer = setInterval(maybeCheck, DAILY_CHECK_TICK_MS)
     return () => clearInterval(timer)
-  }, [config, runCheck])
+  }, [autoCheckEnabled, runCheck])
 }
