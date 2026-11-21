@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
 pub const MAX_PROCESS_RECORDS_PER_PORT: usize = 50;
-const PERSIST_THROTTLE_MS: u64 = 15_000;
+const LAST_SEEN_TOUCH_INTERVAL_MS: u64 = 60_000;
 
 fn now_epoch_ms() -> u64 {
     u64::try_from(
@@ -217,92 +217,77 @@ impl PortProcessHistoryStore {
     }
 
     pub fn record_snapshot_at(&self, snapshot: &ConnectionSnapshot, allowed_ports: &HashSet<u16>, now_ms: u64) {
-        let mut persist_payload: Option<(BTreeMap<u16, Vec<PortProcessRecord>>, u64)> = None;
+        let mut guard = self.state.write();
+        let active_ids: HashSet<&str> = snapshot.connections.iter().map(|c| c.id.as_str()).collect();
+        guard.seen_conn_ids.retain(|id| active_ids.contains(id.as_str()));
+        let mut mutated = false;
+        let mut touched_ports: HashSet<u16> = HashSet::new();
 
-        {
-            let mut guard = self.state.write();
-            self.sync_from_disk_locked(&mut guard);
-            let active_ids: HashSet<String> = snapshot.connections.iter().map(|c| c.id.clone()).collect();
-            guard.seen_conn_ids.retain(|id| active_ids.contains(id));
-            let mut new_process_added = false;
-            let mut mutated = false;
-            let mut touched_ports: HashSet<u16> = HashSet::new();
+        for conn in &snapshot.connections {
+            let Some(port) = extract_inbound_port(&conn.metadata) else {
+                continue;
+            };
+            if !allowed_ports.contains(&port) {
+                continue;
+            }
+            let Some((proc_name, proc_path)) = extract_process_identity(&conn.metadata) else {
+                continue;
+            };
 
-            for conn in &snapshot.connections {
-                let Some(port) = extract_inbound_port(&conn.metadata) else {
-                    continue;
-                };
-                if !allowed_ports.contains(&port) {
-                    continue;
-                }
-                let Some((proc_name, proc_path)) = extract_process_identity(&conn.metadata) else {
-                    continue;
-                };
+            let is_new_conn = guard.seen_conn_ids.insert(conn.id.clone());
+            let norm_path = proc_path.as_deref().map(normalize_token);
+            let norm_name = normalize_token(&proc_name);
+            let list = guard.records.entry(port).or_default();
 
-                let is_new_conn = guard.seen_conn_ids.insert(conn.id.clone());
-                let list = guard.records.entry(port).or_default();
-
-                if let Some(existing) = list
-                    .iter_mut()
-                    .find(|item| records_match(item, &proc_name, proc_path.as_deref()))
-                {
-                    if now_ms > existing.last_seen_at {
-                        existing.last_seen_at = now_ms;
-                        mutated = true;
-                        touched_ports.insert(port);
-                    }
-                    if existing.process_path.is_none() && proc_path.is_some() {
-                        existing.process_path = proc_path;
-                        existing.process_name = proc_name;
-                        mutated = true;
-                        touched_ports.insert(port);
-                    }
-                    if is_new_conn {
-                        existing.hit_count = existing.hit_count.saturating_add(1);
-                        mutated = true;
-                    }
-                } else {
-                    list.push(PortProcessRecord {
-                        process_name: proc_name,
-                        process_path: proc_path,
-                        first_seen_at: now_ms,
-                        last_seen_at: now_ms,
-                        hit_count: 1,
-                    });
-                    new_process_added = true;
+            if let Some(existing) = list.iter_mut().find(|item| match (&item.process_path, &norm_path) {
+                (Some(rp), Some(np)) => normalize_token(rp) == *np,
+                _ => normalize_token(&item.process_name) == norm_name,
+            }) {
+                let should_touch_last_seen = now_ms > existing.last_seen_at
+                    && (is_new_conn
+                        || now_ms.saturating_sub(existing.last_seen_at) >= LAST_SEEN_TOUCH_INTERVAL_MS);
+                if should_touch_last_seen {
+                    existing.last_seen_at = now_ms;
                     mutated = true;
                     touched_ports.insert(port);
                 }
-            }
-
-            for port in touched_ports {
-                if let Some(list) = guard.records.get_mut(&port) {
-                    list.sort_by(|a, b| {
-                        b.last_seen_at
-                            .cmp(&a.last_seen_at)
-                            .then_with(|| a.process_name.cmp(&b.process_name))
-                    });
-                    if list.len() > MAX_PROCESS_RECORDS_PER_PORT {
-                        list.truncate(MAX_PROCESS_RECORDS_PER_PORT);
-                    }
+                if existing.process_path.is_none() && proc_path.is_some() {
+                    existing.process_path = proc_path;
+                    existing.process_name = proc_name;
+                    mutated = true;
+                    touched_ports.insert(port);
                 }
-            }
-            if mutated {
-                guard.generation = guard.generation.saturating_add(1);
-            }
-
-            let should_persist = guard.generation > guard.persisted_generation
-                && (new_process_added || now_ms.saturating_sub(guard.last_persisted_at) >= PERSIST_THROTTLE_MS);
-
-            if should_persist {
-                persist_payload = Some((guard.records.clone(), guard.generation));
+                if is_new_conn {
+                    existing.hit_count = existing.hit_count.saturating_add(1);
+                    mutated = true;
+                }
+            } else {
+                list.push(PortProcessRecord {
+                    process_name: proc_name,
+                    process_path: proc_path,
+                    first_seen_at: now_ms,
+                    last_seen_at: now_ms,
+                    hit_count: 1,
+                });
+                mutated = true;
+                touched_ports.insert(port);
             }
         }
 
-        if let Some((records, generation)) = persist_payload
-            && let Err(e) = self.write_snapshot(&records, generation, now_ms)
-        {
-            warn!("Failed to persist port process history: {}", e);
+        for port in touched_ports {
+            if let Some(list) = guard.records.get_mut(&port) {
+                list.sort_by(|a, b| {
+                    b.last_seen_at
+                        .cmp(&a.last_seen_at)
+                        .then_with(|| a.process_name.cmp(&b.process_name))
+                });
+                if list.len() > MAX_PROCESS_RECORDS_PER_PORT {
+                    list.truncate(MAX_PROCESS_RECORDS_PER_PORT);
+                }
+            }
+        }
+        if mutated {
+            guard.generation = guard.generation.saturating_add(1);
         }
     }
 
@@ -488,8 +473,13 @@ mod tests {
         assert_eq!(usage_7891[0].process_name, "chrome.exe");
         assert_eq!(usage_7891[0].hit_count, 1); // c1 counted once across two snapshots
         assert_eq!(usage_7891[0].first_seen_at, 1_000);
-        assert_eq!(usage_7891[0].last_seen_at, 2_000);
+        // Unchanged connection within 60s window does not dirty last_seen_at
+        assert_eq!(usage_7891[0].last_seen_at, 1_000);
 
+        // Advancing past LAST_SEEN_TOUCH_INTERVAL_MS updates last_seen_at
+        store.record_snapshot_at(&snap2, &allowed, 62_000);
+        let usage_7891_later = store.get_port_usage(7891, None);
+        assert_eq!(usage_7891_later[0].last_seen_at, 62_000);
         let usage_7892 = store.get_port_usage(7892, Some(&snap2));
         assert_eq!(usage_7892.len(), 1);
         assert!(usage_7892[0].is_active);

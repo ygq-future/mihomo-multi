@@ -14,9 +14,28 @@ fn current_unix_timestamp() -> u64 {
         .as_secs()
 }
 
+#[derive(Default)]
+struct FailureBackoff {
+    consecutive_failures: u32,
+    next_retry_at: u64,
+}
+
+static PROFILE_BACKOFF: std::sync::LazyLock<parking_lot::Mutex<std::collections::HashMap<String, FailureBackoff>>> =
+    std::sync::LazyLock::new(|| parking_lot::Mutex::new(std::collections::HashMap::new()));
+
+fn backoff_delay_secs(consecutive_failures: u32) -> u64 {
+    match consecutive_failures {
+        0 => 0,
+        1 => 5 * 60,
+        2 => 15 * 60,
+        _ => 60 * 60,
+    }
+}
+
 pub struct AutoUpdater {
     running: Arc<AtomicBool>,
     last_check_timestamp: Arc<AtomicU64>,
+    stop_notify: Arc<tokio::sync::Notify>,
 }
 
 impl AutoUpdater {
@@ -24,6 +43,7 @@ impl AutoUpdater {
         Self {
             running: Arc::new(AtomicBool::new(false)),
             last_check_timestamp: Arc::new(AtomicU64::new(0)),
+            stop_notify: Arc::new(tokio::sync::Notify::new()),
         }
     }
 
@@ -36,16 +56,21 @@ impl AutoUpdater {
 
         let running_flag = self.running.clone();
         let last_check = self.last_check_timestamp.clone();
+        let stop_notify = self.stop_notify.clone();
 
         info!("Starting background profile auto-updater service...");
 
         tauri::async_runtime::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_secs(60));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             // First tick fires immediately, we consume it
             ticker.tick().await;
 
             while running_flag.load(Ordering::Relaxed) {
-                ticker.tick().await;
+                tokio::select! {
+                    _ = ticker.tick() => {}
+                    _ = stop_notify.notified() => break,
+                }
 
                 if !running_flag.load(Ordering::Relaxed) {
                     break;
@@ -63,6 +88,7 @@ impl AutoUpdater {
     /// Stops the background auto-updater loop.
     pub fn stop(&self) {
         self.running.store(false, Ordering::SeqCst);
+        self.stop_notify.notify_waiters();
     }
 
     /// Returns current runtime status of the auto-updater.
@@ -101,6 +127,16 @@ impl AutoUpdater {
 
             let elapsed_secs = now.saturating_sub(profile.last_updated_at);
             let threshold_secs = (profile.auto_update_interval_mins as u64) * 60;
+
+            let in_backoff = {
+                let map = PROFILE_BACKOFF.lock();
+                map.get(&profile.id)
+                    .map(|b| now < b.next_retry_at)
+                    .unwrap_or(false)
+            };
+            if in_backoff {
+                continue;
+            }
 
             if elapsed_secs >= threshold_secs {
                 info!(
@@ -159,13 +195,21 @@ impl AutoUpdater {
                             "Auto-updated profile '{}' successfully. Nodes: {} -> {}",
                             profile.name, prev_count, new_count
                         );
-
+                        PROFILE_BACKOFF.lock().remove(&profile.id);
                         results.push(payload);
                     }
                     Err(err) => {
+                        let delay = {
+                            let mut map = PROFILE_BACKOFF.lock();
+                            let entry = map.entry(profile.id.clone()).or_default();
+                            entry.consecutive_failures = entry.consecutive_failures.saturating_add(1);
+                            let d = backoff_delay_secs(entry.consecutive_failures);
+                            entry.next_retry_at = now.saturating_add(d);
+                            d
+                        };
                         warn!(
-                            "Failed to auto-update profile '{}' (ID: {}): {}",
-                            profile.name, profile.id, err
+                            "Failed to auto-update profile '{}' (ID: {}): {} (next retry in {}s)",
+                            profile.name, profile.id, err, delay
                         );
 
                         let payload = AutoUpdateEventPayload {

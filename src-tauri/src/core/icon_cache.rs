@@ -8,9 +8,9 @@ use tracing::warn;
 
 const ICON_CACHE_SCHEMA_VERSION: u32 = 1;
 const MAX_CACHED_ICONS: usize = 2048;
+const MAX_MISSING_PATHS: usize = 4096;
 const MAX_ICON_DATA_URI_BYTES: usize = 96 * 1024;
 const MAX_ICON_CACHE_FILE_BYTES: u64 = 8 * 1024 * 1024;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IconCacheFile {
@@ -99,6 +99,26 @@ impl ExecutableIconCache {
         self.state.read().icons.get(&key).cloned()
     }
 
+    /// Fast in-memory filter that returns only unique paths not yet cached or known missing.
+    pub fn filter_uncached_paths(&self, paths: Vec<String>) -> Vec<String> {
+        let guard = self.state.read();
+        let mut seen = HashSet::new();
+        let mut uncached = Vec::new();
+        for raw in paths {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() || trimmed.starts_with("data:image/") {
+                continue;
+            }
+            let key = normalize_icon_key(trimmed);
+            if !seen.insert(key.clone()) {
+                continue;
+            }
+            if !guard.icons.contains_key(&key) && !guard.missing_paths.contains(&key) {
+                uncached.push(trimmed.to_string());
+            }
+        }
+        uncached
+    }
     /// Resolves a process icon from memory cache or extracts and caches it on demand.
     pub fn resolve_or_extract(&self, process_path: &str) -> Option<String> {
         let trimmed = process_path.trim();
@@ -126,13 +146,24 @@ impl ExecutableIconCache {
         }
         if let Some(uri) = extracted {
             if guard.icons.len() >= MAX_CACHED_ICONS {
-                guard.icons.clear();
+                let evict_count = (MAX_CACHED_ICONS / 10).max(1);
+                let keys_to_remove: Vec<String> = guard.icons.keys().take(evict_count).cloned().collect();
+                for k in keys_to_remove {
+                    guard.icons.remove(&k);
+                }
             }
             guard.icons.insert(key, uri.clone());
             guard.dirty = true;
             guard.change_counter = guard.change_counter.saturating_add(1);
             Some(uri)
         } else {
+            if guard.missing_paths.len() >= MAX_MISSING_PATHS {
+                let evict_count = (MAX_MISSING_PATHS / 10).max(1);
+                let keys_to_remove: Vec<String> = guard.missing_paths.iter().take(evict_count).cloned().collect();
+                for k in keys_to_remove {
+                    guard.missing_paths.remove(&k);
+                }
+            }
             guard.missing_paths.insert(key);
             None
         }
@@ -165,11 +196,6 @@ impl ExecutableIconCache {
             if self.resolve_or_extract(trimmed).is_some() {
                 extracted_count = extracted_count.saturating_add(1);
             }
-        }
-        if extracted_count > 0
-            && let Err(e) = self.save_if_dirty()
-        {
-            warn!("Failed to persist icon_cache.json: {}", e);
         }
         extracted_count
     }

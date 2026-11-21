@@ -132,10 +132,13 @@ pub fn detect_is_installed_from_paths(current_exe: &std::path::Path) -> bool {
 
 /// Detects if current binary is installed via installer or running portable
 pub fn detect_is_installed() -> bool {
-    let Ok(current_exe) = std::env::current_exe() else {
-        return true;
-    };
-    detect_is_installed_from_paths(&current_exe)
+    static CACHED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        let Ok(current_exe) = std::env::current_exe() else {
+            return true;
+        };
+        detect_is_installed_from_paths(&current_exe)
+    });
+    *CACHED
 }
 
 /// Gets the root directory of the software

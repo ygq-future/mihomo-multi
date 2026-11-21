@@ -329,6 +329,27 @@ pub fn run() {
                 }
             });
 
+            // Low-frequency background persistence flusher: decouples disk writes from 2s sampling
+            // and log-pipe hot paths while periodically pruning expired analytics buckets.
+            let flush_state = app_state.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(90));
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                ticker.tick().await;
+                loop {
+                    ticker.tick().await;
+                    let st = flush_state.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        st.node_analytics.prune_all_expired();
+                        let _ = st.node_analytics.flush();
+                        let _ = st.process_history.flush();
+                        let _ = st.icon_cache.save_if_dirty();
+                        let _ = st.latency_probe.persist_cache();
+                    })
+                    .await;
+                }
+            });
+
             // Warm up executable icon cache for historical port processes off the UI thread.
             let icon_warm_state = app_state.clone();
             tauri::async_runtime::spawn_blocking(move || {

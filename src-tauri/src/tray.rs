@@ -1025,6 +1025,32 @@ async fn apply_tray_refresh(
     true
 }
 
+struct TrayRefreshWorkerGuard {
+    active: bool,
+}
+
+impl TrayRefreshWorkerGuard {
+    fn new() -> Self {
+        Self { active: true }
+    }
+
+    fn release(&mut self) {
+        self.active = false;
+    }
+
+    fn reclaim(&mut self) {
+        self.active = true;
+    }
+}
+
+impl Drop for TrayRefreshWorkerGuard {
+    fn drop(&mut self) {
+        if self.active {
+            TRAY_REFRESH_WORKER_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
+
 fn request_tray_refresh(app: &AppHandle, fallback_statuses: Vec<crate::models::PortFallbackStatus>) {
     use std::sync::atomic::Ordering;
     {
@@ -1040,6 +1066,7 @@ fn request_tray_refresh(app: &AppHandle, fallback_statuses: Vec<crate::models::P
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
+        let mut worker_guard = TrayRefreshWorkerGuard::new();
         loop {
             let (seq, fallback_statuses) = {
                 let request = TRAY_REFRESH_REQUEST.lock();
@@ -1056,8 +1083,10 @@ fn request_tray_refresh(app: &AppHandle, fallback_statuses: Vec<crate::models::P
                 .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
                 .is_err()
             {
+                worker_guard.release();
                 return; // another worker took over
             }
+            worker_guard.release();
             if seq == current_tray_refresh_seq() {
                 return;
             }
@@ -1066,6 +1095,7 @@ fn request_tray_refresh(app: &AppHandle, fallback_statuses: Vec<crate::models::P
             if TRAY_REFRESH_WORKER_ACTIVE.swap(true, Ordering::SeqCst) {
                 return;
             }
+            worker_guard.reclaim();
         }
     });
 }
@@ -1414,7 +1444,8 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_tray_icon_event(|tray, event| match event {
             TrayIconEvent::Enter { .. } => {
                 let app = tray.app_handle();
-                update_tray_menu(app);
+                let tooltip = format_tray_tooltip_for(app, current_locale());
+                let _ = tray.set_tooltip(Some(tooltip));
             }
             TrayIconEvent::Click {
                 button: MouseButton::Left,

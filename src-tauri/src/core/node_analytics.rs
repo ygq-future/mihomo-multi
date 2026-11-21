@@ -347,7 +347,6 @@ impl NodeAnalyticsStore {
             Self::enforce_node_cap(&mut inner.data.nodes);
             inner.generation = inner.generation.wrapping_add(1);
         }
-        self.maybe_persist(false);
     }
 
     fn record_latency_sample_at(&self, node_name: &str, latency_ms: Option<u32>, now_ms: u64) {
@@ -360,7 +359,6 @@ impl NodeAnalyticsStore {
             Self::enforce_node_cap(&mut inner.data.nodes);
             inner.generation = inner.generation.wrapping_add(1);
         }
-        self.maybe_persist(false);
     }
 
     fn apply_latency_sample(
@@ -546,8 +544,6 @@ impl NodeAnalyticsStore {
 
         Self::enforce_node_cap(&mut inner.data.nodes);
         inner.generation = inner.generation.wrapping_add(1);
-        drop(inner);
-        self.maybe_persist(false);
     }
 
     /// Parse a Mihomo log line for runtime connection errors (dial failures, EOF, resets, timeouts)
@@ -596,7 +592,6 @@ impl NodeAnalyticsStore {
             Self::enforce_node_cap(&mut inner.data.nodes);
             inner.generation = inner.generation.wrapping_add(1);
         }
-        self.maybe_persist(false);
     }
 
     pub fn get_weights(&self) -> AvailabilityWeights {
@@ -866,14 +861,32 @@ impl NodeAnalyticsStore {
         }
     }
 
-    pub fn flush(&self) -> AppResult<()> {
-        self.persist_internal(true)
+    pub fn prune_all_expired(&self) {
+        let now_ms = now_epoch_ms();
+        let cutoff = now_ms.saturating_sub(RETENTION_MS);
+        let mut inner = self.state.write();
+        let mut mutated = false;
+        inner.data.nodes.retain(|_, record| {
+            let before = record.buckets.len();
+            record.buckets.retain(|&ts, _| ts >= cutoff);
+            if record.buckets.len() != before {
+                mutated = true;
+            }
+            let keep = !record.buckets.is_empty()
+                || record.active_timeout_since_ms.is_some()
+                || now_ms.saturating_sub(record.last_seen_ms) < RETENTION_MS;
+            if !keep {
+                mutated = true;
+            }
+            keep
+        });
+        if mutated {
+            inner.generation = inner.generation.wrapping_add(1);
+        }
     }
 
-    fn maybe_persist(&self, force: bool) {
-        if let Err(err) = self.persist_internal(force) {
-            warn!("Failed to persist node analytics: {}", err);
-        }
+    pub fn flush(&self) -> AppResult<()> {
+        self.persist_internal(true)
     }
 
     fn persist_internal(&self, force: bool) -> AppResult<()> {
@@ -1028,12 +1041,22 @@ fn score_to_grade(score: f64) -> &'static str {
 /// Example lines:
 /// - `time="..." level=warning msg="[TCP] dial HK-01 (match IN-PORT/7890) 127.0.0.1:123 --> example.com:443 error: i/o timeout"`
 /// - `time="..." level=warning msg="[UDP] dial US-02 error: EOF"`
+fn contains_ascii_case_insensitive(haystack: &str, needle_lower: &[u8]) -> bool {
+    let hay = haystack.as_bytes();
+    if needle_lower.is_empty() || hay.len() < needle_lower.len() {
+        return false;
+    }
+    hay.windows(needle_lower.len())
+        .any(|w| w.iter().zip(needle_lower).all(|(a, b)| a.to_ascii_lowercase() == *b))
+}
+
 pub fn parse_connection_error_from_log(line: &str) -> Option<(String, String)> {
-    let lower = line.to_ascii_lowercase();
-    if !lower.contains("level=warning") && !lower.contains("level=error") && !lower.contains("error:") {
+    if !contains_ascii_case_insensitive(line, b"level=warning")
+        && !contains_ascii_case_insensitive(line, b"level=error")
+        && !contains_ascii_case_insensitive(line, b"error:")
+    {
         return None;
     }
-
     // Extract msg="..." if structured logfmt, otherwise use whole line.
     let msg = if let Some(idx) = line.find("msg=\"") {
         let rest = &line[idx + 5..];

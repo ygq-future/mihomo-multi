@@ -1073,14 +1073,32 @@ fn build_recheck_urls(primary_url: &str) -> Vec<String> {
     urls
 }
 
+static NODE_RECHECK_COOLDOWN: std::sync::LazyLock<
+    parking_lot::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+> = std::sync::LazyLock::new(|| parking_lot::Mutex::new(std::collections::HashMap::new()));
+
+const NODE_RECHECK_COOLDOWN_SECS: u64 = 30;
+
 /// Concurrently probe candidate URLs and return the first positive delay.
-/// Bounded by a single `timeout_ms` even when the node is genuinely unreachable.
+/// Bounded by a single `timeout_ms` even when the node is genuinely unreachable,
+/// and rate-limited per node so confirmed-dead nodes do not trigger repeated 3-URL storms.
 async fn recheck_node_delay_concurrent(
     engine: &crate::core::kernel_engine::KernelEngine,
     runtime_name: &str,
     primary_url: &str,
     timeout_ms: u32,
 ) -> Option<u32> {
+    let now = std::time::Instant::now();
+    {
+        let mut map = NODE_RECHECK_COOLDOWN.lock();
+        if let Some(&last) = map.get(runtime_name)
+            && now.duration_since(last) < std::time::Duration::from_secs(NODE_RECHECK_COOLDOWN_SECS)
+        {
+            return None;
+        }
+        map.insert(runtime_name.to_string(), now);
+    }
+
     let urls = build_recheck_urls(primary_url);
     let mut join_set = tokio::task::JoinSet::new();
     for url in urls {
@@ -2146,21 +2164,22 @@ pub async fn get_sniffed_access_logs(
     state: State<'_, AppState>,
 ) -> Result<Vec<SniffedAccessLogEntry>, String> {
     let log_dir = state.engine.work_dir().join("logs");
-    let mut entries = crate::core::supervisor::read_recent_access_logs(&log_dir, since_epoch_ms);
-
-    // In dev environment (.dev), also read from sibling production instance logs if present
-    // so browser traffic routed through production ports (789x) is seamlessly captured during dev testing.
-    if state.app_dir.to_string_lossy().ends_with(".dev")
-        && let Some(parent) = state.app_dir.parent()
-    {
-        let prod_log_dir = parent.join("com.mihomo.multi").join("core").join("logs");
-        if prod_log_dir.is_dir() {
-            let prod_entries = crate::core::supervisor::read_recent_access_logs(&prod_log_dir, since_epoch_ms);
-            entries.extend(prod_entries);
+    let app_dir = state.app_dir.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut entries = crate::core::supervisor::read_recent_access_logs(&log_dir, since_epoch_ms);
+        if app_dir.to_string_lossy().ends_with(".dev")
+            && let Some(parent) = app_dir.parent()
+        {
+            let prod_log_dir = parent.join("com.mihomo.multi").join("core").join("logs");
+            if prod_log_dir.is_dir() {
+                let prod_entries = crate::core::supervisor::read_recent_access_logs(&prod_log_dir, since_epoch_ms);
+                entries.extend(prod_entries);
+            }
         }
-    }
-
-    Ok(entries)
+        entries
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))
 }
 
 const SNIFFER_WEBVIEW_LABEL: &str = "sniffer-sandbox";

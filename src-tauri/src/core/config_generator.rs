@@ -401,7 +401,7 @@ pub struct MinimalRuntimeConfig {
 }
 
 fn default_find_process_mode() -> String {
-    "always".to_string()
+    "strict".to_string()
 }
 
 fn default_keep_alive_interval() -> u32 {
@@ -936,7 +936,15 @@ impl MinimalRuntimeConfig {
             profile: RuntimeProfileConfig::default(),
             sniffer: RuntimeSnifferConfig::default(),
             dns: RuntimeDnsConfig::default(),
-            rule_providers: default_rule_providers(),
+            rule_providers: if rules.iter().any(|r| r.starts_with("RULE-SET,"))
+                || sub_rules
+                    .values()
+                    .any(|list| list.iter().any(|r| r.starts_with("RULE-SET,")))
+            {
+                default_rule_providers()
+            } else {
+                BTreeMap::new()
+            },
             listeners,
             proxy_groups,
             proxies,
@@ -1067,7 +1075,7 @@ password: pass
         assert!(!yaml.contains("7893"));
         // MATCH,DIRECT is always present
         assert!(yaml.contains("MATCH,DIRECT"));
-        assert!(yaml.contains("find-process-mode: 'always'") || yaml.contains("find-process-mode: always"));
+        assert!(yaml.contains("find-process-mode: 'strict'") || yaml.contains("find-process-mode: strict"));
         assert!(yaml.contains("keep-alive-interval: 30"));
         assert!(yaml.contains("tcp-concurrent: true"));
         assert!(yaml.contains("unified-delay: true"));

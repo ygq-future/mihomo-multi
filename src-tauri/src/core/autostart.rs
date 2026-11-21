@@ -82,14 +82,23 @@ pub fn enable_elevated_autostart(_app_path: &Path, _silent: bool) -> Result<(), 
 
 pub fn sync_autostart_state(config: &crate::models::AppConfig, app_path: &Path) -> Result<(), String> {
     if !config.auto_launch {
-        disable_autostart()?;
-        return delete_elevated_autostart();
+        if is_autostart_enabled() {
+            disable_autostart()?;
+        }
+        if is_elevated_autostart_enabled() {
+            delete_elevated_autostart()?;
+        }
+        return Ok(());
     }
     if config.tun_enabled {
-        disable_autostart()?;
+        if is_autostart_enabled() {
+            disable_autostart()?;
+        }
         enable_elevated_autostart(app_path, config.silent_start)
     } else {
-        delete_elevated_autostart()?;
+        if is_elevated_autostart_enabled() {
+            delete_elevated_autostart()?;
+        }
         enable_autostart(app_path, config.silent_start)
     }
 }

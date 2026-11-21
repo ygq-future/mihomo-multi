@@ -867,10 +867,11 @@ impl AppState {
                 .iter()
                 .filter_map(|c| c.metadata.process_path.clone())
                 .collect();
-            if !paths.is_empty() {
+            let uncached_paths = self.icon_cache.filter_uncached_paths(paths);
+            if !uncached_paths.is_empty() {
                 let cache = self.icon_cache.clone();
                 let _ = tokio::task::spawn_blocking(move || {
-                    cache.warm_paths(paths);
+                    cache.warm_paths(uncached_paths);
                 })
                 .await;
             }

@@ -151,7 +151,18 @@ pub fn parse_mihomo_access_log_line(line: &str) -> Option<SniffedAccessLogEntry>
     })
 }
 
+#[derive(Default)]
+struct SniffLogCursor {
+    log_path: PathBuf,
+    since_epoch_ms: u64,
+    offset: u64,
+}
+
+static SNIFF_LOG_CURSORS: std::sync::LazyLock<parking_lot::Mutex<std::collections::HashMap<PathBuf, SniffLogCursor>>> =
+    std::sync::LazyLock::new(|| parking_lot::Mutex::new(std::collections::HashMap::new()));
+
 /// Read recent access log entries from today's `mihomo-YYYY-MM-DD.log` in `log_dir` where `timestamp_ms >= since_epoch_ms`.
+/// Tracks per-directory file offset so repeated polling only reads newly appended bytes.
 pub fn read_recent_access_logs(log_dir: &Path, since_epoch_ms: u64) -> Vec<SniffedAccessLogEntry> {
     let today = Local::now().date_naive();
     let log_path = log_dir.join(format!("mihomo-{}.log", today.format("%Y-%m-%d")));
@@ -159,18 +170,52 @@ pub fn read_recent_access_logs(log_dir: &Path, since_epoch_ms: u64) -> Vec<Sniff
         return Vec::new();
     };
     let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
-    let seeked = if file_len > MAX_SNIFF_LOG_TAIL_BYTES {
-        file.seek(SeekFrom::End(-(MAX_SNIFF_LOG_TAIL_BYTES as i64))).is_ok()
-    } else {
-        false
+
+    let cached_offset = {
+        let cursors = SNIFF_LOG_CURSORS.lock();
+        cursors.get(log_dir).and_then(|c| {
+            if c.log_path == log_path && c.since_epoch_ms == since_epoch_ms && c.offset <= file_len {
+                Some(c.offset)
+            } else {
+                None
+            }
+        })
     };
 
-    let mut buf = Vec::new();
-    if file.read_to_end(&mut buf).is_err() {
+    let (start_offset, skip_partial_first_line) = if let Some(off) = cached_offset {
+        if off == file_len {
+            return Vec::new();
+        }
+        (off, false)
+    } else if file_len > MAX_SNIFF_LOG_TAIL_BYTES {
+        (file_len - MAX_SNIFF_LOG_TAIL_BYTES, true)
+    } else {
+        (0, false)
+    };
+
+    if start_offset > 0 && file.seek(SeekFrom::Start(start_offset)).is_err() {
         return Vec::new();
     }
 
-    let slice = if seeked {
+    let mut buf = Vec::new();
+    let Ok(bytes_read) = file.read_to_end(&mut buf) else {
+        return Vec::new();
+    };
+
+    let new_offset = start_offset.saturating_add(bytes_read as u64);
+    {
+        let mut cursors = SNIFF_LOG_CURSORS.lock();
+        cursors.insert(
+            log_dir.to_path_buf(),
+            SniffLogCursor {
+                log_path,
+                since_epoch_ms,
+                offset: new_offset,
+            },
+        );
+    }
+
+    let slice = if skip_partial_first_line {
         if let Some(pos) = buf.iter().position(|&b| b == b'\n') {
             &buf[pos + 1..]
         } else {
@@ -205,21 +250,42 @@ fn spawn_log_pipe_writer(
             let mut buf_reader = BufReader::new(reader);
             let mut line = String::new();
             let mut current_date: Option<NaiveDate> = None;
-            let mut current_file: Option<File> = None;
+            let mut last_date_check = Instant::now();
+            let mut last_flush = Instant::now();
+            let mut current_file: Option<std::io::BufWriter<File>> = None;
 
             loop {
                 line.clear();
                 match buf_reader.read_line(&mut line) {
-                    Ok(0) => break, // EOF, child process exited or pipe closed
+                    Ok(0) => {
+                        if let Some(writer) = &mut current_file {
+                            let _ = writer.flush();
+                        }
+                        break; // EOF, child process exited or pipe closed
+                    }
                     Ok(_) => {
-                        let today = Local::now().date_naive();
+                        let today = if let Some(cached) = current_date {
+                            if last_date_check.elapsed() >= std::time::Duration::from_secs(30) {
+                                last_date_check = Instant::now();
+                                Local::now().date_naive()
+                            } else {
+                                cached
+                            }
+                        } else {
+                            last_date_check = Instant::now();
+                            Local::now().date_naive()
+                        };
+
                         if current_date != Some(today) || current_file.is_none() {
+                            if let Some(writer) = &mut current_file {
+                                let _ = writer.flush();
+                            }
                             current_date = Some(today);
                             let log_file_name = format!("mihomo-{}.log", today.format("%Y-%m-%d"));
                             let log_path = log_dir.join(log_file_name);
                             match std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
                                 Ok(f) => {
-                                    current_file = Some(f);
+                                    current_file = Some(std::io::BufWriter::with_capacity(8192, f));
                                     clean_expired_logs(&log_dir, DEFAULT_LOG_RETENTION_DAYS);
                                 }
                                 Err(e) => {
@@ -228,14 +294,21 @@ fn spawn_log_pipe_writer(
                             }
                         }
 
-                        if let Some(file) = &mut current_file {
-                            let _ = file.write_all(line.as_bytes());
+                        if let Some(writer) = &mut current_file {
+                            let _ = writer.write_all(line.as_bytes());
+                            if last_flush.elapsed() >= std::time::Duration::from_millis(250) {
+                                let _ = writer.flush();
+                                last_flush = Instant::now();
+                            }
                         }
                         if let Some(cb) = log_callback.read().clone() {
                             cb(&line);
                         }
                     }
                     Err(e) => {
+                        if let Some(writer) = &mut current_file {
+                            let _ = writer.flush();
+                        }
                         warn!("Error reading from Mihomo {} pipe: {}", stream_name, e);
                         break;
                     }
