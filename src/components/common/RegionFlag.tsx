@@ -226,7 +226,67 @@ export const RegionFlag: React.FC<RegionFlagProps> = ({
             <path fill="#ffde00" d="M120 120l-15 45 40-30h-50l40 30z" />
           </svg>
         )
+      case 'MO':
+        return (
+          <svg
+            viewBox="0 0 640 480"
+            className={`${dim} rounded-xs shrink-0 shadow-2xs`}
+          >
+            <path fill="#00785e" d="M0 0h640v480H0z" />
+            <ellipse cx="320" cy="260" rx="115" ry="62" fill="#fff" />
+            <path fill="#00785e" d="M210 278h220v16H210zm25 28h170v14H235z" />
+            <circle cx="320" cy="145" r="22" fill="#ffde00" />
+          </svg>
+        )
+      case 'AR':
+        return (
+          <svg
+            viewBox="0 0 640 480"
+            className={`${dim} rounded-xs shrink-0 shadow-2xs`}
+          >
+            <path fill="#74acdf" d="M0 0h640v160H0z" />
+            <path fill="#fff" d="M0 160h640v160H0z" />
+            <path fill="#74acdf" d="M0 320h640v160H0z" />
+            <circle cx="320" cy="240" r="46" fill="#f6b40e" />
+          </svg>
+        )
+      case 'UA':
+        return (
+          <svg
+            viewBox="0 0 640 480"
+            className={`${dim} rounded-xs shrink-0 shadow-2xs`}
+          >
+            <path fill="#005bbb" d="M0 0h640v240H0z" />
+            <path fill="#ffd500" d="M0 240h640v240H0z" />
+          </svg>
+        )
+      case 'MY':
+        return (
+          <svg
+            viewBox="0 0 640 480"
+            className={`${dim} rounded-xs shrink-0 shadow-2xs`}
+          >
+            <path fill="#fff" d="M0 0h640v480H0z" />
+            <path
+              fill="#cc0001"
+              d="M0 0h640v34H0zm0 68h640v34H0zm0 137h640v34H0zm0 137h640v34H0zm0 137h640v34H0zm0-206h640v34H0zm0 137h640v34H0z"
+            />
+            <path fill="#010066" d="M0 0h320v257H0z" />
+            <circle cx="135" cy="128" r="68" fill="#ffcc00" />
+            <circle cx="155" cy="128" r="56" fill="#010066" />
+            <circle cx="215" cy="128" r="30" fill="#ffcc00" />
+          </svg>
+        )
       default:
+        if (/^[A-Z]{2}$/.test(norm)) {
+          return (
+            <span
+              className={`${dim} inline-flex items-center justify-center rounded-xs bg-muted/80 text-muted-foreground border border-border/60 font-mono text-[8px] font-semibold leading-none shrink-0`}
+            >
+              {norm}
+            </span>
+          )
+        }
         return <span className="text-xs shrink-0">🌐</span>
     }
   }

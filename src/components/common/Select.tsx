@@ -22,6 +22,8 @@ export interface SelectOption<T = string | number> {
   group?: string
   /** 可选原始目标名称（不带分组前缀），用于无空格搜索时排除订阅组干扰 */
   searchTarget?: string
+  /** 可选附加检索关键词（不展示，仅用于搜索匹配，如地区简写 us/hk/jp） */
+  searchKeywords?: string[]
 }
 
 export interface SelectProps<T = string | number> {
@@ -195,6 +197,9 @@ export function Select<T extends string | number = string | number>({
         if (opt.description?.toLowerCase().includes(q)) {
           return true
         }
+        if (opt.searchKeywords?.some((kw) => kw.toLowerCase().includes(q))) {
+          return true
+        }
         return false
       })
     }
@@ -246,8 +251,10 @@ export function Select<T extends string | number = string | number>({
       const matchNode =
         normalizedNodeName.includes(nodeQ) ||
         fuzzySubsequenceMatch(normalizedNodeName, nodeQ) ||
-        Boolean(opt.description?.toLowerCase().includes(nodeQ))
-
+        Boolean(opt.description?.toLowerCase().includes(nodeQ)) ||
+        Boolean(
+          opt.searchKeywords?.some((kw) => kw.toLowerCase().includes(nodeQ)),
+        )
       return matchNode
     })
   }, [options, filterable, searchQuery])

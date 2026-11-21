@@ -22,6 +22,7 @@ import {
   formatProtocolName,
   getLatencyBadgeProps,
   getProtocolBadgeProps,
+  getRegionSearchKeywords,
   isNodeEgressProbing,
   lookupNodeEgressInfo,
 } from '../../utils/proxy'
@@ -446,7 +447,8 @@ export const ProxyGridView: React.FC = () => {
           node.server.toLowerCase().includes(query) ||
           node.type.toLowerCase().includes(query) ||
           node.profileName.toLowerCase().includes(query) ||
-          node.region.name.toLowerCase().includes(query)
+          node.region.name.toLowerCase().includes(query) ||
+          getRegionSearchKeywords(node.region).some((kw) => kw.includes(query))
         if (!match) return false
       }
 

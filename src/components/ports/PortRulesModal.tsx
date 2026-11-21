@@ -67,7 +67,11 @@ import {
   Switch,
   toast,
 } from '../common'
-import { getLatencyColor } from '../../utils/proxy'
+import {
+  extractRegion,
+  getLatencyColor,
+  getRegionSearchKeywords,
+} from '../../utils/proxy'
 import { SpeedSelect } from './SpeedSelect'
 import { TrafficSnifferPanel } from './TrafficSnifferPanel'
 
@@ -487,6 +491,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           : undefined,
         group: n.profileName || t('rules.defaultProfile'),
         searchTarget: `${n.profileName} ${n.name}`,
+        searchKeywords: getRegionSearchKeywords(extractRegion(n.name)),
         rightNode: hasLat ? (
           <span
             className={`font-mono text-[11px] font-medium ${getLatencyColor(

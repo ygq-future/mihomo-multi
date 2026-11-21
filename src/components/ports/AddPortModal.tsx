@@ -23,6 +23,7 @@ import {
   getLatencyBadgeProps,
   getLatencyColor,
   getProtocolBadgeProps,
+  getRegionSearchKeywords,
 } from '../../utils/proxy'
 import {
   Badge,
@@ -498,6 +499,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         label: n.displayName,
         group: n.profileName,
         searchTarget: n.name,
+        searchKeywords: getRegionSearchKeywords(region),
         description,
         icon: <RegionFlag code={region.code} size="sm" />,
         disabled: Boolean(boundPort) && !isChainMode,
@@ -845,6 +847,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         label: n.displayName,
         group: n.profileName,
         searchTarget: n.name,
+        searchKeywords: getRegionSearchKeywords(region),
         description: t('addPort.fallbackOptionDesc', {
           protocol: formatProtocolName(n.type),
           region: formatRegionName(region.code, region.name),
