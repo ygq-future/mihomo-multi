@@ -307,6 +307,19 @@ export async function swapPortFallback(id: string): Promise<PortMapping> {
   return invoke<PortMapping>('swap_port_fallback', { id })
 }
 
+export async function swapPortMappingPorts(
+  firstId: string,
+  secondId: string,
+): Promise<PortMapping[]> {
+  if (!isTauriEnvironment()) {
+    return []
+  }
+  return invoke<PortMapping[]>('swap_port_mapping_ports', {
+    firstId,
+    secondId,
+  })
+}
+
 export async function testPortFallbackDelay(
   id: string,
   testUrl?: string,

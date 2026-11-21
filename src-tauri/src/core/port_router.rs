@@ -594,6 +594,149 @@ impl PortRouter {
         Ok(updated)
     }
 
+    /// Swaps the listener ports of two mappings, keeping every other field on its own card.
+    ///
+    /// Both destination ports already belong to the pair, so the swap can never collide with a
+    /// third mapping, and the 1:1 node binding invariant is untouched (nodes do not move).
+    /// Enabled cards are still probed: after the swap the kernel has to bind the peer's port,
+    /// which may be held by a third-party process when that peer is currently disabled. Our own
+    /// sidecar is excluded only while it actually owns the destination listener.
+    pub fn swap_port_mapping_ports(
+        &self,
+        first_id: &str,
+        second_id: &str,
+        ctx: &PortProbeContext,
+    ) -> AppResult<Vec<PortMapping>> {
+        if first_id == second_id {
+            return Err(AppError::InvalidConfig(
+                crate::tr!(
+                    "不能与同一端口卡片交换端口",
+                    "A port card cannot swap ports with itself"
+                )
+                .to_string(),
+            ));
+        }
+
+        let (first, second) = {
+            let guard = self.ports.read();
+            let first = guard
+                .iter()
+                .find(|mapping| mapping.id == first_id)
+                .cloned()
+                .ok_or_else(|| port_mapping_not_found(first_id))?;
+            let second = guard
+                .iter()
+                .find(|mapping| mapping.id == second_id)
+                .cloned()
+                .ok_or_else(|| port_mapping_not_found(second_id))?;
+            (first, second)
+        };
+        if [&first, &second].iter().any(|mapping| {
+            mapping.id == crate::models::FIXED_DIRECT_PORT_ID || mapping.node_name == "DIRECT"
+        }) {
+            return Err(AppError::InvalidConfig(
+                crate::tr!("固定直连监听卡片不能交换端口", "The fixed direct listener cannot swap ports").to_string(),
+            ));
+        }
+
+        for port in [first.port, second.port] {
+            if !(1024..=65535).contains(&port) {
+                return Err(AppError::InvalidConfig(
+                    crate::tr!(
+                        "端口号必须在 1024 到 65535 之间",
+                        "Port number must be between 1024 and 65535"
+                    )
+                    .to_string(),
+                ));
+            }
+            if ctx.reserved_ports.contains(&port) {
+                return Err(AppError::InvalidConfig(crate::tr!(
+                    format!("端口 {port} 被系统或控制器保留"),
+                    format!("Port {port} is reserved by the system or controller"),
+                )));
+            }
+        }
+
+        // Only listeners that stay enabled after the swap need a bindable destination. A port our
+        // own core already serves is not a conflict: the reload rebinds it to the peer mapping.
+        for (will_listen, destination, protocol, peer_listening) in [
+            (first.enabled, second.port, first.protocol, second.enabled),
+            (second.enabled, first.port, second.protocol, first.enabled),
+        ] {
+            if !will_listen {
+                continue;
+            }
+            let exclude_pid = if peer_listening { ctx.core_pid } else { None };
+            if !is_port_available(destination, transport_for(protocol), ctx.allow_lan, exclude_pid) {
+                return Err(AppError::PortOccupied(destination));
+            }
+        }
+
+        {
+            let mut guard = self.ports.write();
+            let first_pos = guard
+                .iter()
+                .position(|mapping| mapping.id == first_id)
+                .ok_or_else(|| port_mapping_not_found(first_id))?;
+            let second_pos = guard
+                .iter()
+                .position(|mapping| mapping.id == second_id)
+                .ok_or_else(|| port_mapping_not_found(second_id))?;
+
+            // The probe phase released the lock; refuse to overwrite a concurrent edit instead of
+            // swapping stale port numbers.
+            if guard[first_pos].port != first.port
+                || guard[first_pos].enabled != first.enabled
+                || guard[first_pos].protocol != first.protocol
+                || guard[second_pos].port != second.port
+                || guard[second_pos].enabled != second.enabled
+                || guard[second_pos].protocol != second.protocol
+            {
+                return Err(AppError::InvalidConfig(
+                    crate::tr!(
+                        "端口映射在交换过程中被修改，请重试",
+                        "The port mappings changed while swapping; please retry"
+                    )
+                    .to_string(),
+                ));
+            }
+
+            guard[first_pos].port = second.port;
+            guard[second_pos].port = first.port;
+
+            // Chain exits are renamed after their port (`chain-<port>`), so a moved chain card's
+            // cached latency describes a proxy name that no longer exists.
+            for pos in [first_pos, second_pos] {
+                if guard[pos].residential_proxy_id.is_some() {
+                    guard[pos].latency = None;
+                }
+            }
+        }
+
+        if let Err(err) = self.persist_metadata() {
+            let mut guard = self.ports.write();
+            if let Some(pos) = guard.iter().position(|mapping| mapping.id == first_id) {
+                guard[pos].port = first.port;
+                guard[pos].latency = first.latency;
+            }
+            if let Some(pos) = guard.iter().position(|mapping| mapping.id == second_id) {
+                guard[pos].port = second.port;
+                guard[pos].latency = second.latency;
+            }
+            return Err(err);
+        }
+
+        info!(
+            first_port = first.port,
+            second_port = second.port,
+            "Swapped listener ports between mappings '{}' and '{}'",
+            first_id,
+            second_id
+        );
+
+        Ok(self.get_port_mappings())
+    }
+
     pub fn clear_port_latencies(&self, mappings: &[PortMapping]) -> AppResult<()> {
         if mappings.is_empty() {
             return Ok(());
@@ -622,12 +765,16 @@ impl PortRouter {
         if found {
             Ok(())
         } else {
-            Err(AppError::PortMappingNotFound(crate::tr!(
-                format!("未找到 ID 为 '{}' 的端口映射", id),
-                format!("Port mapping with ID '{}' not found", id),
-            )))
+            Err(port_mapping_not_found(id))
         }
     }
+}
+
+fn port_mapping_not_found(id: &str) -> AppError {
+    AppError::PortMappingNotFound(crate::tr!(
+        format!("未找到 ID 为 '{}' 的端口映射", id),
+        format!("Port mapping with ID '{}' not found", id),
+    ))
 }
 
 #[cfg(test)]
@@ -961,6 +1108,171 @@ mod tests {
             err,
             AppError::DuplicateNodeBinding { node_name, port } if node_name == "SG-02" && port == 10102
         ));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_swap_port_mapping_ports_swaps_only_ports_and_persists() {
+        let temp_dir = std::env::temp_dir().join(format!("test_port_router_port_swap_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = PortProbeContext::default();
+
+        let mut first = create_test_mapping("swap-first", 10200, "prof-a", "Node-A", false);
+        first.description = Some("First card".to_string());
+        first.latency = Some(88);
+        router.save_port_mapping(first, &ctx).expect("save first");
+        router
+            .save_port_mapping(
+                create_test_mapping("swap-second", 10201, "prof-b", "Node-B", false),
+                &ctx,
+            )
+            .expect("save second");
+
+        let updated = router
+            .swap_port_mapping_ports("swap-first", "swap-second", &ctx)
+            .expect("swap should succeed");
+        let first_after = updated.iter().find(|m| m.id == "swap-first").expect("first present");
+        let second_after = updated.iter().find(|m| m.id == "swap-second").expect("second present");
+        assert_eq!(first_after.port, 10201);
+        assert_eq!(second_after.port, 10200);
+        // Everything except the port stays on its own card.
+        assert_eq!(first_after.node_name, "Node-A");
+        assert_eq!(first_after.description.as_deref(), Some("First card"));
+        assert_eq!(first_after.latency, Some(88));
+        assert_eq!(second_after.node_name, "Node-B");
+        assert_eq!(updated[0].id, crate::models::FIXED_DIRECT_PORT_ID);
+        assert_eq!(updated[0].port, crate::models::DEFAULT_DIRECT_PORT);
+
+        let reloaded = PortRouter::new(temp_dir.clone());
+        assert_eq!(reloaded.get_port_mapping_by_id("swap-first").unwrap().port, 10201);
+        assert_eq!(reloaded.get_port_mapping_by_id("swap-second").unwrap().port, 10200);
+
+        // Swapping back restores the original layout.
+        let restored = router
+            .swap_port_mapping_ports("swap-first", "swap-second", &ctx)
+            .expect("reverse swap");
+        assert_eq!(restored.iter().find(|m| m.id == "swap-first").unwrap().port, 10200);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_swap_port_mapping_ports_guards() {
+        let temp_dir = std::env::temp_dir().join(format!("test_port_router_port_swap_guard_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = PortProbeContext::default();
+
+        router
+            .save_port_mapping(create_test_mapping("guard-a", 10220, "prof-a", "Node-A", false), &ctx)
+            .unwrap();
+        router
+            .save_port_mapping(create_test_mapping("guard-b", 10221, "prof-b", "Node-B", false), &ctx)
+            .unwrap();
+
+        assert!(matches!(
+            router.swap_port_mapping_ports("guard-a", "guard-a", &ctx),
+            Err(AppError::InvalidConfig(_))
+        ));
+        assert!(matches!(
+            router.swap_port_mapping_ports("guard-a", "missing", &ctx),
+            Err(AppError::PortMappingNotFound(_))
+        ));
+
+        let reserved_ctx = PortProbeContext {
+            reserved_ports: vec![10221],
+            ..PortProbeContext::default()
+        };
+        assert!(matches!(
+            router.swap_port_mapping_ports("guard-a", "guard-b", &reserved_ctx),
+            Err(AppError::InvalidConfig(message)) if message.contains("保留")
+        ));
+
+        // Failed swaps must leave both cards untouched.
+        assert_eq!(router.get_port_mapping_by_id("guard-a").unwrap().port, 10220);
+        assert_eq!(router.get_port_mapping_by_id("guard-b").unwrap().port, 10221);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_swap_port_mapping_ports_rejects_busy_destination_for_enabled_card() {
+        let temp_dir = std::env::temp_dir().join(format!("test_port_router_port_swap_busy_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = PortProbeContext::default();
+
+        // A third-party listener owns this port; the disabled card may still reference it.
+        let occupied = std::net::TcpListener::bind("127.0.0.1:0").expect("bind stand-in listener");
+        let busy_port = occupied.local_addr().unwrap().port();
+        let free_port = router
+            .get_next_available_port(Some(45000), None, &ctx)
+            .expect("find a free port");
+
+        router
+            .save_port_mapping(
+                create_test_mapping("busy-a", free_port, "prof-a", "Node-A", false),
+                &ctx,
+            )
+            .unwrap();
+        router
+            .save_port_mapping(
+                create_test_mapping("busy-b", busy_port, "prof-b", "Node-B", false),
+                &ctx,
+            )
+            .unwrap();
+        router
+            .toggle_port_mapping("busy-a", true, &ctx)
+            .expect("enable the card that will move");
+
+        let err = router
+            .swap_port_mapping_ports("busy-a", "busy-b", &ctx)
+            .expect_err("a busy destination for an enabled card must be rejected");
+        assert!(matches!(err, AppError::PortOccupied(port) if port == busy_port));
+        assert_eq!(router.get_port_mapping_by_id("busy-a").unwrap().port, free_port);
+        assert_eq!(router.get_port_mapping_by_id("busy-b").unwrap().port, busy_port);
+
+        drop(occupied);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_swap_port_mapping_ports_clears_moved_chain_latency() {
+        let temp_dir = std::env::temp_dir().join(format!("test_port_router_port_swap_chain_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let router = PortRouter::new(temp_dir.clone());
+        let ctx = chain_ctx();
+
+        let mut chain = create_test_mapping("chain-swap", 10210, "prof-1", "HK-01", false);
+        chain.residential_proxy_id = Some("res-1".to_string());
+        chain.latency = Some(65);
+        router.save_port_mapping(chain, &ctx).expect("save chain mapping");
+        router
+            .save_port_mapping(create_test_mapping("plain-swap", 10211, "prof-2", "JP-01", false), &ctx)
+            .expect("save plain mapping");
+
+        let updated = router
+            .swap_port_mapping_ports("chain-swap", "plain-swap", &ctx)
+            .expect("chain port swap");
+        let chain_after = updated.iter().find(|m| m.id == "chain-swap").expect("chain present");
+        assert_eq!(chain_after.port, 10211);
+        // `chain-<port>` proxy names change with the port, so the cached latency is stale.
+        assert_eq!(chain_after.latency, None);
+        assert_eq!(
+            updated
+                .iter()
+                .find(|m| m.id == "plain-swap")
+                .expect("plain present")
+                .port,
+            10210
+        );
+
+        let reloaded = PortRouter::new(temp_dir.clone());
+        let persisted = reloaded.get_port_mapping_by_id("chain-swap").expect("persisted chain");
+        assert_eq!(persisted.port, 10211);
+        assert_eq!(persisted.latency, None);
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

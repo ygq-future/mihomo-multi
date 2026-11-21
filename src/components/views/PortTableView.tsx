@@ -133,6 +133,7 @@ export const PortTableView: React.FC = () => {
     togglePortMapping,
     toggleManualFallback,
     swapPortFallback,
+    swapPortMappingPorts,
     testPortDelay,
     testPortFallbackDelay,
     testAllPortsDelay,
@@ -220,8 +221,22 @@ export const PortTableView: React.FC = () => {
     dy: number
     isOverPrimary: boolean
   } | null>(null)
+  const [cardDrag, setCardDrag] = useState<{
+    mappingId: string
+    dx: number
+    dy: number
+    overMappingId: string | null
+  } | null>(null)
+  const [swappingCardPortIds, setSwappingCardPortIds] = useState<
+    Record<string, boolean>
+  >({})
+  const [recentlyPortSwappedIds, setRecentlyPortSwappedIds] = useState<
+    Record<string, boolean>
+  >({})
   const primaryRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const fallbackRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const cardScrollRef = useRef<HTMLDivElement | null>(null)
   const pendingSwapAnimRef = useRef<
     Record<
       string,
@@ -241,6 +256,21 @@ export const PortTableView: React.FC = () => {
   >({})
   const justDraggedRef = useRef<Record<string, number>>({})
   const dragCleanupRef = useRef<(() => void) | null>(null)
+  const pendingCardSwapAnimRef = useRef<{
+    firstId: string
+    secondId: string
+    firstRect: DOMRect
+    secondRect: DOMRect
+    expectedFirstPort: number
+    expectedSecondPort: number
+  } | null>(null)
+  const cardSwapCleanupTimersRef = useRef<
+    Record<string, ReturnType<typeof setTimeout>>
+  >({})
+  const cardSwapHighlightTimersRef = useRef<
+    Record<string, ReturnType<typeof setTimeout>>
+  >({})
+  const cardDragCleanupRef = useRef<(() => void) | null>(null)
   const handleProbeDirectEgress = useCallback(
     async (port?: number | null, isManual = false) => {
       setIsProbingDirect(true)
@@ -538,6 +568,11 @@ export const PortTableView: React.FC = () => {
       .sort((a, b) => a.port - b.port)
     return direct ? [direct, ...others] : others
   }, [portMappings])
+
+  const isAnyCardSwapPending = useMemo(
+    () => Object.values(swappingCardPortIds).some(Boolean),
+    [swappingCardPortIds],
+  )
 
   const enabledPorts = useMemo(() => {
     return portMappings.filter((m) => m.enabled).sort((a, b) => a.port - b.port)
@@ -871,15 +906,310 @@ export const PortTableView: React.FC = () => {
     [portMappings, swappingPortIds, swapPortFallback, t],
   )
 
+  const handleSwapCardPorts = useCallback(
+    async (sourceId: string, targetId: string) => {
+      if (sourceId === targetId) return
+      const source = portMappings.find((p) => p.id === sourceId)
+      const target = portMappings.find((p) => p.id === targetId)
+      if (!source || !target) return
+      if (source.port === target.port) return
+      if (Object.values(swappingCardPortIds).some(Boolean)) {
+        return
+      }
+      if (
+        source.id === FIXED_DIRECT_PORT_ID ||
+        target.id === FIXED_DIRECT_PORT_ID ||
+        source.nodeName === 'DIRECT' ||
+        target.nodeName === 'DIRECT'
+      ) {
+        return
+      }
+
+      const sourceEl = cardRefs.current[source.id]
+      const targetEl = cardRefs.current[target.id]
+      if (!sourceEl || !targetEl) return
+
+      // Drop the live drag transform before measuring so the swap animation
+      // starts from the card's layout slot instead of the pointer position.
+      sourceEl.style.transition = ''
+      sourceEl.style.transform = ''
+      sourceEl.style.zIndex = ''
+
+      const prefersReducedMotion =
+        typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
+      if (!prefersReducedMotion) {
+        pendingCardSwapAnimRef.current = {
+          firstId: source.id,
+          secondId: target.id,
+          firstRect: sourceEl.getBoundingClientRect(),
+          secondRect: targetEl.getBoundingClientRect(),
+          expectedFirstPort: target.port,
+          expectedSecondPort: source.port,
+        }
+      }
+
+      setSwappingCardPortIds((prev) => ({
+        ...prev,
+        [source.id]: true,
+        [target.id]: true,
+      }))
+
+      try {
+        await swapPortMappingPorts(source.id, target.id)
+        setRecentlyPortSwappedIds((prev) => ({
+          ...prev,
+          [source.id]: true,
+          [target.id]: true,
+        }))
+        for (const id of [source.id, target.id]) {
+          clearTimeout(cardSwapHighlightTimersRef.current[id])
+          cardSwapHighlightTimersRef.current[id] = setTimeout(() => {
+            setRecentlyPortSwappedIds((prev) => {
+              const next = { ...prev }
+              delete next[id]
+              return next
+            })
+            delete cardSwapHighlightTimersRef.current[id]
+          }, 700)
+        }
+        toast.success(
+          t('ports.swapPortsSuccess', {
+            firstPort: source.port,
+            secondPort: target.port,
+            firstNode: source.nodeName,
+            secondNode: target.nodeName,
+          }),
+        )
+      } catch (err) {
+        pendingCardSwapAnimRef.current = null
+        toast.error(
+          t('ports.swapPortsFail', {
+            err: err instanceof Error ? err.message : String(err),
+          }),
+        )
+      } finally {
+        setSwappingCardPortIds((prev) => ({
+          ...prev,
+          [source.id]: false,
+          [target.id]: false,
+        }))
+      }
+    },
+    [portMappings, swappingCardPortIds, swapPortMappingPorts, t],
+  )
+
+  const startCardPortDrag = useCallback(
+    (e: React.PointerEvent<HTMLElement>, m: PortMapping) => {
+      if (e.button !== 0 && e.pointerType === 'mouse') return
+      if (isAnyCardSwapPending) return
+      if (swappingPortIds[m.id] || togglingPortIds[m.id]) return
+      if (m.id === FIXED_DIRECT_PORT_ID || m.nodeName === 'DIRECT') return
+      const sourceEl = cardRefs.current[m.id]
+      const scrollEl = cardScrollRef.current
+      if (!sourceEl || !scrollEl) return
+      if (cardSwapCleanupTimersRef.current[m.id]) {
+        clearTimeout(cardSwapCleanupTimersRef.current[m.id])
+        delete cardSwapCleanupTimersRef.current[m.id]
+        sourceEl.style.transition = ''
+        sourceEl.style.transform = ''
+        sourceEl.style.zIndex = ''
+      }
+
+      dragCleanupRef.current?.()
+      cardDragCleanupRef.current?.()
+      setFallbackDrag(null)
+      setCardDrag(null)
+
+      const pointerId = e.pointerId
+      const handle = e.currentTarget
+      handle.setPointerCapture(pointerId)
+      const startX = e.clientX
+      const startY = e.clientY
+      const sourceRect = sourceEl.getBoundingClientRect()
+      const startScrollTop = scrollEl.scrollTop
+      let clientX = startX
+      let clientY = startY
+      let animationFrame = 0
+      let previousFrameTime = 0
+      let active = false
+      let overMappingId: string | null = null
+      let renderedTarget: string | null | undefined
+
+      const resolveTarget = (left: number, top: number) => {
+        const right = left + sourceRect.width
+        const bottom = top + sourceRect.height
+        const sourceArea = sourceRect.width * sourceRect.height
+        const centerX = left + sourceRect.width / 2
+        const centerY = top + sourceRect.height / 2
+        let bestId: string | null = null
+        let bestOverlapArea = 0
+        let bestDistance = Number.POSITIVE_INFINITY
+        for (const [id, card] of Object.entries(cardRefs.current)) {
+          if (!card || id === m.id || card.dataset.portCardLocked === 'true') {
+            continue
+          }
+          const rect = card.getBoundingClientRect()
+          const overlapX = Math.max(
+            0,
+            Math.min(right, rect.right) - Math.max(left, rect.left),
+          )
+          const overlapY = Math.max(
+            0,
+            Math.min(bottom, rect.bottom) - Math.max(top, rect.top),
+          )
+          const overlapArea = overlapX * overlapY
+          const targetArea = rect.width * rect.height
+          const minOverlapArea = Math.min(sourceArea, targetArea) / 3
+          if (overlapArea < minOverlapArea || minOverlapArea <= 0) continue
+          const dx = centerX - (rect.left + rect.width / 2)
+          const dy = centerY - (rect.top + rect.height / 2)
+          const distance = dx * dx + dy * dy
+          if (
+            overlapArea > bestOverlapArea ||
+            (overlapArea === bestOverlapArea && distance < bestDistance)
+          ) {
+            bestOverlapArea = overlapArea
+            bestDistance = distance
+            bestId = id
+          }
+        }
+        return bestId
+      }
+
+      const cleanup = () => {
+        cancelAnimationFrame(animationFrame)
+        handle.removeEventListener('lostpointercapture', onPointerCancel)
+        if (handle.hasPointerCapture(pointerId))
+          handle.releasePointerCapture(pointerId)
+        window.removeEventListener('pointermove', onPointerMove)
+        window.removeEventListener('pointerup', onPointerUp)
+        window.removeEventListener('pointercancel', onPointerCancel)
+        window.removeEventListener('blur', onPointerCancel)
+        document.body.style.userSelect = ''
+        document.body.style.cursor = ''
+        cardDragCleanupRef.current = null
+      }
+
+      const updateDrag = () => {
+        const bounds = scrollEl.getBoundingClientRect()
+        const scrollDelta = scrollEl.scrollTop - startScrollTop
+        const left = Math.max(
+          bounds.left,
+          Math.min(
+            bounds.right - sourceRect.width,
+            sourceRect.left + clientX - startX,
+          ),
+        )
+        const top = Math.max(
+          bounds.top,
+          Math.min(
+            bounds.bottom - sourceRect.height,
+            sourceRect.top + clientY - startY,
+          ),
+        )
+        overMappingId = resolveTarget(left, top)
+        const dx = left - sourceRect.left
+        const dy = top - sourceRect.top + scrollDelta
+        sourceEl.style.transform = `translate3d(${dx}px, ${dy}px, 0)`
+        if (renderedTarget !== overMappingId) {
+          renderedTarget = overMappingId
+          setCardDrag({ mappingId: m.id, dx, dy, overMappingId })
+        }
+      }
+
+      const scrollFrame = (time: number) => {
+        const bounds = scrollEl.getBoundingClientRect()
+        const edge = Math.max(1, Math.min(sourceRect.height, bounds.height / 3))
+        const direction =
+          clientY < bounds.top + edge
+            ? -Math.min(1, (bounds.top + edge - clientY) / edge)
+            : clientY > bounds.bottom - edge
+              ? Math.min(1, (clientY - bounds.bottom + edge) / edge)
+              : 0
+        const elapsed = previousFrameTime
+          ? Math.min(time - previousFrameTime, 50)
+          : 0
+        previousFrameTime = time
+        if (direction !== 0) {
+          const before = scrollEl.scrollTop
+          scrollEl.scrollTop += direction * elapsed * 0.8
+          if (scrollEl.scrollTop !== before) updateDrag()
+        }
+        animationFrame = requestAnimationFrame(scrollFrame)
+      }
+
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        if (moveEvent.pointerId !== pointerId) return
+        clientX = moveEvent.clientX
+        clientY = moveEvent.clientY
+        if (!active) {
+          if (Math.hypot(clientX - startX, clientY - startY) < 6) return
+          active = true
+          document.body.style.userSelect = 'none'
+          document.body.style.cursor = 'grabbing'
+          animationFrame = requestAnimationFrame(scrollFrame)
+        }
+        updateDrag()
+      }
+
+      const finishDrag = () => {
+        cleanup()
+        setCardDrag(null)
+        if (active && overMappingId) {
+          void handleSwapCardPorts(m.id, overMappingId)
+        }
+      }
+
+      const onPointerUp = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== pointerId) return
+        if (active) {
+          clientX = upEvent.clientX
+          clientY = upEvent.clientY
+          updateDrag()
+        }
+        finishDrag()
+      }
+
+      const onPointerCancel = () => {
+        cleanup()
+        setCardDrag(null)
+      }
+
+      cardDragCleanupRef.current = cleanup
+      handle.addEventListener('lostpointercapture', onPointerCancel)
+      window.addEventListener('pointermove', onPointerMove)
+      window.addEventListener('pointerup', onPointerUp)
+      window.addEventListener('pointercancel', onPointerCancel)
+      window.addEventListener('blur', onPointerCancel)
+    },
+    [
+      isAnyCardSwapPending,
+      swappingPortIds,
+      togglingPortIds,
+      handleSwapCardPorts,
+    ],
+  )
+
   useEffect(() => {
     const cleanupTimers = swapCleanupTimersRef.current
     const highlightTimers = swapHighlightTimersRef.current
+    const cardCleanupTimers = cardSwapCleanupTimersRef.current
+    const cardHighlightTimers = cardSwapHighlightTimersRef.current
     return () => {
       dragCleanupRef.current?.()
+      cardDragCleanupRef.current?.()
       for (const timer of Object.values(cleanupTimers)) {
         clearTimeout(timer)
       }
       for (const timer of Object.values(highlightTimers)) {
+        clearTimeout(timer)
+      }
+      for (const timer of Object.values(cardCleanupTimers)) {
+        clearTimeout(timer)
+      }
+      for (const timer of Object.values(cardHighlightTimers)) {
         clearTimeout(timer)
       }
     }
@@ -891,6 +1221,8 @@ export const PortTableView: React.FC = () => {
       if (swappingPortIds[m.id]) return
       const target = e.target as HTMLElement | null
       if (target?.closest('[data-no-drag="true"]')) return
+      cardDragCleanupRef.current?.()
+      setCardDrag(null)
 
       const pEl = primaryRowRefs.current[m.id]
       const fEl = fallbackRowRefs.current[m.id]
@@ -1030,6 +1362,51 @@ export const PortTableView: React.FC = () => {
         fEl.style.zIndex = ''
         delete swapCleanupTimersRef.current[id]
       }, 360)
+    }
+  }, [portMappings])
+
+  useLayoutEffect(() => {
+    const pending = pendingCardSwapAnimRef.current
+    if (!pending) return
+    const first = portMappings.find((p) => p.id === pending.firstId)
+    const second = portMappings.find((p) => p.id === pending.secondId)
+    if (!first || !second) return
+    if (
+      first.port !== pending.expectedFirstPort ||
+      second.port !== pending.expectedSecondPort
+    ) {
+      return
+    }
+    pendingCardSwapAnimRef.current = null
+
+    const values = [
+      { id: pending.firstId, rect: pending.firstRect },
+      { id: pending.secondId, rect: pending.secondRect },
+    ]
+    for (const { id, rect } of values) {
+      const el = cardRefs.current[id]
+      if (!el) continue
+      const nextRect = el.getBoundingClientRect()
+      const deltaX = rect.left - nextRect.left
+      const deltaY = rect.top - nextRect.top
+      if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) continue
+
+      clearTimeout(cardSwapCleanupTimersRef.current[id])
+      el.style.transition = 'none'
+      el.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`
+      el.style.zIndex = '25'
+      void el.offsetHeight
+
+      requestAnimationFrame(() => {
+        el.style.transition = 'transform 340ms cubic-bezier(0.22, 1, 0.36, 1)'
+        el.style.transform = 'translate3d(0, 0, 0)'
+        cardSwapCleanupTimersRef.current[id] = setTimeout(() => {
+          el.style.transition = ''
+          el.style.transform = ''
+          el.style.zIndex = ''
+          delete cardSwapCleanupTimersRef.current[id]
+        }, 360)
+      })
     }
   }, [portMappings])
 
@@ -1366,7 +1743,10 @@ export const PortTableView: React.FC = () => {
       </div>
 
       {/* Scrollable Port Cards Grid Area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden pr-1 pb-4">
+      <div
+        ref={cardScrollRef}
+        className="flex-1 overflow-y-auto overflow-x-hidden pr-1 pb-4"
+      >
         {totalPorts === 0 && (portLoading || !portInitialized) ? (
           /* Loading Skeleton Grid */
           <div className="space-y-3">
@@ -1621,10 +2001,47 @@ export const PortTableView: React.FC = () => {
                       fbNodeKey,
                     )
                   : false
+              const isCardDragging = cardDrag?.mappingId === m.id
+              const isCardDropTarget = Boolean(
+                cardDrag &&
+                  cardDrag.mappingId !== m.id &&
+                  cardDrag.overMappingId === m.id,
+              )
+              const isCardSwapPending = Boolean(swappingCardPortIds[m.id])
+              const isCardRecentlySwapped = Boolean(
+                recentlyPortSwappedIds[m.id],
+              )
+              const isCardInteractionBusy =
+                isAnyCardSwapPending ||
+                Boolean(swappingPortIds[m.id]) ||
+                Boolean(togglingPortIds[m.id])
               return (
                 <div
                   key={m.id}
-                  className={`min-w-0 p-3.5 rounded-xl border shadow-sm transition-all flex flex-col justify-between space-y-2.5 group ${
+                  ref={(el) => {
+                    cardRefs.current[m.id] = el
+                  }}
+                  data-port-card-id={m.id}
+                  data-port-card-locked={
+                    isDirectCard || isCardInteractionBusy ? 'true' : undefined
+                  }
+                  style={
+                    isCardDragging && cardDrag
+                      ? {
+                          transform: `translate3d(${cardDrag.dx}px, ${cardDrag.dy}px, 0)`,
+                          transition: 'box-shadow 150ms ease',
+                        }
+                      : undefined
+                  }
+                  className={`relative min-w-0 p-3.5 rounded-xl border shadow-sm transition-all motion-reduce:transition-none flex flex-col justify-between gap-2.5 group ${
+                    isCardDragging
+                      ? 'z-30 shadow-xl pointer-events-none [&_*]:pointer-events-none'
+                      : isCardDropTarget
+                        ? 'z-20'
+                        : isCardRecentlySwapped
+                          ? 'brightness-110'
+                          : ''
+                  } ${
                     isStoppedWarning
                       ? 'border-amber-500/40 bg-amber-500/5 dark:bg-amber-500/10 hover:border-primary/40'
                       : isOccupiedWarning
@@ -1642,8 +2059,64 @@ export const PortTableView: React.FC = () => {
                                   : 'bg-card border-border hover:border-primary/40'
                   }`}
                 >
+                  {cardDrag &&
+                    !isCardDragging &&
+                    !isDirectCard &&
+                    !isCardInteractionBusy && (
+                      <div
+                        className={`pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-xl p-4 text-center backdrop-blur-sm transition-shadow duration-150 motion-reduce:transition-none ${
+                          isCardDropTarget
+                            ? 'bg-background/80 ring-2 ring-inset ring-sky-500/70 dark:bg-background/85 dark:ring-sky-400/60'
+                            : 'bg-background/75 text-muted-foreground'
+                        }`}
+                      >
+                        {isCardDropTarget ? (
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-500/15 text-sky-600 ring-1 ring-sky-500/30 dark:bg-sky-400/15 dark:text-sky-300 dark:ring-sky-400/30">
+                            <ArrowUpDown
+                              className="h-5 w-5"
+                              aria-hidden="true"
+                            />
+                          </div>
+                        ) : (
+                          <span className="text-xs font-medium leading-relaxed">
+                            {t('ports.dragCardSwapping')}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  {isCardDragging && cardDrag?.overMappingId && (
+                    <div className="pointer-events-none absolute -top-3 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-sky-500/50 bg-popover/95 px-3 py-1 text-xs font-medium text-popover-foreground shadow-md backdrop-blur-md dark:border-sky-400/45">
+                      <ArrowUpDown
+                        className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400"
+                        aria-hidden="true"
+                      />
+                      {t('ports.dropCardToSwapHint')}
+                    </div>
+                  )}
+                  {isCardSwapPending && (
+                    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-background/60">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-primary">
+                        <Loader2 className="w-3 h-3 animate-spin motion-reduce:animate-none" />
+                        {t('ports.swappingPorts')}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between gap-2 min-w-0">
                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      {!isDirectCard && (
+                        <button
+                          type="button"
+                          disabled={isCardInteractionBusy}
+                          onPointerDown={(e) => startCardPortDrag(e, m)}
+                          className="shrink-0 -ml-1 inline-flex items-center justify-center w-4 h-5 rounded text-muted-foreground/35 hover:text-primary hover:bg-primary/10 cursor-grab active:cursor-grabbing touch-none disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                          title={
+                            cardDrag ? undefined : t('ports.dragCardPortHint')
+                          }
+                          aria-label={t('ports.dragCardPortHint')}
+                        >
+                          <GripVertical className="w-3 h-3" />
+                        </button>
+                      )}
                       {isStoppedWarning ? (
                         <span
                           className="inline-flex shrink-0 cursor-help"
@@ -1672,7 +2145,23 @@ export const PortTableView: React.FC = () => {
                         />
                       ) : null}
 
-                      <span className="font-mono font-bold text-sm text-foreground">
+                      <span
+                        onPointerDown={
+                          isDirectCard
+                            ? undefined
+                            : (e) => startCardPortDrag(e, m)
+                        }
+                        className={`font-mono font-bold text-sm text-foreground ${
+                          isDirectCard
+                            ? ''
+                            : 'cursor-grab active:cursor-grabbing select-none touch-none'
+                        }`}
+                        title={
+                          isDirectCard || cardDrag
+                            ? undefined
+                            : t('ports.dragCardPortHint')
+                        }
+                      >
                         {m.port}
                       </span>
                       {m.protocol !== 'mixed' && (

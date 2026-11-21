@@ -356,6 +356,7 @@ pub fn run() {
             toggle_port_mapping,
             toggle_manual_fallback,
             swap_port_fallback,
+            swap_port_mapping_ports,
             test_port_mapping_delay,
             test_port_fallback_delay,
             test_all_port_mappings_delay,

@@ -277,6 +277,13 @@ export const enUS: Record<TranslationKey, string> = {
   'ports.swapFail': 'Failed to swap primary and backup nodes: {err}',
   'ports.swapDuplicateNodeErr':
     'Backup node "{node}" is already bound as primary on port {port}',
+  'ports.dragCardPortHint': 'Drag this card to swap its listening port',
+  'ports.dragCardSwapping': 'Drop here to swap listening ports and positions',
+  'ports.dropCardToSwapHint': 'Release to swap ports and positions',
+  'ports.swappingPorts': 'Swapping ports...',
+  'ports.swapPortsSuccess':
+    'Swapped ports {firstPort} and {secondPort}: {firstNode} ↔ {secondNode}',
+  'ports.swapPortsFail': 'Failed to swap listening ports: {err}',
   'ports.detectDirectEgressTitle':
     'Click to detect direct egress IP, region, and latency',
   'ports.detectEgress': 'Detect Exit',

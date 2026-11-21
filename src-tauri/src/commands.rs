@@ -479,6 +479,18 @@ pub async fn swap_port_fallback(id: String, state: State<'_, AppState>) -> Resul
 }
 
 #[tauri::command]
+pub async fn swap_port_mapping_ports(
+    first_id: String,
+    second_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<PortMapping>, String> {
+    state
+        .swap_port_mapping_ports(&first_id, &second_id)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub async fn test_port_mapping_delay(
     app: AppHandle,
     id: String,

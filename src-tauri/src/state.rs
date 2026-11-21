@@ -890,6 +890,50 @@ impl AppState {
         Ok(saved)
     }
 
+    /// Swaps the listener ports of two mappings and hot-reloads the runtime config.
+    ///
+    /// Egress selection is port-scoped (`system_proxy_port` / `env_proxy_port` / `tun_port`), so it
+    /// keeps pointing at the same port number: when that port survives the swap the binding stays
+    /// untouched, and `sync_runtime_with_event` runs `reconcile_active_egress` first, which tears
+    /// the OS proxy / env vars / TUN state down if the swap left the port disabled instead.
+    /// Chain latency caches are keyed by `chain-<port>`, so both old and new names are invalidated.
+    pub async fn swap_port_mapping_ports(&self, first_id: &str, second_id: &str) -> AppResult<Vec<PortMapping>> {
+        let previous: Vec<PortMapping> = self
+            .port_router
+            .get_port_mappings()
+            .into_iter()
+            .filter(|mapping| mapping.id == first_id || mapping.id == second_id)
+            .collect();
+
+        let ctx = self.port_probe_context();
+        let updated = self.port_router.swap_port_mapping_ports(first_id, second_id, &ctx)?;
+
+        let invalidated: Vec<String> = previous
+            .iter()
+            .filter(|mapping| mapping.residential_proxy_id.is_some())
+            .filter_map(|mapping| {
+                updated
+                    .iter()
+                    .find(|candidate| candidate.id == mapping.id)
+                    .map(|moved| (mapping.port, moved.port))
+            })
+            .flat_map(|(old_port, new_port)| {
+                [
+                    crate::core::config_generator::chain_proxy_name(old_port),
+                    crate::core::config_generator::chain_proxy_name(new_port),
+                ]
+            })
+            .collect();
+        if !invalidated.is_empty()
+            && let Err(error) = self.latency_probe.remove_latencies(&invalidated)
+        {
+            tracing::warn!("Failed to invalidate chain latency cache after port swap: {}", error);
+        }
+
+        self.sync_runtime_with_event(PortChangeEvent::Resynced).await?;
+        Ok(updated)
+    }
+
     /// Validates and runs a residential exit connectivity probe using only saved state.
     ///
     /// The probe runs in a disposable isolated Mihomo instance, so the live runtime config,

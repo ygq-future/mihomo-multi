@@ -34,6 +34,10 @@ export interface PortSlice {
     manualFallback: boolean,
   ) => Promise<PortMapping>
   swapPortFallback: (id: string) => Promise<PortMapping>
+  swapPortMappingPorts: (
+    firstId: string,
+    secondId: string,
+  ) => Promise<PortMapping[]>
   testPortDelay: (
     id: string,
     testUrl?: string,
@@ -469,6 +473,32 @@ export const createPortSlice: StateCreator<
         fallbackStatuses: previousFallbackStatuses,
         portError: errMsg,
       })
+      throw err
+    }
+  },
+
+  swapPortMappingPorts: async (firstId, secondId) => {
+    set({ portError: null })
+    try {
+      const updated = await api.swapPortMappingPorts(firstId, secondId)
+      const [occupiedPorts, driftReports] = await Promise.all([
+        api.getOccupiedPorts().catch(() => []),
+        api.getDriftReports().catch(() => []),
+      ])
+      set({
+        portMappings: updated,
+        portEgressIps: {},
+        occupiedPorts,
+        driftReports,
+        portError: null,
+      })
+      get()
+        .fetchFallbackStatuses()
+        .catch(() => {})
+      return updated
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      set({ portError: errMsg })
       throw err
     }
   },

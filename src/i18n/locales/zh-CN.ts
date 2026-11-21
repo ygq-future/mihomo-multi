@@ -249,6 +249,13 @@ export const zhCN = {
   'ports.swapFail': '交换主备节点失败: {err}',
   'ports.swapDuplicateNodeErr':
     '备用节点「{node}」已被端口 {port} 绑定为主节点，无法交换为主节点',
+  'ports.dragCardPortHint': '拖动卡片以交换该卡片的监听端口',
+  'ports.dragCardSwapping': '拖动到这里交换监听端口和位置',
+  'ports.dropCardToSwapHint': '松开交换监听端口和位置',
+  'ports.swappingPorts': '正在交换端口...',
+  'ports.swapPortsSuccess':
+    '已交换端口 {firstPort} 与 {secondPort}：{firstNode} ↔ {secondNode}',
+  'ports.swapPortsFail': '交换监听端口失败: {err}',
   'ports.detectDirectEgressTitle': '点击检测直连出口 IP、归属地与延迟',
   'ports.detectEgress': '检测出口',
   'ports.testChainLatencyTitle':
