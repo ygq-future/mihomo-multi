@@ -17,6 +17,7 @@ export interface TooltipProps {
   disabled?: boolean
   className?: string
   contentClassName?: string
+  interactive?: boolean
 }
 
 interface TooltipPosition {
@@ -34,6 +35,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   disabled = false,
   className = '',
   contentClassName = '',
+  interactive = false,
 }) => {
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState<TooltipPosition | null>(null)
@@ -64,6 +66,23 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const hide = useCallback(() => {
     clearTimer()
     setOpen(false)
+  }, [clearTimer])
+
+  const scheduleHide = useCallback(() => {
+    clearTimer()
+    timerRef.current = setTimeout(() => {
+      const trigger = triggerRef.current
+      const tooltip = tooltipRef.current
+      if (
+        trigger?.matches(':hover') ||
+        tooltip?.matches(':hover') ||
+        trigger?.contains(document.activeElement) ||
+        tooltip?.contains(document.activeElement)
+      ) {
+        return
+      }
+      setOpen(false)
+    }, 200)
   }, [clearTimer])
 
   useEffect(() => {
@@ -137,11 +156,20 @@ export const Tooltip: React.FC<TooltipProps> = ({
       <span
         ref={triggerRef}
         onMouseEnter={show}
-        onMouseLeave={hide}
+        onMouseLeave={interactive ? scheduleHide : hide}
         onFocus={show}
-        onBlur={hide}
-        onPointerDown={hide}
-        aria-describedby={open ? tooltipId : undefined}
+        onBlur={interactive ? scheduleHide : hide}
+        onPointerDown={interactive ? undefined : hide}
+        onKeyDown={
+          interactive
+            ? (event) => {
+                if (event.key === 'Escape') hide()
+              }
+            : undefined
+        }
+        tabIndex={interactive ? 0 : undefined}
+        aria-expanded={interactive ? open : undefined}
+        aria-describedby={!interactive && open ? tooltipId : undefined}
         className={`inline-flex items-center max-w-full ${className}`}
       >
         {children}
@@ -151,13 +179,24 @@ export const Tooltip: React.FC<TooltipProps> = ({
           <div
             id={tooltipId}
             ref={tooltipRef}
-            role="tooltip"
+            role={interactive ? 'group' : 'tooltip'}
+            onMouseEnter={interactive ? clearTimer : undefined}
+            onMouseLeave={interactive ? scheduleHide : undefined}
+            onFocus={interactive ? clearTimer : undefined}
+            onBlur={interactive ? scheduleHide : undefined}
+            onKeyDown={
+              interactive
+                ? (event) => {
+                    if (event.key === 'Escape') hide()
+                  }
+                : undefined
+            }
             style={
               position
                 ? { top: `${position.top}px`, left: `${position.left}px` }
                 : { top: '-9999px', left: '-9999px', visibility: 'hidden' }
             }
-            className={`fixed z-[9999] pointer-events-none select-none transition-opacity duration-150 ${
+            className={`fixed z-[9999] ${interactive ? 'pointer-events-auto' : 'pointer-events-none'} select-none transition-opacity duration-150 ${
               position ? 'opacity-100' : 'opacity-0'
             }`}
           >

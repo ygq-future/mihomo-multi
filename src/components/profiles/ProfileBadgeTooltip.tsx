@@ -1,5 +1,7 @@
+import { RefreshCw } from 'lucide-react'
 import type React from 'react'
 import { useTranslation } from '../../i18n'
+import { useAppStore } from '../../stores/appStore'
 import type { ProfileItem } from '../../types'
 import {
   SUBSCRIPTION_TONE_CLASSES,
@@ -7,7 +9,7 @@ import {
   formatTrafficBytes,
   getSubscriptionStats,
 } from '../../utils/subscription'
-import { Tooltip } from '../common'
+import { Tooltip, toast } from '../common'
 
 interface ProfileBadgeTooltipProps {
   profile?: ProfileItem
@@ -23,6 +25,29 @@ export const ProfileBadgeTooltip: React.FC<ProfileBadgeTooltipProps> = ({
   const { t, locale } = useTranslation()
   const displayName = profile?.name || fallbackName
   const stats = getSubscriptionStats(profile?.subscriptionInfo)
+  const updateProfile = useAppStore((state) => state.updateProfile)
+  const isUpdating = useAppStore((state) =>
+    profile ? Boolean(state.updatingProfileIds[profile.id]) : false,
+  )
+
+  const handleRefresh = async () => {
+    if (!profile || isUpdating) return
+    try {
+      const updated = await updateProfile(profile.id)
+      toast.success(
+        t('profileMain.toastRefreshed', {
+          name: profile.name,
+          count: updated.nodeCount,
+        }),
+      )
+    } catch (err) {
+      toast.error(
+        t('profileMain.toastRefreshFailed', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      )
+    }
+  }
 
   const badgeClass =
     size === 'xs'
@@ -50,6 +75,20 @@ export const ProfileBadgeTooltip: React.FC<ProfileBadgeTooltipProps> = ({
               ? t('profileMain.typeRemote')
               : t('profileMain.typeLocal')}
           </span>
+        )}
+        {profile && (
+          <button
+            type="button"
+            aria-label={t('profileMain.refreshProfileTitle')}
+            title={t('profileMain.refreshProfileTitle')}
+            disabled={isUpdating}
+            onClick={handleRefresh}
+            className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+          >
+            <RefreshCw
+              className={`h-3 w-3 ${isUpdating ? 'animate-spin motion-reduce:animate-none' : ''}`}
+            />
+          </button>
         )}
       </div>
 
@@ -153,7 +192,11 @@ export const ProfileBadgeTooltip: React.FC<ProfileBadgeTooltipProps> = ({
   )
 
   return (
-    <Tooltip content={tooltipContent} className="shrink-0">
+    <Tooltip
+      content={tooltipContent}
+      className="shrink-0"
+      interactive={Boolean(profile)}
+    >
       <span className={badgeClass}>{displayName}</span>
     </Tooltip>
   )
