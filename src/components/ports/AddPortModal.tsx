@@ -233,7 +233,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         setSelectedResidentialProxyId('')
       }
     }
-  }, [isOpen, initialProfileId, initialNodeName, initialMapping, profiles])
+  }, [isOpen, initialProfileId, initialNodeName, initialMapping])
 
   // Ensure nodes for all profiles are loaded
   useEffect(() => {
