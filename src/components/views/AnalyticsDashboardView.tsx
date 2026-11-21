@@ -260,14 +260,23 @@ const AnalyticsTimelineChart: React.FC<{
   const ySpeed = (bps: number) => padT + plotH - (bps / maxSpeed) * plotH
 
   const avgPath = timeline
-    .map((p, i) => `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(1)},${ySpeed(p.avgSpeedBps).toFixed(1)}`)
+    .map(
+      (p, i) =>
+        `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(1)},${ySpeed(p.avgSpeedBps).toFixed(1)}`,
+    )
     .join(' ')
   const peakPath = timeline
-    .map((p, i) => `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(1)},${ySpeed(p.maxSpeedBps).toFixed(1)}`)
+    .map(
+      (p, i) =>
+        `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(1)},${ySpeed(p.maxSpeedBps).toFixed(1)}`,
+    )
     .join(' ')
   const areaPath = `${avgPath} L${xAt(timeline.length - 1).toFixed(1)},${(padT + plotH).toFixed(1)} L${xAt(0).toFixed(1)},${(padT + plotH).toFixed(1)} Z`
 
-  const barW = Math.max(3, Math.min(12, plotW / Math.max(1, timeline.length) - 2))
+  const barW = Math.max(
+    3,
+    Math.min(12, plotW / Math.max(1, timeline.length) - 2),
+  )
 
   return (
     <svg
@@ -358,7 +367,9 @@ const AnalyticsTimelineChart: React.FC<{
 export const AnalyticsDashboardView: React.FC = () => {
   const { t } = useTranslation()
   const [windowHours, setWindowHours] = useState<number>(24)
-  const [dashboard, setDashboard] = useState<NodeAnalyticsDashboard | null>(null)
+  const [dashboard, setDashboard] = useState<NodeAnalyticsDashboard | null>(
+    null,
+  )
   const [loading, setLoading] = useState<boolean>(true)
   const [search, setSearch] = useState<string>('')
   const [sortField, setSortField] = useState<SortField>('score')
@@ -838,7 +849,10 @@ export const AnalyticsDashboardView: React.FC = () => {
                         ['score', t('analytics.colScore')],
                         ['successRate', t('analytics.colSuccessRate')],
                         ['timeoutCount', t('analytics.colTimeouts')],
-                        ['timeoutDurationMs', t('analytics.colTimeoutDuration')],
+                        [
+                          'timeoutDurationMs',
+                          t('analytics.colTimeoutDuration'),
+                        ],
                         ['connectionErrors', t('analytics.colConnErrors')],
                         ['avgSpeedBps', t('analytics.colAvgSpeed')],
                         ['maxSpeedBps', t('analytics.colMaxSpeed')],

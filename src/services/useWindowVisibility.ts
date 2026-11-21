@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { createEventScope } from './events'
 
 let currentVisible =
-  typeof document !== 'undefined' ? document.visibilityState === 'visible' : true
+  typeof document !== 'undefined'
+    ? document.visibilityState === 'visible'
+    : true
 const listeners = new Set<(visible: boolean) => void>()
 let teardownSingleton: (() => void) | null = null
 

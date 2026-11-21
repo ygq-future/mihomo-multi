@@ -140,7 +140,9 @@ export function useAppUpdateCheck(): void {
     }
   }, [config, runCheck])
 
-  const autoCheckEnabled = Boolean(config && config.checkUpdateOnStart !== false)
+  const autoCheckEnabled = Boolean(
+    config && config.checkUpdateOnStart !== false,
+  )
 
   useEffect(() => {
     if (!autoCheckEnabled) return

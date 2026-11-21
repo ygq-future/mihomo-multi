@@ -1350,14 +1350,16 @@ export const zhCN = {
   // Analytics Dashboard
   'nav.analytics': '节点大屏',
   'header.analyticsTitle': '节点可用性统计大屏',
-  'header.analyticsSubtitle': '多维度加权评估节点稳定性、超时、连接异常与历史吞吐速率',
+  'header.analyticsSubtitle':
+    '多维度加权评估节点稳定性、超时、连接异常与历史吞吐速率',
   'analytics.window24h': '近 24 小时',
   'analytics.window7d': '近 7 天',
   'analytics.window30d': '近 30 天',
   'analytics.windowAll': '全部历史',
   'analytics.weightsConfig': '权重配置',
   'analytics.clearData': '清空统计',
-  'analytics.clearConfirm': '确认清空所有历史节点可用性统计数据？此操作不可恢复。',
+  'analytics.clearConfirm':
+    '确认清空所有历史节点可用性统计数据？此操作不可恢复。',
   'analytics.cleared': '已清空节点统计数据',
   'analytics.weightsSaved': '权重配置已保存并重新计算评分',
   'analytics.resetWeights': '恢复默认权重',
@@ -1392,14 +1394,16 @@ export const zhCN = {
   'analytics.dimMinSpeed': '保底速率',
   'analytics.dimLatency': '延迟质量',
   'analytics.emptyTitle': '暂无节点统计数据',
-  'analytics.emptyDesc': '内核运行产生流量、测速或周期探测后，将自动采集并生成多维可用性大屏。',
+  'analytics.emptyDesc':
+    '内核运行产生流量、测速或周期探测后，将自动采集并生成多维可用性大屏。',
   'analytics.recentEvents': '近期异常与恢复记录',
   'analytics.noEvents': '当前时间窗口内无异常记录',
   'analytics.confidenceHigh': '高置信度',
   'analytics.confidenceMedium': '中置信度',
   'analytics.confidenceLow': '样本较少',
   'analytics.currentlyTimedOut': '当前超时中',
-  'analytics.weightsModalSubtitle': '调整各维度权重占比（系统会自动归一化为 100%）',
+  'analytics.weightsModalSubtitle':
+    '调整各维度权重占比（系统会自动归一化为 100%）',
 } as const
 
 export type TranslationKey = keyof typeof zhCN
