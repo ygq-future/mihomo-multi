@@ -792,13 +792,14 @@ export const AnalyticsDashboardView: React.FC = () => {
               <span className="text-xs font-semibold text-foreground">
                 {t('analytics.tableTitle')} ({filteredNodes.length})
               </span>
-              <div className="relative w-56">
-                <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <div className="w-56">
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={t('analytics.searchPlaceholder')}
-                  className="pl-7"
+                  prefixIcon={<Search className="w-3.5 h-3.5" />}
+                  clearable
+                  onClear={() => setSearch('')}
                 />
               </div>
             </div>
