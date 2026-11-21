@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import {
   Building2,
   Calendar,
@@ -47,7 +48,21 @@ export const ProfileListView: React.FC = () => {
     updatingProfileIds,
     profileLoading,
     openFileInFolder,
-  } = useAppStore()
+  } = useAppStore(
+    useShallow((s) => ({
+      profiles: s.profiles,
+      config: s.config,
+      fetchProfiles: s.fetchProfiles,
+      addRemoteProfile: s.addRemoteProfile,
+      addLocalProfile: s.addLocalProfile,
+      updateProfile: s.updateProfile,
+      editProfile: s.editProfile,
+      deleteProfile: s.deleteProfile,
+      updatingProfileIds: s.updatingProfileIds,
+      profileLoading: s.profileLoading,
+      openFileInFolder: s.openFileInFolder,
+    })),
+  )
 
   const [isRemoteModalOpen, setIsRemoteModalOpen] = useState(false)
   const [isLocalModalOpen, setIsLocalModalOpen] = useState(false)

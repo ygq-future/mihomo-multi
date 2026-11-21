@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from '../../i18n'
 import {
   ArrowLeft,
@@ -252,7 +253,22 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     testNodeDelay,
     testAllNodesDelay,
     testPortDelay,
-  } = useAppStore()
+  } = useAppStore(
+    useShallow((s) => ({
+      portMappings: s.portMappings,
+      profiles: s.profiles,
+      profileNodes: s.profileNodes,
+      config: s.config,
+      fetchProfileNodes: s.fetchProfileNodes,
+      savePortMapping: s.savePortMapping,
+      saveConfig: s.saveConfig,
+      latencies: s.latencies,
+      coreStatus: s.coreStatus,
+      testNodeDelay: s.testNodeDelay,
+      testAllNodesDelay: s.testAllNodesDelay,
+      testPortDelay: s.testPortDelay,
+    })),
+  )
 
   const isGlobal = mode === 'global'
 

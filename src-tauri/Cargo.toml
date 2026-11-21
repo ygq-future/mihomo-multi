@@ -56,3 +56,9 @@ windows-sys = { version = "0.59.0", features = [
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.170"
 nix = { version = "0.29.0", features = ["signal", "process"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+opt-level = 3

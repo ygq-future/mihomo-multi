@@ -286,39 +286,50 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
         testingPortIds?: Record<string, boolean>
       }
 
+      let updatedMappings = false
       let nextPortMappings = rootState.portMappings
       if (nextPortMappings) {
-        nextPortMappings = nextPortMappings.map((p) => {
+        const mapped = nextPortMappings.map((p) => {
+          let matched = false
           if (payload.mappingId && p.id === payload.mappingId) {
-            return { ...p, latency: payload.latency }
-          }
-          if (p.residentialProxyId) {
+            matched = true
+          } else if (p.residentialProxyId) {
             // Chain ports are measured under the generated `chain-{port}`
             // target. Never let an upstream node cache entry overwrite them.
-            return payload.name === `chain-${p.port}`
-              ? { ...p, latency: payload.latency }
-              : p
-          }
-          if (
+            matched = payload.name === `chain-${p.port}`
+          } else if (
             p.nodeName === payload.name ||
             (payload.runtimeName && p.nodeName === payload.runtimeName)
           ) {
+            matched = true
+          }
+          if (matched && p.latency !== payload.latency) {
+            updatedMappings = true
             return { ...p, latency: payload.latency }
           }
           return p
         })
+        if (updatedMappings) {
+          nextPortMappings = mapped
+        }
       }
 
-      const nextTestingPorts = { ...rootState.testingPortIds }
-      if (payload.mappingId && nextTestingPorts) {
+      const hasTestingPort =
+        payload.mappingId && rootState.testingPortIds?.[payload.mappingId]
+      const nextTestingPorts = hasTestingPort
+        ? { ...rootState.testingPortIds }
+        : rootState.testingPortIds
+      if (hasTestingPort && payload.mappingId && nextTestingPorts) {
         delete nextTestingPorts[payload.mappingId]
       }
 
       return {
         latencies: nextLatencies,
         testingNodeNames: nextTestingNodes,
-        ...(nextPortMappings ? { portMappings: nextPortMappings } : {}),
-        ...(rootState.testingPortIds
+        ...(updatedMappings && nextPortMappings
+          ? { portMappings: nextPortMappings }
+          : {}),
+        ...(hasTestingPort && nextTestingPorts
           ? { testingPortIds: nextTestingPorts }
           : {}),
       }
@@ -343,8 +354,11 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
             : {}),
         }
       }
+      if (state.isTestingAll) {
+        return state
+      }
       return {
-        isTestingAll: state.isTestingAll || payload.isTesting,
+        isTestingAll: true,
       }
     })
   },

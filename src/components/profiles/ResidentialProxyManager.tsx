@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import {
   AlertCircle,
   Building2,
@@ -67,7 +68,15 @@ export const ResidentialProxyManager: React.FC<
     fetchConfig,
     saveResidentialProxy,
     deleteResidentialProxy,
-  } = useAppStore()
+  } = useAppStore(
+    useShallow((s) => ({
+      config: s.config,
+      portMappings: s.portMappings,
+      fetchConfig: s.fetchConfig,
+      saveResidentialProxy: s.saveResidentialProxy,
+      deleteResidentialProxy: s.deleteResidentialProxy,
+    })),
+  )
 
   const [view, setView] = useState<'list' | 'editor'>('list')
   const [editingId, setEditingId] = useState<string | null>(null)

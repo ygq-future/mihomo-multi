@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import {
   AlertCircle,
   ArrowRight,
@@ -36,7 +37,13 @@ export const ResidentialProxyTestPanel: React.FC<
     profiles: storeProfiles,
     profileNodes,
     fetchProfileNodes,
-  } = useAppStore()
+  } = useAppStore(
+    useShallow((s) => ({
+      profiles: s.profiles,
+      profileNodes: s.profileNodes,
+      fetchProfileNodes: s.fetchProfileNodes,
+    })),
+  )
 
   const [profileId, setProfileId] = useState('')
   const [nodeName, setNodeName] = useState('')

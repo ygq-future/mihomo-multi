@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import {
   AlertCircle,
   AlertTriangle,
@@ -111,7 +112,26 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     isTestingAll,
     testNodeDelay,
     testAllNodesDelay,
-  } = useAppStore()
+  } = useAppStore(
+    useShallow((s) => ({
+      profiles: s.profiles,
+      profileNodes: s.profileNodes,
+      portMappings: s.portMappings,
+      driftReports: s.driftReports,
+      fetchProfileNodes: s.fetchProfileNodes,
+      setDriftReports: s.setDriftReports,
+      fetchConfig: s.fetchConfig,
+      savePortMapping: s.savePortMapping,
+      fetchStatus: s.fetchStatus,
+      setActiveTab: s.setActiveTab,
+      latencies: s.latencies,
+      config: s.config,
+      testingNodeNames: s.testingNodeNames,
+      isTestingAll: s.isTestingAll,
+      testNodeDelay: s.testNodeDelay,
+      testAllNodesDelay: s.testAllNodesDelay,
+    })),
+  )
 
   const [port, setPort] = useState<string>('7891')
   const [protocol, setProtocol] = useState<InboundProtocol>('mixed')

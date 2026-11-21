@@ -205,10 +205,32 @@ export const createPortSlice: StateCreator<
           return { ...mapping, latency }
         })
 
+        const prevKeys = Object.keys(state.fallbackStatuses)
+        const nextKeys = Object.keys(fallbackStatuses)
+        const fallbackChanged =
+          prevKeys.length !== nextKeys.length ||
+          nextKeys.some((key) => {
+            const prev = state.fallbackStatuses[key]
+            const next = fallbackStatuses[key]
+            return (
+              !prev ||
+              prev.isFallbackActive !== next.isFallbackActive ||
+              prev.manualFallback !== next.manualFallback ||
+              prev.primaryLatency !== next.primaryLatency ||
+              prev.fallbackLatency !== next.fallbackLatency ||
+              prev.primaryNode !== next.primaryNode ||
+              prev.fallbackNode !== next.fallbackNode
+            )
+          })
+
+        if (!fallbackChanged && !updatedLatencies && !updatedMappings) {
+          return state
+        }
+
         return {
-          fallbackStatuses,
+          ...(fallbackChanged ? { fallbackStatuses } : {}),
           ...(updatedLatencies ? { latencies: currentLatencies } : {}),
-          portMappings: updatedMappings ? portMappings : state.portMappings,
+          ...(updatedMappings ? { portMappings } : {}),
         }
       })
       return fallbackList

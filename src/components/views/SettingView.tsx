@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import {
   AlertTriangle,
   Clock,
@@ -219,7 +220,32 @@ export const SettingView: React.FC = () => {
     clearTargetSettingSection,
     appUpdateInfo,
     setAppUpdateInfo,
-  } = useAppStore()
+  } = useAppStore(
+    useShallow((s) => ({
+      appStatus: s.appStatus,
+      coreStatus: s.coreStatus,
+      config: s.config,
+      portMappings: s.portMappings,
+      startCore: s.startCore,
+      stopCore: s.stopCore,
+      restartCore: s.restartCore,
+      fetchConfig: s.fetchConfig,
+      saveConfig: s.saveConfig,
+      setSystemProxy: s.setSystemProxy,
+      setEnvProxy: s.setEnvProxy,
+      openAppDataDir: s.openAppDataDir,
+      coreLoading: s.coreLoading,
+      fetchStatus: s.fetchStatus,
+      setTun: s.setTun,
+      tunStatus: s.tunStatus,
+      fetchTunStatus: s.fetchTunStatus,
+      restartAsAdmin: s.restartAsAdmin,
+      targetSettingSection: s.targetSettingSection,
+      clearTargetSettingSection: s.clearTargetSettingSection,
+      appUpdateInfo: s.appUpdateInfo,
+      setAppUpdateInfo: s.setAppUpdateInfo,
+    })),
+  )
   const [tunLoading, setTunLoading] = useState<boolean>(false)
   const [controllerPortInput, setControllerPortInput] = useState<string>(
     String(DEFAULT_CONTROLLER_PORT),

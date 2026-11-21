@@ -77,10 +77,12 @@ export const ConnectionListView: React.FC = () => {
   const [connSpeeds, setConnSpeeds] = useState<
     Record<string, ConnSpeedMetrics>
   >({})
+  const inFlightRef = useRef(false)
 
   const fetchConnections = useCallback(
     async (showLoadingSpinner = false) => {
-      if (!isRunning) return
+      if (!isRunning || inFlightRef.current) return
+      inFlightRef.current = true
       if (showLoadingSpinner) setLoading(true)
 
       try {
@@ -142,6 +144,7 @@ export const ConnectionListView: React.FC = () => {
       } catch (err) {
         console.warn('Failed to fetch connections:', err)
       } finally {
+        inFlightRef.current = false
         if (showLoadingSpinner) setLoading(false)
       }
     },
@@ -588,7 +591,7 @@ export const ConnectionListView: React.FC = () => {
                   return (
                     <tr
                       key={conn.id}
-                      className="hover:bg-accent/40 transition-colors cursor-pointer group"
+                      className="hover:bg-accent/40 transition-colors cursor-pointer group [content-visibility:auto]"
                       onClick={() => handleOpenDetail(conn)}
                     >
                       {/* Destination Host & Protocol */}
