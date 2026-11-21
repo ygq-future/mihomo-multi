@@ -456,6 +456,10 @@ impl KernelEngine {
         self.supervisor.set_crash_handler(handler);
     }
 
+    pub fn set_log_callback(&self, cb: crate::core::supervisor::LogLineCallback) {
+        self.supervisor.set_log_callback(cb);
+    }
+
     // --- Controller REST Client Interactions ---
 
     pub async fn reload_config(&self, config_path: &str) -> AppResult<()> {

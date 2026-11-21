@@ -3,6 +3,7 @@ use crate::core::config_generator::RuntimeGeneratorParams;
 use crate::core::icon_cache::ExecutableIconCache;
 use crate::core::kernel_engine::KernelEngine;
 use crate::core::latency_probe::{AppLatencyEventEmitter, LatencyProbe};
+use crate::core::node_analytics::NodeAnalyticsStore;
 use crate::core::port_router::{PortChangeEvent, PortProbeContext, PortRouter};
 use crate::core::process_history::PortProcessHistoryStore;
 use crate::core::profile_manager::ProfileManager;
@@ -39,6 +40,7 @@ pub struct AppState {
     pub residential_probe_lock: Arc<tokio::sync::Mutex<()>>,
     pub process_history: Arc<PortProcessHistoryStore>,
     pub icon_cache: Arc<ExecutableIconCache>,
+    pub node_analytics: Arc<NodeAnalyticsStore>,
 }
 
 impl AppState {
@@ -80,6 +82,25 @@ impl AppState {
         ));
         let process_history = Arc::new(PortProcessHistoryStore::new(&app_dir));
         let icon_cache = Arc::new(ExecutableIconCache::new(&app_dir));
+        let node_analytics = Arc::new(NodeAnalyticsStore::new(&app_dir));
+        let analytics_for_probe = node_analytics.clone();
+        let router_for_probe = port_router.clone();
+        let profiles_for_probe = profile_manager.clone();
+        latency_probe.set_sample_callback(Arc::new(move |updates| {
+            let bound = Self::collect_bound_runtime_nodes(&router_for_probe, &profiles_for_probe);
+            let filtered: Vec<(String, Option<u32>)> = updates
+                .iter()
+                .filter(|(name, _)| bound.contains(name))
+                .cloned()
+                .collect();
+            if !filtered.is_empty() {
+                analytics_for_probe.record_latency_samples_batch(&filtered);
+            }
+        }));
+        let analytics_for_logs = node_analytics.clone();
+        engine.set_log_callback(Arc::new(move |line| {
+            analytics_for_logs.record_log_line(line);
+        }));
         let app_handle = Arc::new(RwLock::new(None));
         let config_clone = config.clone();
         let suspended_proxy_clone = suspended_system_proxy.clone();
@@ -162,7 +183,52 @@ impl AppState {
             residential_probe_lock,
             process_history,
             icon_cache,
+            node_analytics,
         }
+    }
+
+    fn resolve_runtime_node_name(
+        profile_manager: &ProfileManager,
+        profile_id: &str,
+        node_name: &str,
+    ) -> Option<String> {
+        let trimmed = node_name.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        if let Some(profile) = profile_manager.get_profile_by_id(profile_id.trim()) {
+            Some(format!("[{}] {}", profile.name, trimmed))
+        } else {
+            Some(trimmed.to_string())
+        }
+    }
+
+    fn collect_bound_runtime_nodes(
+        port_router: &PortRouter,
+        profile_manager: &ProfileManager,
+    ) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for mapping in port_router.get_port_mappings() {
+            if let Some(name) =
+                Self::resolve_runtime_node_name(profile_manager, &mapping.profile_id, &mapping.node_name)
+            {
+                names.insert(name);
+            }
+            if let Some(fb_node) = mapping.fallback_node_name.as_deref() {
+                let fb_profile = mapping
+                    .fallback_profile_id
+                    .as_deref()
+                    .unwrap_or(&mapping.profile_id);
+                if let Some(name) = Self::resolve_runtime_node_name(profile_manager, fb_profile, fb_node) {
+                    names.insert(name);
+                }
+            }
+        }
+        names
+    }
+
+    pub fn bound_runtime_node_names(&self) -> HashSet<String> {
+        Self::collect_bound_runtime_nodes(&self.port_router, &self.profile_manager)
     }
 
     pub fn set_app_handle(&self, handle: tauri::AppHandle) {
@@ -526,6 +592,7 @@ impl AppState {
         }
         self.auto_updater.stop();
         let _ = self.process_history.flush();
+        let _ = self.node_analytics.flush();
         let _ = self.icon_cache.save_if_dirty();
         let _ = self.engine.stop();
     }
@@ -793,6 +860,7 @@ impl AppState {
         }
         if let Ok(snapshot) = self.engine.adapter().get_connections().await {
             self.process_history.record_snapshot(&snapshot, &allowed_ports);
+            self.node_analytics.record_connection_snapshot(&snapshot);
             let paths: Vec<String> = snapshot
                 .connections
                 .iter()

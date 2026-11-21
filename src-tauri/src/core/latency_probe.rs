@@ -81,6 +81,8 @@ impl LatencyEventEmitter for AppLatencyEventEmitter {
         }
     }
 }
+pub type LatencySampleCallback = Arc<dyn Fn(&[(String, Option<u32>)]) + Send + Sync>;
+
 
 /// Centralized Backend Latency Probe managing concurrency pools, timeout handling,
 /// cancellation tokens, authoritative cache persistence, and real-time event streaming.
@@ -93,6 +95,7 @@ pub struct LatencyProbe {
     concurrency_pool: Arc<Semaphore>,
     persist_lock: Arc<parking_lot::Mutex<()>>,
     last_persisted_at: Arc<parking_lot::Mutex<Option<std::time::Instant>>>,
+    sample_callback: Arc<RwLock<Option<LatencySampleCallback>>>,
 }
 
 impl LatencyProbe {
@@ -113,6 +116,20 @@ impl LatencyProbe {
             concurrency_pool: Arc::new(Semaphore::new(DEFAULT_PROBE_CONCURRENCY)),
             persist_lock: Arc::new(parking_lot::Mutex::new(())),
             last_persisted_at: Arc::new(parking_lot::Mutex::new(None)),
+            sample_callback: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    pub fn set_sample_callback(&self, cb: LatencySampleCallback) {
+        *self.sample_callback.write() = Some(cb);
+    }
+
+    fn notify_samples(&self, updates: &[(String, Option<u32>)]) {
+        if updates.is_empty() {
+            return;
+        }
+        if let Some(cb) = self.sample_callback.read().clone() {
+            cb(updates);
         }
     }
 
@@ -164,6 +181,7 @@ impl LatencyProbe {
         if changed {
             let _ = self.persist_cache();
         }
+        self.notify_samples(&[(name.to_string(), latency)]);
     }
 
     /// Batch update latencies with diff guard, triggering disk persist at most once
@@ -184,6 +202,7 @@ impl LatencyProbe {
         if changed {
             let _ = self.persist_cache();
         }
+        self.notify_samples(updates);
     }
 
     /// Batch update latencies in memory immediately, while throttling disk persistence
@@ -206,6 +225,7 @@ impl LatencyProbe {
                 }
             }
         }
+        self.notify_samples(updates);
         if !changed {
             return;
         }

@@ -12,12 +12,14 @@ const tabTitleKeys: Record<
       | 'header.proxiesTitle'
       | 'header.profilesTitle'
       | 'header.connectionsTitle'
+      | 'header.analyticsTitle'
       | 'header.settingsTitle'
     subtitleKey:
       | 'header.portsSubtitle'
       | 'header.proxiesSubtitle'
       | 'header.profilesSubtitle'
       | 'header.connectionsSubtitle'
+      | 'header.analyticsSubtitle'
       | 'header.settingsSubtitle'
   }
 > = {
@@ -36,6 +38,10 @@ const tabTitleKeys: Record<
   connections: {
     titleKey: 'header.connectionsTitle',
     subtitleKey: 'header.connectionsSubtitle',
+  },
+  analytics: {
+    titleKey: 'header.analyticsTitle',
+    subtitleKey: 'header.analyticsSubtitle',
   },
   settings: {
     titleKey: 'header.settingsTitle',

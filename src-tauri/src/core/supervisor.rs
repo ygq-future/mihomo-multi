@@ -193,7 +193,12 @@ pub fn read_recent_access_logs(log_dir: &Path, since_epoch_ms: u64) -> Vec<Sniff
 }
 
 /// Pipe reader that reads stdout/stderr lines from Mihomo and writes them into daily-rotated log files.
-fn spawn_log_pipe_writer(reader: Box<dyn std::io::Read + Send>, log_dir: PathBuf, stream_name: &'static str) {
+fn spawn_log_pipe_writer(
+    reader: Box<dyn std::io::Read + Send>,
+    log_dir: PathBuf,
+    stream_name: &'static str,
+    log_callback: Arc<parking_lot::RwLock<Option<LogLineCallback>>>,
+) {
     std::thread::Builder::new()
         .name(format!("mihomo-log-{}", stream_name))
         .spawn(move || {
@@ -225,6 +230,9 @@ fn spawn_log_pipe_writer(reader: Box<dyn std::io::Read + Send>, log_dir: PathBuf
 
                         if let Some(file) = &mut current_file {
                             let _ = file.write_all(line.as_bytes());
+                        }
+                        if let Some(cb) = log_callback.read().clone() {
+                            cb(&line);
                         }
                     }
                     Err(e) => {
@@ -731,6 +739,7 @@ impl Drop for IsolatedCoreProcess {
 }
 
 pub type CrashCallback = Arc<dyn Fn(String) + Send + Sync>;
+pub type LogLineCallback = Arc<dyn Fn(&str) + Send + Sync>;
 
 struct SupervisorInner {
     child: Option<Child>,
@@ -766,6 +775,7 @@ pub struct CoreSupervisor {
     inner: Arc<Mutex<SupervisorInner>>,
     work_dir: PathBuf,
     crash_handler: Arc<parking_lot::RwLock<Option<CrashCallback>>>,
+    log_callback: Arc<parking_lot::RwLock<Option<LogLineCallback>>>,
 }
 
 impl CoreSupervisor {
@@ -794,6 +804,7 @@ impl CoreSupervisor {
             inner: Arc::new(Mutex::new(inner)),
             work_dir,
             crash_handler: Arc::new(parking_lot::RwLock::new(None)),
+            log_callback: Arc::new(parking_lot::RwLock::new(None)),
         }
     }
 
@@ -819,11 +830,16 @@ impl CoreSupervisor {
             inner: Arc::new(Mutex::new(inner)),
             work_dir,
             crash_handler: Arc::new(parking_lot::RwLock::new(None)),
+            log_callback: Arc::new(parking_lot::RwLock::new(None)),
         }
     }
 
     pub fn set_crash_handler(&self, handler: CrashCallback) {
         *self.crash_handler.write() = Some(handler);
+    }
+
+    pub fn set_log_callback(&self, cb: LogLineCallback) {
+        *self.log_callback.write() = Some(cb);
     }
 
     pub fn get_host_target() -> &'static str {
@@ -1103,10 +1119,10 @@ impl CoreSupervisor {
         };
 
         if let Some(stdout) = child.stdout.take() {
-            spawn_log_pipe_writer(Box::new(stdout), log_dir.clone(), "stdout");
+            spawn_log_pipe_writer(Box::new(stdout), log_dir.clone(), "stdout", self.log_callback.clone());
         }
         if let Some(stderr) = child.stderr.take() {
-            spawn_log_pipe_writer(Box::new(stderr), log_dir.clone(), "stderr");
+            spawn_log_pipe_writer(Box::new(stderr), log_dir.clone(), "stderr", self.log_callback.clone());
         }
 
         // Brief delay to detect immediate crashes

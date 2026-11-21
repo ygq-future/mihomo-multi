@@ -418,6 +418,10 @@ pub fn run() {
             close_all_connections,
             get_port_process_history,
             clear_port_process_history,
+            get_node_analytics_dashboard,
+            get_node_analytics_weights,
+            set_node_analytics_weights,
+            clear_node_analytics,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {

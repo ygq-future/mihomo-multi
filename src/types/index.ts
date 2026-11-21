@@ -397,3 +397,85 @@ export interface PortProcessUsageItem {
   activeConnectionCount: number
   iconDataUrl?: string | null
 }
+
+export interface AvailabilityWeights {
+  timeoutCount: number
+  timeoutDuration: number
+  connectionErrors: number
+  avgSpeed: number
+  maxSpeed: number
+  minSpeed: number
+  latencyQuality: number
+}
+
+export interface NodeAnomalyEvent {
+  timestampMs: number
+  kind: 'timeout' | 'connection_error' | 'recovered' | string
+  message: string
+  durationMs?: number | null
+}
+
+export interface DimensionScores {
+  timeoutCount: number
+  timeoutDuration: number
+  connectionErrors: number
+  avgSpeed: number
+  maxSpeed: number
+  minSpeed: number
+  latencyQuality: number
+}
+
+export interface NodeAnalyticsSummary {
+  nodeName: string
+  score: number
+  grade: string
+  confidence: 'high' | 'medium' | 'low' | string
+  isCurrentlyTimedOut: boolean
+  probeTotal: number
+  probeSuccess: number
+  successRate: number
+  timeoutCount: number
+  timeoutDurationMs: number
+  maxSingleTimeoutMs: number
+  connectionErrors: number
+  connectionSamples: number
+  totalUploadBytes: number
+  totalDownloadBytes: number
+  avgSpeedBps: number
+  maxSpeedBps: number
+  minSpeedBps: number
+  avgLatencyMs?: number | null
+  jitterMs?: number | null
+  lastLatencyMs?: number | null
+  lastSeenMs: number
+  dimensions: DimensionScores
+  recentEvents: NodeAnomalyEvent[]
+}
+
+export interface AnalyticsTimelinePoint {
+  bucketStartMs: number
+  avgSpeedBps: number
+  maxSpeedBps: number
+  timeoutCount: number
+  connectionErrors: number
+  avgLatencyMs?: number | null
+}
+
+export interface NodeAnalyticsDashboard {
+  generatedAtMs: number
+  windowHours: number
+  weights: AvailabilityWeights
+  totalNodes: number
+  healthyNodes: number
+  warningNodes: number
+  criticalNodes: number
+  avgScore: number
+  totalTimeouts: number
+  totalTimeoutDurationMs: number
+  totalConnectionErrors: number
+  totalTrafficBytes: number
+  globalPeakSpeedBps: number
+  globalAvgSpeedBps: number
+  nodes: NodeAnalyticsSummary[]
+  timeline: AnalyticsTimelinePoint[]
+}

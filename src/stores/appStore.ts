@@ -23,6 +23,7 @@ export type TabType =
   | 'proxies'
   | 'profiles'
   | 'connections'
+  | 'analytics'
   | 'settings'
 
 export interface BaseAppState {

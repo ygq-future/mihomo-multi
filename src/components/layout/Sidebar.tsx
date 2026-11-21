@@ -1,5 +1,6 @@
 import {
   Activity,
+  BarChart3,
   Compass,
   Cpu,
   FolderOpen,
@@ -31,6 +32,7 @@ const navItems: {
   { id: 'proxies', labelKey: 'nav.proxies', icon: Compass },
   { id: 'profiles', labelKey: 'nav.profiles', icon: Layers },
   { id: 'connections', labelKey: 'nav.connections', icon: Activity },
+  { id: 'analytics', labelKey: 'nav.analytics', icon: BarChart3 },
   { id: 'settings', labelKey: 'nav.settings', icon: Settings },
 ]
 

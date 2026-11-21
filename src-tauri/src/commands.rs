@@ -2270,6 +2270,35 @@ pub async fn open_sniffer_webview(
     Ok(bound_port)
 }
 
+#[tauri::command]
+pub async fn get_node_analytics_dashboard(
+    window_hours: u64,
+    state: State<'_, AppState>,
+) -> Result<crate::core::node_analytics::NodeAnalyticsDashboard, String> {
+    let allowed = state.bound_runtime_node_names();
+    Ok(state.node_analytics.build_dashboard(window_hours, Some(&allowed)))
+}
+
+#[tauri::command]
+pub async fn get_node_analytics_weights(
+    state: State<'_, AppState>,
+) -> Result<crate::core::node_analytics::AvailabilityWeights, String> {
+    Ok(state.node_analytics.get_weights())
+}
+
+#[tauri::command]
+pub async fn set_node_analytics_weights(
+    weights: crate::core::node_analytics::AvailabilityWeights,
+    state: State<'_, AppState>,
+) -> Result<crate::core::node_analytics::AvailabilityWeights, String> {
+    state.node_analytics.set_weights(weights).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_node_analytics(state: State<'_, AppState>) -> Result<(), String> {
+    state.node_analytics.clear_all().map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

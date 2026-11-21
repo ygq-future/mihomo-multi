@@ -23,6 +23,7 @@ import type {
   AppUpdateCheckResult,
   AppUpdateInstallResult,
   AutoUpdateEventPayload,
+  AvailabilityWeights,
   AutoUpdaterStatus,
   ConnectionSnapshot,
   CoreStatus,
@@ -33,6 +34,7 @@ import type {
   KernelUpgradeResult,
   LanIpInfo,
   MrsRulesInfo,
+  NodeAnalyticsDashboard,
   NodeLatencyResult,
   PortDriftReport,
   PortFallbackStatus,
@@ -1293,4 +1295,65 @@ export async function openConfigFilePicker(): Promise<string | null> {
     return selected
   }
   return null
+}
+
+export const DEFAULT_AVAILABILITY_WEIGHTS: AvailabilityWeights = {
+  timeoutCount: 20,
+  timeoutDuration: 15,
+  connectionErrors: 20,
+  avgSpeed: 15,
+  maxSpeed: 10,
+  minSpeed: 5,
+  latencyQuality: 15,
+}
+
+export async function getNodeAnalyticsDashboard(
+  windowHours: number,
+): Promise<NodeAnalyticsDashboard> {
+  if (!isTauriEnvironment()) {
+    return {
+      generatedAtMs: Date.now(),
+      windowHours,
+      weights: { ...DEFAULT_AVAILABILITY_WEIGHTS },
+      totalNodes: 0,
+      healthyNodes: 0,
+      warningNodes: 0,
+      criticalNodes: 0,
+      avgScore: 0,
+      totalTimeouts: 0,
+      totalTimeoutDurationMs: 0,
+      totalConnectionErrors: 0,
+      totalTrafficBytes: 0,
+      globalPeakSpeedBps: 0,
+      globalAvgSpeedBps: 0,
+      nodes: [],
+      timeline: [],
+    }
+  }
+  return invoke<NodeAnalyticsDashboard>('get_node_analytics_dashboard', {
+    windowHours,
+  })
+}
+
+export async function getNodeAnalyticsWeights(): Promise<AvailabilityWeights> {
+  if (!isTauriEnvironment()) {
+    return { ...DEFAULT_AVAILABILITY_WEIGHTS }
+  }
+  return invoke<AvailabilityWeights>('get_node_analytics_weights')
+}
+
+export async function setNodeAnalyticsWeights(
+  weights: AvailabilityWeights,
+): Promise<AvailabilityWeights> {
+  if (!isTauriEnvironment()) {
+    return weights
+  }
+  return invoke<AvailabilityWeights>('set_node_analytics_weights', {
+    weights,
+  })
+}
+
+export async function clearNodeAnalytics(): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('clear_node_analytics')
 }

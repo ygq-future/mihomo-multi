@@ -8,6 +8,7 @@ import { useAppStore } from '../../stores/appStore'
 import { useTranslation } from '../../i18n'
 import { Button, Modal } from '../common'
 import { ConnectionListView } from '../views/ConnectionListView'
+import { AnalyticsDashboardView } from '../views/AnalyticsDashboardView'
 import { PortTableView } from '../views/PortTableView'
 import { ProfileListView } from '../views/ProfileListView'
 import { ProxyGridView } from '../views/ProxyGridView'
@@ -145,6 +146,8 @@ export const Shell: React.FC = () => {
         return <ProfileListView />
       case 'connections':
         return <ConnectionListView />
+      case 'analytics':
+        return <AnalyticsDashboardView />
       default:
         return <PortTableView />
     }
