@@ -916,6 +916,105 @@ pub async fn test_all_port_mappings_delay(
     Ok(results)
 }
 
+/// Background fallback status polling updates the in-memory latency cache immediately,
+/// while throttling `latencies.json` disk writes to avoid frequent I/O on every 5s tick.
+const FALLBACK_LATENCY_PERSIST_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Resolve displayed node latency with Mihomo kernel history as the runtime source of truth.
+/// Falls back to cached/persisted latency only when the kernel has no history yet.
+fn resolve_fallback_node_latency(
+    kernel_history_delay: Option<u32>,
+    cached_entry: Option<Option<u32>>,
+    mapping_latency: Option<u32>,
+    force_kernel_only: bool,
+) -> Option<u32> {
+    match kernel_history_delay {
+        Some(d) if d > 0 => Some(d),
+        Some(_) => None,
+        None if force_kernel_only => None,
+        None => match cached_entry {
+            Some(None) => None,
+            Some(Some(d)) => Some(d),
+            None => mapping_latency,
+        },
+    }
+}
+
+/// Built-in connectivity probe URLs matching the frontend preset list.
+const BUILTIN_TEST_URLS: [&str; 4] = [
+    "http://cp.cloudflare.com/generate_204",
+    "http://www.google.com/generate_204",
+    "http://captive.apple.com/hotspot-detect.html",
+    "http://www.msftconnecttest.com/connecttest.txt",
+];
+
+/// Maximum number of probe URLs raced concurrently during a timeout recheck.
+const MAX_RECHECK_URLS: usize = 3;
+
+/// Detect a first-time transition from reachable -> timeout.
+/// Single-shot probes (especially on cold-start or transient target-site hiccups)
+/// can occasionally time out once; confirming once avoids false timeout alerts
+/// while preventing repeated rechecks on already-confirmed dead nodes.
+fn should_recheck_timeout(
+    history: &[crate::core::clash_client::ProxyHistoryItem],
+    cached_entry: Option<Option<u32>>,
+) -> bool {
+    if history.last().map(|h| h.delay) != Some(0) {
+        return false;
+    }
+    let prev_history_reachable = history.len() >= 2 && history[history.len() - 2].delay > 0;
+    let cache_reachable = matches!(cached_entry, Some(Some(d)) if d > 0);
+    prev_history_reachable || cache_reachable
+}
+
+/// Build candidate URLs for timeout confirmation.
+/// - Built-in URL: race the configured URL alongside up to 2 other built-in URLs (max 3 total).
+/// - Custom URL: recheck only the user's configured URL to respect custom endpoint intent.
+fn build_recheck_urls(primary_url: &str) -> Vec<String> {
+    let trimmed = primary_url.trim();
+    let is_builtin = BUILTIN_TEST_URLS.iter().any(|&u| u.eq_ignore_ascii_case(trimmed));
+    if !is_builtin {
+        return vec![trimmed.to_string()];
+    }
+    let mut urls = Vec::with_capacity(MAX_RECHECK_URLS);
+    urls.push(trimmed.to_string());
+    for &candidate in &BUILTIN_TEST_URLS {
+        if urls.len() >= MAX_RECHECK_URLS {
+            break;
+        }
+        if !candidate.eq_ignore_ascii_case(trimmed) {
+            urls.push(candidate.to_string());
+        }
+    }
+    urls
+}
+
+/// Concurrently probe candidate URLs and return the first positive delay.
+/// Bounded by a single `timeout_ms` even when the node is genuinely unreachable.
+async fn recheck_node_delay_concurrent(
+    engine: &crate::core::kernel_engine::KernelEngine,
+    runtime_name: &str,
+    primary_url: &str,
+    timeout_ms: u32,
+) -> Option<u32> {
+    let urls = build_recheck_urls(primary_url);
+    let mut join_set = tokio::task::JoinSet::new();
+    for url in urls {
+        let eng = engine.clone();
+        let name = runtime_name.to_string();
+        join_set.spawn(async move { eng.test_delay(&name, Some(&url), Some(timeout_ms)).await });
+    }
+    while let Some(res) = join_set.join_next().await {
+        if let Ok(Ok(delay)) = res
+            && delay > 0
+        {
+            join_set.abort_all();
+            return Some(delay);
+        }
+    }
+    None
+}
+
 #[tauri::command]
 pub async fn get_port_fallback_statuses(
     app: AppHandle,
@@ -974,54 +1073,55 @@ pub async fn get_port_fallback_statuses(
             fallback_node.clone()
         };
 
-        let kernel_primary_history_delay = engine
-            .get_proxy_detail(&primary_runtime_name)
-            .await
-            .ok()
-            .and_then(|p| p.history.last().map(|h| h.delay));
-        let kernel_primary_latency = kernel_primary_history_delay.filter(|&d| d > 0);
-        let kernel_primary_timed_out = kernel_primary_history_delay == Some(0);
-
         let cached_primary_entry = state
             .latency_probe
             .get_latency(&primary_runtime_name)
             .or_else(|| state.latency_probe.get_latency(&m.node_name));
 
-        let mut primary_latency = if (is_fallback_active && !m.manual_fallback) || kernel_primary_timed_out {
-            // When automatically falling back or when Mihomo's latest healthcheck recorded delay == 0 (timeout),
-            // do NOT fall back to historical cached latencies; reflect the actual timeout status!
-            kernel_primary_latency
-        } else {
-            match cached_primary_entry {
-                // Authoritative cache explicitly recorded a timeout (`Some(None)`); prefer latest kernel result if recovered, otherwise None.
-                Some(None) => kernel_primary_latency,
-                Some(Some(d)) => Some(d),
-                None => m.latency.or(kernel_primary_latency),
-            }
-        };
-
-        let kernel_fb_history_delay = engine
-            .get_proxy_detail(&fb_runtime_name)
+        let primary_history = engine
+            .get_proxy_detail(&primary_runtime_name)
             .await
             .ok()
-            .and_then(|p| p.history.last().map(|h| h.delay));
-        let kernel_fallback_latency = kernel_fb_history_delay.filter(|&d| d > 0);
-        let kernel_fb_timed_out = kernel_fb_history_delay == Some(0);
+            .map(|p| p.history)
+            .unwrap_or_default();
+        let mut kernel_primary_history_delay = primary_history.last().map(|h| h.delay);
+        if should_recheck_timeout(&primary_history, cached_primary_entry)
+            && let Some(d) =
+                recheck_node_delay_concurrent(&engine, &primary_runtime_name, &default_url, default_timeout).await
+        {
+            kernel_primary_history_delay = Some(d);
+        }
+        let kernel_primary_timed_out = kernel_primary_history_delay == Some(0);
+
+        let mut primary_latency = resolve_fallback_node_latency(
+            kernel_primary_history_delay,
+            cached_primary_entry,
+            m.latency,
+            is_fallback_active && !m.manual_fallback,
+        );
 
         let cached_fb_entry = state
             .latency_probe
             .get_latency(&fb_runtime_name)
             .or_else(|| state.latency_probe.get_latency(&fallback_node));
 
-        let mut fallback_latency = if kernel_fb_timed_out {
-            None
-        } else {
-            match cached_fb_entry {
-                Some(None) => kernel_fallback_latency,
-                Some(Some(d)) => Some(d),
-                None => kernel_fallback_latency,
-            }
-        };
+        let fb_history = engine
+            .get_proxy_detail(&fb_runtime_name)
+            .await
+            .ok()
+            .map(|p| p.history)
+            .unwrap_or_default();
+        let mut kernel_fb_history_delay = fb_history.last().map(|h| h.delay);
+        if should_recheck_timeout(&fb_history, cached_fb_entry)
+            && let Some(d) =
+                recheck_node_delay_concurrent(&engine, &fb_runtime_name, &default_url, default_timeout).await
+        {
+            kernel_fb_history_delay = Some(d);
+        }
+        let kernel_fb_timed_out = kernel_fb_history_delay == Some(0);
+
+        let mut fallback_latency =
+            resolve_fallback_node_latency(kernel_fb_history_delay, cached_fb_entry, None, false);
 
         // If primary node is known to have timed out (`Some(None)` in probe cache or `delay == 0` in kernel history),
         // fallback node is reachable, and Mihomo has not yet switched `fb-{port}` to the backup node,
@@ -1085,7 +1185,9 @@ pub async fn get_port_fallback_statuses(
     }
 
     if !latency_updates.is_empty() {
-        state.latency_probe.set_latencies_batch(&latency_updates);
+        state
+            .latency_probe
+            .set_latencies_batch_throttled(&latency_updates, FALLBACK_LATENCY_PERSIST_INTERVAL);
     }
 
     crate::tray::update_tray_menu_with_fallback_statuses(&app, statuses.clone());
@@ -2203,5 +2305,65 @@ mod tests {
         // 5. When no ports are enabled, returns descriptive error
         let empty: Vec<PortMapping> = Vec::new();
         assert!(resolve_sniffer_proxy_mapping(&empty, None).is_err());
+    }
+
+    #[test]
+    fn test_resolve_fallback_node_latency_prefers_kernel_over_stale_cache() {
+        // Latest kernel delay supersedes stale cached latency
+        assert_eq!(
+            resolve_fallback_node_latency(Some(68), Some(Some(42)), Some(30), false),
+            Some(68)
+        );
+        // Kernel explicit timeout (0) supersedes cached latency
+        assert_eq!(
+            resolve_fallback_node_latency(Some(0), Some(Some(42)), Some(30), false),
+            None
+        );
+        // No kernel history yet falls back to cache, then mapping latency
+        assert_eq!(
+            resolve_fallback_node_latency(None, Some(Some(42)), Some(30), false),
+            Some(42)
+        );
+        assert_eq!(resolve_fallback_node_latency(None, Some(None), Some(30), false), None);
+        assert_eq!(resolve_fallback_node_latency(None, None, Some(30), false), Some(30));
+        // When auto-fallback is active, do not fall back to stale cache
+        assert_eq!(
+            resolve_fallback_node_latency(None, Some(Some(42)), Some(30), true),
+            None
+        );
+    }
+
+    #[test]
+    fn test_should_recheck_timeout_only_on_first_transition() {
+        use crate::core::clash_client::ProxyHistoryItem;
+
+        let entry = |delay: u32| ProxyHistoryItem {
+            time: String::new(),
+            delay,
+        };
+
+        // Reachable -> timeout in history triggers recheck
+        assert!(should_recheck_timeout(&[entry(50), entry(0)], None));
+        // Reachable cache -> first timeout in history triggers recheck
+        assert!(should_recheck_timeout(&[entry(0)], Some(Some(50))));
+        // Already confirmed timeout (consecutive 0s and cache None) does not recheck again
+        assert!(!should_recheck_timeout(&[entry(0), entry(0)], Some(None)));
+        // Healthy latest history does not recheck
+        assert!(!should_recheck_timeout(&[entry(0), entry(45)], Some(Some(45))));
+    }
+
+    #[test]
+    fn test_build_recheck_urls_builtin_and_custom() {
+        // Built-in URL expands to max 3 unique URLs starting with the configured URL
+        let builtin = build_recheck_urls("http://www.google.com/generate_204");
+        assert_eq!(builtin.len(), 3);
+        assert_eq!(builtin[0], "http://www.google.com/generate_204");
+        assert_ne!(builtin[1], builtin[0]);
+        assert_ne!(builtin[2], builtin[0]);
+        assert_ne!(builtin[1], builtin[2]);
+
+        // Custom URL only rechecks itself
+        let custom = build_recheck_urls("https://internal.example.com/health");
+        assert_eq!(custom, vec!["https://internal.example.com/health"]);
     }
 }

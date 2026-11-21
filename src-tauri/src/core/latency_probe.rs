@@ -92,6 +92,7 @@ pub struct LatencyProbe {
     active_token: Arc<RwLock<Option<CancellationToken>>>,
     concurrency_pool: Arc<Semaphore>,
     persist_lock: Arc<parking_lot::Mutex<()>>,
+    last_persisted_at: Arc<parking_lot::Mutex<Option<std::time::Instant>>>,
 }
 
 impl LatencyProbe {
@@ -111,6 +112,7 @@ impl LatencyProbe {
             active_token: Arc::new(RwLock::new(None)),
             concurrency_pool: Arc::new(Semaphore::new(DEFAULT_PROBE_CONCURRENCY)),
             persist_lock: Arc::new(parking_lot::Mutex::new(())),
+            last_persisted_at: Arc::new(parking_lot::Mutex::new(None)),
         }
     }
 
@@ -134,6 +136,7 @@ impl LatencyProbe {
         let snapshot = self.cache.read().clone();
         let json = serde_json::to_string_pretty(&snapshot)?;
         atomic_write_file(&self.storage_path, json.as_bytes())?;
+        *self.last_persisted_at.lock() = Some(std::time::Instant::now());
         Ok(())
     }
 
@@ -179,6 +182,38 @@ impl LatencyProbe {
             }
         }
         if changed {
+            let _ = self.persist_cache();
+        }
+    }
+
+    /// Batch update latencies in memory immediately, while throttling disk persistence
+    /// so high-frequency background polling does not rewrite `latencies.json` on every tick.
+    pub fn set_latencies_batch_throttled(
+        &self,
+        updates: &[(String, Option<u32>)],
+        min_persist_interval: std::time::Duration,
+    ) {
+        if updates.is_empty() {
+            return;
+        }
+        let mut changed = false;
+        {
+            let mut cache = self.cache.write();
+            for (name, latency) in updates {
+                if cache.get(name).copied() != Some(*latency) {
+                    cache.insert(name.clone(), *latency);
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return;
+        }
+        let should_persist = match *self.last_persisted_at.lock() {
+            Some(last) => last.elapsed() >= min_persist_interval,
+            None => true,
+        };
+        if should_persist {
             let _ = self.persist_cache();
         }
     }
@@ -826,6 +861,47 @@ mod tests {
         assert_eq!(probe.get_latency("HK-01"), Some(Some(24)));
         assert_eq!(probe.get_latency("[AirportA] HK-01"), Some(Some(24)));
         assert!(emitter.updates.lock().is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_set_latencies_batch_throttled_updates_memory_and_throttles_disk() {
+        let temp_dir = std::env::temp_dir().join(format!("test_throttle_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let fake_adapter = Arc::new(FakeControllerAdapter::new());
+        let emitter = Arc::new(MockLatencyEventEmitter::new());
+        let probe = LatencyProbe::new(fake_adapter, &temp_dir, emitter);
+
+        // First call persists immediately
+        probe.set_latencies_batch_throttled(
+            &[("Node-A".to_string(), Some(42))],
+            std::time::Duration::from_secs(60),
+        );
+        assert_eq!(probe.get_latency("Node-A"), Some(Some(42)));
+        let disk_first: HashMap<String, Option<u32>> =
+            serde_json::from_str(&std::fs::read_to_string(temp_dir.join("latencies.json")).unwrap()).unwrap();
+        assert_eq!(disk_first.get("Node-A").copied(), Some(Some(42)));
+
+        // Second call within throttle window updates memory immediately, skips disk write
+        probe.set_latencies_batch_throttled(
+            &[("Node-A".to_string(), Some(58))],
+            std::time::Duration::from_secs(60),
+        );
+        assert_eq!(probe.get_latency("Node-A"), Some(Some(58)));
+        let disk_second: HashMap<String, Option<u32>> =
+            serde_json::from_str(&std::fs::read_to_string(temp_dir.join("latencies.json")).unwrap()).unwrap();
+        assert_eq!(disk_second.get("Node-A").copied(), Some(Some(42)));
+
+        // Zero interval forces disk flush with latest memory value
+        probe.set_latencies_batch_throttled(
+            &[("Node-A".to_string(), Some(61))],
+            std::time::Duration::ZERO,
+        );
+        let disk_third: HashMap<String, Option<u32>> =
+            serde_json::from_str(&std::fs::read_to_string(temp_dir.join("latencies.json")).unwrap()).unwrap();
+        assert_eq!(disk_third.get("Node-A").copied(), Some(Some(61)));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
