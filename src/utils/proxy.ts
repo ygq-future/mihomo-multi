@@ -951,8 +951,7 @@ export function getProtocolBadgeProps(type: string): {
   label: string
   className: string
 } {
-  const norm = type.toLowerCase()
-  switch (norm) {
+  switch (type.toLowerCase()) {
     case 'ss':
     case 'shadowsocks':
       return {
@@ -963,12 +962,12 @@ export function getProtocolBadgeProps(type: string): {
     case 'shadowsocksr':
       return {
         label: 'SSR',
-        className: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+        className: 'bg-sky-500/10 text-sky-500 border-sky-500/20',
       }
     case 'vmess':
       return {
         label: 'Vmess',
-        className: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
+        className: 'bg-violet-500/10 text-violet-500 border-violet-500/20',
       }
     case 'vless':
       return {
@@ -978,33 +977,33 @@ export function getProtocolBadgeProps(type: string): {
     case 'trojan':
       return {
         label: 'Trojan',
-        className: 'bg-rose-500/10 text-rose-500 border-rose-500/20',
+        className: 'bg-fuchsia-500/10 text-fuchsia-500 border-fuchsia-500/20',
       }
     case 'hysteria2':
     case 'hy2':
       return {
         label: 'Hy2',
-        className: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
+        className: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20',
       }
     case 'tuic':
       return {
         label: 'Tuic',
-        className: 'bg-teal-500/10 text-teal-500 border-teal-500/20',
+        className: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20',
       }
     case 'snell':
       return {
         label: 'Snell',
-        className: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20',
+        className: 'bg-slate-500/10 text-slate-500 border-slate-500/20',
       }
     case 'socks5':
       return {
         label: 'Socks5',
-        className: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20',
+        className: 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20',
       }
     case 'http':
       return {
         label: 'Http',
-        className: 'bg-slate-500/10 text-slate-500 border-slate-500/20',
+        className: 'bg-neutral-500/10 text-neutral-500 border-neutral-500/20',
       }
     default:
       return {

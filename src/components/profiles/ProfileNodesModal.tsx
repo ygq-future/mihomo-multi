@@ -4,7 +4,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { useAppStore } from '../../stores/appStore'
 import type { ProfileItem, ProxyNode } from '../../types'
-import { isNodeEgressProbing, lookupNodeEgressInfo } from '../../utils/proxy'
+import {
+  getProtocolBadgeProps,
+  isNodeEgressProbing,
+  lookupNodeEgressInfo,
+} from '../../utils/proxy'
 import { Button, Input, Modal, toast } from '../common'
 
 interface ProfileNodesModalProps {
@@ -85,25 +89,6 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
       n.server.toLowerCase().includes(search.toLowerCase()) ||
       n.type.toLowerCase().includes(search.toLowerCase()),
   )
-
-  const getTypeBadgeColor = (type: string) => {
-    switch (type.toLowerCase()) {
-      case 'ss':
-      case 'shadowsocks':
-        return 'bg-blue-500/10 text-blue-500 border-blue-500/20'
-      case 'vmess':
-        return 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-      case 'vless':
-        return 'bg-purple-500/10 text-purple-500 border-purple-500/20'
-      case 'trojan':
-        return 'bg-rose-500/10 text-rose-500 border-rose-500/20'
-      case 'hysteria2':
-      case 'hy2':
-        return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-      default:
-        return 'bg-secondary text-muted-foreground border-border'
-    }
-  }
 
   return (
     <Modal
@@ -226,11 +211,9 @@ export const ProfileNodesModal: React.FC<ProfileNodesModalProps> = ({
                     </div>
 
                     <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border uppercase shrink-0 ${getTypeBadgeColor(
-                        node.type,
-                      )}`}
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border uppercase shrink-0 ${getProtocolBadgeProps(node.type).className}`}
                     >
-                      {node.type}
+                      {getProtocolBadgeProps(node.type).label}
                     </span>
                   </div>
                 )
