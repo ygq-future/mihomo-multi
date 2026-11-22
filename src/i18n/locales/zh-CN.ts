@@ -1052,7 +1052,7 @@ export const zhCN = {
   'settingsPage.env.title': '终端环境变量代理设置',
   'settingsPage.env.desc':
     '独立将指定端口注入 Windows 用户环境变量 (http_proxy, https_proxy, all_proxy, no_proxy)，供命令行及开发工具使用。与系统代理完全解耦，可独立切换不同节点端口',
-  'settingsPage.env.enableLabel': '启用终端环境变量代理 (Windows HKCU)',
+  'settingsPage.env.enableLabel': '启用终端环境变量代理',
   'settingsPage.env.enableDesc':
     '修改系统用户级环境变量，自动广播给新打开的 CMD、PowerShell、Git Bash 与开发工具。退出应用或端口停用时将自动清理，防止残留断网',
   'settingsPage.env.portLabel': '终端代理绑定的监听端口',
