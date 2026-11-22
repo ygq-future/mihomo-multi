@@ -311,31 +311,102 @@ const AnalyticsTimelineChart: React.FC<{
         }}
         onMouseLeave={() => setHoveredIdx(null)}
       >
-      {[0, 0.33, 0.67, 1].map((r) => {
-        const y = padT + plotH * (1 - r)
-        return (
-          <g key={r}>
+        {[0, 0.33, 0.67, 1].map((r) => {
+          const y = padT + plotH * (1 - r)
+          return (
+            <g key={r}>
+              <line
+                x1={padL}
+                y1={y}
+                x2={width - padR}
+                y2={y}
+                stroke="currentColor"
+                strokeOpacity={0.1}
+                strokeDasharray="3 3"
+              />
+              <text
+                x={padL - 8}
+                y={y + 5}
+                textAnchor="end"
+                fontSize={16}
+                className="fill-foreground/90 font-medium"
+              >
+                {formatSpeed(maxSpeed * r)}
+              </text>
+            </g>
+          )
+        })}
+
+        {/* Anomaly bars (timeouts + connection errors) */}
+        {timeline.map((p, i) => {
+          const count = p.timeoutCount + p.connectionErrors
+          if (count <= 0) return null
+          const h = Math.max(4, (count / maxAnomalies) * (plotH * 0.45))
+          return (
+            <rect
+              key={p.bucketStartMs}
+              x={xAt(i) - barW / 2}
+              y={padT + plotH - h}
+              width={barW}
+              height={h}
+              rx={1.5}
+              fill="#f43f5e"
+              fillOpacity={0.35}
+            />
+          )
+        })}
+
+        <path d={areaPath} fill="#3b82f6" fillOpacity={0.12} />
+        <path
+          d={peakPath}
+          fill="none"
+          stroke="#10b981"
+          strokeWidth={1.25}
+          strokeDasharray="3 2"
+          strokeOpacity={0.8}
+        />
+        <path d={avgPath} fill="none" stroke="#3b82f6" strokeWidth={2} />
+        {/* Right Y-axis labels for anomaly count */}
+        {[
+          { y: padT + plotH, label: '0' },
+          { y: padT + plotH * 0.55, label: String(maxAnomalies) },
+        ].map((tick) => (
+          <text
+            key={tick.label}
+            x={width - padR + 6}
+            y={tick.y + 4}
+            textAnchor="start"
+            fontSize={13}
+            className="fill-rose-500/80 font-medium"
+          >
+            {tick.label}
+          </text>
+        ))}
+        {hoveredIdx !== null && hoveredPoint && (
+          <g>
             <line
-              x1={padL}
-              y1={y}
-              x2={width - padR}
-              y2={y}
+              x1={xAt(hoveredIdx)}
+              y1={padT}
+              x2={xAt(hoveredIdx)}
+              y2={padT + plotH}
               stroke="currentColor"
-              strokeOpacity={0.1}
+              strokeOpacity={0.25}
               strokeDasharray="3 3"
             />
-            <text
-              x={padL - 8}
-              y={y + 5}
-              textAnchor="end"
-              fontSize={16}
-              className="fill-foreground/90 font-medium"
-            >
-              {formatSpeed(maxSpeed * r)}
-            </text>
+            <circle
+              cx={xAt(hoveredIdx)}
+              cy={ySpeed(hoveredPoint.maxSpeedBps)}
+              r={3.5}
+              fill="#10b981"
+            />
+            <circle
+              cx={xAt(hoveredIdx)}
+              cy={ySpeed(hoveredPoint.avgSpeedBps)}
+              r={4}
+              fill="#3b82f6"
+            />
           </g>
-        )
-      })}
+        )}
 
         {/* X-axis start / end labels */}
         {[0, timeline.length - 1]
