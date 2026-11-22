@@ -1142,8 +1142,7 @@ export const enUS: Record<TranslationKey, string> = {
   'settingsPage.env.title': 'Terminal Environment Proxy',
   'settingsPage.env.desc':
     'Injects the selected port into Windows user environment variables (http_proxy, https_proxy, all_proxy, no_proxy) for command-line and development tools. Fully decoupled from the system proxy, so a different node port can be used independently',
-  'settingsPage.env.enableLabel':
-    'Enable Terminal Environment Proxy',
+  'settingsPage.env.enableLabel': 'Enable Terminal Environment Proxy',
   'settingsPage.env.enableDesc':
     'Modifies user-level environment variables and broadcasts them to newly opened CMD, PowerShell, Git Bash, and development tools. Automatically cleaned up when the app exits or the port is disabled to prevent stale network loss',
   'settingsPage.env.portLabel': 'Listening Port for Terminal Proxy',
@@ -1566,7 +1565,8 @@ export const enUS: Record<TranslationKey, string> = {
   'header.networkOfflineTooltip':
     'System network is offline; latency tests are blocked and analytics timeout/error recording is paused',
   'header.networkRecheck': 'Recheck',
-  'settingsPage.core.networkCheckIntervalLabel': 'System Network Check Interval',
+  'settingsPage.core.networkCheckIntervalLabel':
+    'System Network Check Interval',
   'settingsPage.core.networkCheckIntervalDesc':
     'Interval for checking host internet connectivity; pauses timeout stats and blocks tests when offline',
   'settingsPage.toast.networkCheckRange':

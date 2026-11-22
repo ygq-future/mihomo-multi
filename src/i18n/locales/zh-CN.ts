@@ -1416,8 +1416,7 @@ export const zhCN = {
     '后台检测宿主网络连通性的时间间隔，断网时自动暂停超时统计并阻止测速',
   'settingsPage.toast.networkCheckRange':
     '系统断网检测周期需在 {min} - {max} 秒之间',
-  'settingsPage.toast.networkCheckUpdated':
-    '系统断网检测周期已更新为 {sec} 秒',
+  'settingsPage.toast.networkCheckUpdated': '系统断网检测周期已更新为 {sec} 秒',
 } as const
 
 export type TranslationKey = keyof typeof zhCN

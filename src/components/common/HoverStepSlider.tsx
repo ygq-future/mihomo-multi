@@ -132,7 +132,10 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
       left = rect.left + rect.width / 2 - popoverWidth / 2
     } else if (effectiveAlign === 'right') {
       left = rect.right - popoverWidth
-    } else if (rect.left + popoverWidth <= window.innerWidth - VIEWPORT_PADDING_PX) {
+    } else if (
+      rect.left + popoverWidth <=
+      window.innerWidth - VIEWPORT_PADDING_PX
+    ) {
       left = rect.left
     } else {
       left = rect.right - popoverWidth
