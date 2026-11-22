@@ -130,6 +130,13 @@ export const createProfileSlice: StateCreator<
       get()
         .fetchProfileNodes(id)
         .catch(() => {})
+      const store = get()
+      if (
+        'clearEgressCache' in store &&
+        typeof store.clearEgressCache === 'function'
+      ) {
+        store.clearEgressCache(id)
+      }
       return updated
     } catch (err) {
       set((state) => ({

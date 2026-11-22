@@ -73,6 +73,12 @@ import { QuickCopyMenu } from '../ports/QuickCopyMenu'
 import { ProfileBadgeTooltip } from '../profiles/ProfileBadgeTooltip'
 
 const DIRECT_EGRESS_CACHE_KEY = 'mihomo_direct_egress_cache'
+const EGRESS_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+
+interface CachedDirectEgress {
+  info: DirectEgressInfo
+  cachedAt: number
+}
 
 // Persisted by the backend when the fixed DIRECT listener is created; only the
 // untouched default is re-rendered in the active language.
@@ -81,7 +87,17 @@ const BUILTIN_DIRECT_DESCRIPTION = '直连监听 (直通流量不走代理)'
 function loadCachedDirectEgress(): DirectEgressInfo | null {
   try {
     const raw = localStorage.getItem(DIRECT_EGRESS_CACHE_KEY)
-    if (raw) return JSON.parse(raw) as DirectEgressInfo
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<CachedDirectEgress>
+    if (
+      !parsed?.info ||
+      typeof parsed.cachedAt !== 'number' ||
+      Date.now() - parsed.cachedAt > EGRESS_CACHE_TTL_MS
+    ) {
+      localStorage.removeItem(DIRECT_EGRESS_CACHE_KEY)
+      return null
+    }
+    return parsed.info
   } catch {
     // Ignore JSON parsing or localStorage access errors
   }
@@ -90,7 +106,8 @@ function loadCachedDirectEgress(): DirectEgressInfo | null {
 
 function saveCachedDirectEgress(info: DirectEgressInfo) {
   try {
-    localStorage.setItem(DIRECT_EGRESS_CACHE_KEY, JSON.stringify(info))
+    const payload: CachedDirectEgress = { info, cachedAt: Date.now() }
+    localStorage.setItem(DIRECT_EGRESS_CACHE_KEY, JSON.stringify(payload))
   } catch {
     // Ignore localStorage storage quota errors
   }

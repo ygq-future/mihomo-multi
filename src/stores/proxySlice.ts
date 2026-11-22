@@ -16,8 +16,10 @@ export interface ProxySlice {
   latencies: Record<string, number | null>
   testingNodeNames: Record<string, boolean>
   nodeEgressIps: Record<string, DirectEgressInfo>
+  nodeEgressCachedAt: Record<string, number>
   probingEgressNodeKeys: Record<string, boolean>
   portEgressIps: Record<number, DirectEgressInfo>
+  portEgressCachedAt: Record<number, number>
   probingPortEgress: Record<number, boolean>
   isTestingAll: boolean
   quickBindTarget: { profileId: string; nodeName: string } | null
@@ -38,6 +40,7 @@ export interface ProxySlice {
     port: number,
     protocol: InboundProtocol,
   ) => Promise<DirectEgressInfo>
+  clearEgressCache: (profileId?: string) => void
   testAllNodesDelay: (
     nodeNames: string[],
     testUrl?: string,
@@ -76,6 +79,25 @@ function portProbeRoute(
   ])
 }
 
+const EGRESS_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+
+function pruneExpiredRecord<K extends string | number, V>(
+  values: Record<K, V>,
+  timestamps: Record<K, number>,
+  now: number,
+): { values: Record<K, V>; timestamps: Record<K, number> } {
+  const nextValues = {} as Record<K, V>
+  const nextTimestamps = {} as Record<K, number>
+  for (const key of Object.keys(values) as K[]) {
+    const ts = timestamps[key]
+    if (typeof ts === 'number' && now - ts <= EGRESS_CACHE_TTL_MS) {
+      nextValues[key] = values[key]
+      nextTimestamps[key] = ts
+    }
+  }
+  return { values: nextValues, timestamps: nextTimestamps }
+}
+
 export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
   set,
   get,
@@ -83,8 +105,10 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
   latencies: {},
   testingNodeNames: {},
   nodeEgressIps: {},
+  nodeEgressCachedAt: {},
   probingEgressNodeKeys: {},
   portEgressIps: {},
+  portEgressCachedAt: {},
   probingPortEgress: {},
   isTestingAll: false,
   quickBindTarget: null,
@@ -152,18 +176,31 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
     try {
       const info = await api.queryNodeEgressInfo(nodeName, profileId)
       set((state) => {
+        const now = Date.now()
         const nextProbing = { ...state.probingEgressNodeKeys }
         delete nextProbing[cacheKey]
+        const pruned = pruneExpiredRecord(
+          state.nodeEgressIps,
+          state.nodeEgressCachedAt,
+          now,
+        )
         const nextEgress: Record<string, DirectEgressInfo> = {
-          ...state.nodeEgressIps,
+          ...pruned.values,
           [cacheKey]: info,
           [nodeName]: info,
         }
+        const nextTimestamps: Record<string, number> = {
+          ...pruned.timestamps,
+          [cacheKey]: now,
+          [nodeName]: now,
+        }
         if (profileId) {
           nextEgress[`${profileId}_${nodeName}`] = info
+          nextTimestamps[`${profileId}_${nodeName}`] = now
         }
         return {
           nodeEgressIps: nextEgress,
+          nodeEgressCachedAt: nextTimestamps,
           probingEgressNodeKeys: nextProbing,
         }
       })
@@ -194,10 +231,17 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
         throw new Error(t('errors.chainConfigChanged'))
       }
       set((state) => {
+        const now = Date.now()
         const nextProbing = { ...state.probingPortEgress }
         delete nextProbing[port]
+        const pruned = pruneExpiredRecord(
+          state.portEgressIps,
+          state.portEgressCachedAt,
+          now,
+        )
         return {
-          portEgressIps: { ...state.portEgressIps, [port]: info },
+          portEgressIps: { ...pruned.values, [port]: info },
+          portEgressCachedAt: { ...pruned.timestamps, [port]: now },
           probingPortEgress: nextProbing,
         }
       })
@@ -210,6 +254,36 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
       })
       throw err
     }
+  },
+
+  clearEgressCache: (profileId) => {
+    set((state) => {
+      if (!profileId) {
+        return {
+          nodeEgressIps: {},
+          nodeEgressCachedAt: {},
+          portEgressIps: {},
+          portEgressCachedAt: {},
+        }
+      }
+      const prefix = `${profileId}_`
+      const nextNodeEgress: Record<string, DirectEgressInfo> = {}
+      const nextNodeTimestamps: Record<string, number> = {}
+      for (const [key, val] of Object.entries(state.nodeEgressIps)) {
+        if (!key.startsWith(prefix)) {
+          nextNodeEgress[key] = val
+          if (state.nodeEgressCachedAt[key] !== undefined) {
+            nextNodeTimestamps[key] = state.nodeEgressCachedAt[key]
+          }
+        }
+      }
+      return {
+        nodeEgressIps: nextNodeEgress,
+        nodeEgressCachedAt: nextNodeTimestamps,
+        portEgressIps: {},
+        portEgressCachedAt: {},
+      }
+    })
   },
 
   testAllNodesDelay: async (nodeNames, testUrl, timeoutMs) => {
