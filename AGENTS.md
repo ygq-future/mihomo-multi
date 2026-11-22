@@ -1,10 +1,8 @@
-# AI 编码约束与架构开发规范 (AGENTS.md / CLAUDE.md)
+# AI 编码约束与架构开发规范 (AGENTS.md)
 
 XERJ prefix: "mhm"
 
 本项目为 **Mihomo Multi**，目标是实现基于 Mihomo (Clash.Meta) 内核的高性能、极简多端口代理监听绑定桌面客户端（Tauri v2 + Rust + React + TypeScript + Tailwind CSS）。
-
-所有参与本项目代码编写的 AI Agent 与开发者必须严格遵守以下规则与约束：
 
 ---
 
@@ -12,7 +10,7 @@ XERJ prefix: "mhm"
 
 1. **功能聚焦原则（做减法）**：
    * **核心唯一职责**：实现 `Add Inbound Port Listener -> Bind Specific Proxy Node`（多端口监听与节点精确 1:1 绑定）。
-   * **严禁引入以下特性**：
+   * **受控与禁止特性**：
      * ⚠️ TUN 虚拟网卡模式为**受控特性**：必须跟随一个已启用端口映射作为唯一出口、与系统代理严格互斥、需要管理员权限、退出或内核停止时随内核进程一并释放虚拟网卡；
      * ❌ 严禁引入复杂的 JavaScript/Lua 运行时脚本合并与多层分流规则集。
 2. **确定性路由原则**：
@@ -21,11 +19,11 @@ XERJ prefix: "mhm"
    * 用户新增/修改/删除/启停端口映射时，必须优先通过 Mihomo REST API (`PUT /configs?force=true`) 进行毫秒级热重载，**禁止无故重启 Mihomo 进程，已有长连接不得中断**。
 4. **子进程生命周期安全**：
    * 主程序启动时拉起 Mihomo Sidecar，主程序正常退出或异常崩溃时，必须通过进程守护/JobObject/信号处理**确保后台 Mihomo 进程被彻底清理**，严禁产生孤儿僵尸进程。
-
 5. **受控系统代理与单选互斥原则**：
    * 系统代理作为受控辅助特性，全局**严格单选互斥**（至多同时绑定 1 个已启用的监听端口），严禁隐式轮询漂移；
    * 系统代理必须支持排除域名/IP（内置私有/回环网络 + 用户自定义），并在 Windows 下联动设置用户环境变量（`all_proxy`, `http_proxy`, `https_proxy`, `no_proxy`）；
    * **生命周期安全与防断网红线**：当绑定端口停用/删除、内核停止或客户端退出时，必须无条件清理系统代理与环境变量，严禁残留导致断网。
+
 ---
 
 ## 二、 后端代码规范 (Rust / Tauri v2)
@@ -34,7 +32,6 @@ XERJ prefix: "mhm"
    * 遵循 `rustfmt.toml` 配置：`max_width = 120`，`tab_spaces = 4`，`edition = "2024"`，自动导入排序。
    * 严格通过 `cargo clippy -- -D warnings`，不得忽略任何 Clippy 警告。
 2. **错误处理**：
-   * 生产代码中**严禁使用 `unwrap()` 或 `expect()`**。
    * 业务层使用 `thiserror` 定义结构化错误类型，顶层 Tauri Command 统一返回 `Result<T, String>` 或自定义 `AppError`。
 3. **网络与 I/O**：
    * 异步操作基于 `tokio` 运行时。
@@ -48,109 +45,45 @@ XERJ prefix: "mhm"
 
 1. **格式化与 Lint**：
    * 使用 **Biome** 进行格式化：单引号 (`quoteStyle: "single"`), 缩进 2 空格 (`indentWidth: 2`), 无分号风格 (`semicolons: "asNeeded"`), 行宽 80 (`lineWidth: 80`)。
-   * 使用 **ESLint** 校验 React Hooks 与 TypeScript 类型安全，禁止使用 `any`（特殊第三方接口需使用 `unknown` 并做类型收窄）。
+   * 使用 **ESLint** 校验 React Hooks 与 TypeScript 类型安全（特殊第三方接口需使用 `unknown` 并做类型收窄）。
 2. **状态管理与架构分层**：
-   * 采用 **Zustand** 进行全局应用状态管理（`useAppStore`），区分 `PortMappingSlice`, `ProfileSlice`, `NodeSlice`, `SettingSlice`。
+   * 采用 **Zustand** 进行全局应用状态管理，按业务域拆分 Slice（`src/stores/`）。
    * UI 组件必须保持轻量与纯粹，所有与 Rust 后端的通信（Tauri `invoke`）统一封装在 `src/services/` 模块中，禁止在 UI 组件内部直接写裸 IPC 命令。
 3. **UI 风格与设计系统**：
-   * 视觉风格遵循现代极简桌面设计规范：现代暗黑/明亮主题自适应、精致圆角（`rounded-lg`）、紧凑表格与卡片质感、Lucide 图标。
+   * 视觉风格遵循现代极简桌面设计规范：精致圆角（`rounded-lg`）、紧凑表格与卡片质感、Lucide 图标。
    * 交互反馈：网络测速、配置热重载、订阅刷新等耗时操作必须有清晰的 Loading 状态与 Toast/Notification 反馈。
-4. **基础组件通用性与复用原则 (Common Components First)**：
-   * 编写 UI 代码时，必须前置评估交互元素的通用性与原子性（如按钮 `Button`、输入框 `Input`、下拉选择器 `Select`、弹窗模态框 `Modal`、数字框、开关、空状态等）。
-   * 凡是具备通用形态、可能在两处及以上复用的基础控件，必须统一下沉封装至 `src/components/common/` 模块中。严禁在业务视图中直接使用粗糙的原生控件（如原生 `<select>`、原生带箭头的 `input[type=number]`）或在不同业务页面拷贝粘贴相似的 UI 结构代码。
+4. **基础组件通用性与复用原则**：
+   * 凡是具备通用形态、可能在两处及以上复用的基础控件，必须统一下沉封装至 `src/components/common/` 模块中，严禁在不同业务页面拷贝粘贴相似的 UI 结构代码。
 
 ---
 
-## 四、 核心数据模型参考
-
-```typescript
-// 端口映射
-export interface PortMapping {
-  id: string
-  port: number
-  protocol: 'mixed' | 'http' | 'socks5'
-  profileId: string
-  nodeName: string
-  enabled: boolean
-  latency?: number
-  description?: string
-}
-
-// 订阅配置
-export interface ProfileItem {
-  id: string
-  name: string
-  type: 'remote' | 'local'
-  url?: string
-  filePath: string
-  autoUpdateIntervalMins: number // 0 为不自动更新
-  lastUpdatedAt: number
-  nodeCount: usize
-}
-
-// 代理节点
-export interface ProxyNode {
-  name: string
-  type: string
-  server: string
-  port: number
-  latency?: number
-}
-```
-
----
-
-## 五、 本地开发与构建命令标准
+## 四、 本地开发与构建命令
 
 * `pnpm install`：安装前端依赖。
 * `pnpm dev:sidecar`：自动从 GitHub Release 下载当前平台适配的 Mihomo 二进制文件至 `src-tauri/binaries/`。
-* `pnpm dev` / `pnpm tauri dev`：启动本地开发环境。
+* `pnpm dev` / `pnpm dev:tauri`：启动前端或 Tauri 本地开发环境。
 * `pnpm format`：执行 `biome format --write .` 格式化代码。
-* `pnpm lint`：执行 `eslint` 与 `cargo clippy` 检查。
-* `pnpm build` / `pnpm tauri build`：构建生产分发包。
+* `pnpm lint`：执行 `eslint .` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`。
+* `pnpm typecheck`：执行 `tsc --noEmit` 类型检查。
+* `pnpm test` / `pnpm test:fe`：分别运行 Rust 后端测试与前端单元测试。
+* `pnpm build` / `pnpm build:tauri`：构建前端产物或 Tauri 生产分发包。
 
 ---
 
-## 六、 Agent skills
+## 五、 Agent skills
 
-### Issue tracker
-
-Issues and specs are tracked via GitHub Issues (`https://github.com/ygq-future/mihomo-multi.git`). See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Uses canonical triage label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context layout (`CONTEXT.md` at root, system ADRs in `docs/adr/`). See `docs/agents/domain.md`.
+* **Issue tracker**：`https://github.com/ygq-future/mihomo-multi.git`，见 `docs/agents/issue-tracker.md`。
+* **Triage labels**：使用标准标签词汇（`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`），见 `docs/agents/triage-labels.md`。
+* **Domain docs**：见 `docs/agents/domain.md`。
 
 ---
 
-## 七、 严格交互与确认约束 (Strict Interaction Protocol)
+## 六、 版本协同与发版核对红线 (Version Synchronization & Release Redline)
 
-除了用户明确输入了 `/<command>` 之类的 skill 或指令（如 `/impl` 等显式自动化指令）以外，当用户对某些功能抱有疑问、要求排查问题、分析缺陷、或要求做某些具体事情时，**严禁未经确认直接修改代码或盲目执行操作**。代理必须严格遵守以下确认流程：
-
-1. **先输出思考与理解**：清晰告知用户你是如何理解用户所说的话和其核心诉求的；
-2. **说明思路与解决路径**：说明你分析问题的思路、可能的根因排查方向或功能实现策略；
-3. **列出具体行动计划**：明确说明你可能会怎么做（将要修改哪些文件、执行哪些命令、调整哪些逻辑）；
-4. **说明预期结果与影响**：清晰阐述完成操作之后的预期结果、系统行为变化及是否有潜在副作用；
-5. **等待用户明确确认**：将上述信息完整反馈给用户，**只有在得到用户的明确回复与确认后，方可开始具体修改或执行操作**。
-
----
-
-## 八、 业务事实与验收回答红线 (Fact-Based Grounding Redline)
-
-在向用户说明任何业务逻辑、功能实现、数据存储路径、配置存放位置或验收步骤时，**必须严格核实并基于代码中的真实实现与运行时行为**（例如 Tauri 真实的 `app_local_data_dir()` 存储位置、真实生成的 YAML 规则等）。**严禁脱离代码凭经验、模版或假设推测编造任何路径、参数或行为**。凡涉及具体路径与数据交互，必须先在代码中核准真实逻辑后再给出结论。
-
----
-
-## 九、 版本协同与发版核对红线 (Version Synchronization & Release Redline)
-
-1. **全链路版本一致性**：在版本迭代、更新版本号或发布新版本前，必须严格核验并确保以下 4 处配置/常量中的版本号完全一致，严禁出现前后端版本脱节：
-   * `package.json`：前端基础元数据中的 `version`；
-   * `src-tauri/Cargo.toml`：Rust 后端包中的 `[package].version`；
-   * `src-tauri/tauri.conf.json`：Tauri 桌面应用打包配置中的 `version`；
-   * `src/constants/app.ts`：前端静态兜底常量 `APP_VERSION`。
-2. **发版前强制检查**：在执行生产构建（`pnpm build` / `pnpm tauri build`）或推送 Release Tag 前，开发者与 AI Agent 必须将其作为前置检查项完成核对，杜绝因常量遗漏更新导致界面显示旧版本或更新状态误判。
-3. **发布说明必须齐备 (Release Notes Mandate)**：在发布新版本、提交发版 Commit 或推送 Git Tag 之前，必须在 `docs/release-notes/<tag>.md`（例如 `docs/release-notes/v1.5.1.md`）中完整编写该版本的发布说明（包含核心更新亮点、改动明细与全平台分发包下载指引）。GitHub Actions Release 工作流会自动读取该路径文件作为 GitHub Release 正文，严禁遗漏发布说明直接发版或打 Tag。
+1. **全链路版本一致性**：在版本迭代、更新版本号或发布新版本前，必须严格核验并确保以下 4 处配置/常量中的版本号完全一致：
+   * `package.json`：`version`
+   * `src-tauri/Cargo.toml`：`[package].version`
+   * `src-tauri/tauri.conf.json`：`version`
+   * `src/constants/app.ts`：`APP_VERSION`
+2. **发版前强制检查**：在执行生产构建或推送 Release Tag 前，必须完成上述 4 处版本号核对。
+3. **发布说明必须齐备 (Release Notes Mandate)**：在发布新版本、提交发版 Commit 或推送 Git Tag 之前，必须在 `docs/release-notes/<tag>.md`（例如 `docs/release-notes/v1.6.7.md`）中完整编写该版本的发布说明。GitHub Actions Release 工作流会自动读取该路径文件作为 GitHub Release 正文。
