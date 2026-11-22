@@ -73,10 +73,13 @@ export const Tooltip: React.FC<TooltipProps> = ({
     timerRef.current = setTimeout(() => {
       const trigger = triggerRef.current
       const tooltip = tooltipRef.current
+      const isTriggerKeyboardFocused =
+        Boolean(trigger?.matches(':focus-visible')) &&
+        Boolean(trigger?.contains(document.activeElement))
       if (
         trigger?.matches(':hover') ||
         tooltip?.matches(':hover') ||
-        trigger?.contains(document.activeElement) ||
+        isTriggerKeyboardFocused ||
         tooltip?.contains(document.activeElement)
       ) {
         return
@@ -88,6 +91,13 @@ export const Tooltip: React.FC<TooltipProps> = ({
   useEffect(() => {
     return () => clearTimer()
   }, [clearTimer])
+
+  useEffect(() => {
+    if (!open) return
+    const handleWindowBlur = () => hide()
+    window.addEventListener('blur', handleWindowBlur)
+    return () => window.removeEventListener('blur', handleWindowBlur)
+  }, [open, hide])
 
   const updatePosition = useCallback(() => {
     const triggerEl = triggerRef.current
