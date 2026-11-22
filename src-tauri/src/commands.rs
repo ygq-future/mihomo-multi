@@ -291,6 +291,35 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
         ));
     }
 
+    if config.system_proxy_bypass_user != old_config.system_proxy_bypass_user && state.engine.get_status().running {
+        let old_rules: std::collections::HashSet<String> = old_config
+            .system_proxy_bypass_user
+            .iter()
+            .map(|s| s.trim().to_ascii_lowercase())
+            .collect();
+        let added_rules: Vec<String> = config
+            .system_proxy_bypass_user
+            .iter()
+            .filter(|s| !old_rules.contains(&s.trim().to_ascii_lowercase()))
+            .cloned()
+            .collect();
+        if !added_rules.is_empty()
+            && let Ok(snapshot) = state.engine.adapter().get_connections().await
+        {
+            for conn in snapshot.connections {
+                let matches_host = crate::core::sysproxy::bypass_rule_matches_host_list(&added_rules, &conn.metadata.host);
+                let matches_sniff = conn
+                    .metadata
+                    .sniff_host
+                    .as_deref()
+                    .is_some_and(|h| crate::core::sysproxy::bypass_rule_matches_host_list(&added_rules, h));
+                if matches_host || matches_sniff {
+                    let _ = state.engine.adapter().close_connection(&conn.id).await;
+                }
+            }
+        }
+    }
+
     crate::tray::update_tray_menu(&app);
     Ok(())
 }

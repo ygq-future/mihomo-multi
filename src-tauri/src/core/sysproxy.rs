@@ -1244,6 +1244,57 @@ mod linux {
     }
 }
 
+/// Checks whether a connection host (domain or IP string) matches a single bypass rule.
+pub fn bypass_rule_matches_host(rule: &str, host: &str) -> bool {
+    let rule = rule.trim().trim_end_matches('.').to_ascii_lowercase();
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if rule.is_empty() || host.is_empty() || rule == "<local>" {
+        return false;
+    }
+
+    if let Ok(host_ip) = host.parse::<std::net::IpAddr>() {
+        if let Some((net_str, prefix_str)) = rule.split_once('/')
+            && let (Ok(net_ip), Ok(prefix)) = (net_str.parse::<std::net::IpAddr>(), prefix_str.parse::<u32>())
+        {
+            return match (host_ip, net_ip) {
+                (std::net::IpAddr::V4(h), std::net::IpAddr::V4(n)) if prefix <= 32 => {
+                    let mask = if prefix == 0 { 0 } else { u32::MAX << (32 - prefix) };
+                    (u32::from(h) & mask) == (u32::from(n) & mask)
+                }
+                (std::net::IpAddr::V6(h), std::net::IpAddr::V6(n)) if prefix <= 128 => {
+                    let mask = if prefix == 0 { 0 } else { u128::MAX << (128 - prefix) };
+                    (u128::from(h) & mask) == (u128::from(n) & mask)
+                }
+                _ => false,
+            };
+        }
+        if let Ok(rule_ip) = rule.parse::<std::net::IpAddr>() {
+            return host_ip == rule_ip;
+        }
+        if let Some(prefix) = rule.strip_suffix(".*")
+            && let std::net::IpAddr::V4(h) = host_ip
+        {
+            let h_str = h.to_string();
+            return h_str.starts_with(prefix) && h_str.as_bytes().get(prefix.len()) == Some(&b'.');
+        }
+        return false;
+    }
+
+    if let Some(suffix) = rule.strip_prefix("*.") {
+        return host == suffix || host.strip_suffix(suffix).is_some_and(|p| p.ends_with('.'));
+    }
+    if let Some(suffix) = rule.strip_prefix('.') {
+        return host == suffix || host.strip_suffix(suffix).is_some_and(|p| p.ends_with('.'));
+    }
+
+    host == rule
+}
+
+/// Checks whether a connection host matches any rule in a bypass list.
+pub fn bypass_rule_matches_host_list(rules: &[String], host: &str) -> bool {
+    rules.iter().any(|rule| bypass_rule_matches_host(rule, host))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1429,5 +1480,27 @@ mod tests {
         assert!(parse_proxy_server_matches_port("  127.0.0.1:17890  ", 17890));
         assert!(!parse_proxy_server_matches_port("", 7890));
         assert!(!parse_proxy_server_matches_port("invalid", 7890));
+    }
+
+    #[test]
+    fn test_bypass_rule_matches_host() {
+        assert!(bypass_rule_matches_host("example.com", "example.com"));
+        assert!(bypass_rule_matches_host("Example.COM", "example.com."));
+        assert!(!bypass_rule_matches_host("example.com", "sub.example.com"));
+
+        assert!(bypass_rule_matches_host("*.example.com", "sub.example.com"));
+        assert!(bypass_rule_matches_host("*.example.com", "a.b.example.com"));
+        assert!(bypass_rule_matches_host("*.example.com", "example.com"));
+        assert!(!bypass_rule_matches_host("*.example.com", "notexample.com"));
+
+        assert!(bypass_rule_matches_host(".example.com", "sub.example.com"));
+        assert!(!bypass_rule_matches_host(".example.com", "notexample.com"));
+
+        assert!(bypass_rule_matches_host("192.168.1.0/24", "192.168.1.42"));
+        assert!(!bypass_rule_matches_host("192.168.1.0/24", "192.168.2.42"));
+        assert!(bypass_rule_matches_host("10.*", "10.0.0.1"));
+        assert!(!bypass_rule_matches_host("10.*", "100.0.0.1"));
+        assert!(bypass_rule_matches_host("127.0.0.1", "127.0.0.1"));
+        assert!(!bypass_rule_matches_host("<local>", "localhost"));
     }
 }
