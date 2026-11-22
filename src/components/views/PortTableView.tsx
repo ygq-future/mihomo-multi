@@ -2743,24 +2743,18 @@ export const PortTableView: React.FC = () => {
                                 )}
                               </div>
 
-                              {/* Main Node Status Badge (正常 / 异常) */}
-                              <Badge
-                                variant={
-                                  isPrimaryTimeout ? 'danger' : 'success'
-                                }
-                                size="sm"
-                                dot
-                                className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
-                                title={
-                                  isPrimaryTimeout
-                                    ? t('ports.primaryTimeoutTitle')
-                                    : t('ports.primaryHealthyTitle')
-                                }
-                              >
-                                {isPrimaryTimeout
-                                  ? t('ports.abnormal')
-                                  : t('ports.normal')}
-                              </Badge>
+                              {/* Main Node Status Badge (only shown when abnormal) */}
+                              {isPrimaryTimeout && (
+                                <Badge
+                                  variant="danger"
+                                  size="sm"
+                                  dot
+                                  className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
+                                  title={t('ports.primaryTimeoutTitle')}
+                                >
+                                  {t('ports.abnormal')}
+                                </Badge>
+                              )}
                             </div>
 
                             {/* Fallback Node Row (Draggable onto Primary to swap, clickable to lock, + one-click swap button) */}
