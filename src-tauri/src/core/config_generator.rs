@@ -36,6 +36,8 @@ pub struct RuntimeProxyGroup {
     pub timeout: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub lazy: Option<bool>,
+    #[serde(rename = "max-failed-times", skip_serializing_if = "Option::is_none", default)]
+    pub max_failed_times: Option<u32>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimeRuleProvider {
@@ -684,6 +686,7 @@ impl MinimalRuntimeConfig {
                         interval: Some(params.fallback_interval),
                         timeout: Some(params.timeout_ms),
                         lazy: Some(params.fallback_lazy),
+                        max_failed_times: Some(3),
                     });
                     if m.manual_fallback { fallback } else { group_name }
                 }
@@ -905,6 +908,7 @@ impl MinimalRuntimeConfig {
                 interval: None,
                 timeout: None,
                 lazy: None,
+                max_failed_times: None,
             });
             listeners.push(RuntimeListener {
                 name: "in-egress-probe".to_string(),
@@ -1205,6 +1209,7 @@ password: pass
         let yaml = config.to_yaml().expect("YAML serialize failed");
         assert!(yaml.contains("name: fb-7895"));
         assert!(yaml.contains("type: fallback"));
+        assert!(yaml.contains("max-failed-times: 3"));
         assert!(yaml.contains("- '[AirportA] HK-Node-01'"));
         assert!(yaml.contains("- '[AirportA] HK-Node-02'"));
         assert!(yaml.contains("IN-PORT,7895,fb-7895"));

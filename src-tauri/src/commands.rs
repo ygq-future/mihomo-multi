@@ -1087,12 +1087,13 @@ async fn recheck_node_delay_concurrent(
     runtime_name: &str,
     primary_url: &str,
     timeout_ms: u32,
+    cooldown_secs: u64,
 ) -> Option<u32> {
     let now = std::time::Instant::now();
     {
         let mut map = NODE_RECHECK_COOLDOWN.lock();
         if let Some(&last) = map.get(runtime_name)
-            && now.duration_since(last) < std::time::Duration::from_secs(NODE_RECHECK_COOLDOWN_SECS)
+            && now.duration_since(last) < std::time::Duration::from_secs(cooldown_secs)
         {
             return None;
         }
@@ -1131,9 +1132,9 @@ pub async fn get_port_fallback_statuses(
     let profiles = state.profile_manager.get_profiles();
     let profile_map: std::collections::HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
 
-    let (default_url, default_timeout) = {
+    let (default_url, default_timeout, fallback_interval_secs) = {
         let cfg = state.config.read();
-        (cfg.test_url.clone(), cfg.timeout_ms)
+        (cfg.test_url.clone(), cfg.timeout_ms, u64::from(cfg.fallback_interval))
     };
     let engine = state.engine.clone();
     let mut statuses = Vec::new();
@@ -1187,11 +1188,45 @@ pub async fn get_port_fallback_statuses(
             .map(|p| p.history)
             .unwrap_or_default();
         let mut kernel_primary_history_delay = primary_history.last().map(|h| h.delay);
-        if should_recheck_timeout(&primary_history, cached_primary_entry)
-            && let Some(d) =
-                recheck_node_delay_concurrent(&engine, &primary_runtime_name, &default_url, default_timeout).await
-        {
-            kernel_primary_history_delay = Some(d);
+        let need_first_timeout_recheck = should_recheck_timeout(&primary_history, cached_primary_entry);
+        let need_fallback_recovery_probe = !m.manual_fallback && is_fallback_active;
+        let mut primary_recheck_succeeded = false;
+        if need_first_timeout_recheck || need_fallback_recovery_probe {
+            let cooldown_secs = if need_first_timeout_recheck {
+                NODE_RECHECK_COOLDOWN_SECS
+            } else {
+                fallback_interval_secs.max(NODE_RECHECK_COOLDOWN_SECS)
+            };
+            if let Some(d) = recheck_node_delay_concurrent(
+                &engine,
+                &primary_runtime_name,
+                &default_url,
+                default_timeout,
+                cooldown_secs,
+            )
+            .await
+            {
+                kernel_primary_history_delay = Some(d);
+                primary_recheck_succeeded = true;
+            }
+        }
+        // When an auto-fallback port's primary node recovers during recheck, immediately refresh
+        // the Mihomo fallback group so the kernel switches back to primary in the same poll cycle
+        // instead of surfacing a transient amber warning or staying stuck under lazy mode.
+        if !m.manual_fallback && is_fallback_active && primary_recheck_succeeded {
+            let _ = engine
+                .test_group_delay(&group_name, Some(&default_url), Some(default_timeout))
+                .await;
+            if let Ok(detail) = engine.get_proxy_detail(&group_name).await {
+                let active_node = detail.now.unwrap_or_default();
+                is_fallback_active = active_node.ends_with(&fallback_node);
+            }
+            if let Ok(p_detail) = engine.get_proxy_detail(&primary_runtime_name).await
+                && let Some(last) = p_detail.history.last()
+                && last.delay > 0
+            {
+                kernel_primary_history_delay = Some(last.delay);
+            }
         }
         let kernel_primary_timed_out = kernel_primary_history_delay == Some(0);
 
@@ -1215,8 +1250,14 @@ pub async fn get_port_fallback_statuses(
             .unwrap_or_default();
         let mut kernel_fb_history_delay = fb_history.last().map(|h| h.delay);
         if should_recheck_timeout(&fb_history, cached_fb_entry)
-            && let Some(d) =
-                recheck_node_delay_concurrent(&engine, &fb_runtime_name, &default_url, default_timeout).await
+            && let Some(d) = recheck_node_delay_concurrent(
+                &engine,
+                &fb_runtime_name,
+                &default_url,
+                default_timeout,
+                NODE_RECHECK_COOLDOWN_SECS,
+            )
+            .await
         {
             kernel_fb_history_delay = Some(d);
         }
