@@ -1,11 +1,12 @@
 import { useTranslation } from '../../i18n'
-import { Globe, Loader2, Lock, Power, Shield } from 'lucide-react'
+import { Globe, Loader2, Lock, Shield } from 'lucide-react'
 import { toast } from '../../stores/toastStore'
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
-  useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react'
@@ -34,48 +35,25 @@ export interface HoverStepSliderProps {
   popoverAlign?: HoverStepSliderAlign
 }
 
-let activeDraggingSliderId: string | null = null
-
-// Theme RGB Colors for Smooth Linear Interpolation
-// Port Mode: 0: Slate (Off) -> 1: Emerald (Listening) -> 2: Sky (System Proxy)
-const PORT_COLOR_OFF = [148, 163, 184] as const
-const PORT_COLOR_LISTEN = [16, 204, 138] as const
-const PORT_COLOR_SYS = [14, 182, 255] as const
-
-// Egress Mode: 0: Slate (Off) -> 1: Sky (System Proxy) -> 2: Purple (TUN)
-const EGRESS_COLOR_OFF = [148, 163, 184] as const
-const EGRESS_COLOR_SYS = [14, 182, 255] as const
-const EGRESS_COLOR_TUN = [168, 85, 247] as const
-function interpolateColor(
-  val: number,
-  mode: HoverStepSliderMode = 'port',
-): string {
-  const c0 = mode === 'egress' ? EGRESS_COLOR_OFF : PORT_COLOR_OFF
-  const c1 = mode === 'egress' ? EGRESS_COLOR_SYS : PORT_COLOR_LISTEN
-  const c2 = mode === 'egress' ? EGRESS_COLOR_TUN : PORT_COLOR_SYS
-
-  let r: number
-  let g: number
-  let b: number
-
-  if (val <= 1) {
-    const t = Math.max(0, Math.min(1, val))
-    r = Math.round(c0[0] + (c1[0] - c0[0]) * t)
-    g = Math.round(c0[1] + (c1[1] - c0[1]) * t)
-    b = Math.round(c0[2] + (c1[2] - c0[2]) * t)
-  } else {
-    const t = Math.max(0, Math.min(1, val - 1))
-    r = Math.round(c1[0] + (c2[0] - c1[0]) * t)
-    g = Math.round(c1[1] + (c2[1] - c1[1]) * t)
-    b = Math.round(c2[2] + (c2[2] - c1[2]) * t)
-  }
-  return `rgb(${r}, ${g}, ${b})`
-}
 interface Coords {
   top: number
   left: number
   placement: 'top' | 'bottom'
 }
+
+const HOVER_OPEN_DELAY_MS = 400
+const HOVER_CLOSE_DELAY_MS = 160
+const POPOVER_GAP_PX = 6
+const VIEWPORT_PADDING_PX = 8
+
+function getStepDotClass(stepValue: number, mode: HoverStepSliderMode): string {
+  if (stepValue === 0) return 'bg-muted-foreground/60'
+  if (mode === 'egress') {
+    return stepValue === 1 ? 'bg-sky-500' : 'bg-purple-500'
+  }
+  return stepValue === 1 ? 'bg-emerald-500' : 'bg-sky-500'
+}
+
 export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   value,
   onChange,
@@ -86,11 +64,9 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   lockedSteps,
   lockedTooltip,
   maxAllowedStep,
-  headerTitle,
   mode = 'port',
   popoverAlign,
 }) => {
-  const instanceId = useId()
   const { t } = useTranslation()
   const steps =
     customSteps ||
@@ -105,36 +81,28 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
           { value: 1, label: t('stepSlider.listening') },
           { value: 2, label: t('stepSlider.systemProxy') },
         ])
+
   const [isOpen, setIsOpen] = useState(false)
-  const [isDragging, setIsDragging] = useState(false)
   const [coords, setCoords] = useState<Coords | null>(null)
 
-  // continuousValue is a float [0.0 ~ 2.0] used for butter-smooth visual drag
-  const [continuousValue, setContinuousValue] = useState<number>(value)
-
   const triggerRef = useRef<HTMLButtonElement | null>(null)
-  const trackRef = useRef<HTMLDivElement | null>(null)
   const popoverRef = useRef<HTMLDivElement | null>(null)
   const enterTimerRef = useRef<number | null>(null)
   const leaveTimerRef = useRef<number | null>(null)
   const isHoveredRef = useRef(false)
-  const isDraggingRef = useRef(false)
-  const latestContinuousRef = useRef(value)
-  const committedValueRef = useRef(value)
 
   const maxStep = steps.length - 1
-  const clampedPropValue = Math.max(0, Math.min(maxStep, value))
+  const clampedValue = Math.max(0, Math.min(maxStep, value))
+  const currentStep = steps[clampedValue] ?? steps[0]
 
-  // Sync prop value when NOT dragging and NOT during in-flight asynchronous loading
-  useEffect(() => {
-    if (isDraggingRef.current) return
-    if (loading && clampedPropValue !== committedValueRef.current) {
-      return
-    }
-    committedValueRef.current = clampedPropValue
-    setContinuousValue(clampedPropValue)
-    latestContinuousRef.current = clampedPropValue
-  }, [clampedPropValue, loading])
+  const isStepLocked = useCallback(
+    (stepVal: number) =>
+      Boolean(
+        lockedSteps?.includes(stepVal) ||
+          (maxAllowedStep !== undefined && stepVal > maxAllowedStep),
+      ),
+    [lockedSteps, maxAllowedStep],
+  )
 
   const clearPendingTimers = useCallback(() => {
     if (enterTimerRef.current !== null) {
@@ -150,9 +118,9 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
   const updatePosition = useCallback(() => {
     if (!triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
-    const popoverWidth = 164
-    const popoverHeight = 78
-    const gap = 10
+    const popRect = popoverRef.current?.getBoundingClientRect()
+    const popoverWidth = popRect?.width || 136
+    const popoverHeight = popRect?.height || 30
 
     const effectiveAlign =
       popoverAlign ?? (mode === 'egress' ? 'left' : 'right')
@@ -164,43 +132,40 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
       left = rect.left + rect.width / 2 - popoverWidth / 2
     } else if (effectiveAlign === 'right') {
       left = rect.right - popoverWidth
+    } else if (rect.left + popoverWidth <= window.innerWidth - VIEWPORT_PADDING_PX) {
+      left = rect.left
     } else {
-      if (rect.left + popoverWidth <= window.innerWidth - 8) {
-        left = rect.left
-      } else {
-        left = rect.right - popoverWidth
-      }
+      left = rect.right - popoverWidth
     }
 
-    if (left < 8) left = 8
-    if (left + popoverWidth > window.innerWidth - 8) {
-      left = window.innerWidth - popoverWidth - 8
-    }
+    left = Math.max(
+      VIEWPORT_PADDING_PX,
+      Math.min(left, window.innerWidth - popoverWidth - VIEWPORT_PADDING_PX),
+    )
 
-    // Default to 'top', fallback to 'bottom' if near top of window
-    let top = rect.top - popoverHeight - gap
+    let top = rect.top - popoverHeight - POPOVER_GAP_PX
     let placement: 'top' | 'bottom' = 'top'
-
-    if (top < 8) {
-      top = rect.bottom + gap
+    if (top < VIEWPORT_PADDING_PX) {
+      top = rect.bottom + POPOVER_GAP_PX
       placement = 'bottom'
     }
 
     setCoords({ top, left, placement })
   }, [mode, popoverAlign])
+
   const isRelatedInside = useCallback(
     (relatedTarget: EventTarget | null): boolean => {
       if (!relatedTarget || !(relatedTarget instanceof Node)) return false
-      if (triggerRef.current?.contains(relatedTarget)) return true
-      if (popoverRef.current?.contains(relatedTarget)) return true
-      return false
+      return Boolean(
+        triggerRef.current?.contains(relatedTarget) ||
+          popoverRef.current?.contains(relatedTarget),
+      )
     },
     [],
   )
 
   const handleMouseEnter = useCallback(() => {
     if (disabled) return
-    if (activeDraggingSliderId && activeDraggingSliderId !== instanceId) return
     isHoveredRef.current = true
     if (leaveTimerRef.current !== null) {
       window.clearTimeout(leaveTimerRef.current)
@@ -208,21 +173,19 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
     }
     if (isOpen) return
 
-    // Add a slight intentional delay (180ms) to prevent flickering on quick mouse pass-by
     if (enterTimerRef.current === null) {
       enterTimerRef.current = window.setTimeout(() => {
+        enterTimerRef.current = null
         if (isHoveredRef.current) {
           updatePosition()
           setIsOpen(true)
         }
-        enterTimerRef.current = null
-      }, 180)
+      }, HOVER_OPEN_DELAY_MS)
     }
-  }, [disabled, instanceId, isOpen, updatePosition])
+  }, [disabled, isOpen, updatePosition])
+
   const handleMouseLeave = useCallback(
     (e?: ReactMouseEvent) => {
-      if (isDraggingRef.current) return
-      // If mouse is moving directly between trigger and popover, ignore
       if (e?.relatedTarget && isRelatedInside(e.relatedTarget)) {
         return
       }
@@ -236,233 +199,138 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
         window.clearTimeout(leaveTimerRef.current)
       }
       leaveTimerRef.current = window.setTimeout(() => {
-        if (!isHoveredRef.current && !isDraggingRef.current) {
+        leaveTimerRef.current = null
+        if (!isHoveredRef.current) {
           setIsOpen(false)
         }
-        leaveTimerRef.current = null
-      }, 200)
+      }, HOVER_CLOSE_DELAY_MS)
     },
     [isRelatedInside],
   )
 
-  // Cleanup timers on unmount
-  useEffect(() => {
-    return () => {
-      if (activeDraggingSliderId === instanceId) {
-        activeDraggingSliderId = null
-      }
-      clearPendingTimers()
-    }
-  }, [clearPendingTimers, instanceId])
-  const updateContinuousFromClientX = useCallback(
-    (clientX: number) => {
-      if (!trackRef.current) return
-      const rect = trackRef.current.getBoundingClientRect()
-      // In-track thumb width is 32px, padding is 2px
-      const thumbHalfWidth = 16
-      const pad = 2
-      const innerWidth = rect.width - (thumbHalfWidth * 2 + pad * 2)
-      if (innerWidth <= 0) return
+  useEffect(() => clearPendingTimers, [clearPendingTimers])
 
-      const rawOffset = clientX - (rect.left + pad + thumbHalfWidth)
-      const ratio = Math.max(0, Math.min(1, rawOffset / innerWidth))
-      const rawMax =
-        maxAllowedStep !== undefined
-          ? Math.min(maxAllowedStep, maxStep)
-          : maxStep
-      const floatVal = Math.min(rawMax, ratio * maxStep)
-      setContinuousValue(floatVal)
-      latestContinuousRef.current = floatVal
-    },
-    [maxStep, maxAllowedStep],
-  )
-
-  const handleTrackMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (disabled || loading) return
-    e.preventDefault()
-    activeDraggingSliderId = instanceId
-    setIsDragging(true)
-    isDraggingRef.current = true
-    updateContinuousFromClientX(e.clientX)
-  }
-  // Global mousemove & mouseup during dragging
-  useEffect(() => {
-    if (!isDragging) return
-
-    const handleMouseMove = (e: globalThis.MouseEvent) => {
-      updateContinuousFromClientX(e.clientX)
-    }
-
-    const handleMouseUp = (e: globalThis.MouseEvent) => {
-      if (activeDraggingSliderId === instanceId) {
-        activeDraggingSliderId = null
-      }
-      setIsDragging(false)
-      isDraggingRef.current = false
-
-      // Snap to nearest discrete step
-      const snapped = Math.round(latestContinuousRef.current)
-      const rawMax =
-        maxAllowedStep !== undefined
-          ? Math.min(maxAllowedStep, maxStep)
-          : maxStep
-      const finalStep = Math.max(0, Math.min(rawMax, snapped))
-      setContinuousValue(finalStep)
-      latestContinuousRef.current = finalStep
-
-      if (finalStep !== committedValueRef.current) {
-        committedValueRef.current = finalStep
-        onChange(finalStep)
-      }
-
-      // Check whether mouse cursor is still inside this slider's trigger or popover
-      const targetEl = document.elementFromPoint(e.clientX, e.clientY)
-      const isInside =
-        (targetEl &&
-          (triggerRef.current?.contains(targetEl) ||
-            popoverRef.current?.contains(targetEl))) ??
-        false
-
-      if (!isInside) {
-        isHoveredRef.current = false
-        if (enterTimerRef.current !== null) {
-          window.clearTimeout(enterTimerRef.current)
-          enterTimerRef.current = null
-        }
-        if (leaveTimerRef.current !== null) {
-          window.clearTimeout(leaveTimerRef.current)
-        }
-        leaveTimerRef.current = window.setTimeout(() => {
-          if (!isHoveredRef.current && !isDraggingRef.current) {
-            setIsOpen(false)
-          }
-          leaveTimerRef.current = null
-        }, 150)
-      }
-    }
-
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [
-    instanceId,
-    isDragging,
-    maxStep,
-    maxAllowedStep,
-    onChange,
-    updateContinuousFromClientX,
-  ])
-
-  // Update coords on window resize or scroll
-  useEffect(() => {
-    if (!isOpen) return
-    const handleScrollOrResize = () => {
-      if (!isDraggingRef.current) {
-        updatePosition()
-      }
-    }
-    const handleDismiss = () => {
-      setIsOpen(false)
-      isHoveredRef.current = false
-    }
-    window.addEventListener('scroll', handleScrollOrResize, true)
-    window.addEventListener('resize', handleScrollOrResize)
-    window.addEventListener('blur', handleDismiss)
-    window.addEventListener('app:dismiss-popovers', handleDismiss)
-    return () => {
-      window.removeEventListener('scroll', handleScrollOrResize, true)
-      window.removeEventListener('resize', handleScrollOrResize)
-      window.removeEventListener('blur', handleDismiss)
-      window.removeEventListener('app:dismiss-popovers', handleDismiss)
-    }
-  }, [isOpen, updatePosition])
-
-  // Click on step tag
-  const handleSelectStep = (stepVal: number) => {
-    if (disabled || loading) return
-    const isLocked =
-      lockedSteps?.includes(stepVal) ||
-      (maxAllowedStep !== undefined && stepVal > maxAllowedStep)
-    if (isLocked) {
-      toast.warning(lockedTooltip || t('ports.directNoSysProxy'))
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setCoords(null)
       return
     }
-    setContinuousValue(stepVal)
-    latestContinuousRef.current = stepVal
-    if (stepVal !== committedValueRef.current) {
-      committedValueRef.current = stepVal
-      onChange(stepVal)
+    updatePosition()
+  }, [isOpen, updatePosition])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleDismiss = () => {
+      clearPendingTimers()
+      isHoveredRef.current = false
+      setIsOpen(false)
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleDismiss()
+      }
+    }
+    window.addEventListener('scroll', updatePosition, true)
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('blur', handleDismiss)
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('app:dismiss-popovers', handleDismiss)
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true)
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('blur', handleDismiss)
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('app:dismiss-popovers', handleDismiss)
+    }
+  }, [clearPendingTimers, isOpen, updatePosition])
+
+  const handleSelectStep = useCallback(
+    (stepVal: number) => {
+      if (disabled || loading) return
+      if (isStepLocked(stepVal)) {
+        toast.warning(lockedTooltip || t('ports.directNoSysProxy'))
+        return
+      }
+      if (stepVal !== clampedValue) {
+        onChange(stepVal)
+      }
+    },
+    [clampedValue, disabled, isStepLocked, loading, lockedTooltip, onChange, t],
+  )
+
+  const handleTriggerKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (disabled || loading) return
+    if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      handleSelectStep(Math.min(maxStep, clampedValue + 1))
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      handleSelectStep(Math.max(0, clampedValue - 1))
+    } else if (e.key === 'Escape' && isOpen) {
+      e.preventDefault()
+      isHoveredRef.current = false
+      setIsOpen(false)
     }
   }
 
-  // Active color interpolation for current float value
-  const activeColorRgb = interpolateColor(continuousValue, mode)
-  const currentNearestStepIndex = Math.round(continuousValue)
-  const currentStep = steps[currentNearestStepIndex] ?? steps[0]
-
-  // Normal switch indicator styles (compact 36px x 20px)
-  const triggerBg =
-    clampedPropValue === 0
-      ? 'bg-secondary border-border/80'
+  const triggerTrackClass =
+    clampedValue === 0
+      ? 'bg-secondary/60 border-border/70'
       : mode === 'egress'
-        ? clampedPropValue === 1
-          ? 'bg-sky-500/25 border-sky-500/50 text-sky-600 dark:text-sky-400'
-          : 'bg-purple-500/25 border-purple-500/50 text-purple-600 dark:text-purple-400'
-        : clampedPropValue === 1
-          ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
-          : 'bg-sky-500/25 border-sky-500/50 text-sky-600 dark:text-sky-400'
+        ? clampedValue === 1
+          ? 'bg-sky-500/12 border-sky-500/30'
+          : 'bg-purple-500/12 border-purple-500/30'
+        : clampedValue === 1
+          ? 'bg-emerald-500/12 border-emerald-500/30'
+          : 'bg-sky-500/12 border-sky-500/30'
 
-  const thumbPosition =
-    clampedPropValue === 0
-      ? 'left-0.5'
-      : clampedPropValue === 1
-        ? 'left-[10px]'
-        : 'left-[20px]'
-
-  const thumbColor =
-    clampedPropValue === 0
-      ? 'bg-muted-foreground/60'
+  const thumbColorClass =
+    clampedValue === 0
+      ? 'bg-muted-foreground/55'
       : mode === 'egress'
-        ? clampedPropValue === 1
-          ? 'bg-sky-500 shadow-sm shadow-sky-500/50'
-          : 'bg-purple-500 shadow-sm shadow-purple-500/50'
-        : clampedPropValue === 1
-          ? 'bg-emerald-500 shadow-sm'
-          : 'bg-sky-500 shadow-sm shadow-sky-500/50'
+        ? clampedValue === 1
+          ? 'bg-sky-400'
+          : 'bg-purple-400'
+        : clampedValue === 1
+          ? 'bg-emerald-400'
+          : 'bg-sky-400'
+
+  const thumbTranslate =
+    clampedValue === 0
+      ? 'translate-x-0'
+      : clampedValue === 1
+        ? 'translate-x-[9px]'
+        : 'translate-x-[18px]'
+  const accessibleStateLabel = currentStep.label.startsWith('stepSlider.')
+    ? t(
+        currentStep.label as
+          | 'stepSlider.disabled'
+          | 'stepSlider.listening'
+          | 'stepSlider.systemProxy',
+      )
+    : currentStep.label
+
   return (
     <div
       className={`relative inline-flex items-center select-none ${className}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* Trigger Capsule: Strictly 36px x 20px (matches standard Switch) */}
+      {/* Trigger Capsule: 38px x 20px tactile 3-step switch */}
       <button
         ref={triggerRef}
         type="button"
         disabled={disabled || loading}
-        onClick={() => {
-          const next = clampedPropValue === 0 ? 1 : 0
-          handleSelectStep(next)
-        }}
-        className={`w-9 h-5 rounded-full border transition-all duration-200 relative flex items-center p-0.5 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-primary ${triggerBg} ${
+        onClick={() => handleSelectStep(clampedValue === 0 ? 1 : 0)}
+        onKeyDown={handleTriggerKeyDown}
+        aria-label={t('stepSlider.currentStateTitle', {
+          label: accessibleStateLabel,
+        })}
+        className={`w-9 h-[18px] rounded-full border p-[2px] relative flex items-center transition-colors duration-200 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-primary ${triggerTrackClass} ${
           disabled || loading
             ? 'opacity-50 cursor-not-allowed'
-            : 'hover:brightness-105 active:scale-95'
+            : 'hover:border-foreground/25 active:scale-[0.97]'
         }`}
-        title={t('stepSlider.currentStateTitle', {
-          label: currentStep.label.startsWith('stepSlider.')
-            ? t(
-                currentStep.label as
-                  | 'stepSlider.disabled'
-                  | 'stepSlider.listening'
-                  | 'stepSlider.systemProxy',
-              )
-            : currentStep.label,
-        })}
       >
         {loading ? (
           <span className="w-full flex items-center justify-center">
@@ -470,134 +338,71 @@ export const HoverStepSlider: React.FC<HoverStepSliderProps> = ({
           </span>
         ) : (
           <span
-            className={`absolute top-0.5 bottom-0.5 w-3.5 h-3.5 rounded-full transition-all duration-200 flex items-center justify-center ${thumbPosition} ${thumbColor}`}
+            className={`relative z-10 w-3 h-3 rounded-full transition-transform duration-200 ease-out flex items-center justify-center ${thumbColorClass} ${thumbTranslate}`}
           >
             {mode === 'egress' ? (
-              clampedPropValue === 1 ? (
-                <Globe className="w-2 h-2 text-white" />
-              ) : clampedPropValue === 2 ? (
-                <Shield className="w-2 h-2 text-white" />
-              ) : (
-                <Power className="w-2 h-2 text-background/80" />
-              )
-            ) : clampedPropValue === 2 ? (
-              <Globe className="w-2 h-2 text-white" />
-            ) : clampedPropValue === 0 ? (
-              <Power className="w-2 h-2 text-background/80" />
+              clampedValue === 1 ? (
+                <Globe className="w-2 h-2 text-background" />
+              ) : clampedValue === 2 ? (
+                <Shield className="w-2 h-2 text-background" />
+              ) : null
+            ) : clampedValue === 2 ? (
+              <Globe className="w-2 h-2 text-background" />
             ) : null}
           </span>
         )}
       </button>
 
-      {/* Floating Stepper Popup via Portal: ultra-compact & tight padding */}
+      {/* Compact single-row segmented pill popover */}
       {isOpen &&
         coords &&
         typeof document !== 'undefined' &&
         createPortal(
           <div
             ref={popoverRef}
+            role="radiogroup"
+            aria-label={accessibleStateLabel}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
             style={{
               top: `${coords.top}px`,
               left: `${coords.left}px`,
             }}
-            className={`fixed z-[60] animate-in fade-in zoom-in-95 duration-150 ${
-              coords.placement === 'top'
-                ? 'slide-in-from-bottom-2'
-                : 'slide-in-from-top-2'
+            className={`fixed z-[60] bg-popover/95 backdrop-blur-sm border border-border/80 shadow-md rounded-lg p-0.5 flex items-center gap-0.5 animate-in fade-in zoom-in-95 duration-150 ${
+              coords.placement === 'bottom'
+                ? 'slide-in-from-top-1'
+                : 'slide-in-from-bottom-1'
             }`}
           >
-            <div className="bg-popover/95 backdrop-blur-md border border-border/80 shadow-2xl rounded-xl p-2 w-[164px] flex flex-col gap-1.5 ring-1 ring-black/10 dark:ring-white/10">
-              {/* Header: Micro status badge */}
-              <div className="flex items-center justify-between px-0.5">
-                <span className="text-muted-foreground font-medium text-[10px]">
-                  {headerTitle ||
-                    (mode === 'egress'
-                      ? t('ports.takeoverMode')
-                      : t('stepSlider.listenState'))}
-                </span>
-                <span
-                  className="font-bold text-[10px] px-1 py-0.2 rounded leading-tight transition-colors duration-75"
-                  style={{
-                    color: activeColorRgb,
-                    backgroundColor: `${activeColorRgb.replace('rgb', 'rgba').replace(')', ', 0.12)')}`,
-                  }}
+            {steps.map((step) => {
+              const isLocked = isStepLocked(step.value)
+              const isActive = clampedValue === step.value
+              return (
+                <button
+                  key={step.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={isActive}
+                  aria-disabled={isLocked}
+                  onClick={() => handleSelectStep(step.value)}
+                  className={`h-6 px-2 rounded-md text-[11px] leading-none whitespace-nowrap transition-colors duration-150 inline-flex items-center gap-1.5 outline-none focus-visible:ring-1 focus-visible:ring-primary ${
+                    isLocked
+                      ? 'opacity-40 cursor-not-allowed text-muted-foreground'
+                      : isActive
+                        ? 'bg-secondary text-foreground font-medium shadow-xs cursor-pointer'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50 cursor-pointer'
+                  }`}
                 >
-                  {currentStep.label}
-                </span>
-              </div>
-
-              {/* Substantial Track (h-7) with IN-TRACK thumb (no overflow, no dot clutter) */}
-              <div
-                ref={trackRef}
-                onMouseDown={handleTrackMouseDown}
-                className="relative w-full h-7 bg-secondary/80 rounded-lg p-0.5 flex items-center cursor-pointer overflow-hidden border border-border/60 shadow-inner"
-              >
-                {/* Background active color fill layer (vibrant & fully stretches to right edge) */}
-                <div
-                  className="absolute left-0 top-0 bottom-0 rounded-lg transition-all shadow-xs"
-                  style={{
-                    width: `calc(18px + ${continuousValue / maxStep} * (100% - 18px))`,
-                    backgroundColor: activeColorRgb,
-                    opacity: 0.65,
-                    transition: isDragging ? 'none' : 'width 0.2s ease-out',
-                  }}
-                />
-                {/* In-Track Sliding Thumb (h-6 w-8, strictly inside track bounds) */}
-                <div
-                  className="absolute top-0.5 bottom-0.5 w-8 rounded-md bg-background shadow-sm border border-border/90 flex items-center justify-center pointer-events-none"
-                  style={{
-                    left: `calc(2px + ${continuousValue / maxStep} * (100% - 36px))`,
-                    transition: isDragging
-                      ? 'none'
-                      : 'left 0.2s ease-out, background-color 0.15s ease',
-                  }}
-                >
-                  {/* Subtle color bar inside the in-track thumb */}
-                  <div
-                    className="w-3.5 h-1 rounded-full transition-colors duration-75"
-                    style={{ backgroundColor: activeColorRgb }}
-                  />
-                </div>
-              </div>
-
-              {/* Clickable Step Tags */}
-              <div className="flex justify-between items-center text-[10px] text-muted-foreground px-0.5">
-                {steps.map((step) => {
-                  const isLocked =
-                    lockedSteps?.includes(step.value) ||
-                    (maxAllowedStep !== undefined &&
-                      step.value > maxAllowedStep)
-                  return (
-                    <button
-                      key={step.value}
-                      type="button"
-                      onClick={() => handleSelectStep(step.value)}
-                      title={
-                        isLocked
-                          ? lockedTooltip || t('stepSlider.lockedDefault')
-                          : undefined
-                      }
-                      className={`transition-all py-0.5 px-1 rounded font-medium leading-none flex items-center gap-0.5 ${
-                        isLocked
-                          ? 'opacity-40 cursor-not-allowed text-muted-foreground'
-                          : 'cursor-pointer hover:text-foreground'
-                      } ${
-                        currentNearestStepIndex === step.value
-                          ? 'font-bold text-foreground bg-secondary/90'
-                          : ''
-                      }`}
-                    >
-                      {step.label}
-                      {isLocked && (
-                        <Lock className="w-2.5 h-2.5 ml-0.5 opacity-80" />
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
+                  {isActive && (
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${getStepDotClass(step.value, mode)}`}
+                    />
+                  )}
+                  <span>{step.label}</span>
+                  {isLocked && <Lock className="w-2.5 h-2.5 opacity-75" />}
+                </button>
+              )
+            })}
           </div>,
           document.body,
         )}
