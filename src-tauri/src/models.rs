@@ -620,6 +620,9 @@ pub struct AppConfig {
     /// are exempted automatically while this is true. Owned by the UWP commands.
     #[serde(default)]
     pub uwp_auto_exempt: bool,
+    /// Interval in seconds for background host-level internet connectivity checks.
+    #[serde(default = "default_network_check_interval_secs")]
+    pub network_check_interval_secs: u32,
 }
 
 fn default_true() -> bool {
@@ -648,6 +651,10 @@ fn default_timeout_ms() -> u32 {
 
 fn default_fallback_interval() -> u32 {
     60
+}
+
+fn default_network_check_interval_secs() -> u32 {
+    5
 }
 
 fn default_controller_port() -> u16 {
@@ -688,6 +695,7 @@ impl Default for AppConfig {
             residential_proxies: Vec::new(),
             check_update_on_start: true,
             uwp_auto_exempt: false,
+            network_check_interval_secs: default_network_check_interval_secs(),
         }
     }
 }

@@ -1,8 +1,12 @@
-import { AlertTriangle, RefreshCw, Sparkles } from 'lucide-react'
+import { AlertTriangle, RefreshCw, Sparkles, WifiOff } from 'lucide-react'
 import type React from 'react'
-import { type TabType, useAppStore } from '../../stores/appStore'
-import { Button } from '../common'
+import { useEffect, useState } from 'react'
 import { useTranslation } from '../../i18n'
+import * as api from '../../services/tauri'
+import { type TabType, useAppStore } from '../../stores/appStore'
+import { toast } from '../../stores/toastStore'
+import type { SystemNetworkStatus } from '../../types'
+import { Button } from '../common'
 
 const tabTitleKeys: Record<
   TabType,
@@ -64,6 +68,44 @@ export const Header: React.FC = () => {
     (state) => state.scrollToSettingSection,
   )
   const info = tabTitleKeys[activeTab] || tabTitleKeys.ports
+  const [networkStatus, setNetworkStatus] =
+    useState<SystemNetworkStatus | null>(null)
+  const [recheckingNetwork, setRecheckingNetwork] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    void api.getSystemNetworkStatus().then((st) => {
+      if (active) setNetworkStatus(st)
+    })
+    let unlisten: (() => void) | null = null
+    void api
+      .onSystemNetworkChanged((st) => {
+        if (active) setNetworkStatus(st)
+      })
+      .then((fn) => {
+        if (active) {
+          unlisten = fn
+        } else {
+          fn()
+        }
+      })
+    return () => {
+      active = false
+      unlisten?.()
+    }
+  }, [])
+
+  const handleRecheckNetwork = async () => {
+    setRecheckingNetwork(true)
+    try {
+      const st = await api.checkSystemNetworkStatus()
+      setNetworkStatus(st)
+    } catch (err) {
+      toast.error(String(err))
+    } finally {
+      setRecheckingNetwork(false)
+    }
+  }
 
   const isRunning = coreStatus?.running ?? false
   const portNeedsRestart =
@@ -83,6 +125,31 @@ export const Header: React.FC = () => {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        {networkStatus && !networkStatus.online && (
+          <div
+            className="flex items-center gap-1.5 animate-in fade-in duration-200"
+            title={t('header.networkOfflineTooltip')}
+          >
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-400 text-xs font-medium">
+              <WifiOff className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span>{t('header.networkOffline')}</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={recheckingNetwork}
+              onClick={handleRecheckNetwork}
+              className="text-xs py-1 h-auto border-amber-500/30 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400"
+              icon={
+                <RefreshCw
+                  className={`w-3 h-3 ${recheckingNetwork ? 'animate-spin' : ''}`}
+                />
+              }
+            >
+              {t('header.networkRecheck')}
+            </Button>
+          </div>
+        )}
         {hasNewVersion && activeTab !== 'settings' && (
           <button
             type="button"

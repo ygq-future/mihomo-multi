@@ -3,6 +3,7 @@ use crate::core::config_generator::RuntimeGeneratorParams;
 use crate::core::icon_cache::ExecutableIconCache;
 use crate::core::kernel_engine::KernelEngine;
 use crate::core::latency_probe::{AppLatencyEventEmitter, LatencyProbe};
+use crate::core::network_monitor::SystemNetworkMonitor;
 use crate::core::node_analytics::NodeAnalyticsStore;
 use crate::core::port_router::{PortChangeEvent, PortProbeContext, PortRouter};
 use crate::core::process_history::PortProcessHistoryStore;
@@ -41,6 +42,7 @@ pub struct AppState {
     pub process_history: Arc<PortProcessHistoryStore>,
     pub icon_cache: Arc<ExecutableIconCache>,
     pub node_analytics: Arc<NodeAnalyticsStore>,
+    pub network_monitor: Arc<SystemNetworkMonitor>,
 }
 
 impl AppState {
@@ -101,7 +103,16 @@ impl AppState {
         engine.set_log_callback(Arc::new(move |line| {
             analytics_for_logs.record_log_line(line);
         }));
-        let app_handle = Arc::new(RwLock::new(None));
+        let app_handle: Arc<RwLock<Option<tauri::AppHandle>>> = Arc::new(RwLock::new(None));
+        let network_monitor = Arc::new(SystemNetworkMonitor::new());
+        let analytics_for_network = node_analytics.clone();
+        let app_handle_for_network = app_handle.clone();
+        network_monitor.set_on_change_callback(Arc::new(move |status| {
+            analytics_for_network.set_system_network_online(status.online);
+            if let Some(handle) = &*app_handle_for_network.read() {
+                let _ = handle.emit("system-network-changed", status);
+            }
+        }));
         let config_clone = config.clone();
         let suspended_proxy_clone = suspended_system_proxy.clone();
         let app_handle_clone = app_handle.clone();
@@ -184,6 +195,7 @@ impl AppState {
             process_history,
             icon_cache,
             node_analytics,
+            network_monitor,
         }
     }
 

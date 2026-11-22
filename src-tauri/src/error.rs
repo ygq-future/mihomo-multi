@@ -3,6 +3,9 @@ use thiserror::Error;
 /// Stable machine-readable code for errors caused by a stopped Mihomo core.
 pub const ERROR_CODE_CORE_NOT_RUNNING: &str = "CORE_NOT_RUNNING";
 
+/// Stable machine-readable code for errors caused by host-level network outage.
+pub const ERROR_CODE_SYSTEM_OFFLINE: &str = "SYSTEM_NETWORK_OFFLINE";
+
 /// Fallback code for errors that only carry a message.
 pub const ERROR_CODE_UNKNOWN: &str = "UNKNOWN";
 
@@ -85,6 +88,14 @@ impl CommandError {
             ERROR_CODE_CORE_NOT_RUNNING,
             core_not_running_message(detail_zh, detail_en),
         )
+    }
+
+    /// Builds a `SYSTEM_NETWORK_OFFLINE` error whose message follows the active UI locale.
+    pub fn system_offline(detail_zh: &str, detail_en: &str) -> Self {
+        Self {
+            code: ERROR_CODE_SYSTEM_OFFLINE.to_string(),
+            message: core_not_running_message(detail_zh, detail_en),
+        }
     }
 }
 

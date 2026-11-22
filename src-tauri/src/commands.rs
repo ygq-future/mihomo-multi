@@ -588,6 +588,17 @@ pub async fn swap_port_mapping_ports(
         .map_err(|err| err.to_string())
 }
 
+async fn ensure_system_network_online(state: &AppState) -> Result<(), CommandError> {
+    let net_status = state.network_monitor.check_now().await;
+    if !net_status.online {
+        return Err(CommandError::system_offline(
+            "当前系统网络异常，已阻止节点测速以避免写入无效超时",
+            "System network is offline; latency test blocked to avoid false timeouts.",
+        ));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn test_port_mapping_delay(
     app: AppHandle,
@@ -603,6 +614,7 @@ pub async fn test_port_mapping_delay(
             "The Mihomo core is not running. Start the core in Settings before testing latency.",
         ));
     }
+    ensure_system_network_online(&state).await?;
 
     let mapping = state
         .port_router
@@ -776,6 +788,7 @@ pub async fn test_port_fallback_delay(
             "The Mihomo core is not running. Start the core in Settings before testing latency.",
         ));
     }
+    ensure_system_network_online(&state).await?;
 
     let mapping = state
         .port_router
@@ -859,6 +872,8 @@ pub async fn test_all_port_mappings_delay(
             "The Mihomo core is not running. Start the core in Settings before testing latency.",
         ));
     }
+
+    ensure_system_network_online(&state).await?;
 
     let mappings = state.port_router.get_port_mappings();
     if mappings.is_empty() {
@@ -1172,6 +1187,7 @@ pub async fn get_port_fallback_statuses(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
+    let system_online = state.network_monitor.check_now().await.online;
 
     for m in mappings
         .into_iter()
@@ -1220,7 +1236,7 @@ pub async fn get_port_fallback_statuses(
         let need_first_timeout_recheck = should_recheck_timeout(&primary_history, cached_primary_entry);
         let need_fallback_recovery_probe = !m.manual_fallback && is_fallback_active;
         let mut primary_recheck_succeeded = false;
-        if need_first_timeout_recheck || need_fallback_recovery_probe {
+        if system_online && (need_first_timeout_recheck || need_fallback_recovery_probe) {
             let cooldown_secs = if need_first_timeout_recheck {
                 NODE_RECHECK_COOLDOWN_SECS
             } else {
@@ -1278,7 +1294,8 @@ pub async fn get_port_fallback_statuses(
             .map(|p| p.history)
             .unwrap_or_default();
         let mut kernel_fb_history_delay = fb_history.last().map(|h| h.delay);
-        if should_recheck_timeout(&fb_history, cached_fb_entry)
+        if system_online
+            && should_recheck_timeout(&fb_history, cached_fb_entry)
             && let Some(d) = recheck_node_delay_concurrent(
                 &engine,
                 &fb_runtime_name,
@@ -1299,7 +1316,7 @@ pub async fn get_port_fallback_statuses(
         // fallback node is reachable, and Mihomo has not yet switched `fb-{port}` to the backup node,
         // immediately trigger group healthcheck and re-query `fb-{port}` so fallback engages without delay.
         let primary_known_timeout = kernel_primary_timed_out || cached_primary_entry == Some(None);
-        if !m.manual_fallback && !is_fallback_active && primary_known_timeout && fallback_latency.is_some() {
+        if system_online && !m.manual_fallback && !is_fallback_active && primary_known_timeout && fallback_latency.is_some() {
             let _ = engine
                 .test_group_delay(&group_name, Some(&default_url), Some(default_timeout))
                 .await;
@@ -1325,23 +1342,28 @@ pub async fn get_port_fallback_statuses(
             m.node_name.clone()
         };
 
-        if ((is_fallback_active && !m.manual_fallback) || primary_known_timeout) && primary_latency.is_none() {
-            latency_updates.push((primary_runtime_name, None));
-            latency_updates.push((m.node_name.clone(), None));
-        } else if let Some(d) = primary_latency {
-            latency_updates.push((primary_runtime_name, Some(d)));
-            latency_updates.push((m.node_name.clone(), Some(d)));
+        if system_online {
+            if ((is_fallback_active && !m.manual_fallback) || primary_known_timeout) && primary_latency.is_none() {
+                latency_updates.push((primary_runtime_name, None));
+                latency_updates.push((m.node_name.clone(), None));
+            } else if let Some(d) = primary_latency {
+                latency_updates.push((primary_runtime_name, Some(d)));
+                latency_updates.push((m.node_name.clone(), Some(d)));
+            }
+            if kernel_fb_timed_out && fallback_latency.is_none() {
+                latency_updates.push((fb_runtime_name, None));
+                latency_updates.push((fallback_node.clone(), None));
+            } else if let Some(d) = fallback_latency {
+                latency_updates.push((fb_runtime_name, Some(d)));
+                latency_updates.push((fallback_node.clone(), Some(d)));
+            }
+            // Port mapping latency represents the primary node latency; never overwrite with fallback latency!
+            let _ = state.port_router.update_port_latency(&m.id, primary_latency);
+        } else {
+            // Host network is offline: preserve last known latencies instead of overwriting with false timeouts.
+            primary_latency = cached_primary_entry.flatten().or(m.latency);
+            fallback_latency = cached_fb_entry.flatten();
         }
-        if kernel_fb_timed_out && fallback_latency.is_none() {
-            latency_updates.push((fb_runtime_name, None));
-            latency_updates.push((fallback_node.clone(), None));
-        } else if let Some(d) = fallback_latency {
-            latency_updates.push((fb_runtime_name, Some(d)));
-            latency_updates.push((fallback_node.clone(), Some(d)));
-        }
-
-        // Port mapping latency represents the primary node latency; never overwrite with fallback latency!
-        let _ = state.port_router.update_port_latency(&m.id, primary_latency);
         statuses.push(PortFallbackStatus {
             mapping_id: m.id,
             port: m.port,
@@ -1664,6 +1686,7 @@ pub async fn test_node_delay(
             "The Mihomo core is not running. Start the core in Settings before testing latency.",
         ));
     }
+    ensure_system_network_online(&state).await?;
 
     let (default_url, default_timeout) = {
         let cfg = state.config.read();
@@ -1751,6 +1774,7 @@ pub async fn test_nodes_delay_batch(
             "The Mihomo core is not running. Start the core in Settings before testing latency.",
         ));
     }
+    ensure_system_network_online(&state).await?;
 
     let (default_url, default_timeout) = {
         let cfg = state.config.read();
@@ -2461,6 +2485,20 @@ pub async fn set_node_analytics_weights(
 #[tauri::command]
 pub async fn clear_node_analytics(state: State<'_, AppState>) -> Result<(), String> {
     state.node_analytics.clear_all().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_system_network_status(
+    state: State<'_, AppState>,
+) -> Result<crate::core::network_monitor::SystemNetworkStatus, String> {
+    Ok(state.network_monitor.get_status())
+}
+
+#[tauri::command]
+pub async fn check_system_network_status(
+    state: State<'_, AppState>,
+) -> Result<crate::core::network_monitor::SystemNetworkStatus, String> {
+    Ok(state.network_monitor.check_now().await)
 }
 
 #[cfg(test)]

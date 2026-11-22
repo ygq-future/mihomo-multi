@@ -3,6 +3,7 @@ import {
   type InvokeOptions,
   invoke as tauriInvoke,
 } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import {
   APP_VERSION,
@@ -35,6 +36,7 @@ import type {
   LanIpInfo,
   MrsRulesInfo,
   NodeAnalyticsDashboard,
+  SystemNetworkStatus,
   NodeLatencyResult,
   PortDriftReport,
   PortFallbackStatus,
@@ -1356,4 +1358,39 @@ export async function setNodeAnalyticsWeights(
 export async function clearNodeAnalytics(): Promise<void> {
   if (!isTauriEnvironment()) return
   return invoke<void>('clear_node_analytics')
+}
+
+export async function getSystemNetworkStatus(): Promise<SystemNetworkStatus> {
+  if (!isTauriEnvironment()) {
+    return {
+      online: true,
+      lastCheckedMs: Date.now(),
+      offlineSinceMs: null,
+      consecutiveFailures: 0,
+    }
+  }
+  return invoke<SystemNetworkStatus>('get_system_network_status')
+}
+
+export async function checkSystemNetworkStatus(): Promise<SystemNetworkStatus> {
+  if (!isTauriEnvironment()) {
+    return {
+      online: true,
+      lastCheckedMs: Date.now(),
+      offlineSinceMs: null,
+      consecutiveFailures: 0,
+    }
+  }
+  return invoke<SystemNetworkStatus>('check_system_network_status')
+}
+
+export async function onSystemNetworkChanged(
+  handler: (status: SystemNetworkStatus) => void,
+): Promise<UnlistenFn> {
+  if (!isTauriEnvironment()) {
+    return () => {}
+  }
+  return listen<SystemNetworkStatus>('system-network-changed', (event) => {
+    handler(event.payload)
+  })
 }

@@ -350,6 +350,28 @@ pub fn run() {
                 }
             });
 
+            // Background host network connectivity monitor: detects system-level internet
+            // outages independently of Mihomo so node analytics do not record false timeouts.
+            let net_monitor_state = app_state.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    let status = net_monitor_state.network_monitor.check_now().await;
+                    let configured_secs = u64::from(
+                        net_monitor_state
+                            .config
+                            .read()
+                            .network_check_interval_secs
+                            .clamp(2, 120),
+                    );
+                    let interval = if status.online {
+                        std::time::Duration::from_secs(configured_secs)
+                    } else {
+                        std::time::Duration::from_secs(configured_secs.min(3))
+                    };
+                    tokio::time::sleep(interval).await;
+                }
+            });
+
             // Warm up executable icon cache for historical port processes off the UI thread.
             let icon_warm_state = app_state.clone();
             tauri::async_runtime::spawn_blocking(move || {
@@ -464,6 +486,8 @@ pub fn run() {
             get_node_analytics_weights,
             set_node_analytics_weights,
             clear_node_analytics,
+            get_system_network_status,
+            check_system_network_status,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {

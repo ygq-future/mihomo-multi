@@ -1562,4 +1562,15 @@ export const enUS: Record<TranslationKey, string> = {
   'analytics.currentlyTimedOut': 'Timed out',
   'analytics.weightsModalSubtitle':
     'Adjust dimension weights (normalized automatically to 100%)',
+  'header.networkOffline': 'System Offline',
+  'header.networkOfflineTooltip':
+    'System network is offline; latency tests are blocked and analytics timeout/error recording is paused',
+  'header.networkRecheck': 'Recheck',
+  'settingsPage.core.networkCheckIntervalLabel': 'System Network Check Interval',
+  'settingsPage.core.networkCheckIntervalDesc':
+    'Interval for checking host internet connectivity; pauses timeout stats and blocks tests when offline',
+  'settingsPage.toast.networkCheckRange':
+    'System network check interval must be between {min} and {max} seconds',
+  'settingsPage.toast.networkCheckUpdated':
+    'System network check interval updated to {sec}s',
 }

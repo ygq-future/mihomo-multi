@@ -224,6 +224,7 @@ export interface AppConfig {
   timeoutMs: number
   fallbackInterval: number
   fallbackLazy: boolean
+  networkCheckIntervalSecs?: number
   systemProxyEnabled: boolean
   systemProxyPort?: number | null
   systemProxyBypassUser: string[]
@@ -478,4 +479,11 @@ export interface NodeAnalyticsDashboard {
   globalAvgSpeedBps: number
   nodes: NodeAnalyticsSummary[]
   timeline: AnalyticsTimelinePoint[]
+}
+
+export interface SystemNetworkStatus {
+  online: boolean
+  lastCheckedMs: number
+  offlineSinceMs?: number | null
+  consecutiveFailures: number
 }

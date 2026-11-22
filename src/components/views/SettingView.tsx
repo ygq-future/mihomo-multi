@@ -40,14 +40,17 @@ import {
   DEFAULT_CONTROLLER_PORT,
   DEFAULT_FALLBACK_INTERVAL,
   DEFAULT_FALLBACK_LAZY,
+  DEFAULT_NETWORK_CHECK_INTERVAL,
   DEFAULT_TEST_URL,
   DEFAULT_TIMEOUT_MS,
   FIXED_DIRECT_PORT_ID,
   GITHUB_REPO_URL,
   MAX_FALLBACK_INTERVAL,
   MAX_TIMEOUT_MS,
+  MAX_NETWORK_CHECK_INTERVAL,
   MIN_FALLBACK_INTERVAL,
   MIN_TIMEOUT_MS,
+  MIN_NETWORK_CHECK_INTERVAL,
 } from '../../constants'
 import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
@@ -280,6 +283,8 @@ export const SettingView: React.FC = () => {
   const [fallbackIntervalInput, setFallbackIntervalInput] = useState<string>(
     String(DEFAULT_FALLBACK_INTERVAL),
   )
+  const [networkCheckIntervalInput, setNetworkCheckIntervalInput] =
+    useState<string>(String(DEFAULT_NETWORK_CHECK_INTERVAL))
   const [fallbackLazy, setFallbackLazy] = useState<boolean>(
     DEFAULT_FALLBACK_LAZY,
   )
@@ -948,6 +953,16 @@ export const SettingView: React.FC = () => {
         String(config.fallbackInterval ?? DEFAULT_FALLBACK_INTERVAL),
       )
     }
+    if (
+      !prev ||
+      prev.networkCheckIntervalSecs !== config.networkCheckIntervalSecs
+    ) {
+      setNetworkCheckIntervalInput(
+        String(
+          config.networkCheckIntervalSecs ?? DEFAULT_NETWORK_CHECK_INTERVAL,
+        ),
+      )
+    }
     if (!prev || prev.fallbackLazy !== config.fallbackLazy) {
       setFallbackLazy(config.fallbackLazy ?? DEFAULT_FALLBACK_LAZY)
     }
@@ -1077,6 +1092,39 @@ export const SettingView: React.FC = () => {
       try {
         await saveConfig({ ...config, fallbackInterval: sec })
         toast.success(t('settingsPage.toast.fallbackUpdated', { sec }))
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err))
+      }
+    }
+  }
+
+  const handleNetworkCheckIntervalBlur = async () => {
+    const trimmed = networkCheckIntervalInput.trim()
+    const isPureInteger = /^\d+$/.test(trimmed)
+    const sec = isPureInteger ? Number.parseInt(trimmed, 10) : 0
+    if (
+      !isPureInteger ||
+      !sec ||
+      sec < MIN_NETWORK_CHECK_INTERVAL ||
+      sec > MAX_NETWORK_CHECK_INTERVAL
+    ) {
+      toast.error(
+        t('settingsPage.toast.networkCheckRange', {
+          min: MIN_NETWORK_CHECK_INTERVAL,
+          max: MAX_NETWORK_CHECK_INTERVAL,
+        }),
+      )
+      setNetworkCheckIntervalInput(
+        String(
+          config?.networkCheckIntervalSecs ?? DEFAULT_NETWORK_CHECK_INTERVAL,
+        ),
+      )
+      return
+    }
+    if (config && config.networkCheckIntervalSecs !== sec) {
+      try {
+        await saveConfig({ ...config, networkCheckIntervalSecs: sec })
+        toast.success(t('settingsPage.toast.networkCheckUpdated', { sec }))
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err))
       }
@@ -1733,6 +1781,41 @@ export const SettingView: React.FC = () => {
                   value={fallbackIntervalInput}
                   onChange={(e) => setFallbackIntervalInput(e.target.value)}
                   onBlur={handleFallbackIntervalBlur}
+                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                  suffixIcon={
+                    <span className="text-[10px] text-muted-foreground pr-1">
+                      {t('settingsPage.core.secondsShort')}
+                    </span>
+                  }
+                  className="text-center font-mono"
+                />
+              </div>
+            </div>
+
+            {/* System Network Connectivity Check Interval */}
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <label
+                  htmlFor="network-check-interval-input"
+                  className="text-xs font-medium text-foreground"
+                >
+                  {t('settingsPage.core.networkCheckIntervalLabel')}
+                </label>
+                <p className="text-[11px] text-muted-foreground">
+                  {t('settingsPage.core.networkCheckIntervalDesc')}
+                </p>
+              </div>
+              <div className="w-28 shrink-0">
+                <Input
+                  id="network-check-interval-input"
+                  type="number"
+                  integerOnly
+                  step={1}
+                  min={MIN_NETWORK_CHECK_INTERVAL}
+                  max={MAX_NETWORK_CHECK_INTERVAL}
+                  value={networkCheckIntervalInput}
+                  onChange={(e) => setNetworkCheckIntervalInput(e.target.value)}
+                  onBlur={handleNetworkCheckIntervalBlur}
                   onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                   suffixIcon={
                     <span className="text-[10px] text-muted-foreground pr-1">

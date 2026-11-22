@@ -11,6 +11,7 @@ pub mod geo_manager;
 pub mod kernel_engine;
 pub mod kernel_updater;
 pub mod latency_probe;
+pub mod network_monitor;
 pub mod node_analytics;
 pub mod port_probe;
 pub mod port_router;

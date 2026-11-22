@@ -5,6 +5,7 @@ use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
@@ -250,6 +251,7 @@ pub struct NodeAnalyticsStore {
     state: RwLock<AnalyticsInner>,
     storage_path: PathBuf,
     persist_lock: Mutex<()>,
+    system_network_online: AtomicBool,
 }
 
 impl NodeAnalyticsStore {
@@ -266,7 +268,25 @@ impl NodeAnalyticsStore {
             }),
             storage_path,
             persist_lock: Mutex::new(()),
+            system_network_online: AtomicBool::new(true),
         }
+    }
+
+    /// Updates whether the host machine has normal internet connectivity.
+    /// When transitioning offline, active timeout streaks are cleared so a host outage
+    /// never inflates node timeout durations once connectivity returns.
+    pub fn set_system_network_online(&self, online: bool) {
+        let prev = self.system_network_online.swap(online, Ordering::AcqRel);
+        if prev && !online {
+            let mut inner = self.state.write();
+            for record in inner.data.nodes.values_mut() {
+                record.active_timeout_since_ms = None;
+            }
+        }
+    }
+
+    pub fn is_system_network_online(&self) -> bool {
+        self.system_network_online.load(Ordering::Acquire)
     }
 
     fn load_from_disk(path: &Path) -> Option<PersistedAnalyticsData> {
@@ -338,19 +358,32 @@ impl NodeAnalyticsStore {
         if updates.is_empty() {
             return;
         }
+        let system_online = self.is_system_network_online();
         let now_ms = now_epoch_ms();
         {
             let mut inner = self.state.write();
+            let mut changed = false;
             for (name, latency) in updates {
+                // Suppress timeout/failure samples while the host itself is offline so
+                // system network outages never pollute node availability statistics.
+                if !system_online && !matches!(latency, Some(ms) if *ms > 0) {
+                    continue;
+                }
                 Self::apply_latency_sample(&mut inner.data.nodes, name, *latency, now_ms);
+                changed = true;
             }
-            Self::enforce_node_cap(&mut inner.data.nodes);
-            inner.generation = inner.generation.wrapping_add(1);
+            if changed {
+                Self::enforce_node_cap(&mut inner.data.nodes);
+                inner.generation = inner.generation.wrapping_add(1);
+            }
         }
     }
 
     fn record_latency_sample_at(&self, node_name: &str, latency_ms: Option<u32>, now_ms: u64) {
         if !Self::is_trackable_node(node_name) {
+            return;
+        }
+        if !self.is_system_network_online() && !matches!(latency_ms, Some(ms) if ms > 0) {
             return;
         }
         {
@@ -549,6 +582,9 @@ impl NodeAnalyticsStore {
     /// Parse a Mihomo log line for runtime connection errors (dial failures, EOF, resets, timeouts)
     /// and attribute them to the corresponding proxy node.
     pub fn record_log_line(&self, line: &str) {
+        if !self.is_system_network_online() {
+            return;
+        }
         let Some((node_name, reason)) = parse_connection_error_from_log(line) else {
             return;
         };
@@ -1202,5 +1238,41 @@ mod tests {
         assert!(active.min_speed > idle.min_speed);
         let w = AvailabilityWeights::default();
         assert!(compute_weighted_score(&active, &w) > compute_weighted_score(&idle, &w));
+    }
+
+    #[test]
+    fn offline_system_network_suppresses_timeouts_and_log_errors() {
+        let dir = std::env::temp_dir().join(format!(
+            "mhm-analytics-offline-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let store = NodeAnalyticsStore::new(&dir);
+
+        // Record one normal sample while online
+        store.record_latency_sample("HK-01", Some(45));
+        // Go offline: timeouts and log errors must be ignored
+        store.set_system_network_online(false);
+        store.record_latency_samples_batch(&[
+            ("HK-01".to_string(), None),
+            ("US-01".to_string(), None),
+        ]);
+        store.record_log_line("time=\"2026-01-01T00:00:00Z\" level=warning msg=\"[TCP] dial HK-01 (match Rule) to example.com:443 error: i/o timeout\"");
+
+        let dash = store.build_dashboard(24, None);
+        assert_eq!(dash.total_timeouts, 0);
+        assert_eq!(dash.total_connection_errors, 0);
+        assert_eq!(dash.nodes.len(), 1);
+        assert_eq!(dash.nodes[0].node_name, "HK-01");
+        assert_eq!(dash.nodes[0].timeout_count, 0);
+
+        // Recover online: subsequent timeouts are recorded normally
+        store.set_system_network_online(true);
+        store.record_latency_sample("HK-01", None);
+        let dash2 = store.build_dashboard(24, None);
+        assert_eq!(dash2.total_timeouts, 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

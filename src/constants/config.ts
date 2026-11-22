@@ -26,6 +26,17 @@ export const MIN_FALLBACK_INTERVAL = 2
 export const MAX_FALLBACK_INTERVAL = 300
 
 /**
+ * 默认系统网络连通性检测周期 (秒)
+ */
+export const DEFAULT_NETWORK_CHECK_INTERVAL = 5
+
+/**
+ * 最小与最大系统网络连通性检测周期限制 (秒)
+ */
+export const MIN_NETWORK_CHECK_INTERVAL = 2
+export const MAX_NETWORK_CHECK_INTERVAL = 120
+
+/**
  * 默认 Fallback 惰性检查
  */
 export const DEFAULT_FALLBACK_LAZY = true

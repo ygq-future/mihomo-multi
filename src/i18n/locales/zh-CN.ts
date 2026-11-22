@@ -1407,6 +1407,17 @@ export const zhCN = {
   'analytics.currentlyTimedOut': '当前超时中',
   'analytics.weightsModalSubtitle':
     '调整各维度权重占比（系统会自动归一化为 100%）',
+  'header.networkOffline': '系统网络异常',
+  'header.networkOfflineTooltip':
+    '检测到当前系统网络异常，已阻止节点测速并暂停统计大屏超时/错误记录',
+  'header.networkRecheck': '重新检测',
+  'settingsPage.core.networkCheckIntervalLabel': '系统断网检测周期',
+  'settingsPage.core.networkCheckIntervalDesc':
+    '后台检测宿主网络连通性的时间间隔，断网时自动暂停超时统计并阻止测速',
+  'settingsPage.toast.networkCheckRange':
+    '系统断网检测周期需在 {min} - {max} 秒之间',
+  'settingsPage.toast.networkCheckUpdated':
+    '系统断网检测周期已更新为 {sec} 秒',
 } as const
 
 export type TranslationKey = keyof typeof zhCN
