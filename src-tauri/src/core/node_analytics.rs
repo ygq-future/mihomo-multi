@@ -967,15 +967,16 @@ fn compute_dimension_scores(
     };
 
     // 4-6. Throughput scores (log-scaled against realistic proxy speed tiers).
-    // Neutral baseline (60) when no active traffic has been observed yet so idle nodes
-    // are not unfairly crushed solely for having zero traffic history.
+    // Neutral baseline (30) when no active traffic has been observed yet; any observed
+    // active traffic starts at 40 and scales up to 100 so idle 0 B/s nodes never outrank
+    // comparable nodes that actually carried traffic.
     let speed_to_score = |bps: f64, ref_max_mbps: f64| -> f64 {
         if bps <= 0.0 {
-            return 60.0;
+            return 30.0;
         }
         let mbps = bps / (1024.0 * 1024.0);
         let ratio = (1.0 + mbps).ln() / (1.0 + ref_max_mbps).ln();
-        (ratio * 100.0).clamp(5.0, 100.0)
+        (40.0 + ratio * 60.0).clamp(40.0, 100.0)
     };
     let avg_speed_score = speed_to_score(avg_speed_bps, 10.0); // 10 MB/s -> 100
     let max_speed_score = speed_to_score(max_speed_bps, 30.0); // 30 MB/s -> 100
@@ -1179,5 +1180,27 @@ mod tests {
         assert!((node.avg_speed_bps - 204_800.0).abs() < 1.0);
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn active_traffic_scores_higher_than_zero_traffic_on_speed_dimensions() {
+        let idle = compute_dimension_scores(100, 5, 60_000, 0, 10, 0.0, 0.0, 0.0, Some(200.0), Some(5.0));
+        let active = compute_dimension_scores(
+            100,
+            5,
+            60_000,
+            0,
+            10,
+            50.0 * 1024.0,
+            80.0 * 1024.0,
+            20.0 * 1024.0,
+            Some(200.0),
+            Some(5.0),
+        );
+        assert!(active.avg_speed > idle.avg_speed);
+        assert!(active.max_speed > idle.max_speed);
+        assert!(active.min_speed > idle.min_speed);
+        let w = AvailabilityWeights::default();
+        assert!(compute_weighted_score(&active, &w) > compute_weighted_score(&idle, &w));
     }
 }

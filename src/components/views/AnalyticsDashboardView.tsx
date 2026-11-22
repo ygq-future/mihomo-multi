@@ -227,10 +227,12 @@ const NodeRadarChart: React.FC<{
 const AnalyticsTimelineChart: React.FC<{
   timeline: AnalyticsTimelinePoint[]
 }> = ({ timeline }) => {
+  const { t } = useTranslation()
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
   const width = 560
   const height = 225
   const padL = 82
-  const padR = 16
+  const padR = 38
   const padT = 16
   const padB = 30
   const plotW = width - padL - padR
@@ -278,13 +280,37 @@ const AnalyticsTimelineChart: React.FC<{
     Math.min(12, plotW / Math.max(1, timeline.length) - 2),
   )
 
+  const hoveredPoint = hoveredIdx !== null ? timeline[hoveredIdx] : null
+  const hoveredTimeLabel = hoveredPoint
+    ? (() => {
+        const d = new Date(hoveredPoint.bucketStartMs)
+        return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`
+      })()
+    : null
+
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="w-full h-[235px] select-none"
-      role="img"
-      aria-label="Throughput and anomaly timeline"
-    >
+    <div className="relative">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-[235px] select-none"
+        role="img"
+        aria-label={t('analytics.timelineTitle')}
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect()
+          if (rect.width <= 0) return
+          const svgX = ((e.clientX - rect.left) / rect.width) * width
+          if (svgX < padL || svgX > width - padR) {
+            setHoveredIdx(null)
+            return
+          }
+          const idx =
+            timeline.length === 1
+              ? 0
+              : Math.round(((svgX - padL) / plotW) * (timeline.length - 1))
+          setHoveredIdx(Math.max(0, Math.min(timeline.length - 1, idx)))
+        }}
+        onMouseLeave={() => setHoveredIdx(null)}
+      >
       {[0, 0.33, 0.67, 1].map((r) => {
         const y = padT + plotH * (1 - r)
         return (
@@ -311,56 +337,64 @@ const AnalyticsTimelineChart: React.FC<{
         )
       })}
 
-      {/* Anomaly bars (timeouts + connection errors) */}
-      {timeline.map((p, i) => {
-        const count = p.timeoutCount + p.connectionErrors
-        if (count <= 0) return null
-        const h = Math.max(4, (count / maxAnomalies) * (plotH * 0.45))
-        return (
-          <rect
-            key={p.bucketStartMs}
-            x={xAt(i) - barW / 2}
-            y={padT + plotH - h}
-            width={barW}
-            height={h}
-            rx={1.5}
-            fill="#f43f5e"
-            fillOpacity={0.35}
-          />
-        )
-      })}
-
-      <path d={areaPath} fill="#3b82f6" fillOpacity={0.12} />
-      <path
-        d={peakPath}
-        fill="none"
-        stroke="#10b981"
-        strokeWidth={1.25}
-        strokeDasharray="3 2"
-        strokeOpacity={0.8}
-      />
-      <path d={avgPath} fill="none" stroke="#3b82f6" strokeWidth={2} />
-
-      {/* X-axis start / end labels */}
-      {[0, timeline.length - 1]
-        .filter((idx, pos, arr) => arr.indexOf(idx) === pos)
-        .map((idx) => {
-          const d = new Date(timeline[idx].bucketStartMs)
-          const label = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`
-          return (
-            <text
-              key={idx}
-              x={xAt(idx)}
-              y={height - 10}
-              textAnchor={idx === 0 ? 'start' : 'end'}
-              fontSize={16}
-              className="fill-foreground/90 font-medium"
-            >
-              {label}
-            </text>
-          )
-        })}
-    </svg>
+        {/* X-axis start / end labels */}
+        {[0, timeline.length - 1]
+          .filter((idx, pos, arr) => arr.indexOf(idx) === pos)
+          .map((idx) => {
+            const d = new Date(timeline[idx].bucketStartMs)
+            const label = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`
+            return (
+              <text
+                key={idx}
+                x={xAt(idx)}
+                y={height - 10}
+                textAnchor={idx === 0 ? 'start' : 'end'}
+                fontSize={16}
+                className="fill-foreground/90 font-medium"
+              >
+                {label}
+              </text>
+            )
+          })}
+      </svg>
+      {hoveredIdx !== null && hoveredPoint && hoveredTimeLabel && (
+        <div
+          className="pointer-events-none absolute top-1 z-10 rounded-md border border-border bg-popover/95 px-2.5 py-1.5 text-[11px] shadow-md backdrop-blur-xs"
+          style={{
+            left:
+              timeline.length > 1 && hoveredIdx / (timeline.length - 1) > 0.65
+                ? undefined
+                : `${Math.min(72, Math.max(12, (xAt(hoveredIdx) / width) * 100))}%`,
+            right:
+              timeline.length > 1 && hoveredIdx / (timeline.length - 1) > 0.65
+                ? '8%'
+                : undefined,
+          }}
+        >
+          <div className="font-medium text-foreground mb-0.5">
+            {hoveredTimeLabel}
+          </div>
+          <div className="flex items-center justify-between gap-3 text-blue-500">
+            <span>{t('analytics.legendAvg')}</span>
+            <span className="tabular-nums font-medium">
+              {formatSpeed(hoveredPoint.avgSpeedBps)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-3 text-emerald-500">
+            <span>{t('analytics.legendPeak')}</span>
+            <span className="tabular-nums font-medium">
+              {formatSpeed(hoveredPoint.maxSpeedBps)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-3 text-rose-500">
+            <span>{t('analytics.legendErrors')}</span>
+            <span className="tabular-nums font-medium">
+              {hoveredPoint.timeoutCount + hoveredPoint.connectionErrors}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -743,15 +777,15 @@ export const AnalyticsDashboardView: React.FC = () => {
                 <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-blue-500" />
-                    avg
+                    {t('analytics.legendAvg')}
                   </span>
                   <span className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                    peak
+                    {t('analytics.legendPeak')}
                   </span>
                   <span className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-xs bg-rose-500/60" />
-                    err
+                    {t('analytics.legendErrors')}
                   </span>
                 </div>
               </div>
