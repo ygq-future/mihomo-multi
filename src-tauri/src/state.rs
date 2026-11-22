@@ -862,11 +862,7 @@ impl AppState {
         if let Ok(snapshot) = self.engine.adapter().get_connections().await {
             self.process_history.record_snapshot(&snapshot, &allowed_ports);
             self.node_analytics.record_connection_snapshot(&snapshot);
-            let paths: Vec<String> = snapshot
-                .connections
-                .iter()
-                .filter_map(|c| c.metadata.process_path.clone())
-                .collect();
+            let paths = self.process_history.all_process_paths();
             let uncached_paths = self.icon_cache.filter_uncached_paths(paths);
             if !uncached_paths.is_empty() {
                 let cache = self.icon_cache.clone();
@@ -1445,7 +1441,7 @@ mod tests {
             id: "conn-2".to_string(),
             metadata: crate::models::ConnectionMetadata {
                 inbound_port: Some(port_b.to_string()),
-                process: Some("curl.exe".to_string()),
+                process: Some("firefox.exe".to_string()),
                 ..Default::default()
             },
             upload: 0,

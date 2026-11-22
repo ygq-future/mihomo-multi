@@ -1,4 +1,5 @@
 use crate::core::profile_manager::atomic_write_file;
+use crate::core::process_resolver::{ProcessTreeSnapshot, is_transient_or_helper_process};
 use crate::error::{AppError, AppResult};
 use crate::models::{ConnectionMetadata, ConnectionSnapshot, PortProcessRecord, PortProcessUsageItem};
 use parking_lot::{Mutex, RwLock};
@@ -74,6 +75,31 @@ fn extract_process_identity(meta: &ConnectionMetadata) -> Option<(String, Option
     Some((name, path))
 }
 
+fn resolve_process_identity(
+    meta: &ConnectionMetadata,
+    tree: &mut Option<ProcessTreeSnapshot>,
+) -> Option<(String, Option<String>)> {
+    let (raw_name, raw_path) = extract_process_identity(meta)?;
+    if !is_transient_or_helper_process(&raw_name, raw_path.as_deref()) {
+        return Some((raw_name, raw_path));
+    }
+    let snapshot = tree.get_or_insert_with(ProcessTreeSnapshot::capture_live);
+    snapshot.resolve_transient(meta, raw_path.as_deref())
+}
+
+fn prune_transient_records(records: &mut BTreeMap<u16, Vec<PortProcessRecord>>) -> bool {
+    let mut pruned = false;
+    records.retain(|_, list| {
+        let before = list.len();
+        list.retain(|rec| !is_transient_or_helper_process(&rec.process_name, rec.process_path.as_deref()));
+        if list.len() != before {
+            pruned = true;
+        }
+        !list.is_empty()
+    });
+    pruned
+}
+
 fn records_match(record: &PortProcessRecord, name: &str, path: Option<&str>) -> bool {
     match (record.process_path.as_deref(), path) {
         (Some(rp), Some(np)) => normalize_token(rp) == normalize_token(np),
@@ -108,14 +134,24 @@ pub struct PortProcessHistoryStore {
 impl PortProcessHistoryStore {
     pub fn new(app_dir: &Path) -> Self {
         let storage_path = app_dir.join("port_process_history.json");
-        let records = Self::load_from_disk(&storage_path).unwrap_or_default();
+        let (records, pruned) = match Self::load_from_disk(&storage_path) {
+            Some((parsed, was_pruned)) => {
+                if was_pruned {
+                    let _ = serde_json::to_string_pretty(&parsed)
+                        .ok()
+                        .and_then(|json| atomic_write_file(&storage_path, json.as_bytes()).ok());
+                }
+                (parsed, was_pruned)
+            }
+            None => (BTreeMap::new(), false),
+        };
         let last_file_stamp = Self::file_stamp(&storage_path);
         Self {
             state: RwLock::new(ProcessHistoryState {
                 records,
                 seen_conn_ids: HashSet::new(),
-                generation: 0,
-                persisted_generation: 0,
+                generation: u64::from(pruned),
+                persisted_generation: u64::from(pruned),
                 last_persisted_at: 0,
                 last_file_stamp,
             }),
@@ -130,13 +166,16 @@ impl PortProcessHistoryStore {
         Some((modified, meta.len()))
     }
 
-    fn load_from_disk(path: &Path) -> Option<BTreeMap<u16, Vec<PortProcessRecord>>> {
+    fn load_from_disk(path: &Path) -> Option<(BTreeMap<u16, Vec<PortProcessRecord>>, bool)> {
         if !path.exists() {
             return None;
         }
         match std::fs::read_to_string(path) {
             Ok(content) => match serde_json::from_str::<BTreeMap<u16, Vec<PortProcessRecord>>>(&content) {
-                Ok(parsed) => Some(parsed),
+                Ok(mut parsed) => {
+                    let pruned = prune_transient_records(&mut parsed);
+                    Some((parsed, pruned))
+                }
                 Err(e) => {
                     warn!("Failed to parse port_process_history.json: {}", e);
                     None
@@ -156,7 +195,7 @@ impl PortProcessHistoryStore {
         }
         match disk_stamp {
             Some(_) => {
-                if let Some(disk_records) = Self::load_from_disk(&self.storage_path) {
+                if let Some((disk_records, _)) = Self::load_from_disk(&self.storage_path) {
                     guard.records = disk_records;
                     guard.last_file_stamp = disk_stamp;
                     guard.persisted_generation = guard.generation;
@@ -217,6 +256,17 @@ impl PortProcessHistoryStore {
     }
 
     pub fn record_snapshot_at(&self, snapshot: &ConnectionSnapshot, allowed_ports: &HashSet<u16>, now_ms: u64) {
+        let mut lazy_tree: Option<ProcessTreeSnapshot> = None;
+        self.record_snapshot_with_tree_at(snapshot, allowed_ports, now_ms, &mut lazy_tree);
+    }
+
+    pub(crate) fn record_snapshot_with_tree_at(
+        &self,
+        snapshot: &ConnectionSnapshot,
+        allowed_ports: &HashSet<u16>,
+        now_ms: u64,
+        tree: &mut Option<ProcessTreeSnapshot>,
+    ) {
         let mut guard = self.state.write();
         let active_ids: HashSet<&str> = snapshot.connections.iter().map(|c| c.id.as_str()).collect();
         guard.seen_conn_ids.retain(|id| active_ids.contains(id.as_str()));
@@ -230,10 +280,9 @@ impl PortProcessHistoryStore {
             if !allowed_ports.contains(&port) {
                 continue;
             }
-            let Some((proc_name, proc_path)) = extract_process_identity(&conn.metadata) else {
+            let Some((proc_name, proc_path)) = resolve_process_identity(&conn.metadata, tree) else {
                 continue;
             };
-
             let is_new_conn = guard.seen_conn_ids.insert(conn.id.clone());
             let norm_path = proc_path.as_deref().map(normalize_token);
             let norm_name = normalize_token(&proc_name);
@@ -295,13 +344,14 @@ impl PortProcessHistoryStore {
     pub fn get_port_usage(&self, port: u16, live_snapshot: Option<&ConnectionSnapshot>) -> Vec<PortProcessUsageItem> {
         self.sync_from_disk_if_changed();
         let mut active_counts: HashMap<String, (String, Option<String>, u32)> = HashMap::new();
+        let mut lazy_tree: Option<ProcessTreeSnapshot> = None;
 
         if let Some(snapshot) = live_snapshot {
             for conn in &snapshot.connections {
                 if extract_inbound_port(&conn.metadata) != Some(port) {
                     continue;
                 }
-                let Some((proc_name, proc_path)) = extract_process_identity(&conn.metadata) else {
+                let Some((proc_name, proc_path)) = resolve_process_identity(&conn.metadata, &mut lazy_tree) else {
                     continue;
                 };
                 let key = process_usage_key(&proc_name, proc_path.as_deref());
@@ -589,7 +639,7 @@ mod tests {
         let allowed: HashSet<u16> = [17893].into_iter().collect();
         store.record_snapshot_at(
             &ConnectionSnapshot {
-                connections: vec![make_conn("live-1", 17893, Some("node.exe"), None)],
+                connections: vec![make_conn("live-1", 17893, Some("firefox.exe"), None)],
                 ..ConnectionSnapshot::default()
             },
             &allowed,
@@ -597,6 +647,120 @@ mod tests {
         );
         let merged = store.get_port_usage(17893, None);
         assert_eq!(merged.len(), 3);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn resolves_child_process_to_parent_and_drops_unresolved_noise() {
+        use crate::core::process_resolver::ProcessNode;
+        use std::net::{IpAddr, Ipv4Addr};
+
+        let temp_dir = std::env::temp_dir().join(format!("mhm_proc_smart_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+
+        let store = PortProcessHistoryStore::new(&temp_dir);
+        let allowed: HashSet<u16> = [7891].into_iter().collect();
+
+        let mut procs = HashMap::new();
+        procs.insert(
+            100,
+            ProcessNode {
+                parent_pid: None,
+                name: "Code.exe".to_string(),
+                path: Some(r"C:\VSCode\Code.exe".to_string()),
+            },
+        );
+        procs.insert(
+            200,
+            ProcessNode {
+                parent_pid: Some(100),
+                name: "node.exe".to_string(),
+                path: Some(r"C:\Node\node.exe".to_string()),
+            },
+        );
+        let mut tcp = HashMap::new();
+        tcp.insert((IpAddr::V4(Ipv4Addr::LOCALHOST), 50000), 200);
+
+        let mut mock_tree = Some(ProcessTreeSnapshot::from_parts(procs, tcp, HashMap::new()));
+
+        let mut orphan_curl = make_conn("c-curl", 7891, Some("curl.exe"), Some(r"C:\Windows\System32\curl.exe"));
+        orphan_curl.metadata.source_port = "50001".to_string();
+        let mut orphan_lsp = make_conn("c-lsp", 7891, Some("typescript-language-server.exe"), None);
+        orphan_lsp.metadata.source_port = "50002".to_string();
+
+        let snap = ConnectionSnapshot {
+            connections: vec![
+                make_conn("c-node", 7891, Some("node.exe"), Some(r"C:\Node\node.exe")),
+                orphan_curl,
+                orphan_lsp,
+            ],
+            ..ConnectionSnapshot::default()
+        };
+
+        store.record_snapshot_with_tree_at(&snap, &allowed, 1_000, &mut mock_tree);
+        let usage = store.get_port_usage(7891, None);
+        assert_eq!(usage.len(), 1);
+        assert_eq!(usage[0].process_name, "Code.exe");
+        assert_eq!(usage[0].process_path.as_deref(), Some(r"C:\VSCode\Code.exe"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn prunes_transient_records_on_load_from_disk() {
+        let temp_dir = std::env::temp_dir().join(format!("mhm_proc_prune_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+
+        let legacy = serde_json::json!({
+            "7891": [
+                {
+                    "processName": "chrome.exe",
+                    "processPath": "C:\\Chrome\\chrome.exe",
+                    "firstSeenAt": 1000,
+                    "lastSeenAt": 2000,
+                    "hitCount": 10
+                },
+                {
+                    "processName": "curl.exe",
+                    "processPath": "C:\\Windows\\System32\\curl.exe",
+                    "firstSeenAt": 1000,
+                    "lastSeenAt": 2000,
+                    "hitCount": 5
+                },
+                {
+                    "processName": "node.exe",
+                    "processPath": "C:\\Node\\node.exe",
+                    "firstSeenAt": 1000,
+                    "lastSeenAt": 2000,
+                    "hitCount": 3
+                },
+                {
+                    "processName": "yaml-language-server.exe",
+                    "processPath": "C:\\ext\\yaml-language-server.exe",
+                    "firstSeenAt": 1000,
+                    "lastSeenAt": 2000,
+                    "hitCount": 2
+                }
+            ]
+        });
+        let file_path = temp_dir.join("port_process_history.json");
+        std::fs::write(
+            &file_path,
+            serde_json::to_string_pretty(&legacy).expect("serialize legacy"),
+        )
+        .expect("write legacy");
+
+        let store = PortProcessHistoryStore::new(&temp_dir);
+        let usage = store.get_port_usage(7891, None);
+        assert_eq!(usage.len(), 1);
+        assert_eq!(usage[0].process_name, "chrome.exe");
+
+        // Disk file should also be cleaned immediately
+        let disk_content = std::fs::read_to_string(&file_path).expect("read cleaned file");
+        assert!(!disk_content.contains("curl.exe"));
+        assert!(!disk_content.contains("node.exe"));
+        assert!(!disk_content.contains("yaml-language-server.exe"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

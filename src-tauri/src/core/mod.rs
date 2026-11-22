@@ -15,6 +15,7 @@ pub mod node_analytics;
 pub mod port_probe;
 pub mod port_router;
 pub mod process_history;
+pub mod process_resolver;
 pub mod profile_manager;
 pub mod residential_probe;
 pub mod supervisor;
