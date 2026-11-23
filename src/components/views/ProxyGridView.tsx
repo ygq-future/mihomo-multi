@@ -225,9 +225,16 @@ export const ProxyGridView: React.FC = () => {
   const proxyError = useAppStore((state) => state.proxyError)
   const setProxyError = useAppStore((state) => state.setProxyError)
 
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState<string>(() => {
+    if (typeof window === 'undefined') return ''
+    try {
+      return localStorage.getItem('proxy_filter_search') || ''
+    } catch {
+      return ''
+    }
+  })
 
-  // Persistent filter states (excluding search keyword)
+  // Persistent filter states
   const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>(() => {
     if (typeof window === 'undefined') return []
     try {
@@ -338,11 +345,12 @@ export const ProxyGridView: React.FC = () => {
         // ignore storage error
       }
     }
-    setSelectedRegionFilter('all')
-    setSelectedProtocolFilter('all')
+  }
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value)
     try {
-      localStorage.setItem('proxy_filter_region', 'all')
-      localStorage.setItem('proxy_filter_protocol', 'all')
+      localStorage.setItem('proxy_filter_search', value)
     } catch {
       // ignore storage error
     }
@@ -634,10 +642,10 @@ export const ProxyGridView: React.FC = () => {
               <Input
                 placeholder={t('proxies.searchPlaceholder')}
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 prefixIcon={<Search className="w-4 h-4" />}
                 clearable
-                onClear={() => setSearch('')}
+                onClear={() => handleSearchChange('')}
               />
             </div>
 
@@ -867,7 +875,7 @@ export const ProxyGridView: React.FC = () => {
               variant="outline"
               size="sm"
               onClick={() => {
-                setSearch('')
+                handleSearchChange('')
                 handleRegionFilterChange('all')
                 handleProtocolFilterChange('all')
               }}
