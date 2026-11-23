@@ -426,6 +426,23 @@ export async function testResidentialProxy(
   })
 }
 
+export async function testChainNodeExit(
+  exitProfileId: string,
+  exitNodeName: string,
+  upstreamProfileId: string,
+  upstreamNodeName: string,
+): Promise<ResidentialProxyTestResult> {
+  if (!isTauriEnvironment()) {
+    throw new Error(t('residentialI18n.test.desktopRequired'))
+  }
+  return invoke<ResidentialProxyTestResult>('test_chain_node_exit', {
+    exitProfileId,
+    exitNodeName,
+    upstreamProfileId,
+    upstreamNodeName,
+  })
+}
+
 export async function testPortMappingDelay(
   id: string,
   testUrl?: string,

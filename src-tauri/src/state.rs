@@ -1093,6 +1093,41 @@ impl AppState {
             None => crate::core::residential_probe::execute_probe(app_handle, &chain, Some(timeout_ms)).await,
         }
     }
+
+    pub async fn probe_node_chain(
+        &self,
+        app_handle: Option<&tauri::AppHandle>,
+        exit_profile_id: &str,
+        exit_node_name: &str,
+        upstream_profile_id: &str,
+        upstream_node_name: &str,
+    ) -> Result<ResidentialProxyTestResult, String> {
+        let _guard = self.residential_probe_lock.lock().await;
+        let (timeout_ms, test_url) = {
+            let cfg = self.config.read();
+            (cfg.timeout_ms as u64, cfg.test_url.clone())
+        };
+        let upstream_profile = if upstream_profile_id.trim().is_empty() {
+            None
+        } else {
+            self.profile_manager.get_profile_by_id(upstream_profile_id.trim())
+        };
+        let exit_profile = if exit_profile_id.trim().is_empty() {
+            upstream_profile.clone()
+        } else {
+            self.profile_manager.get_profile_by_id(exit_profile_id.trim())
+        };
+        let raw_proxies = self.profile_manager.get_raw_proxies_for_all_profiles();
+        let mut chain = crate::core::residential_probe::prepare_node_probe(
+            &raw_proxies,
+            upstream_profile.as_ref(),
+            upstream_node_name,
+            exit_profile.as_ref(),
+            exit_node_name,
+        )?;
+        chain.test_url = Some(test_url);
+        crate::core::residential_probe::execute_probe(app_handle, &chain, Some(timeout_ms)).await
+    }
 }
 
 #[cfg(test)]

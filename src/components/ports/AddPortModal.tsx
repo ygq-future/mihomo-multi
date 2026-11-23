@@ -143,11 +143,19 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const [bypassCn, setBypassCn] = useState<boolean>(true)
   const [selectedResidentialProxyId, setSelectedResidentialProxyId] =
     useState<string>('')
+  const [chainExitProfileId, setChainExitProfileId] = useState<string>('')
+  const [chainExitNodeName, setChainExitNodeName] = useState<string>('')
   const [residentialConfigError, setResidentialConfigError] = useState<
     string | null
   >(null)
   const [residentialTestResults, setResidentialTestResults] = useState<
     Record<string, ResidentialTestState>
+  >({})
+  const [chainNodeTestResults, setChainNodeTestResults] = useState<
+    Record<string, { latencyMs: number | null; error?: string }>
+  >({})
+  const [chainNodeTesting, setChainNodeTesting] = useState<
+    Record<string, boolean>
   >({})
   const [residentialTesting, setResidentialTesting] = useState<
     Record<string, boolean>
@@ -228,6 +236,8 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         setDescription(initialMapping.description || '')
         setBypassCn(initialMapping.bypassCn ?? true)
         setSelectedResidentialProxyId(initialMapping.residentialProxyId || '')
+        setChainExitProfileId(initialMapping.chainExitProfileId || '')
+        setChainExitNodeName(initialMapping.chainExitNodeName || '')
       } else {
         setSelectedProfileId(initialProfileId || '')
         setSelectedNodeName(initialNodeName || '')
@@ -246,6 +256,8 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
 
         setProtocol('mixed')
         setDescription('')
+        setChainExitProfileId('')
+        setChainExitNodeName('')
         setBypassCn(true)
         setSelectedResidentialProxyId('')
       }
@@ -425,11 +437,14 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       ) ?? null,
     [residentialProxies, selectedResidentialProxyId],
   )
-  const isChainMode = selectedResidentialProxyId !== ''
+  const isChainMode =
+    selectedResidentialProxyId !== '' || chainExitNodeName !== ''
 
   const handleResidentialChange = (value: string) => {
     setSelectedResidentialProxyId(value)
     if (value) {
+      setChainExitProfileId('')
+      setChainExitNodeName('')
       // Chain ports must send all traffic through the exit: bypass rules,
       // fallback nodes and per-port rules are all bypassed by design.
       setBypassCn(false)
@@ -437,6 +452,79 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       setFallbackNodeName('')
     } else {
       setBypassCn(true)
+    }
+  }
+  const handleChainExitNodeChange = (uniqueKey: string) => {
+    if (!uniqueKey) {
+      setChainExitProfileId('')
+      setChainExitNodeName('')
+      return
+    }
+    const node = allAvailableNodes.find((n) => n.uniqueKey === uniqueKey)
+    if (node) {
+      setChainExitProfileId(node.profileId)
+      setChainExitNodeName(node.name)
+    } else {
+      setChainExitProfileId(selectedProfileId)
+      setChainExitNodeName(uniqueKey)
+    }
+    setSelectedResidentialProxyId('')
+    setBypassCn(false)
+  }
+  const chainExitValue = selectedResidentialProxyId
+    ? `res:${selectedResidentialProxyId}`
+    : chainExitNodeName
+      ? `node:${chainExitProfileId || selectedProfileId}:::${chainExitNodeName}`
+      : ''
+
+  const handleChainExitSelectChange = (value: string) => {
+    if (!value) {
+      handleResidentialChange('')
+      handleChainExitNodeChange('')
+      return
+    }
+    if (value.startsWith('res:')) {
+      handleResidentialChange(value.slice(4))
+      return
+    }
+    if (value.startsWith('node:')) {
+      handleChainExitNodeChange(value.slice(5))
+    }
+  }
+
+  const handleTestChainNodeOption = async (uniqueKey: string) => {
+    if (!selectedNodeName || !selectedProfileId) return
+    const node = allAvailableNodes.find((n) => n.uniqueKey === uniqueKey)
+    if (!node) return
+    setResidentialTestError(null)
+    setChainNodeTesting((prev) => ({ ...prev, [uniqueKey]: true }))
+    try {
+      const res = await api.testChainNodeExit(
+        node.profileId,
+        node.name,
+        selectedProfileId,
+        selectedNodeName,
+      )
+      setChainNodeTestResults((prev) => ({
+        ...prev,
+        [uniqueKey]: { latencyMs: res.latencyMs },
+      }))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setResidentialTestError(msg)
+      setChainNodeTestResults((prev) => ({
+        ...prev,
+        [uniqueKey]: {
+          latencyMs: null,
+          error: msg,
+        },
+      }))
+    } finally {
+      setChainNodeTesting((prev) => {
+        const next = { ...prev }
+        delete next[uniqueKey]
+        return next
+      })
     }
   }
 
@@ -956,9 +1044,17 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       return
     }
 
-    if (isChainMode && !selectedResidentialProxy) {
+    if (selectedResidentialProxyId && !selectedResidentialProxy) {
       setError(t('addPort.errResidentialMissing'))
       return
+    }
+
+    if (
+      chainExitNodeName &&
+      chainExitNodeName === selectedNodeName &&
+      (chainExitProfileId || selectedProfileId) === selectedProfileId
+    ) {
+      setError(t('addPort.errChainExitSameAsUpstream'))
     }
 
     setSubmitting(true)
@@ -969,15 +1065,22 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         protocol,
         profileId: selectedProfileId,
         nodeName: selectedNodeName,
-        residentialProxyId: isChainMode ? selectedResidentialProxyId : null,
-        fallbackProfileId: isChainMode
-          ? null
-          : fallbackNodeName.trim()
-            ? fallbackProfileId
+        residentialProxyId:
+          isChainMode && selectedResidentialProxyId
+            ? selectedResidentialProxyId
             : null,
-        fallbackNodeName: isChainMode ? null : fallbackNodeName.trim() || null,
+        chainExitProfileId:
+          isChainMode && chainExitNodeName
+            ? chainExitProfileId || selectedProfileId
+            : null,
+        chainExitNodeName:
+          isChainMode && chainExitNodeName ? chainExitNodeName : null,
+        fallbackProfileId: fallbackNodeName.trim()
+          ? fallbackProfileId
+          : null,
+        fallbackNodeName: fallbackNodeName.trim() || null,
         bypassCn: isChainMode ? false : bypassCn,
-        manualFallback: isChainMode ? false : initialMapping?.manualFallback,
+        manualFallback: initialMapping?.manualFallback,
         rules: isChainMode ? [] : initialMapping?.rules,
         description: description.trim() || undefined,
         enabled: isEditing && initialMapping ? initialMapping.enabled : true,
@@ -1040,7 +1143,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
               !selectedNodeName ||
               !port ||
               isPortAvailable === false ||
-              (isChainMode && !selectedResidentialProxy)
+              (selectedResidentialProxyId !== '' && !selectedResidentialProxy)
             }
           >
             {isEditing ? t('addPort.saveChanges') : t('addPort.confirmCreate')}
@@ -1187,9 +1290,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             htmlFor="node-select"
             className="block text-xs font-medium text-foreground mb-1.5"
           >
-            {isChainMode
-              ? t('addPort.upstreamNodeLabel')
-              : t('addPort.bindNodeLabel')}{' '}
+            {t('addPort.bindNodeLabel')}{' '}
             <span className="text-destructive">*</span>
           </label>
           <SpeedSelect
@@ -1225,9 +1326,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             placeholder={
               allAvailableNodes.length === 0
                 ? t('addPort.noNodesPlaceholder')
-                : isChainMode
-                  ? t('addPort.selectUpstreamPlaceholder')
-                  : t('addPort.selectNodePlaceholder')
+                : t('addPort.selectNodePlaceholder')
             }
             prefixIcon={<Radio className="w-3.5 h-3.5 text-primary" />}
             testOption={handleTestNodeOption}
@@ -1262,9 +1361,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             }}
           />
           <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">
-            {isChainMode
-              ? t('addPort.upstreamHint')
-              : t('addPort.nodeSearchHint')}
+            {t('addPort.nodeSearchHint')}
           </p>
         </div>
 
@@ -1278,24 +1375,93 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           </label>
           <SpeedSelect
             id="residential-select"
-            value={selectedResidentialProxyId}
-            onChange={(val) => handleResidentialChange(String(val))}
-            options={residentialOptions}
-            placeholder={
-              residentialProxies.length === 0
-                ? t('addPort.noResidentialConfigured')
-                : t('addPort.selectResidentialPlaceholder')
-            }
+            value={chainExitValue}
+            onChange={(val) => handleChainExitSelectChange(String(val))}
+            options={[
+              ...residentialOptions.map((opt) =>
+                opt.value === ''
+                  ? opt
+                  : {
+                      ...opt,
+                      value: `res:${opt.value}`,
+                      label: `[住宅] ${opt.label}`,
+                    },
+              ),
+              ...nodeOptions
+                .filter(
+                  (opt) =>
+                    opt.value !== `${selectedProfileId}:::${selectedNodeName}`,
+                )
+                .map((opt) => {
+                  const testState = chainNodeTestResults[opt.value]
+                  const latency = testState ? testState.latencyMs : undefined
+                  const latencyProps = getLatencyBadgeProps(latency, false)
+                  return {
+                    value: `node:${opt.value}`,
+                    label: `[订阅] ${opt.label}`,
+                    rightNode: (
+                      <span
+                        className={`font-mono text-[11px] font-medium ${
+                          testState && testState.latencyMs === null
+                            ? 'text-destructive'
+                            : getLatencyColor(latency)
+                        }`}
+                      >
+                        {testState && testState.latencyMs === null
+                          ? t('ports.chainAbnormal')
+                          : latencyProps.label}
+                      </span>
+                    ),
+                  }
+                }),
+            ]}
+            placeholder={t('addPort.selectResidentialPlaceholder')}
             prefixIcon={<Building2 className="w-3.5 h-3.5 text-primary" />}
-            clearable={Boolean(selectedResidentialProxyId)}
-            onClear={() => handleResidentialChange('')}
-            testOption={handleTestResidentialOption}
-            testOptions={handleTestResidentialOptions}
+            clearable={Boolean(chainExitValue)}
+            onClear={() => handleChainExitSelectChange('')}
+            testOption={async (opt) => {
+              if (opt.value.startsWith('res:')) {
+                await handleTestResidentialOption({
+                  ...opt,
+                  value: opt.value.slice(4),
+                })
+              } else if (opt.value.startsWith('node:')) {
+                await handleTestChainNodeOption(opt.value.slice(5))
+              }
+            }}
+            testOptions={async (opts) => {
+              const resOpts = opts
+                .filter((opt) => opt.value.startsWith('res:'))
+                .map((opt) => ({ ...opt, value: opt.value.slice(4) }))
+              if (resOpts.length > 0) {
+                await handleTestResidentialOptions(resOpts)
+              }
+              const nodeOpts = opts
+                .filter((opt) => opt.value.startsWith('node:'))
+                .map((opt) => opt.value.slice(5))
+              for (const nodeName of nodeOpts) {
+                await handleTestChainNodeOption(nodeName)
+              }
+            }}
             isTesting={
               residentialBatchTesting ||
-              Object.keys(residentialTesting).length > 0
+              Object.keys(residentialTesting).length > 0 ||
+              Object.keys(chainNodeTesting).length > 0
             }
-            testingValues={residentialSelectTestingValues}
+            testingValues={{
+              ...Object.fromEntries(
+                Object.entries(residentialSelectTestingValues).map(([k, v]) => [
+                  `res:${k}`,
+                  v,
+                ]),
+              ),
+              ...Object.fromEntries(
+                Object.entries(chainNodeTesting).map(([k, v]) => [
+                  `node:${k}`,
+                  v,
+                ]),
+              ),
+            }}
           />
           <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
             {residentialProxies.length === 0
@@ -1346,22 +1512,26 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
               <Building2 className="w-3.5 h-3.5 text-sky-500 shrink-0" />
               <span
                 className={`font-semibold truncate ${
-                  selectedResidentialProxy
+                  selectedResidentialProxy || chainExitNodeName
                     ? 'text-foreground'
                     : 'text-destructive'
                 }`}
                 title={
                   selectedResidentialProxy
                     ? selectedResidentialProxy.name
-                    : t('addPort.residentialMissing')
+                    : chainExitNodeName || t('addPort.residentialMissing')
                 }
               >
                 {selectedResidentialProxy
                   ? selectedResidentialProxy.name
-                  : t('addPort.residentialMissing')}
+                  : chainExitNodeName || t('addPort.residentialMissing')}
               </span>
               <Badge
-                variant={selectedResidentialProxy ? 'primary' : 'danger'}
+                variant={
+                  selectedResidentialProxy || chainExitNodeName
+                    ? 'primary'
+                    : 'danger'
+                }
                 size="sm"
                 className="ml-auto shrink-0"
               >
@@ -1369,36 +1539,27 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
                   ? t('addPort.residentialChainBadge', {
                       protocol: selectedResidentialProxy.protocol.toUpperCase(),
                     })
-                  : t('addPort.chainWillReject')}
+                  : chainExitNodeName
+                    ? 'CHAIN'
+                    : t('addPort.chainWillReject')}
               </Badge>
             </div>
             <p className="text-[10px] leading-relaxed text-muted-foreground">
               {t('addPort.chainStrictDesc')}
             </p>
-            {initialMapping &&
-              ((initialMapping.rules?.length ?? 0) > 0 ||
-                Boolean(initialMapping.fallbackNodeName)) && (
-                <p className="text-[10px] leading-relaxed text-amber-600 dark:text-amber-400">
-                  {t('addPort.willClearOnSave')}
-                  {initialMapping?.rules?.length
-                    ? t('addPort.clearRulesCount', {
-                        count: initialMapping.rules.length,
-                      })
-                    : ''}
-                  {initialMapping?.rules?.length &&
-                  initialMapping.fallbackNodeName
-                    ? t('addPort.and')
-                    : ''}
-                  {initialMapping?.fallbackNodeName
-                    ? t('addPort.clearExistingFallback')
-                    : ''}
-                </p>
-              )}
+            {initialMapping && (initialMapping.rules?.length ?? 0) > 0 && (
+              <p className="text-[10px] leading-relaxed text-amber-600 dark:text-amber-400">
+                {t('addPort.willClearOnSave')}
+                {t('addPort.clearRulesCount', {
+                  count: initialMapping.rules?.length ?? 0,
+                })}
+              </p>
+            )}
           </div>
         )}
 
         {/* Same-region Fallback Node Select - directly below main node select */}
-        {selectedNode && !isChainMode && (
+        {selectedNode && (
           <div className="pt-1">
             <div className="flex items-center justify-between mb-1.5">
               <label

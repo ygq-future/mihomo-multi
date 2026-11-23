@@ -639,7 +639,7 @@ pub async fn test_port_mapping_delay(
     let actual_url = test_url.as_deref().unwrap_or(&default_url);
     let actual_timeout = timeout_ms.unwrap_or(default_timeout);
 
-    if mapping.residential_proxy_id.is_some() {
+    if mapping.has_chain_exit() {
         if !mapping.enabled {
             return Err(crate::tr!(
                 "请先启用住宅代理链端口后再进行测速",
@@ -800,13 +800,6 @@ pub async fn test_port_fallback_delay(
             )
         })?;
 
-    if mapping.residential_proxy_id.is_some() {
-        return Err(crate::tr!(
-            "住宅代理链端口不支持备用节点测速",
-            "Residential proxy chain ports do not support fallback node latency tests"
-        )
-        .into());
-    }
 
     let fb_name = mapping
         .fallback_node_name
@@ -841,7 +834,7 @@ pub async fn test_port_fallback_delay(
             Some(&fb_runtime_name),
             Some(actual_url),
             Some(actual_timeout),
-            Some(&id),
+            None,
         )
         .await;
     if mapping.enabled && !mapping.manual_fallback {
@@ -1191,7 +1184,7 @@ pub async fn get_port_fallback_statuses(
 
     for m in mappings
         .into_iter()
-        .filter(|m| m.enabled && m.residential_proxy_id.is_none() && m.fallback_node_name.is_some())
+        .filter(|m| m.enabled && m.fallback_node_name.is_some())
     {
         let fallback_node = match &m.fallback_node_name {
             Some(fb) if !fb.trim().is_empty() => fb.clone(),
@@ -2183,6 +2176,26 @@ pub async fn test_residential_proxy(
 ) -> Result<ResidentialProxyTestResult, String> {
     state
         .probe_residential_chain(Some(&app), &residential_proxy_id, &profile_id, &node_name, None)
+        .await
+}
+
+#[tauri::command]
+pub async fn test_chain_node_exit(
+    exit_profile_id: String,
+    exit_node_name: String,
+    upstream_profile_id: String,
+    upstream_node_name: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ResidentialProxyTestResult, String> {
+    state
+        .probe_node_chain(
+            Some(&app),
+            &exit_profile_id,
+            &exit_node_name,
+            &upstream_profile_id,
+            &upstream_node_name,
+        )
         .await
 }
 

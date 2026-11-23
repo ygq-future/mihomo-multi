@@ -60,6 +60,8 @@ impl PortRouter {
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         }
     }
@@ -794,6 +796,8 @@ mod tests {
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             enabled,
             latency: None,
             description: Some(format!("Test Port {}", port)),

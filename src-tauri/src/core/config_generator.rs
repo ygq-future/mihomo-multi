@@ -486,10 +486,14 @@ impl MinimalRuntimeConfig {
         let mut chain_targets: HashMap<u16, String> = HashMap::new();
         let has_chains = mappings.iter().any(|mapping| {
             mapping.enabled
-                && mapping
+                && (mapping
                     .residential_proxy_id
                     .as_deref()
                     .is_some_and(|id| !id.trim().is_empty())
+                    || mapping
+                        .chain_exit_node_name
+                        .as_deref()
+                        .is_some_and(|name| !name.trim().is_empty()))
         });
         let mut upstream_dialers: HashMap<&str, &str> = HashMap::new();
         if has_chains {
@@ -507,21 +511,27 @@ impl MinimalRuntimeConfig {
                 }
             }
         }
+        let mut chain_fallback_groups: Vec<RuntimeProxyGroup> = Vec::new();
 
         let mut chain_proxies: Vec<serde_yaml_ng::Value> = Vec::new();
         let mut generated_chain_names: HashSet<String> = HashSet::new();
         let mut reject_chains: HashSet<u16> = HashSet::new();
         for mapping in mappings.iter().filter(|m| m.enabled) {
-            let Some(exit_id) = mapping
+            let residential_exit_id = mapping
                 .residential_proxy_id
                 .as_deref()
                 .map(str::trim)
-                .filter(|id| !id.is_empty())
-            else {
+                .filter(|id| !id.is_empty());
+            let node_exit_name = mapping
+                .chain_exit_node_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty());
+            if residential_exit_id.is_none() && node_exit_name.is_none() {
                 continue;
-            };
+            }
 
-            let build_chain = (|| -> Result<(String, serde_yaml_ng::Value), String> {
+            let build_chain = (|| -> Result<(String, serde_yaml_ng::Value, Option<RuntimeProxyGroup>), String> {
                 if mapping.id == crate::models::FIXED_DIRECT_PORT_ID || mapping.node_name == "DIRECT" {
                     return Err(crate::tr!(
                         "直连监听不能配置住宅代理链",
@@ -530,25 +540,27 @@ impl MinimalRuntimeConfig {
                     .to_string());
                 }
 
-                let exit = params
-                    .residential_proxies
-                    .iter()
-                    .find(|proxy| proxy.id.trim() == exit_id)
-                    .ok_or_else(|| {
-                        crate::tr!(
-                            "引用的住宅代理出口不存在（不会回退直连）",
-                            "The referenced residential proxy exit does not exist (no fallback to direct)"
+                if let Some(exit_id) = residential_exit_id {
+                    let exit = params
+                        .residential_proxies
+                        .iter()
+                        .find(|proxy| proxy.id.trim() == exit_id)
+                        .ok_or_else(|| {
+                            crate::tr!(
+                                "引用的住宅代理出口不存在（不会回退直连）",
+                                "The referenced residential proxy exit does not exist (no fallback to direct)"
+                            )
+                            .to_string()
+                        })?;
+                    exit.validate()?;
+                    if exit.proxy_type().is_none() {
+                        return Err(crate::tr!(
+                            "住宅代理出口协议无效",
+                            "The residential proxy exit protocol is invalid"
                         )
-                        .to_string()
-                    })?;
-                exit.validate()?;
-                let proxy_type = exit.proxy_type().ok_or_else(|| {
-                    crate::tr!(
-                        "住宅代理出口协议无效",
-                        "The residential proxy exit protocol is invalid"
-                    )
-                    .to_string()
-                })?;
+                        .to_string());
+                    }
+                }
 
                 let upstream = resolve_node_target(&mapping.node_name, &mapping.profile_id).ok_or_else(|| {
                     crate::tr!(
@@ -600,46 +612,160 @@ impl MinimalRuntimeConfig {
                         ),
                     ));
                 }
+                let fb_profile_id = mapping
+                    .fallback_profile_id
+                    .as_deref()
+                    .unwrap_or(&mapping.profile_id);
+                let fallback_node = mapping
+                    .fallback_node_name
+                    .as_ref()
+                    .and_then(|fb_name| resolve_node_target(fb_name, fb_profile_id));
+                let (dialer_target, chain_fb_group) = if let Some(fallback) = fallback_node {
+                    let group_name = format!("fb-{}", mapping.port);
+                    let group = RuntimeProxyGroup {
+                        name: group_name.clone(),
+                        group_type: "fallback".to_string(),
+                        proxies: vec![upstream.clone(), fallback.clone()],
+                        url: Some(params.test_url.to_string()),
+                        interval: Some(params.fallback_interval),
+                        timeout: Some(params.timeout_ms),
+                        lazy: Some(params.fallback_lazy),
+                        max_failed_times: Some(3),
+                    };
+                    let target = if mapping.manual_fallback {
+                        fallback
+                    } else {
+                        group_name
+                    };
+                    (target, Some(group))
+                } else {
+                    (upstream.clone(), None)
+                };
 
-                let mut entry = serde_yaml_ng::Mapping::new();
-                entry.insert(
-                    serde_yaml_ng::Value::String("name".to_string()),
-                    serde_yaml_ng::Value::String(chain_name.clone()),
-                );
-                entry.insert(
-                    serde_yaml_ng::Value::String("type".to_string()),
-                    serde_yaml_ng::Value::String(proxy_type.to_string()),
-                );
-                entry.insert(
-                    serde_yaml_ng::Value::String("server".to_string()),
-                    serde_yaml_ng::Value::String(exit.server.trim().to_string()),
-                );
-                entry.insert(
-                    serde_yaml_ng::Value::String("port".to_string()),
-                    serde_yaml_ng::Value::from(exit.port),
-                );
-                if !exit.username.trim().is_empty() {
-                    entry.insert(
-                        serde_yaml_ng::Value::String("username".to_string()),
-                        serde_yaml_ng::Value::String(exit.username.clone()),
+                let entry = if let Some(exit_id) = residential_exit_id {
+                    let exit = params
+                        .residential_proxies
+                        .iter()
+                        .find(|proxy| proxy.id.trim() == exit_id)
+                        .ok_or_else(|| {
+                            crate::tr!(
+                                "引用的住宅代理出口不存在（不会回退直连）",
+                                "The referenced residential proxy exit does not exist (no fallback to direct)"
+                            )
+                            .to_string()
+                        })?;
+                    let proxy_type = exit.proxy_type().ok_or_else(|| {
+                        crate::tr!(
+                            "住宅代理出口协议无效",
+                            "The residential proxy exit protocol is invalid"
+                        )
+                        .to_string()
+                    })?;
+                    let mut map = serde_yaml_ng::Mapping::new();
+                    map.insert(
+                        serde_yaml_ng::Value::String("name".to_string()),
+                        serde_yaml_ng::Value::String(chain_name.clone()),
                     );
-                    entry.insert(
-                        serde_yaml_ng::Value::String("password".to_string()),
-                        serde_yaml_ng::Value::String(exit.password.clone()),
+                    map.insert(
+                        serde_yaml_ng::Value::String("type".to_string()),
+                        serde_yaml_ng::Value::String(proxy_type.to_string()),
                     );
-                }
-                entry.insert(
-                    serde_yaml_ng::Value::String("dialer-proxy".to_string()),
-                    serde_yaml_ng::Value::String(upstream),
-                );
+                    map.insert(
+                        serde_yaml_ng::Value::String("server".to_string()),
+                        serde_yaml_ng::Value::String(exit.server.trim().to_string()),
+                    );
+                    map.insert(
+                        serde_yaml_ng::Value::String("port".to_string()),
+                        serde_yaml_ng::Value::from(exit.port),
+                    );
+                    if !exit.username.trim().is_empty() {
+                        map.insert(
+                            serde_yaml_ng::Value::String("username".to_string()),
+                            serde_yaml_ng::Value::String(exit.username.clone()),
+                        );
+                        map.insert(
+                            serde_yaml_ng::Value::String("password".to_string()),
+                            serde_yaml_ng::Value::String(exit.password.clone()),
+                        );
+                    }
+                    map.insert(
+                        serde_yaml_ng::Value::String("dialer-proxy".to_string()),
+                        serde_yaml_ng::Value::String(dialer_target),
+                    );
+                    map
+                } else {
+                    let exit_node = node_exit_name.ok_or_else(|| {
+                        crate::tr!(
+                            "链式代理出口节点不能为空",
+                            "Chain proxy exit node cannot be empty"
+                        )
+                        .to_string()
+                    })?;
+                    let exit_profile_id = mapping
+                        .chain_exit_profile_id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                        .unwrap_or(&mapping.profile_id);
+                    let exit_target = resolve_node_target(exit_node, exit_profile_id).ok_or_else(|| {
+                        crate::tr!(
+                            format!("链式出口节点「{}」不存在（不会回退直连）", exit_node),
+                            format!(
+                                "Chain exit node \"{}\" does not exist (no fallback to direct)",
+                                exit_node
+                            ),
+                        )
+                    })?;
+                    if exit_target == upstream {
+                        return Err(crate::tr!(
+                            format!("链式出口节点「{}」不能与前置节点相同", exit_node),
+                            format!(
+                                "Chain exit node \"{}\" cannot be the same as the upstream node",
+                                exit_node
+                            ),
+                        ));
+                    }
+                    let raw_exit = proxies
+                        .iter()
+                        .find(|proxy| {
+                            proxy
+                                .as_mapping()
+                                .and_then(|m| m.get(serde_yaml_ng::Value::String("name".to_string())))
+                                .and_then(|v| v.as_str())
+                                == Some(exit_target.as_str())
+                        })
+                        .and_then(|proxy| proxy.as_mapping())
+                        .ok_or_else(|| {
+                            crate::tr!(
+                                format!("链式出口节点「{}」未在已导入订阅中找到", exit_node),
+                                format!(
+                                    "Chain exit node \"{}\" was not found in imported profiles",
+                                    exit_node
+                                ),
+                            )
+                        })?;
+                    let mut map = raw_exit.clone();
+                    map.insert(
+                        serde_yaml_ng::Value::String("name".to_string()),
+                        serde_yaml_ng::Value::String(chain_name.clone()),
+                    );
+                    map.insert(
+                        serde_yaml_ng::Value::String("dialer-proxy".to_string()),
+                        serde_yaml_ng::Value::String(dialer_target),
+                    );
+                    map
+                };
 
-                Ok((chain_name, serde_yaml_ng::Value::Mapping(entry)))
+                Ok((chain_name, serde_yaml_ng::Value::Mapping(entry), chain_fb_group))
             })();
 
             match build_chain {
-                Ok((chain_name, chain_proxy)) => {
+                Ok((chain_name, chain_proxy, chain_fb_group)) => {
                     chain_proxies.push(chain_proxy);
                     chain_targets.insert(mapping.port, chain_name);
+                    if let Some(group) = chain_fb_group {
+                        chain_fallback_groups.push(group);
+                    }
                 }
                 Err(reason) => {
                     warn!(
@@ -655,6 +781,7 @@ impl MinimalRuntimeConfig {
 
         // Pass 1: Compute target_action and build fallback groups for each enabled port
         let mut port_target_actions: HashMap<u16, String> = HashMap::new();
+        proxy_groups.extend(chain_fallback_groups);
         for m in mappings.iter().filter(|m| m.enabled) {
             if reject_chains.contains(&m.port) {
                 port_target_actions.insert(m.port, "REJECT".to_string());
@@ -997,6 +1124,8 @@ mod tests {
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let mapping2 = PortMapping {
@@ -1013,6 +1142,8 @@ mod tests {
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let mapping_disabled = PortMapping {
@@ -1029,6 +1160,8 @@ mod tests {
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1122,6 +1255,8 @@ password: pass
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let params = RuntimeGeneratorParams {
@@ -1163,6 +1298,8 @@ password: pass
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1233,6 +1370,8 @@ password: pass
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let mapping_global = PortMapping {
@@ -1249,6 +1388,8 @@ password: pass
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
 
@@ -1316,6 +1457,8 @@ password: pass
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1389,6 +1532,8 @@ password: pass
             bypass_cn: false,
             manual_fallback: true,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1485,6 +1630,8 @@ password: pass
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1544,6 +1691,8 @@ password: pass
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1607,6 +1756,8 @@ password: pass
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1664,6 +1815,8 @@ password: pass
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let mut profile_map = HashMap::new();
@@ -1721,6 +1874,8 @@ password: pass
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![
                 PortRule {
                     id: "r1".to_string(),
@@ -1783,6 +1938,8 @@ password: pass
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
 
@@ -1858,6 +2015,8 @@ password: pass
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![PortRule {
                 id: "local-gemini".to_string(),
                 name: Some("Local Gemini Override".to_string()),
@@ -1885,6 +2044,8 @@ password: pass
             bypass_cn: false,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
 

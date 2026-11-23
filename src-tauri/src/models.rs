@@ -345,6 +345,12 @@ pub struct PortMapping {
     /// managed residential exit instead of dialing the node directly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub residential_proxy_id: Option<String>,
+    /// When set alongside `chain_exit_profile_id`, this port's traffic is chained through
+    /// the primary subscription node and then this subscription node as the exit hop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_exit_profile_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_exit_node_name: Option<String>,
     pub enabled: bool,
     pub latency: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -369,6 +375,8 @@ impl Default for PortMapping {
             profile_id: String::new(),
             node_name: String::new(),
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             enabled: false,
             latency: None,
             description: None,
@@ -378,6 +386,11 @@ impl Default for PortMapping {
             manual_fallback: false,
             rules: Vec::new(),
         }
+    }
+}
+impl PortMapping {
+    pub fn has_chain_exit(&self) -> bool {
+        self.residential_proxy_id.is_some() || self.chain_exit_node_name.is_some()
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

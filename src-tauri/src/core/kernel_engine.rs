@@ -756,6 +756,8 @@ mod tests {
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
 

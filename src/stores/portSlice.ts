@@ -192,6 +192,9 @@ export const createPortSlice: StateCreator<
       set((state) => {
         let updatedMappings = false
         const portMappings = state.portMappings.map((mapping) => {
+          if (mapping.residentialProxyId || mapping.chainExitNodeName) {
+            return mapping
+          }
           const fallback = fallbackStatuses[mapping.id]
           if (!fallback) return mapping
           const latency =

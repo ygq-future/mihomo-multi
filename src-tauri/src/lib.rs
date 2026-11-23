@@ -428,6 +428,7 @@ pub fn run() {
             query_direct_egress_info,
             query_node_egress_info,
             test_residential_proxy,
+            test_chain_node_exit,
             query_port_egress_info,
             get_profiles,
             add_remote_profile,

@@ -26,6 +26,8 @@ const MAX_PROBE_TIMEOUT_MS: u64 = 6000;
 pub struct ResidentialProbeChain {
     pub upstream: String,
     pub exit: ResidentialProxy,
+    pub custom_exit: Option<Value>,
+    pub test_url: Option<String>,
     pub proxies: Vec<Value>,
 }
 
@@ -157,6 +159,114 @@ pub fn prepare_probe(
     Ok(ResidentialProbeChain {
         upstream,
         exit: exit.clone(),
+        custom_exit: None,
+        test_url: None,
+        proxies,
+    })
+}
+pub fn prepare_node_probe(
+    raw_proxies: &[Value],
+    upstream_profile: Option<&ProfileItem>,
+    upstream_node_name: &str,
+    exit_profile: Option<&ProfileItem>,
+    exit_node_name: &str,
+) -> Result<ResidentialProbeChain, String> {
+    let upstream_req = upstream_node_name.trim();
+    if upstream_req.is_empty() {
+        return Err(crate::tr!(
+            "请选择用于链式代理的上游节点",
+            "Select an upstream node for the proxy chain"
+        )
+        .to_string());
+    }
+    let exit_req = exit_node_name.trim();
+    if exit_req.is_empty() {
+        return Err(crate::tr!(
+            "请选择用于链式代理的出口节点",
+            "Select an exit node for the proxy chain"
+        )
+        .to_string());
+    }
+    if upstream_req.eq_ignore_ascii_case("DIRECT") {
+        return Err(crate::tr!(
+            "直连节点不能作为链式代理的上游节点",
+            "DIRECT cannot be used as the upstream node for a proxy chain"
+        )
+        .to_string());
+    }
+
+    let mut by_name: HashMap<&str, &Value> = HashMap::new();
+    for proxy in raw_proxies {
+        if let Some(name) = proxy_name(proxy) {
+            by_name.entry(name).or_insert(proxy);
+        }
+    }
+
+    let resolve_in_profile = |req: &str, prof: Option<&ProfileItem>| -> Option<String> {
+        if let Some(p) = prof {
+            let namespaced = format!("[{}] {}", p.name, req);
+            if by_name.contains_key(namespaced.as_str()) {
+                return Some(namespaced);
+            }
+        }
+        if by_name.contains_key(req) {
+            return Some(req.to_string());
+        }
+        None
+    };
+
+    let upstream = resolve_in_profile(upstream_req, upstream_profile).ok_or_else(|| {
+        crate::tr!(
+            format!("上游节点「{upstream_req}」不存在，无法进行链式连通性测试"),
+            format!("Upstream node \"{upstream_req}\" does not exist; chain connectivity test cannot run")
+        )
+    })?;
+    let exit_target = resolve_in_profile(exit_req, exit_profile).ok_or_else(|| {
+        crate::tr!(
+            format!("链式出口节点「{exit_req}」不存在，无法进行链式连通性测试"),
+            format!("Chain exit node \"{exit_req}\" does not exist; chain connectivity test cannot run")
+        )
+    })?;
+    if upstream == exit_target {
+        return Err(crate::tr!(
+            format!("链式出口节点「{exit_req}」不能与上游节点相同"),
+            format!("Chain exit node \"{exit_req}\" cannot be the same as the upstream node")
+        ));
+    }
+
+    let proxies = collect_dialer_chain(&by_name, &upstream)?;
+    let raw_exit = by_name
+        .get(exit_target.as_str())
+        .and_then(|v| v.as_mapping())
+        .ok_or_else(|| {
+            crate::tr!(
+                format!("链式出口节点「{exit_req}」配置无效"),
+                format!("Chain exit node \"{exit_req}\" has an invalid configuration")
+            )
+        })?;
+    let mut exit_map = raw_exit.clone();
+    exit_map.insert(
+        Value::String("name".to_string()),
+        Value::String(PROBE_EXIT_PROXY_NAME.to_string()),
+    );
+    exit_map.insert(
+        Value::String("dialer-proxy".to_string()),
+        Value::String(upstream.clone()),
+    );
+
+    Ok(ResidentialProbeChain {
+        upstream,
+        exit: ResidentialProxy {
+            id: String::new(),
+            name: exit_req.to_string(),
+            protocol: "socks5".to_string(),
+            server: "127.0.0.1".to_string(),
+            port: 1,
+            username: String::new(),
+            password: String::new(),
+        },
+        custom_exit: Some(Value::Mapping(exit_map)),
+        test_url: None,
         proxies,
     })
 }
@@ -237,7 +347,9 @@ pub fn build_probe_config(
     listener_port: u16,
     controller_port: u16,
 ) -> Result<MinimalRuntimeConfig, String> {
-    chain.exit.validate()?;
+    if chain.custom_exit.is_none() {
+        chain.exit.validate()?;
+    }
     if !chain
         .proxies
         .iter()
@@ -254,12 +366,18 @@ pub fn build_probe_config(
     config.bind_address = "127.0.0.1".to_string();
     config.tun = None;
     config.rule_providers.clear();
-    config.dns.enable = false;
+    if chain.custom_exit.is_none() {
+        config.dns.enable = false;
+    }
     config.sniffer.enable = false;
     config.profile.store_selected = false;
     config.profile.store_fake_ip = false;
     config.proxies = chain.proxies.clone();
-    config.proxies.push(exit_proxy_value(chain)?);
+    if let Some(custom_exit) = &chain.custom_exit {
+        config.proxies.push(custom_exit.clone());
+    } else {
+        config.proxies.push(exit_proxy_value(chain)?);
+    }
     config.listeners = vec![RuntimeListener {
         name: PROBE_LISTENER_NAME.to_string(),
         listener_type: "mixed".to_string(),
@@ -488,6 +606,49 @@ async fn run_probe(
     wait_for_listener(child, listener_port).await?;
 
     let per_api_timeout = bounded_timeout_ms(timeout_ms);
+    if chain.custom_exit.is_some() {
+        let test_url = chain
+            .test_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+            .unwrap_or("http://cp.cloudflare.com/generate_204");
+        let proxy_url = format!("http://127.0.0.1:{listener_port}");
+        let proxy = reqwest::Proxy::all(&proxy_url)
+            .map_err(|e| format!("构造临时链式代理失败: {e}"))?;
+        let client = reqwest::Client::builder()
+            .proxy(proxy)
+            .timeout(Duration::from_millis(per_api_timeout))
+            .build()
+            .map_err(|e| format!("构造探测客户端失败: {e}"))?;
+        let started = std::time::Instant::now();
+        let resp = client.get(test_url).send().await.map_err(|e| {
+            if e.is_timeout() {
+                "链式代理连通超时（主节点与链式出口之间连接超时）".to_string()
+            } else {
+                format!("链式代理连接失败（主节点无法经链式出口访问测试地址）: {e}")
+            }
+        })?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::BAD_GATEWAY {
+            return Err("链式代理不可达（主节点无法连接到该链式出口节点，HTTP 502）".to_string());
+        }
+        if !status.is_success() {
+            return Err(format!("链式连通性测试返回异常状态码: {status}"));
+        }
+        let delay = started.elapsed().as_millis().max(1) as u64;
+        return Ok(ResidentialProxyTestResult {
+            latency_ms: delay,
+            egress: crate::models::DirectEgressInfo {
+                ip: String::new(),
+                region: String::new(),
+                country_code: None,
+                isp: None,
+                latency_ms: Some(delay as u32),
+                source: "chain-listener-204".to_string(),
+            },
+        });
+    }
     let endpoint_attempts = endpoints
         .map(|list| list.len())
         .unwrap_or_else(|| {
@@ -779,6 +940,8 @@ mod tests {
         let chain = ResidentialProbeChain {
             upstream: "[Test Sub] A".to_string(),
             exit: exit(),
+            custom_exit: None,
+            test_url: None,
             proxies: vec![node("[Test Sub] Unrelated", None)],
         };
         let error = build_probe_config(&chain, 19005, 19006).unwrap_err();

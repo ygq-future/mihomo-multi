@@ -66,6 +66,8 @@ export interface PortMapping {
    * 绕过大陆、备用节点与网站分流规则全部失效。
    */
   residentialProxyId?: string | null
+  chainExitProfileId?: string | null
+  chainExitNodeName?: string | null
 }
 
 export type ResidentialProxyProtocol = 'http' | 'socks5'

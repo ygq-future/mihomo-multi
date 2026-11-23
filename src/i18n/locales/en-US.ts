@@ -343,10 +343,10 @@ export const enUS: Record<TranslationKey, string> = {
     'Port {port} bound · Reusable as upstream · {protocol}',
   'addPort.upstreamTag': 'Up :{port}',
   'addPort.occupiedTag': 'In use :{port}',
-  'addPort.noResidentialExit': 'No residential exit',
+  'addPort.noResidentialExit': 'No chain exit',
   'addPort.noResidentialExitDesc':
     'Traffic routes directly through the selected node',
-  'addPort.residentialMissing': 'Residential exit missing',
+  'addPort.residentialMissing': 'Chain exit missing',
   'addPort.residentialMissingDesc':
     'This exit was deleted; please reselect or clear',
   'addPort.noFallback': 'No fallback node (single node)',
@@ -359,13 +359,18 @@ export const enUS: Record<TranslationKey, string> = {
   'addPort.errSelectNode': 'Please select a proxy node to bind',
   'addPort.errResidentialMissing':
     'Selected residential exit was deleted; please reselect or clear',
+  'addPort.errChainExitSameAsUpstream':
+    'Chain exit node cannot be the same as the upstream node',
+  'addPort.chainExitNodeLabel': 'Or select a subscription node as chain exit',
+  'addPort.chainExitNodePlaceholder':
+    'Optional: select a node from the same profile as exit hop',
   'addPort.titleEdit': 'Edit Port Mapping',
   'addPort.titleQuickBind': 'Quick Bind to Port Listener',
   'addPort.titleAdd': 'Add Port Mapping',
   'addPort.subEditChain':
-    'Modify inbound port, upstream node, and residential exit chain',
+    'Modify inbound port, primary node, and chain exit',
   'addPort.subAddChain':
-    'Upstream → Residential Exit → Target; all traffic exits via residential proxy',
+    'Primary Node → Chain Exit → Target; all traffic exits via the chain exit',
   'addPort.subEditNormal': 'Modify inbound port and 1:1 bound proxy node',
   'addPort.subAddNormal':
     'Assign a local inbound port and bind 1:1 to a proxy node',
@@ -395,17 +400,18 @@ export const enUS: Record<TranslationKey, string> = {
     'In chain mode, the upstream node acts as a hop and can be shared across ports; final exit is determined below.',
   'addPort.nodeSearchHint':
     'Single term matches node name; space-separated "profile node" filters both with fuzzy matching.',
-  'addPort.residentialLabel': 'Residential Exit (Optional)',
-  'addPort.noResidentialConfigured': 'No residential exits configured',
-  'addPort.selectResidentialPlaceholder': 'Select residential proxy exit',
+  'addPort.residentialLabel': 'Chain Proxy Exit (Optional)',
+  'addPort.noResidentialConfigured': 'No chain exits configured',
+  'addPort.selectResidentialPlaceholder':
+    'Select chain exit (residential proxy or subscription node)',
   'addPort.residentialEmptyHint':
-    'Manage authenticated HTTP / SOCKS5 residential proxies under Profiles → Residential Exits.',
+    'Manage HTTP / SOCKS5 residential proxies under Profiles, or pick an existing subscription node as the chain exit.',
   'addPort.residentialChainHint':
-    'Enabling chain mode routes all traffic via Upstream → Residential Exit → Target; Bypass CN, fallback, and rules are disabled.',
+    'Enabling chain mode routes all traffic via Primary Node (with failover) → Chain Exit → Target; Bypass CN and routing rules are disabled.',
   'addPort.residentialChainBadge': '{protocol} Chain',
   'addPort.chainWillReject': 'Chain will reject traffic',
   'addPort.chainStrictDesc':
-    'If upstream or residential exit fails, connections are rejected without DIRECT fallback. Existing fallback and rules will be cleared.',
+    'If primary node or chain exit fails, connections are rejected without DIRECT fallback. Existing website routing rules will be cleared.',
   'addPort.willClearOnSave': 'Will clear on save: ',
   'addPort.clearRulesCount': ' {count} website routing rule(s)',
   'addPort.and': ' and ',

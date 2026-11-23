@@ -364,13 +364,14 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
       let nextPortMappings = rootState.portMappings
       if (nextPortMappings) {
         const mapped = nextPortMappings.map((p) => {
+          const isChain = Boolean(p.residentialProxyId || p.chainExitNodeName)
           let matched = false
-          if (payload.mappingId && p.id === payload.mappingId) {
-            matched = true
-          } else if (p.residentialProxyId) {
+          if (isChain) {
             // Chain ports are measured under the generated `chain-{port}`
-            // target. Never let an upstream node cache entry overwrite them.
+            // target. Never let upstream or fallback node probes overwrite them.
             matched = payload.name === `chain-${p.port}`
+          } else if (payload.mappingId && p.id === payload.mappingId) {
+            matched = true
           } else if (
             p.nodeName === payload.name ||
             (payload.runtimeName && p.nodeName === payload.runtimeName)

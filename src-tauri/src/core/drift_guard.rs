@@ -556,6 +556,8 @@ proxies:
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         // 2. Drifted mapping (Node missing)
@@ -573,6 +575,8 @@ proxies:
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         // 3. Drifted mapping (Profile missing)
@@ -590,6 +594,8 @@ proxies:
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let mappings = vec![
@@ -638,6 +644,8 @@ proxies:
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         let single_report = DriftGuard::check_single(&empty_mapping, &manager, &[]);
@@ -689,6 +697,8 @@ proxies:
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
 
@@ -707,6 +717,8 @@ proxies:
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         // 3. Port 3: Same profile, drifted without fallback
@@ -724,6 +736,8 @@ proxies:
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
         // 4. Port 4: Non-existent profile
@@ -741,6 +755,8 @@ proxies:
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
 
@@ -802,6 +818,8 @@ proxies:
             bypass_cn: true,
             manual_fallback: false,
             residential_proxy_id: None,
+            chain_exit_profile_id: None,
+            chain_exit_node_name: None,
             rules: vec![],
         };
 

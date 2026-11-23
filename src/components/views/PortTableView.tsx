@@ -1918,7 +1918,9 @@ export const PortTableView: React.FC = () => {
               const isDirectCard =
                 m.id === FIXED_DIRECT_PORT_ID || m.nodeName === 'DIRECT'
               const residentialProxy = getResidentialProxy(m)
-              const isChainPort = Boolean(m.residentialProxyId)
+              const isChainPort = Boolean(
+                m.residentialProxyId || m.chainExitNodeName,
+              )
               const primaryProfile = profileById[m.profileId]
               const profileName =
                 primaryProfile?.name || t('ports.unknownProfile')
@@ -1963,7 +1965,7 @@ export const PortTableView: React.FC = () => {
                 isRunning && m.enabled && occupiedPorts.includes(m.port)
               // 3. Fallback Degraded Warning (Amber)
               const fbStatus = fallbackStatuses[m.id]
-              const hasFallback = !isChainPort && Boolean(m.fallbackNodeName)
+              const hasFallback = Boolean(m.fallbackNodeName)
               const isManualFallback = m.manualFallback ?? false
               const isAutoFallbackActive =
                 !isManualFallback &&
@@ -2482,209 +2484,6 @@ export const PortTableView: React.FC = () => {
                         </div>
                       )}
                     </div>
-                  ) : isChainPort ? (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-2 min-w-0">
-                        <div className="flex items-center gap-1.5 font-medium text-xs text-foreground min-w-0 flex-1">
-                          <Building2 className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                          <div className="relative flex items-center flex-1 min-w-0 group/exit">
-                            <span
-                              className={`truncate flex-1 font-semibold ${
-                                residentialProxy
-                                  ? 'text-foreground'
-                                  : 'text-destructive'
-                              }`}
-                              title={
-                                residentialProxy
-                                  ? `${residentialProxy.name} (${residentialProxy.protocol.toUpperCase()} ${residentialProxy.server}:${residentialProxy.port})`
-                                  : t('ports.chainMissingTitle')
-                              }
-                            >
-                              {residentialProxy
-                                ? residentialProxy.name
-                                : t('ports.chainExitMissingShort')}
-                            </span>
-                            <button
-                              type="button"
-                              disabled={
-                                isProbingChain ||
-                                !m.enabled ||
-                                !residentialProxy
-                              }
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void handleCopyChainEgressIp(m.port, m.protocol)
-                              }}
-                              className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-5 px-2 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer disabled:opacity-70 transition-all duration-200 ease-out ${
-                                isProbingChain
-                                  ? 'opacity-100 scale-100 translate-x-0 pointer-events-auto'
-                                  : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/exit:opacity-100 group-hover/exit:scale-100 group-hover/exit:translate-x-0 group-hover/exit:pointer-events-auto'
-                              }`}
-                              title={
-                                isProbingChain
-                                  ? t('ports.probingChainIp')
-                                  : !m.enabled
-                                    ? t('ports.portDisabledNoChainProbe')
-                                    : !residentialProxy
-                                      ? t('ports.chainExitMissingShort')
-                                      : chainEgressInfo
-                                        ? t('ports.clickCopyChainIp', {
-                                            ip: chainEgressInfo.ip,
-                                            region: chainEgressInfo.region
-                                              ? ` (${chainEgressInfo.region})`
-                                              : '',
-                                          })
-                                        : t('ports.clickProbeChainIp')
-                              }
-                            >
-                              {isProbingChain ? (
-                                <>
-                                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                  <span>{t('ports.probingShort')}</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-2.5 h-2.5" />
-                                  <span>{t('ports.egressIpShort')}</span>
-                                </>
-                              )}
-                            </button>
-                          </div>
-                          <span
-                            className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 shrink-0 select-none"
-                            title={t('ports.finalExitResidentialTitle')}
-                          >
-                            {t('ports.residentialExitLabel')}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-2 min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0 flex-1 text-[11px] text-muted-foreground">
-                          <span className="inline-flex items-center justify-center text-[9px] font-medium leading-none px-1 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/50 shrink-0 select-none">
-                            {t('ports.upstreamLabel')}
-                          </span>
-                          {profileName && (
-                            <ProfileBadgeTooltip
-                              profile={primaryProfile}
-                              fallbackName={profileName}
-                              size="xs"
-                            />
-                          )}
-                          <RegionFlag
-                            code={extractRegion(m.nodeName).code}
-                            size="sm"
-                          />
-                          <span
-                            className="truncate font-medium text-foreground"
-                            title={
-                              profileName
-                                ? `[${profileName}] ${m.nodeName}`
-                                : m.nodeName
-                            }
-                          >
-                            {m.nodeName}
-                          </span>
-                          {isDrifted && residentialProxy && (
-                            <Badge
-                              variant="danger"
-                              size="sm"
-                              dot
-                              className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
-                              title={
-                                drift?.message ||
-                                t('ports.upstreamMissingTitle')
-                              }
-                            >
-                              {drift?.status === 'profile_missing'
-                                ? t('ports.profileDeletedReject')
-                                : drift?.status === 'empty_profile'
-                                  ? t('ports.profileEmptyReject')
-                                  : t('ports.chainInvalidReject')}
-                            </Badge>
-                          )}
-                          {!residentialProxy && (
-                            <Badge
-                              variant="danger"
-                              size="sm"
-                              dot
-                              className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
-                              title={t('ports.exitDeletedTitle')}
-                            >
-                              {t('ports.exitMissingReject')}
-                            </Badge>
-                          )}
-                        </div>
-                        <Badge
-                          variant={
-                            latency === undefined
-                              ? 'secondary'
-                              : isPrimaryTimeout
-                                ? 'danger'
-                                : 'success'
-                          }
-                          size="sm"
-                          dot={latency !== undefined}
-                          className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
-                          title={
-                            latency === undefined
-                              ? t('ports.chainUntestedTitle')
-                              : isPrimaryTimeout
-                                ? t('ports.chainTimeoutTitle')
-                                : t('ports.chainHealthyTitle')
-                          }
-                        >
-                          {latency === undefined
-                            ? t('ports.untested')
-                            : isPrimaryTimeout
-                              ? t('ports.chainAbnormal')
-                              : t('ports.chainHealthy')}
-                        </Badge>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground min-w-0">
-                        <span
-                          className="truncate"
-                          title={
-                            chainEgressInfo
-                              ? `${chainEgressInfo.ip}${chainEgressInfo.region ? ` · ${chainEgressInfo.region}` : ''}`
-                              : t('ports.probeFinalIpDesc')
-                          }
-                        >
-                          {chainEgressInfo
-                            ? `${chainEgressInfo.ip}${
-                                chainEgressInfo.region
-                                  ? ` · ${chainEgressInfo.region}`
-                                  : ''
-                              }`
-                            : m.enabled
-                              ? t('ports.clickProbeFinalIp')
-                              : t('ports.portNotListening')}
-                        </span>
-                        {residentialProxy && (
-                          <span
-                            className="font-mono text-[10px] text-muted-foreground/70 truncate shrink-0"
-                            title={t('ports.residentialProxyTooltip', {
-                              protocol: residentialProxy.protocol.toUpperCase(),
-                              server: residentialProxy.server,
-                              port: residentialProxy.port,
-                            })}
-                          >
-                            {residentialProxy.protocol.toUpperCase()}{' '}
-                            {residentialProxy.server}:{residentialProxy.port}
-                          </span>
-                        )}
-                      </div>
-
-                      {m.description?.trim() && (
-                        <div
-                          className="text-[10px] text-muted-foreground truncate italic pt-0.5"
-                          title={m.description}
-                        >
-                          {m.description}
-                        </div>
-                      )}
-                    </div>
                   ) : (
                     <div className="space-y-1.5 relative">
                       {(() => {
@@ -2811,7 +2610,7 @@ export const PortTableView: React.FC = () => {
                               </div>
 
                               {/* Main Node Status Badge (only shown when abnormal) */}
-                              {isPrimaryTimeout && (
+                              {!isChainPort && isPrimaryTimeout && (
                                 <Badge
                                   variant="danger"
                                   size="sm"
@@ -3101,6 +2900,91 @@ export const PortTableView: React.FC = () => {
                           </>
                         )
                       })()}
+                      {isChainPort && (
+                        <div className="flex items-center justify-between gap-2 pt-1.5 mt-1 border-t border-border/40 text-xs min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <Building2 className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 font-medium shrink-0">
+                              {t('ports.residentialExitLabel')}
+                            </span>
+                            <div className="relative flex items-center flex-1 min-w-0 group/exit">
+                              <span
+                                className={`truncate flex-1 font-medium ${
+                                  residentialProxy || m.chainExitNodeName
+                                    ? 'text-foreground'
+                                    : 'text-destructive'
+                                }`}
+                                title={
+                                  residentialProxy
+                                    ? `${residentialProxy.name} (${residentialProxy.protocol.toUpperCase()} ${residentialProxy.server}:${residentialProxy.port})`
+                                    : m.chainExitNodeName ||
+                                      t('ports.chainMissingTitle')
+                                }
+                              >
+                                {residentialProxy
+                                  ? residentialProxy.name
+                                  : m.chainExitNodeName ||
+                                    t('ports.chainExitMissingShort')}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={
+                                  isProbingChain ||
+                                  !m.enabled ||
+                                  (!residentialProxy && !m.chainExitNodeName)
+                                }
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  void handleCopyChainEgressIp(
+                                    m.port,
+                                    m.protocol,
+                                  )
+                                }}
+                                className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-5 px-2 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer disabled:opacity-70 transition-all duration-200 ease-out ${
+                                  isProbingChain
+                                    ? 'opacity-100 scale-100 translate-x-0 pointer-events-auto'
+                                    : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/exit:opacity-100 group-hover/exit:scale-100 group-hover/exit:translate-x-0 group-hover/exit:pointer-events-auto'
+                                }`}
+                                title={
+                                  isProbingChain
+                                    ? t('ports.probingChainIp')
+                                    : chainEgressInfo
+                                      ? t('ports.clickCopyChainIp', {
+                                          ip: chainEgressInfo.ip,
+                                          region: chainEgressInfo.region
+                                            ? ` (${chainEgressInfo.region})`
+                                            : '',
+                                        })
+                                      : t('ports.clickProbeChainIp')
+                                }
+                              >
+                                {isProbingChain ? (
+                                  <>
+                                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                    <span>{t('ports.probingShort')}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-2.5 h-2.5" />
+                                    <span>{t('ports.egressIpShort')}</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                          {isPrimaryTimeout && (
+                            <Badge
+                              variant="danger"
+                              size="sm"
+                              dot
+                              className="!text-[10px] !py-0.5 !px-1.5 shrink-0"
+                              title={t('ports.chainTimeoutTitle')}
+                            >
+                              {t('ports.chainAbnormal')}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
                       {m.description?.trim() && (
                         <div
                           className="text-[10px] text-muted-foreground truncate italic pt-0.5"
@@ -3180,6 +3064,8 @@ export const PortTableView: React.FC = () => {
                                 <span className="flex items-center gap-0.5">
                                   <Loader2 className="w-2.5 h-2.5 animate-spin" />
                                 </span>
+                              ) : isChainPort && latency === null ? (
+                                t('ports.chainAbnormal')
                               ) : (
                                 formatLatencyLabel(latency, isTesting)
                               )}
