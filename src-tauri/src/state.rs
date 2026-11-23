@@ -43,6 +43,7 @@ pub struct AppState {
     pub icon_cache: Arc<ExecutableIconCache>,
     pub node_analytics: Arc<NodeAnalyticsStore>,
     pub network_monitor: Arc<SystemNetworkMonitor>,
+    pub cleanup_done: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl AppState {
@@ -55,6 +56,7 @@ impl AppState {
         let occupied_ports = Arc::new(RwLock::new(HashSet::new()));
         let is_silent_start = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let initial_window_shown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cleanup_done = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let egress_probe_port = Arc::new(RwLock::new(None));
         let egress_probe_lock = Arc::new(tokio::sync::Mutex::new(()));
         let residential_probe_lock = Arc::new(tokio::sync::Mutex::new(()));
@@ -196,6 +198,7 @@ impl AppState {
             icon_cache,
             node_analytics,
             network_monitor,
+            cleanup_done,
         }
     }
 
@@ -576,6 +579,9 @@ impl AppState {
     /// Strictly adheres to AGENTS.md lifecycle safety redline for production instances while
     /// preventing isolated dev instances from clearing the production application's system proxy and environment variables.
     pub fn cleanup_on_exit(&self, app_handle: &tauri::AppHandle) {
+        if self.cleanup_done.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
         let is_dev = cfg!(debug_assertions) || app_handle.config().identifier.ends_with(".dev");
         let config = self.config.read().clone();
         let should_clear_proxy = if !is_dev {

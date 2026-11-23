@@ -1436,7 +1436,15 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 }
                 "quit_app" => {
                     info!("Quitting application from tray");
-                    app.exit(0);
+                    let app_handle = app.clone();
+                    std::thread::spawn(move || {
+                        app_handle.exit(0);
+                        std::thread::sleep(std::time::Duration::from_millis(1500));
+                        if let Some(state) = app_handle.try_state::<crate::state::AppState>() {
+                            state.cleanup_on_exit(&app_handle);
+                        }
+                        std::process::exit(0);
+                    });
                 }
                 _ => {}
             }
