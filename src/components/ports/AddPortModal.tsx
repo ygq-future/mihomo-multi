@@ -462,6 +462,14 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     return map
   }, [portMappings, initialMapping])
 
+  const [sortLatencies, setSortLatencies] = useState(latencies)
+
+  useEffect(() => {
+    if (isOpen) {
+      setSortLatencies(useAppStore.getState().latencies)
+    }
+  }, [isOpen])
+
   const sortedNodes = useMemo(() => {
     const list = [...allAvailableNodes]
     return list.sort((a, b) => {
@@ -479,9 +487,9 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         if (sameRegionA !== sameRegionB) return sameRegionA ? -1 : 1
       }
 
-      return compareNodesByLatencyAndName(a, b, latencies, locale)
+      return compareNodesByLatencyAndName(a, b, sortLatencies, locale)
     })
-  }, [allAvailableNodes, latencies, locale, selectedNodeRegion])
+  }, [allAvailableNodes, sortLatencies, locale, selectedNodeRegion])
 
   const nodeOptions = useMemo(() => {
     return sortedNodes.map((n) => {
@@ -579,6 +587,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       )
       if (names.length === 0) return
       await testAllNodesDelay(names)
+      setSortLatencies(useAppStore.getState().latencies)
     },
     [allAvailableNodes, testAllNodesDelay],
   )

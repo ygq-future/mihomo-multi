@@ -461,27 +461,38 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     [],
   )
 
+  const [sortLatencies, setSortLatencies] = useState(latencies)
+
+  useEffect(() => {
+    if (isOpen) {
+      setSortLatencies(useAppStore.getState().latencies)
+    }
+  }, [isOpen])
+
   // 节点下拉选项（按真实延迟升序排序：低延迟置顶）
   const nodeOptions = useMemo<SelectOption<string>[]>(() => {
-    const getNodeLatency = (node: {
-      name: string
-      profileName?: string
-      runtimeName?: string
-      latency?: number | null
-    }) => {
+    const getNodeLatency = (
+      node: {
+        name: string
+        profileName?: string
+        runtimeName?: string
+        latency?: number | null
+      },
+      source: Record<string, number | null>,
+    ) => {
       const runtimeKey = nodeRuntimeName(node)
-      if (runtimeKey in latencies && latencies[runtimeKey] !== undefined) {
-        return latencies[runtimeKey]
+      if (runtimeKey in source && source[runtimeKey] !== undefined) {
+        return source[runtimeKey]
       }
-      if (node.name in latencies && latencies[node.name] !== undefined) {
-        return latencies[node.name]
+      if (node.name in source && source[node.name] !== undefined) {
+        return source[node.name]
       }
       return node.latency ?? null
     }
 
     const sortedNodes = [...allAvailableNodes].sort((a, b) => {
-      const latA = getNodeLatency(a)
-      const latB = getNodeLatency(b)
+      const latA = getNodeLatency(a, sortLatencies)
+      const latB = getNodeLatency(b, sortLatencies)
 
       const hasA = latA !== undefined && latA !== null && latA > 0
       const hasB = latB !== undefined && latB !== null && latB > 0
@@ -496,7 +507,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     })
 
     return sortedNodes.map((n) => {
-      const lat = getNodeLatency(n)
+      const lat = getNodeLatency(n, latencies)
       const hasLat = lat !== undefined && lat !== null && lat > 0
 
       return {
@@ -519,7 +530,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         ) : null,
       }
     })
-  }, [allAvailableNodes, latencies, t, nodeRuntimeName])
+  }, [allAvailableNodes, latencies, sortLatencies, t, nodeRuntimeName])
 
   // 其他可用端口（全局模式包含所有非直连已启用端口，单端口模式排除自身和固定直连端口）
   const otherPorts = useMemo(() => {
@@ -743,6 +754,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           currentTestUrl,
           testTimeoutMs,
         )
+        setSortLatencies(useAppStore.getState().latencies)
         if (
           results.length > 0 &&
           results.every(
