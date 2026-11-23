@@ -2179,33 +2179,83 @@ export const PortTableView: React.FC = () => {
                           <GripVertical className="w-3 h-3" />
                         </button>
                       )}
-                      {isStoppedWarning ? (
-                        <span
-                          className="inline-flex shrink-0 cursor-help"
-                          title={t('ports.statusCoreStopped')}
-                        >
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-                        </span>
-                      ) : isOccupiedWarning ? (
-                        <span
-                          className="inline-flex shrink-0 cursor-help"
-                          title={t('ports.statusOccupied', { port: m.port })}
-                        >
-                          <AlertTriangle className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
-                        </span>
-                      ) : isFallbackWarning ? (
-                        <span
-                          className="inline-flex shrink-0 cursor-help"
-                          title={t('ports.statusFallbackActive')}
-                        >
-                          <ShieldCheck className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
-                        </span>
-                      ) : isEffectiveEnabled && isRunning ? (
-                        <span
-                          className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0 cursor-help"
-                          title={t('ports.statusListening')}
-                        />
-                      ) : null}
+                      {!isDirectCard &&
+                        (() => {
+                          const primaryProfile = profiles.find(
+                            (p) => p.id === m.profileId,
+                          )
+                          const fallbackProfile = m.fallbackProfileId
+                            ? profiles.find((p) => p.id === m.fallbackProfileId)
+                            : undefined
+                          const primaryDisabled =
+                            primaryProfile && !primaryProfile.enabled
+                              ? primaryProfile
+                              : null
+                          const fallbackDisabled =
+                            fallbackProfile && !fallbackProfile.enabled
+                              ? fallbackProfile
+                              : null
+                          const usingFallback =
+                            Boolean(m.manualFallback) || isAutoFallbackActive
+                          const activeDisabled = usingFallback
+                            ? (fallbackDisabled ?? primaryDisabled)
+                            : primaryDisabled
+                          const standbyFallbackDisabled =
+                            !usingFallback && fallbackDisabled
+                              ? fallbackDisabled
+                              : null
+
+                          return (
+                            <>
+                              {standbyFallbackDisabled && (
+                                <span
+                                  className="inline-flex shrink-0 cursor-help"
+                                  title={t('ports.profileDisabledWarning', {
+                                    name: standbyFallbackDisabled.name,
+                                  })}
+                                >
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                                </span>
+                              )}
+                              {isStoppedWarning ? (
+                                <span
+                                  className="inline-flex shrink-0 cursor-help"
+                                  title={t('ports.statusCoreStopped')}
+                                >
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                                </span>
+                              ) : isOccupiedWarning ? (
+                                <span
+                                  className="inline-flex shrink-0 cursor-help"
+                                  title={t('ports.statusOccupied', {
+                                    port: m.port,
+                                  })}
+                                >
+                                  <AlertTriangle className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
+                                </span>
+                              ) : activeDisabled ? (
+                                <span
+                                  className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0 cursor-help"
+                                  title={t('ports.profileDisabledWarning', {
+                                    name: activeDisabled.name,
+                                  })}
+                                />
+                              ) : isFallbackWarning ? (
+                                <span
+                                  className="inline-flex shrink-0 cursor-help"
+                                  title={t('ports.statusFallbackActive')}
+                                >
+                                  <ShieldCheck className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                                </span>
+                              ) : isEffectiveEnabled && isRunning ? (
+                                <span
+                                  className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0 cursor-help"
+                                  title={t('ports.statusListening')}
+                                />
+                              ) : null}
+                            </>
+                          )
+                        })()}
 
                       <span
                         onPointerDown={

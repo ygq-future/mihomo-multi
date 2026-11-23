@@ -572,6 +572,7 @@ mod tests {
             last_updated_at: 0,
             node_count: 3,
             subscription_info: None,
+            enabled: true,
         }
     }
 

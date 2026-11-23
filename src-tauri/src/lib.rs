@@ -434,6 +434,7 @@ pub fn run() {
             add_local_profile,
             update_profile,
             edit_profile,
+            set_profile_enabled,
             delete_profile,
             get_profile_nodes,
             get_all_nodes,

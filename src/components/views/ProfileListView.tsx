@@ -27,7 +27,7 @@ import {
   formatTrafficBytes,
   getSubscriptionStats,
 } from '../../utils/subscription'
-import { Button, Modal, toast } from '../common'
+import { Button, Modal, Switch, toast } from '../common'
 import { AddLocalModal } from '../profiles/AddLocalModal'
 import { AddRemoteModal } from '../profiles/AddRemoteModal'
 import { EditProfileModal } from '../profiles/EditProfileModal'
@@ -44,6 +44,7 @@ export const ProfileListView: React.FC = () => {
     addLocalProfile,
     updateProfile,
     editProfile,
+    setProfileEnabled,
     deleteProfile,
     updatingProfileIds,
     profileLoading,
@@ -57,6 +58,7 @@ export const ProfileListView: React.FC = () => {
       addLocalProfile: s.addLocalProfile,
       updateProfile: s.updateProfile,
       editProfile: s.editProfile,
+      setProfileEnabled: s.setProfileEnabled,
       deleteProfile: s.deleteProfile,
       updatingProfileIds: s.updatingProfileIds,
       profileLoading: s.profileLoading,
@@ -76,6 +78,7 @@ export const ProfileListView: React.FC = () => {
   )
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [isRefreshingAll, setIsRefreshingAll] = useState(false)
+  const [togglingIds, setTogglingIds] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     fetchProfiles()
@@ -176,6 +179,29 @@ export const ProfileListView: React.FC = () => {
       )
     } catch {
       toast.error(t('profileMain.toastCopyFailed'))
+    }
+  }
+
+  const handleToggleEnabled = async (
+    profile: ProfileItem,
+    enabled: boolean,
+  ) => {
+    setTogglingIds((prev) => ({ ...prev, [profile.id]: true }))
+    try {
+      await setProfileEnabled(profile.id, enabled)
+      toast.success(
+        t(enabled ? 'profileMain.enabledToast' : 'profileMain.disabledToast', {
+          name: profile.name,
+        }),
+      )
+    } catch (err) {
+      toast.error(
+        t('profileMain.toggleFailed', {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      )
+    } finally {
+      setTogglingIds((prev) => ({ ...prev, [profile.id]: false }))
     }
   }
 
@@ -351,7 +377,9 @@ export const ProfileListView: React.FC = () => {
               return (
                 <div
                   key={profile.id}
-                  className="bg-card border border-border rounded-xl p-3.5 space-y-2.5 shadow-sm hover:border-primary/40 transition-all flex flex-col justify-between group"
+                  className={`bg-card border border-border rounded-xl p-3.5 space-y-2.5 shadow-sm hover:border-primary/40 transition-all flex flex-col justify-between group ${
+                    profile.enabled ? '' : 'opacity-80 bg-card/70'
+                  }`}
                 >
                   <div className="space-y-2.5">
                     {/* Top Bar: Icon + Name + Badge */}
@@ -385,17 +413,27 @@ export const ProfileListView: React.FC = () => {
                         </div>
                       </div>
 
-                      <span
-                        className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium shrink-0 border ${
-                          profile.nodeCount > 0
-                            ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                            : 'bg-muted text-muted-foreground border-border'
-                        }`}
-                      >
-                        {t('profileMain.nodeCount', {
-                          count: profile.nodeCount,
-                        })}
-                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${
+                            profile.nodeCount > 0
+                              ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                              : 'bg-muted text-muted-foreground border-border'
+                          }`}
+                        >
+                          {t('profileMain.nodeCount', {
+                            count: profile.nodeCount,
+                          })}
+                        </span>
+                        <Switch
+                          size="sm"
+                          checked={profile.enabled}
+                          loading={togglingIds[profile.id] ?? false}
+                          onChange={(checked) =>
+                            handleToggleEnabled(profile, checked)
+                          }
+                        />
+                      </div>
                     </div>
 
                     {/* URL / Path Preview with Quick Copy */}

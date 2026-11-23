@@ -1466,6 +1466,20 @@ pub async fn edit_profile(
 }
 
 #[tauri::command]
+pub async fn set_profile_enabled(
+    id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<ProfileItem, String> {
+    let item = state
+        .profile_manager
+        .set_profile_enabled(&id, enabled)
+        .map_err(|err| err.to_string())?;
+    let _ = state.sync_runtime_config().await;
+    Ok(item)
+}
+
+#[tauri::command]
 pub async fn delete_profile(id: String, app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     state
         .profile_manager

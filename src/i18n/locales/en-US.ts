@@ -712,6 +712,12 @@ export const enUS: Record<TranslationKey, string> = {
   'profileMain.typeLocal': 'Local file',
   'profileMain.nodeCount': '{count} nodes',
   'profileMain.copyLinkTitle': 'Copy link or file path',
+  'profileMain.enabledToast': 'Subscription "{name}" enabled',
+  'profileMain.disabledToast': 'Subscription "{name}" disabled',
+  'profileMain.toggleFailed': 'Failed to toggle subscription: {error}',
+  'proxies.profileDisabled': 'Disabled',
+  'ports.profileDisabledWarning':
+    'Subscription "{name}" is disabled; this mapping will not take effect',
   'profileMain.viewNodes': 'View nodes ({count})',
   'profileMain.revealFileTitle': 'Show this profile file in the file explorer',
   'profileMain.editProfileTitle': 'Edit profile',

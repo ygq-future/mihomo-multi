@@ -30,6 +30,7 @@ export interface ProfileSlice {
     url: string | undefined,
     intervalMins: number,
   ) => Promise<ProfileItem>
+  setProfileEnabled: (id: string, enabled: boolean) => Promise<ProfileItem>
   deleteProfile: (id: string) => Promise<void>
   fetchProfileNodes: (profileId: string) => Promise<ProxyNode[]>
   setSelectedProfileId: (id: string | null) => void
@@ -159,6 +160,14 @@ export const createProfileSlice: StateCreator<
       set({ profileLoading: false })
       throw err
     }
+  },
+
+  setProfileEnabled: async (id, enabled) => {
+    const updated = await api.setProfileEnabled(id, enabled)
+    set((state) => ({
+      profiles: state.profiles.map((p) => (p.id === id ? updated : p)),
+    }))
+    return updated
   },
 
   deleteProfile: async (id) => {

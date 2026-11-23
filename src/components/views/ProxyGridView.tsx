@@ -309,8 +309,9 @@ export const ProxyGridView: React.FC = () => {
   useEffect(() => {
     if (profiles.length === 0) return
 
+    const enabledProfiles = profiles.filter((p) => p.enabled)
     if (isAllProfilesSelected) {
-      const allIds = profiles.map((p) => p.id)
+      const allIds = enabledProfiles.map((p) => p.id)
       if (
         selectedProfileIds.length !== allIds.length ||
         !allIds.every((id) => selectedProfileIds.includes(id))
@@ -318,7 +319,7 @@ export const ProxyGridView: React.FC = () => {
         setSelectedProfileIds(allIds)
       }
     } else if (selectedProfileIds.length > 0) {
-      const validIds = new Set(profiles.map((p) => p.id))
+      const validIds = new Set(enabledProfiles.map((p) => p.id))
       const filtered = selectedProfileIds.filter((id) => validIds.has(id))
       if (filtered.length !== selectedProfileIds.length) {
         setSelectedProfileIds(filtered)
@@ -328,8 +329,12 @@ export const ProxyGridView: React.FC = () => {
 
   // Sync filter changes to localStorage
   const handleProfileFilterChange = (newIds: string[]) => {
-    if (newIds.length === profiles.length) {
-      setSelectedProfileIds(profiles.map((p) => p.id))
+    const enabledProfiles = profiles.filter((p) => p.enabled)
+    if (
+      enabledProfiles.length > 0 &&
+      newIds.length === enabledProfiles.length
+    ) {
+      setSelectedProfileIds(enabledProfiles.map((p) => p.id))
       setIsAllProfilesSelected(true)
       try {
         localStorage.setItem('proxy_filter_profiles', 'all')
@@ -595,7 +600,8 @@ export const ProxyGridView: React.FC = () => {
     return profiles.map((p) => ({
       value: p.id,
       label: p.name,
-      badge: `${p.nodeCount}`,
+      disabled: !p.enabled,
+      badge: p.enabled ? `${p.nodeCount}` : t('proxies.profileDisabled'),
       icon:
         p.type === 'remote' ? (
           <Globe className="w-3.5 h-3.5 opacity-70 shrink-0" />
@@ -603,7 +609,7 @@ export const ProxyGridView: React.FC = () => {
           <FileCode className="w-3.5 h-3.5 opacity-70 shrink-0" />
         ),
     }))
-  }, [profiles])
+  }, [profiles, t])
 
   return (
     <div className="h-full flex flex-col p-6 space-y-4 w-full overflow-hidden">

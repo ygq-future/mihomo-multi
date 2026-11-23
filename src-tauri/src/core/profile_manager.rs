@@ -727,6 +727,7 @@ impl ProfileManager {
             last_updated_at: current_unix_timestamp(),
             node_count,
             subscription_info,
+            enabled: true,
         };
 
         {
@@ -790,6 +791,7 @@ impl ProfileManager {
             last_updated_at: current_unix_timestamp(),
             node_count,
             subscription_info,
+            enabled: true,
         };
         {
             let mut guard = self.profiles.write();
@@ -848,6 +850,7 @@ impl ProfileManager {
             last_updated_at: current_unix_timestamp(),
             node_count,
             subscription_info,
+            enabled: true,
         };
 
         {
@@ -1031,6 +1034,22 @@ impl ProfileManager {
 
         self.persist_metadata()?;
         info!("Profile '{}' (ID: {}) edited successfully", updated_item.name, id);
+        Ok(updated_item)
+    }
+
+    pub fn set_profile_enabled(&self, id: &str, enabled: bool) -> AppResult<ProfileItem> {
+        let updated_item = {
+            let mut guard = self.profiles.write();
+            let item = guard.iter_mut().find(|p| p.id == id).ok_or_else(|| {
+                AppError::ProfileNotFound(crate::tr!(
+                    format!("未找到 ID 为 '{}' 的订阅", id),
+                    format!("Profile with ID '{}' not found", id),
+                ))
+            })?;
+            item.enabled = enabled;
+            item.clone()
+        };
+        self.persist_metadata()?;
         Ok(updated_item)
     }
 

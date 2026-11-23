@@ -97,7 +97,7 @@ impl AutoUpdater {
         let total_managed_profiles = profiles.len();
         let eligible_profiles_count = profiles
             .iter()
-            .filter(|p| p.profile_type == ProfileType::Remote && p.auto_update_interval_mins > 0)
+            .filter(|p| p.enabled && p.profile_type == ProfileType::Remote && p.auto_update_interval_mins > 0)
             .count();
 
         AutoUpdaterStatus {

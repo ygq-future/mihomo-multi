@@ -87,6 +87,12 @@ pub struct ProfileItem {
     pub node_count: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subscription_info: Option<SubscriptionInfo>,
+    #[serde(default = "default_profile_enabled")]
+    pub enabled: bool,
+}
+
+fn default_profile_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]

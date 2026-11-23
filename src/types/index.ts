@@ -20,6 +20,7 @@ export interface ProfileItem {
   lastUpdatedAt: number
   nodeCount: number
   subscriptionInfo?: SubscriptionInfo
+  enabled: boolean
 }
 
 export type InboundProtocol = 'mixed' | 'http' | 'socks5'

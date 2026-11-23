@@ -496,6 +496,7 @@ export async function getProfiles(): Promise<ProfileItem[]> {
           total: 322122547200,
           expireAt: Math.floor(Date.now() / 1000) + 86400 * 45,
         },
+        enabled: true,
       },
       {
         id: 'mock-sub-2',
@@ -511,6 +512,7 @@ export async function getProfiles(): Promise<ProfileItem[]> {
           neverExpires: true,
           resetDays: 30,
         },
+        enabled: true,
       },
       {
         id: 'mock-sub-3',
@@ -520,6 +522,7 @@ export async function getProfiles(): Promise<ProfileItem[]> {
         autoUpdateIntervalMins: 0,
         lastUpdatedAt: Math.floor(Date.now() / 1000),
         nodeCount: 3,
+        enabled: true,
       },
     ]
   }
@@ -541,6 +544,7 @@ export async function addRemoteProfile(
       autoUpdateIntervalMins: intervalMins,
       lastUpdatedAt: Math.floor(Date.now() / 1000),
       nodeCount: 5,
+      enabled: true,
     }
   }
   return invoke<ProfileItem>('add_remote_profile', {
@@ -563,6 +567,7 @@ export async function addLocalProfile(
       autoUpdateIntervalMins: 0,
       lastUpdatedAt: Math.floor(Date.now() / 1000),
       nodeCount: 3,
+      enabled: true,
     }
   }
   return invoke<ProfileItem>('add_local_profile', {
@@ -581,6 +586,7 @@ export async function updateProfile(id: string): Promise<ProfileItem> {
       autoUpdateIntervalMins: 0,
       lastUpdatedAt: Math.floor(Date.now() / 1000),
       nodeCount: 5,
+      enabled: true,
     }
   }
   return invoke<ProfileItem>('update_profile', { id })
@@ -602,6 +608,7 @@ export async function editProfile(
       autoUpdateIntervalMins: intervalMins,
       lastUpdatedAt: Math.floor(Date.now() / 1000),
       nodeCount: 5,
+      enabled: true,
     }
   }
   return invoke<ProfileItem>('edit_profile', {
@@ -610,6 +617,25 @@ export async function editProfile(
     url: url || null,
     intervalMins,
   })
+}
+
+export async function setProfileEnabled(
+  id: string,
+  enabled: boolean,
+): Promise<ProfileItem> {
+  if (!isTauriEnvironment()) {
+    return {
+      id,
+      name: 'Mock Profile',
+      type: 'remote',
+      filePath: `profiles/${id}.yaml`,
+      autoUpdateIntervalMins: 0,
+      lastUpdatedAt: Math.floor(Date.now() / 1000),
+      nodeCount: 5,
+      enabled,
+    }
+  }
+  return invoke<ProfileItem>('set_profile_enabled', { id, enabled })
 }
 
 export async function deleteProfile(id: string): Promise<void> {
