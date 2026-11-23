@@ -195,12 +195,26 @@ export const ResidentialProxyTestPanel: React.FC<
       profiles.map((profile) => ({
         value: profile.id,
         label: profile.name,
+        disabled: !profile.enabled,
         description: t('residentialI18n.test.nodeCount', {
           count: profile.nodeCount,
         }),
         icon: <Layers className="w-3.5 h-3.5 text-primary" />,
+        rightNode: !profile.enabled ? (
+          <Badge
+            variant="outline"
+            size="sm"
+            className="!text-[10px] !py-0.5 !px-1.5"
+          >
+            {t('proxies.profileDisabled')}
+          </Badge>
+        ) : undefined,
       })),
     [profiles, t],
+  )
+
+  const isSelectedProfileDisabled = Boolean(
+    selectedProfile && !selectedProfile.enabled,
   )
 
   const nodeOptions = useMemo(() => {
@@ -214,11 +228,21 @@ export const ResidentialProxyTestPanel: React.FC<
       return {
         value: node.name,
         label: node.name,
+        disabled: isSelectedProfileDisabled,
         description: `${formatProtocolName(node.type)} · ${regionName}`,
         icon: <RegionFlag code={region.code} size="sm" />,
+        rightNode: isSelectedProfileDisabled ? (
+          <Badge
+            variant="outline"
+            size="sm"
+            className="!text-[10px] !py-0.5 !px-1.5"
+          >
+            {t('proxies.profileDisabled')}
+          </Badge>
+        ) : undefined,
       }
     })
-  }, [selectedNodes, locale, t])
+  }, [selectedNodes, locale, t, isSelectedProfileDisabled])
 
   const canTest = isDesktop && Boolean(profileId) && Boolean(nodeName)
 

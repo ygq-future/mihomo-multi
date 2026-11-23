@@ -360,6 +360,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       runtimeName?: string
       profileId: string
       profileName: string
+      profileEnabled: boolean
       uniqueKey: string
       displayName: string
     }> = []
@@ -370,6 +371,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           ...n,
           profileId: p.id,
           profileName: p.name,
+          profileEnabled: p.enabled,
           uniqueKey: `${p.id}:::${n.name}`,
           displayName: `[${p.name}] ${n.name}`,
         })
@@ -377,6 +379,16 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
     }
     return result
   }, [profiles, profileNodes])
+
+  const disabledProfileNodeKeys = useMemo(() => {
+    const keys = new Set<string>()
+    for (const node of allAvailableNodes) {
+      if (!node.profileEnabled) {
+        keys.add(node.uniqueKey)
+      }
+    }
+    return keys
+  }, [allAvailableNodes])
 
   const selectedNode = useMemo(() => {
     if (!selectedNodeName || !selectedProfileId) return null
@@ -495,7 +507,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const handleTestChainNodeOption = async (uniqueKey: string) => {
     if (!selectedNodeName || !selectedProfileId) return
     const node = allAvailableNodes.find((n) => n.uniqueKey === uniqueKey)
-    if (!node) return
+    if (!node || !node.profileEnabled) return
     setResidentialTestError(null)
     setChainNodeTesting((prev) => ({ ...prev, [uniqueKey]: true }))
     try {
@@ -561,6 +573,9 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
   const sortedNodes = useMemo(() => {
     const list = [...allAvailableNodes]
     return list.sort((a, b) => {
+      if (a.profileEnabled !== b.profileEnabled) {
+        return a.profileEnabled ? -1 : 1
+      }
       const latencyA = nodeKeyHasLatency(a.displayName, a.name, latencies)
       const latencyB = nodeKeyHasLatency(b.displayName, b.name, latencies)
       if ((latencyA === null) !== (latencyB === null)) {
@@ -618,7 +633,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
         searchKeywords: getRegionSearchKeywords(region),
         description,
         icon: <RegionFlag code={region.code} size="sm" />,
-        disabled: Boolean(boundPort) && !isChainMode,
+        disabled: !n.profileEnabled || (Boolean(boundPort) && !isChainMode),
         rightNode: (
           <span
             className={`font-mono text-[11px] font-medium ${getLatencyColor(latency)}`}
@@ -654,7 +669,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
       const node = allAvailableNodes.find(
         (candidate) => candidate.uniqueKey === option.value,
       )
-      if (!node) return
+      if (!node || !node.profileEnabled) return
       await testNodeDelay(node.runtimeName || node.displayName)
     },
     [allAvailableNodes, testNodeDelay],
@@ -669,7 +684,9 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             const node = allAvailableNodes.find(
               (candidate) => candidate.uniqueKey === option.value,
             )
-            return node ? [node.runtimeName || node.displayName] : []
+            return node && node.profileEnabled
+              ? [node.runtimeName || node.displayName]
+              : []
           }),
         ),
       )
@@ -944,7 +961,12 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           n.uniqueKey !== selectedNode.uniqueKey &&
           extractRegion(n.name).code === selectedNodeRegion.code,
       )
-      .sort((a, b) => compareNodesByLatencyAndName(a, b, latencies, locale))
+      .sort((a, b) => {
+        if (a.profileEnabled !== b.profileEnabled) {
+          return a.profileEnabled ? -1 : 1
+        }
+        return compareNodesByLatencyAndName(a, b, latencies, locale)
+      })
 
     const options: SelectOption<string>[] = [
       {
@@ -970,6 +992,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
           region: formatRegionName(region.code, region.name),
         }),
         icon: <RegionFlag code={region.code} size="sm" />,
+        disabled: !n.profileEnabled,
         rightNode: (
           <span
             className={`font-mono text-[11px] font-medium ${getLatencyColor(latency)}`}
@@ -1334,10 +1357,22 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             isTesting={isTestingAll}
             testingValues={nodeTestingValues}
             renderOptionStatus={(option) => {
+              const isProfileDisabled = disabledProfileNodeKeys.has(
+                option.value,
+              )
               const boundPort = boundNodeMap.get(option.value)
               const chainPort = chainUpstreamMap.get(option.value)
               return (
                 <>
+                  {isProfileDisabled && (
+                    <Badge
+                      variant="outline"
+                      size="sm"
+                      className="!text-[10px] !py-0.5 !px-1.5"
+                    >
+                      {t('proxies.profileDisabled')}
+                    </Badge>
+                  )}
                   {chainPort && (
                     <Badge
                       variant="secondary"
@@ -1396,9 +1431,18 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
                   const testState = chainNodeTestResults[opt.value]
                   const latency = testState ? testState.latencyMs : undefined
                   const latencyProps = getLatencyBadgeProps(latency, false)
+                  const isProfileDisabled = disabledProfileNodeKeys.has(
+                    opt.value,
+                  )
                   return {
                     value: `node:${opt.value}`,
                     label: `[订阅] ${opt.label}`,
+                    group: opt.group,
+                    searchTarget: opt.searchTarget,
+                    searchKeywords: opt.searchKeywords,
+                    description: opt.description,
+                    icon: opt.icon,
+                    disabled: isProfileDisabled,
                     rightNode: (
                       <span
                         className={`font-mono text-[11px] font-medium ${
@@ -1461,6 +1505,23 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
                   v,
                 ]),
               ),
+            }}
+            renderOptionStatus={(option) => {
+              if (
+                !option.value.startsWith('node:') ||
+                !disabledProfileNodeKeys.has(option.value.slice(5))
+              ) {
+                return null
+              }
+              return (
+                <Badge
+                  variant="outline"
+                  size="sm"
+                  className="!text-[10px] !py-0.5 !px-1.5"
+                >
+                  {t('proxies.profileDisabled')}
+                </Badge>
+              )
             }}
           />
           <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
@@ -1627,6 +1688,17 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
                   testOptions={handleTestNodeOptions}
                   isTesting={isTestingAll}
                   testingValues={nodeTestingValues}
+                  renderOptionStatus={(option) =>
+                    disabledProfileNodeKeys.has(option.value) ? (
+                      <Badge
+                        variant="outline"
+                        size="sm"
+                        className="!text-[10px] !py-0.5 !px-1.5"
+                      >
+                        {t('proxies.profileDisabled')}
+                      </Badge>
+                    ) : null
+                  }
                 />
                 <p className="text-[10px] text-muted-foreground mt-1">
                   {t('addPort.fallbackHint')}

@@ -32,6 +32,7 @@ export function SpeedSelect({
               title={t('proxies.testSingleTitle')}
               disabled={
                 props.disabled ||
+                Boolean(option.disabled) ||
                 isTesting ||
                 Boolean(testingValues?.[option.value])
               }
@@ -63,12 +64,16 @@ export function SpeedSelect({
             disabled={
               props.disabled ||
               isTesting ||
-              !options.some((option) => Boolean(option.value))
+              !options.some(
+                (option) => Boolean(option.value) && !option.disabled,
+              )
             }
             onClick={() => {
               focusSearch()
               void testOptions(
-                options.filter((option) => Boolean(option.value)),
+                options.filter(
+                  (option) => Boolean(option.value) && !option.disabled,
+                ),
               )
             }}
             className="px-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"

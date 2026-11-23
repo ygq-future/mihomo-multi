@@ -439,7 +439,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
 
   // 所有可用节点列表
   const allAvailableNodes = useMemo(() => {
-    const list: (ProxyNode & { profileId: string; profileName: string })[] = []
+    const list: (ProxyNode & {
+      profileId: string
+      profileName: string
+      profileEnabled: boolean
+    })[] = []
     for (const p of profiles) {
       const nodes = profileNodes[p.id] || []
       for (const n of nodes) {
@@ -447,11 +451,22 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
           ...n,
           profileId: p.id,
           profileName: p.name,
+          profileEnabled: p.enabled,
         })
       }
     }
     return list
   }, [profiles, profileNodes])
+
+  const disabledProfileNodeKeys = useMemo(() => {
+    const keys = new Set<string>()
+    for (const node of allAvailableNodes) {
+      if (!node.profileEnabled) {
+        keys.add(`${node.profileId}:::${node.name}`)
+      }
+    }
+    return keys
+  }, [allAvailableNodes])
 
   // 节点在 Mihomo 内核中的真实运行时名称（测速与延迟缓存均以此为准）
   const nodeRuntimeName = useCallback(
@@ -491,9 +506,11 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     }
 
     const sortedNodes = [...allAvailableNodes].sort((a, b) => {
+      if (a.profileEnabled !== b.profileEnabled) {
+        return a.profileEnabled ? -1 : 1
+      }
       const latA = getNodeLatency(a, sortLatencies)
       const latB = getNodeLatency(b, sortLatencies)
-
       const hasA = latA !== undefined && latA !== null && latA > 0
       const hasB = latB !== undefined && latB !== null && latB > 0
 
@@ -519,6 +536,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         group: n.profileName || t('rules.defaultProfile'),
         searchTarget: `${n.profileName} ${n.name}`,
         searchKeywords: getRegionSearchKeywords(extractRegion(n.name)),
+        disabled: !n.profileEnabled,
         rightNode: hasLat ? (
           <span
             className={`font-mono text-[11px] font-medium ${getLatencyColor(
@@ -707,7 +725,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
       const node = allAvailableNodes.find(
         (n) => `${n.profileId}:::${n.name}` === option.value,
       )
-      if (!node) return
+      if (!node || !node.profileEnabled) return
       updateTestingValue(setTestingNodeValues, option.value, true)
       try {
         const latency = await testNodeDelay(
@@ -739,7 +757,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
         const node = allAvailableNodes.find(
           (n) => `${n.profileId}:::${n.name}` === option.value,
         )
-        return node ? [{ option, node }] : []
+        return node && node.profileEnabled ? [{ option, node }] : []
       })
       if (testable.length === 0 || isNodeTesting || nodeBatchRunningRef.current)
         return
@@ -908,11 +926,13 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
 
   // 初始化目标出口默认值
   const ensureDefaultTarget = () => {
-    if (!targetValue && allAvailableNodes.length > 0) {
-      const first = allAvailableNodes[0]
-      setTargetType('node')
-      setTargetProfileId(first.profileId || '')
-      setTargetValue(first.name)
+    if (!targetValue) {
+      const first = allAvailableNodes.find((n) => n.profileEnabled)
+      if (first) {
+        setTargetType('node')
+        setTargetProfileId(first.profileId || '')
+        setTargetValue(first.name)
+      }
     }
   }
 
@@ -921,8 +941,8 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
     setTargetType(type)
     setTestResult(null)
     if (type === 'node') {
-      if (allAvailableNodes.length > 0) {
-        const first = allAvailableNodes[0]
+      const first = allAvailableNodes.find((n) => n.profileEnabled)
+      if (first) {
         setTargetProfileId(first.profileId || '')
         setTargetValue(first.name)
       } else {
@@ -1734,9 +1754,7 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
               {targetType === 'node' && (
                 <SpeedSelect
                   value={
-                    targetValue
-                      ? `${targetProfileId}:::${targetValue}`
-                      : nodeOptions[0]?.value || ''
+                    targetValue ? `${targetProfileId}:::${targetValue}` : ''
                   }
                   onChange={(val) => {
                     const [pId, nName] = val.split(':::')
@@ -1752,6 +1770,17 @@ export const PortRulesModal: React.FC<PortRulesModalProps> = ({
                   testOptions={handleTestNodeOptions}
                   isTesting={isNodeTesting}
                   testingValues={testingNodeValues}
+                  renderOptionStatus={(option) =>
+                    disabledProfileNodeKeys.has(option.value) ? (
+                      <Badge
+                        variant="outline"
+                        size="sm"
+                        className="!text-[10px] !py-0.5 !px-1.5"
+                      >
+                        {t('proxies.profileDisabled')}
+                      </Badge>
+                    ) : null
+                  }
                 />
               )}
 
