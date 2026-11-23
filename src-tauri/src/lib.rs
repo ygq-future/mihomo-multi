@@ -518,6 +518,11 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
+    #[cfg(windows)]
+    register_windows_ctrl_handler(app.handle().clone());
+    #[cfg(unix)]
+    register_unix_signal_handler(app.handle().clone());
+
 
     app.run(|app_handle, event| match event {
         tauri::RunEvent::ExitRequested { api, code, .. } => {
@@ -531,5 +536,59 @@ pub fn run() {
             }
         }
         _ => {}
+    });
+}
+
+#[cfg(windows)]
+fn register_windows_ctrl_handler(app_handle: tauri::AppHandle) {
+    use std::sync::OnceLock;
+    use windows_sys::Win32::System::Console::{
+        CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT, CTRL_C_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT,
+        SetConsoleCtrlHandler,
+    };
+
+    static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+    let _ = APP_HANDLE.set(app_handle);
+
+    unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
+        match ctrl_type {
+            CTRL_C_EVENT | CTRL_BREAK_EVENT | CTRL_CLOSE_EVENT | CTRL_LOGOFF_EVENT
+            | CTRL_SHUTDOWN_EVENT => {
+                if let Some(handle) = APP_HANDLE.get()
+                    && let Some(state) = handle.try_state::<AppState>()
+                {
+                    state.cleanup_on_exit(handle);
+                }
+                0
+            }
+            _ => 0,
+        }
+    }
+
+    unsafe {
+        let _ = SetConsoleCtrlHandler(Some(ctrl_handler), 1);
+    }
+}
+
+#[cfg(unix)]
+fn register_unix_signal_handler(app_handle: tauri::AppHandle) {
+    use nix::sys::signal::{SigSet, Signal};
+
+    let mut sigset = SigSet::empty();
+    sigset.add(Signal::SIGINT);
+    sigset.add(Signal::SIGTERM);
+    if sigset.thread_block().is_err() {
+        return;
+    }
+
+    std::thread::spawn(move || {
+        if let Ok(sig) = sigset.wait() {
+            info!("Received Unix signal {:?}, cleaning up before exit", sig);
+            if let Some(state) = app_handle.try_state::<AppState>() {
+                state.cleanup_on_exit(&app_handle);
+            }
+            app_handle.exit(0);
+            std::process::exit(0);
+        }
     });
 }

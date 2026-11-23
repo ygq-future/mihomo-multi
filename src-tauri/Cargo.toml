@@ -51,6 +51,7 @@ windows-sys = { version = "0.59.0", features = [
     "Win32_UI_Shell",
     "Win32_Graphics_Gdi",
     "Win32_Storage_FileSystem",
+    "Win32_System_Console",
 ] }
 
 [target.'cfg(unix)'.dependencies]
