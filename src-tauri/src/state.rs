@@ -612,10 +612,15 @@ impl AppState {
     /// Ensures system proxy is active either by restoring a crash-suspended proxy or applying configured proxy.
     pub fn ensure_system_proxy_active(&self) -> bool {
         self.reconcile_active_egress();
+        let config = self.config.read().clone();
+        if config.env_proxy_enabled
+            && let Some(port) = config.env_proxy_port
+        {
+            let _ = crate::core::sysproxy::apply_env_proxy(port, &config.system_proxy_bypass_user);
+        }
         if self.try_restore_suspended_system_proxy() {
             return true;
         }
-        let config = self.config.read().clone();
         if config.system_proxy_enabled
             && let Some(port) = config.system_proxy_port
         {
