@@ -1,4 +1,5 @@
 use super::TrayLocale;
+use crate::core::cli_format::{EnvFormatError, ShellKind, build_env_set_command};
 use crate::models::InboundProtocol;
 
 /// Builds commands for the selected shell without changing this process or OS proxy state.
@@ -9,68 +10,15 @@ pub(super) fn build_command(
     user_bypass: &[String],
     locale: TrayLocale,
 ) -> Result<String, String> {
-    let mut bypass = vec![
-        "localhost".to_string(),
-        "127.0.0.1".to_string(),
-        "10.0.0.0/8".to_string(),
-        "172.16.0.0/12".to_string(),
-        "192.168.0.0/16".to_string(),
-    ];
-    for item in user_bypass.iter().map(|s| s.trim()) {
-        if !item.is_empty()
-            && !item.eq_ignore_ascii_case("<local>")
-            && !bypass.iter().any(|s| s.eq_ignore_ascii_case(item))
-        {
-            bypass.push(item.to_string());
-        }
-    }
-    let http = if protocol == InboundProtocol::Socks5 {
-        String::new()
-    } else {
-        format!("http://127.0.0.1:{port}")
+    let kind = match shell {
+        "powershell" => ShellKind::PowerShell,
+        "cmd" => ShellKind::Cmd,
+        "shell" => ShellKind::Sh,
+        _ => return Err(locale.text().unsupported_shell.into()),
     };
-    let all = if protocol == InboundProtocol::Socks5 {
-        format!("socks5h://127.0.0.1:{port}")
-    } else {
-        http.clone()
-    };
-    let no_proxy = bypass.join(",");
-    let vars = [
-        ("HTTP_PROXY", http.as_str()),
-        ("HTTPS_PROXY", http.as_str()),
-        ("ALL_PROXY", all.as_str()),
-        ("NO_PROXY", no_proxy.as_str()),
-    ];
-    match shell {
-        "powershell" => Ok(vars
-            .iter()
-            .map(|(key, value)| format!("$env:{key}='{}'", value.replace('\'', "''")))
-            .collect::<Vec<_>>()
-            .join("; ")),
-        "cmd" => {
-            // CMD expands percent and delayed-expansion expressions even inside quotes.
-            if no_proxy.contains(['%', '!', '"', '\r', '\n', '\0']) {
-                return Err(locale.text().cmd_unsafe_chars.into());
-            }
-            Ok(vars
-                .iter()
-                .map(|(key, value)| format!("set \"{key}={value}\""))
-                .collect::<Vec<_>>()
-                .join(" && "))
-        }
-        "shell" => Ok(vars
-            .iter()
-            .flat_map(|(key, value)| {
-                let quoted = value.replace('\'', "'\"'\"'");
-                [
-                    format!("export {}='{quoted}'", key.to_ascii_lowercase()),
-                    format!("export {key}='{quoted}'"),
-                ]
-            })
-            .collect::<Vec<_>>()
-            .join("; ")),
-        _ => Err(locale.text().unsupported_shell.into()),
-    }
+    build_env_set_command(kind, "127.0.0.1", port, protocol, user_bypass).map_err(|err| match err {
+        EnvFormatError::CmdUnsafeChars => locale.text().cmd_unsafe_chars.into(),
+    })
 }
 
 #[cfg(test)]

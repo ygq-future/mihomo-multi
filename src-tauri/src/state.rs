@@ -684,6 +684,7 @@ impl AppState {
         if should_clear_env {
             let _ = crate::core::sysproxy::clear_env_proxy();
         }
+        crate::core::ctl_server::remove_ctl_file_if_owned(&self.app_dir, std::process::id());
         self.auto_updater.stop();
         let _ = self.latency_probe.persist_cache();
         let _ = self.process_history.flush();

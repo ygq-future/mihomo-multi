@@ -179,6 +179,19 @@ pub fn run() {
             let app_state = AppState::new(app_dir);
             app_state.set_app_handle(app_handle.clone());
             app.manage(app_state.clone());
+            let ctl_state = app_state.clone();
+            tauri::async_runtime::spawn(async move {
+                match crate::core::ctl_server::start_ctl_server(ctl_state).await {
+                    Ok(handle) => {
+                        // Keep the server handle alive for the lifetime of the application;
+                        // cleanup_on_exit removes ctl.json on shutdown.
+                        std::mem::forget(handle);
+                    }
+                    Err(err) => {
+                        warn!("Failed to start local CLI control server: {err}");
+                    }
+                }
+            });
 
             // Create system tray icon and native menu
             if let Err(e) = tray::create_tray(app_handle) {

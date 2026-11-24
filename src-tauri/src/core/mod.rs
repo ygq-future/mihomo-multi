@@ -2,6 +2,8 @@ pub mod app_updater;
 pub mod auto_updater;
 pub mod autostart;
 pub mod clash_client;
+pub mod cli_format;
+pub mod ctl_server;
 pub mod icon_cache;
 pub mod config_generator;
 pub mod drift_guard;
