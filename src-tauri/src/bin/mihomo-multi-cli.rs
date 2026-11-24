@@ -130,6 +130,14 @@ enum Commands {
         #[arg(long, default_value = "mm")]
         alias: String,
     },
+
+    /// Internal NSIS post-install hook (registers CLI alias and user PATH)
+    #[command(name = "__nsis-install", hide = true)]
+    NsisInstall,
+
+    /// Internal NSIS post-uninstall hook (cleans up release CLI alias and user PATH)
+    #[command(name = "__nsis-uninstall", hide = true)]
+    NsisUninstall,
 }
 
 #[derive(Subcommand, Debug)]
@@ -525,12 +533,19 @@ fn run(cli: Cli) -> Result<(), String> {
         }
         return Ok(());
     }
+    if matches!(cli.command, Commands::NsisInstall) {
+        return run_nsis_install();
+    }
+    if matches!(cli.command, Commands::NsisUninstall) {
+        return run_nsis_uninstall();
+    }
 
     let palette = Palette::new(cli.no_color);
     let client = CtlClient::discover(cli.data_dir.as_deref())?;
 
     match cli.command {
         Commands::Init { .. } => unreachable!(),
+        Commands::NsisInstall | Commands::NsisUninstall => unreachable!(),
         Commands::Status => {
             let data = client.get("/v1/status")?;
             if cli.json {
@@ -874,6 +889,42 @@ fn run(cli: Cli) -> Result<(), String> {
         }
     }
 
+    Ok(())
+}
+
+fn resolve_release_alias(cli_dir: &Path) -> String {
+    if let Ok(marker) = std::fs::read_to_string(cli_dir.join(".mihomo-multi-cli-alias")) {
+        let trimmed = marker.trim();
+        if mihomo_multi_lib::core::cli_manager::validate_cli_alias(trimmed).is_ok() {
+            return trimmed.to_string();
+        }
+    }
+    if let Some(base) = local_data_base_dir() {
+        let cfg_path = base.join(APP_IDENTIFIER).join("config.json");
+        if let Ok(raw) = std::fs::read_to_string(cfg_path)
+            && let Ok(val) = serde_json::from_str::<Value>(&raw)
+            && let Some(alias) = val["cliAlias"].as_str()
+            && mihomo_multi_lib::core::cli_manager::validate_cli_alias(alias).is_ok()
+        {
+            return alias.to_string();
+        }
+    }
+    "mm".to_string()
+}
+
+fn run_nsis_install() -> Result<(), String> {
+    let source = std::env::current_exe().map_err(|e| format!("failed to locate current exe: {e}"))?;
+    let cli_dir = mihomo_multi_lib::core::cli_manager::resolve_cli_dir()?;
+    let alias = resolve_release_alias(&cli_dir);
+    mihomo_multi_lib::core::cli_manager::sync_cli_in_dir(&cli_dir, &source, &alias)?;
+    mihomo_multi_lib::core::cli_manager::register_cli_path(&cli_dir)?;
+    Ok(())
+}
+
+fn run_nsis_uninstall() -> Result<(), String> {
+    let cli_dir = mihomo_multi_lib::core::cli_manager::resolve_cli_dir()?;
+    let alias = resolve_release_alias(&cli_dir);
+    mihomo_multi_lib::core::cli_manager::unregister_cli_path(&cli_dir, &alias)?;
     Ok(())
 }
 

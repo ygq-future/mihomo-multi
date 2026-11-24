@@ -277,6 +277,9 @@ async function buildSingleTarget(target, outDir, skipSidecar) {
     runCommand('node', ['scripts/dev-sidecar.mjs', '--target', target])
   }
 
+  // 1.5 构建并预置独立 CLI 二进制 (mihomo-multi-cli)
+  runCommand('node', ['scripts/build-cli.mjs', '--target', target])
+
   // 2. 构建 Tauri 原生应用
   const bundleArgs = (config && config.bundleArgs) || []
   const tauriArgs = ['tauri', 'build', '--target', target, ...bundleArgs]

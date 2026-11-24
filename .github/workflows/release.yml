@@ -55,6 +55,8 @@ jobs:
 
       - name: Prepare Sidecar Binary
         run: node scripts/dev-sidecar.mjs
+      - name: Prepare CLI Binary
+        run: node scripts/build-cli.mjs --debug
 
       - name: Check code formatting (Biome)
         run: pnpm format:check
@@ -107,6 +109,8 @@ jobs:
 
       - name: Prepare Sidecar Binary
         run: node scripts/dev-sidecar.mjs
+      - name: Prepare CLI Binary
+        run: node scripts/build-cli.mjs --debug
 
       - name: Run test suite
         run: cargo test --manifest-path src-tauri/Cargo.toml
