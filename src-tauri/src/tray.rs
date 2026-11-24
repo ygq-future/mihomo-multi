@@ -523,25 +523,35 @@ async fn switch_tray_egress(app: &AppHandle, action: &str) -> Result<(), String>
     } else {
         let tun = action == "toggle_tun";
         let enabled = if tun { !tun_enabled } else { !system_proxy_enabled };
+        let disabled_ids = state.disabled_profile_ids();
         let port = tun_port
-            .filter(|port| mappings.iter().any(|mapping| mapping.enabled && mapping.port == *port))
+            .filter(|port| {
+                mappings.iter().any(|mapping| {
+                    crate::state::AppState::is_mapping_effective(mapping, &disabled_ids) && mapping.port == *port
+                })
+            })
             .or_else(|| {
-                system_proxy_port.filter(|port| mappings.iter().any(|mapping| mapping.enabled && mapping.port == *port))
+                system_proxy_port.filter(|port| {
+                    mappings.iter().any(|mapping| {
+                        crate::state::AppState::is_mapping_effective(mapping, &disabled_ids) && mapping.port == *port
+                    })
+                })
             })
             .or_else(|| {
                 mappings
                     .iter()
-                    .filter(|mapping| mapping.enabled)
+                    .filter(|mapping| crate::state::AppState::is_mapping_effective(mapping, &disabled_ids))
                     .map(|mapping| mapping.port)
                     .min()
             });
         (tun, enabled, port)
     };
+    let disabled_ids = state.disabled_profile_ids();
     if enabled
         && (!state.engine.get_status().running
-            || !mappings
-                .iter()
-                .any(|mapping| mapping.enabled && Some(mapping.port) == port))
+            || !mappings.iter().any(|mapping| {
+                crate::state::AppState::is_mapping_effective(mapping, &disabled_ids) && Some(mapping.port) == port
+            }))
     {
         return Err(text.proxy_requires_core.to_string());
     }
@@ -595,7 +605,10 @@ fn build_tray_menu_internal(
         let actions = app.state::<TrayActions>();
         let testing = actions.latency_test.try_lock().is_err();
         let switching = actions.egress.try_lock().is_err();
-        let has_enabled_ports = mappings.iter().any(|m| m.enabled);
+        let disabled_ids = state.disabled_profile_ids();
+        let has_enabled_ports = mappings
+            .iter()
+            .any(|m| crate::state::AppState::is_mapping_effective(m, &disabled_ids));
         menu.append(&MenuItem::with_id(
             app,
             "test_ports_delay",
@@ -713,6 +726,7 @@ fn build_tray_menu_internal(
                 } else {
                     system_proxy_port == Some(m.port)
                 };
+                let is_effective = crate::state::AppState::is_mapping_effective(&m, &disabled_ids);
                 submenu.append(&CheckMenuItem::with_id(
                     app,
                     format!("port_egress:{}", m.id),
@@ -722,13 +736,13 @@ fn build_tray_menu_internal(
                         (false, true) => text.disable_system_proxy,
                         (false, false) => text.set_system_proxy,
                     },
-                    !switching && (is_bound || (m.enabled && is_running)),
+                    !switching && (is_bound || (is_effective && is_running)),
                     is_bound,
                     None::<&str>,
                 )?)?;
                 let is_env_proxy = env_proxy_port == Some(m.port);
                 let can_bind =
-                    cfg!(windows) && m.enabled && is_running && m.protocol != crate::models::InboundProtocol::Socks5;
+                    cfg!(windows) && is_effective && is_running && m.protocol != crate::models::InboundProtocol::Socks5;
                 submenu.append(&CheckMenuItem::with_id(
                     app,
                     format!("port_env:{}", m.id),

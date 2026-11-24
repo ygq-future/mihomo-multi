@@ -562,17 +562,26 @@ impl MinimalRuntimeConfig {
                     }
                 }
 
-                let upstream = resolve_node_target(&mapping.node_name, &mapping.profile_id).ok_or_else(|| {
-                    crate::tr!(
-                        format!("上游节点「{}」不存在（不会回退直连）", mapping.node_name),
-                        format!(
-                            "Upstream node \"{}\" does not exist (no fallback to direct)",
-                            mapping.node_name
-                        ),
-                    )
-                })?;
+                let primary_upstream = resolve_node_target(&mapping.node_name, &mapping.profile_id);
+                let fb_profile_id = mapping.fallback_profile_id.as_deref().unwrap_or(&mapping.profile_id);
+                let fallback_node = mapping
+                    .fallback_node_name
+                    .as_ref()
+                    .and_then(|fb_name| resolve_node_target(fb_name, fb_profile_id));
+                let active_upstream = primary_upstream
+                    .as_deref()
+                    .or(fallback_node.as_deref())
+                    .ok_or_else(|| {
+                        crate::tr!(
+                            format!("上游节点「{}」不存在（不会回退直连）", mapping.node_name),
+                            format!(
+                                "Upstream node \"{}\" does not exist (no fallback to direct)",
+                                mapping.node_name
+                            ),
+                        )
+                    })?;
 
-                let mut dialer_cursor = upstream.as_str();
+                let mut dialer_cursor = active_upstream;
                 let mut visited_dialers: HashSet<&str> = HashSet::new();
                 while let Some(&dialer) = upstream_dialers.get(dialer_cursor) {
                     if dialer == "DIRECT" {
@@ -612,36 +621,26 @@ impl MinimalRuntimeConfig {
                         ),
                     ));
                 }
-                let fb_profile_id = mapping
-                    .fallback_profile_id
-                    .as_deref()
-                    .unwrap_or(&mapping.profile_id);
-                let fallback_node = mapping
-                    .fallback_node_name
-                    .as_ref()
-                    .and_then(|fb_name| resolve_node_target(fb_name, fb_profile_id));
-                let (dialer_target, chain_fb_group) = if let Some(fallback) = fallback_node {
-                    let group_name = format!("fb-{}", mapping.port);
-                    let group = RuntimeProxyGroup {
-                        name: group_name.clone(),
-                        group_type: "fallback".to_string(),
-                        proxies: vec![upstream.clone(), fallback.clone()],
-                        url: Some(params.test_url.to_string()),
-                        interval: Some(params.fallback_interval),
-                        timeout: Some(params.timeout_ms),
-                        lazy: Some(params.fallback_lazy),
-                        max_failed_times: Some(3),
-                    };
-                    let target = if mapping.manual_fallback {
-                        fallback
-                    } else {
-                        group_name
-                    };
-                    (target, Some(group))
-                } else {
-                    (upstream.clone(), None)
+                let (dialer_target, chain_fb_group) = match (primary_upstream.clone(), fallback_node.clone()) {
+                    (Some(primary), Some(fallback)) => {
+                        let group_name = format!("fb-{}", mapping.port);
+                        let group = RuntimeProxyGroup {
+                            name: group_name.clone(),
+                            group_type: "fallback".to_string(),
+                            proxies: vec![primary, fallback.clone()],
+                            url: Some(params.test_url.to_string()),
+                            interval: Some(params.fallback_interval),
+                            timeout: Some(params.timeout_ms),
+                            lazy: Some(params.fallback_lazy),
+                            max_failed_times: Some(3),
+                        };
+                        let target = if mapping.manual_fallback { fallback } else { group_name };
+                        (target, Some(group))
+                    }
+                    (Some(primary), None) => (primary, None),
+                    (None, Some(fallback)) => (fallback, None),
+                    (None, None) => unreachable!("checked above"),
                 };
-
                 let entry = if let Some(exit_id) = residential_exit_id {
                     let exit = params
                         .residential_proxies
@@ -716,7 +715,7 @@ impl MinimalRuntimeConfig {
                             ),
                         )
                     })?;
-                    if exit_target == upstream {
+                    if exit_target == active_upstream {
                         return Err(crate::tr!(
                             format!("链式出口节点「{}」不能与前置节点相同", exit_node),
                             format!(
@@ -2497,5 +2496,36 @@ password: pass
             Some("3.3.3.3")
         );
         assert!(proxy_field(retained, "dialer-proxy").is_none());
+    }
+
+    #[test]
+    fn test_chain_uses_enabled_fallback_when_primary_upstream_unavailable() {
+        let residentials = vec![residential_exit("http")];
+        let mut profile_map = HashMap::new();
+        profile_map.insert("prof-2".to_string(), "AirportB".to_string());
+
+        let mut mapping = chain_mapping(7895, "HK-01", "res-1");
+        mapping.fallback_profile_id = Some("prof-2".to_string());
+        mapping.fallback_node_name = Some("SG-02".to_string());
+
+        let config = MinimalRuntimeConfig::with_mappings(
+            &chain_params(&[], &[], &residentials),
+            &[mapping],
+            vec![upstream_value("[AirportB] SG-02", "2.2.2.2", None)],
+            &profile_map,
+        );
+
+        assert_eq!(config.listeners.len(), 1);
+        assert_eq!(config.listeners[0].port, 7895);
+        assert_eq!(config.listeners[0].proxy.as_deref(), Some("chain-7895"));
+        let chain_proxy = config
+            .proxies
+            .iter()
+            .find(|proxy| proxy_field(proxy, "name").and_then(|v| v.as_str()) == Some("chain-7895"))
+            .expect("chain-7895 proxy should be generated using fallback upstream");
+        assert_eq!(
+            proxy_field(chain_proxy, "dialer-proxy").and_then(|v| v.as_str()),
+            Some("[AirportB] SG-02")
+        );
     }
 }

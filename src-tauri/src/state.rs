@@ -304,15 +304,76 @@ impl AppState {
         }
     }
 
+    /// Returns the set of currently disabled subscription profile IDs.
+    pub fn disabled_profile_ids(&self) -> HashSet<String> {
+        self.profile_manager
+            .get_profiles()
+            .into_iter()
+            .filter(|p| !p.enabled)
+            .map(|p| p.id)
+            .collect()
+    }
+
+    /// Pure helper: checks whether a port mapping is enabled and not blocked by any disabled subscription.
+    pub fn is_mapping_effective(mapping: &PortMapping, disabled_profile_ids: &HashSet<String>) -> bool {
+        if !mapping.enabled {
+            return false;
+        }
+        if mapping.id == crate::models::FIXED_DIRECT_PORT_ID || mapping.node_name == "DIRECT" {
+            return true;
+        }
+        let primary_profile_id = mapping.profile_id.trim();
+        let primary_enabled = !disabled_profile_ids.contains(primary_profile_id);
+        let has_enabled_fallback = mapping
+            .fallback_node_name
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|name| !name.is_empty())
+            && !disabled_profile_ids.contains(
+                mapping
+                    .fallback_profile_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .unwrap_or(primary_profile_id),
+            );
+        if !primary_enabled && !has_enabled_fallback {
+            return false;
+        }
+        let has_residential_exit = mapping
+            .residential_proxy_id
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|id| !id.is_empty());
+        let has_node_chain_exit = mapping
+            .chain_exit_node_name
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|name| !name.is_empty());
+        if !has_residential_exit && has_node_chain_exit {
+            let exit_profile_id = mapping
+                .chain_exit_profile_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .unwrap_or(primary_profile_id);
+            if disabled_profile_ids.contains(exit_profile_id) {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Builds current TUN mode status snapshot based on elevation, port mapping state, and core status.
     pub fn build_tun_status(&self) -> TunStatus {
         let config = self.config.read().clone();
         let elevated = crate::core::elevation::is_elevated();
+        let disabled_ids = self.disabled_profile_ids();
         let port_active = config.tun_port.is_some_and(|p| {
             self.port_router
                 .get_port_mappings()
                 .iter()
-                .any(|m| m.port == p && m.enabled)
+                .any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids))
         });
         TunStatus {
             enabled: config.tun_enabled,
@@ -342,13 +403,14 @@ impl AppState {
     /// If the bound port was disabled, deleted, or changed, automatically cleans up OS proxy/TUN state and persists config.
     pub fn reconcile_active_egress(&self) -> bool {
         let mappings = self.port_router.get_port_mappings();
+        let disabled_ids = self.disabled_profile_ids();
         let mut config = self.config.read().clone();
         let mut modified = false;
 
         if config.system_proxy_enabled {
             let valid = config
                 .system_proxy_port
-                .is_some_and(|p| mappings.iter().any(|m| m.port == p && m.enabled));
+                .is_some_and(|p| mappings.iter().any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids)));
             if !valid {
                 let _ = crate::core::sysproxy::clear_system_proxy();
                 config.system_proxy_enabled = false;
@@ -360,7 +422,7 @@ impl AppState {
         if config.env_proxy_enabled {
             let valid = config
                 .env_proxy_port
-                .is_some_and(|p| mappings.iter().any(|m| m.port == p && m.enabled));
+                .is_some_and(|p| mappings.iter().any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids)));
             if !valid {
                 let _ = crate::core::sysproxy::clear_env_proxy();
                 config.env_proxy_enabled = false;
@@ -372,7 +434,7 @@ impl AppState {
         if config.tun_enabled {
             let valid = config
                 .tun_port
-                .is_some_and(|p| mappings.iter().any(|m| m.port == p && m.enabled));
+                .is_some_and(|p| mappings.iter().any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids)));
             if !valid {
                 config.tun_enabled = false;
                 config.tun_port = None;
@@ -381,7 +443,9 @@ impl AppState {
         }
 
         if let Some(susp_port) = *self.suspended_system_proxy.read()
-            && !mappings.iter().any(|m| m.port == susp_port && m.enabled)
+            && !mappings
+                .iter()
+                .any(|m| m.port == susp_port && Self::is_mapping_effective(m, &disabled_ids))
         {
             *self.suspended_system_proxy.write() = None;
         }
@@ -417,7 +481,11 @@ impl AppState {
                 .to_string()
             })?;
             let mappings = self.port_router.get_port_mappings();
-            if !mappings.iter().any(|m| m.port == p && m.enabled) {
+            let disabled_ids = self.disabled_profile_ids();
+            if !mappings
+                .iter()
+                .any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids))
+            {
                 return Err(crate::tr!(
                     format!("端口 {p} 未在监听列表中或未启用，无法设为系统代理"),
                     format!(
@@ -458,7 +526,11 @@ impl AppState {
                 .to_string()
             })?;
             let mappings = self.port_router.get_port_mappings();
-            if !mappings.iter().any(|m| m.port == p && m.enabled) {
+            let disabled_ids = self.disabled_profile_ids();
+            if !mappings
+                .iter()
+                .any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids))
+            {
                 return Err(crate::tr!(
                     format!("端口 {p} 未在监听列表中或未启用，无法设为终端代理"),
                     format!(
@@ -496,7 +568,11 @@ impl AppState {
                 .to_string()
             })?;
             let mappings = self.port_router.get_port_mappings();
-            if !mappings.iter().any(|m| m.port == p && m.enabled) {
+            let disabled_ids = self.disabled_profile_ids();
+            if !mappings
+                .iter()
+                .any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids))
+            {
                 return Err(crate::tr!(
                     format!("端口 {p} 未在监听列表中或未启用，无法作为 TUN 出口"),
                     format!(
@@ -645,7 +721,10 @@ impl AppState {
         };
 
         let mappings = self.port_router.get_port_mappings();
-        let is_valid = mappings.iter().any(|m| m.port == port && m.enabled);
+        let disabled_ids = self.disabled_profile_ids();
+        let is_valid = mappings
+            .iter()
+            .any(|m| m.port == port && Self::is_mapping_effective(m, &disabled_ids));
         if !is_valid {
             tracing::info!(
                 port = port,
@@ -689,14 +768,23 @@ impl AppState {
 
         let raw_proxies = self.profile_manager.get_raw_proxies_for_all_profiles();
         let profiles = self.profile_manager.get_profiles();
-        let profile_map: HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
+        let disabled_ids: HashSet<String> = profiles.iter().filter(|p| !p.enabled).map(|p| p.id.clone()).collect();
+        let profile_map: HashMap<String, String> = profiles
+            .into_iter()
+            .filter(|p| p.enabled)
+            .map(|p| (p.id, p.name))
+            .collect();
 
         let mappings = self.port_router.get_port_mappings();
+        let effective_mappings: Vec<PortMapping> = mappings
+            .iter()
+            .filter(|m| Self::is_mapping_effective(m, &disabled_ids))
+            .cloned()
+            .collect();
         let cfg = self.config.read().clone();
 
-        let (active_mappings, occupied_set) = self.engine.filter_available_mappings(&mappings, cfg.allow_lan);
+        let (active_mappings, occupied_set) = self.engine.filter_available_mappings(&effective_mappings, cfg.allow_lan);
         *self.occupied_ports.write() = occupied_set;
-
         let probe_port = self.resolve_egress_probe_port(&mappings, cfg.controller_port);
         let params = RuntimeGeneratorParams {
             controller_port: cfg.controller_port,
@@ -1520,6 +1608,106 @@ mod tests {
 
         state.delete_port_mapping("hist-port").await.expect("delete mapping");
         assert!(state.get_port_process_history(port_b).await.is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn disabling_subscription_omits_listener_reconciles_egress_and_allows_enabled_fallback() {
+        let temp_dir = std::env::temp_dir().join(format!("mihomo_disabled_sub_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let state = AppState::new(temp_dir.clone());
+
+        let yaml_a = r#"
+proxies:
+  - {name: "NodeA", type: ss, server: 1.1.1.1, port: 8388, cipher: aes-128-gcm, password: "pw"}
+  - {name: "NodeA2", type: ss, server: 1.1.1.2, port: 8388, cipher: aes-128-gcm, password: "pw"}
+"#;
+        let yaml_b = r#"
+proxies:
+  - {name: "NodeB", type: ss, server: 2.2.2.2, port: 8388, cipher: aes-128-gcm, password: "pw"}
+"#;
+        let prof_a = state
+            .profile_manager
+            .add_in_memory_profile("SubA".to_string(), yaml_a)
+            .expect("add SubA");
+        let prof_b = state
+            .profile_manager
+            .add_in_memory_profile("SubB".to_string(), yaml_b)
+            .expect("add SubB");
+
+        let port_only_a = save_mapping_on_free_port(&state, "map-a", "NodeA").await;
+        let mut mapping_a = state
+            .port_router
+            .get_port_mapping_by_id("map-a")
+            .expect("map-a exists");
+        mapping_a.profile_id = prof_a.id.clone();
+        state.save_port_mapping(mapping_a).await.expect("bind map-a to SubA");
+
+        let port_with_fb = save_mapping_on_free_port(&state, "map-fb", "NodeA2").await;
+        let mut mapping_fb = state
+            .port_router
+            .get_port_mapping_by_id("map-fb")
+            .expect("map-fb exists");
+        mapping_fb.profile_id = prof_a.id.clone();
+        mapping_fb.fallback_profile_id = Some(prof_b.id.clone());
+        mapping_fb.fallback_node_name = Some("NodeB".to_string());
+        state
+            .save_port_mapping(mapping_fb)
+            .await
+            .expect("bind map-fb to SubA with SubB fallback");
+
+        // Bind TUN to port_only_a so we can verify egress reconciliation on profile disable
+        state
+            .prepare_tun_transition(true, Some(port_only_a))
+            .expect("bind tun to port_only_a");
+        assert!(state.config.read().tun_enabled);
+
+        // Disable SubA and sync runtime config
+        state
+            .profile_manager
+            .set_profile_enabled(&prof_a.id, false)
+            .expect("disable SubA");
+        let runtime_path = state.sync_runtime_config().await.expect("sync runtime config");
+        let yaml = std::fs::read_to_string(&runtime_path).expect("read runtime.yaml");
+
+        // SubA proxies and port_only_a listener/rules must not be present
+        assert!(!yaml.contains("[SubA] NodeA"), "disabled profile proxy must be omitted");
+        assert!(
+            !yaml.contains(&format!("in-{port_only_a}")),
+            "listener for disabled-only port must be omitted"
+        );
+        assert!(
+            !yaml.contains(&format!("IN-PORT,{port_only_a},")),
+            "rules for disabled-only port must be omitted"
+        );
+
+        // port_with_fb stays active using enabled SubB fallback
+        assert!(yaml.contains("[SubB] NodeB"), "enabled fallback proxy must remain");
+        assert!(
+            yaml.contains(&format!("in-{port_with_fb}")),
+            "listener with enabled fallback must remain active"
+        );
+        assert!(
+            yaml.contains(&format!("IN-PORT,{port_with_fb},[SubB] NodeB"))
+                || (yaml.contains(&format!("sub-rule-{port_with_fb}")) && yaml.contains("MATCH,[SubB] NodeB")),
+            "port with disabled primary and enabled fallback must route to fallback; yaml:\n{yaml}"
+        );
+
+        // TUN bound to disabled-profile port must be automatically cleared, and rebinding rejected
+        assert!(!state.config.read().tun_enabled);
+        assert_eq!(state.config.read().tun_port, None);
+        assert!(state.prepare_tun_transition(true, Some(port_only_a)).is_err());
+
+        // Re-enabling SubA restores both proxy and listener
+        state
+            .profile_manager
+            .set_profile_enabled(&prof_a.id, true)
+            .expect("re-enable SubA");
+        let runtime_path = state.sync_runtime_config().await.expect("re-sync runtime config");
+        let yaml = std::fs::read_to_string(&runtime_path).expect("read restored runtime.yaml");
+        assert!(yaml.contains("[SubA] NodeA"));
+        assert!(yaml.contains(&format!("in-{port_only_a}")));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

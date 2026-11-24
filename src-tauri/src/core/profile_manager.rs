@@ -1133,7 +1133,7 @@ impl ProfileManager {
         all_nodes
     }
 
-    /// Instant in-memory retrieval of raw proxies for runtime config generation
+    /// Instant in-memory retrieval of raw proxies from enabled profiles for runtime config generation
     pub fn get_raw_proxies_for_all_profiles(&self) -> Vec<serde_yaml_ng::Value> {
         let profiles = self.get_profiles();
         let guard = self.node_index.read();
@@ -1141,6 +1141,9 @@ impl ProfileManager {
         let mut seen_runtime_names = HashSet::new();
 
         for profile in profiles {
+            if !profile.enabled {
+                continue;
+            }
             if let Some(entry) = guard.get(&profile.id) {
                 for proxy in &entry.raw_proxies {
                     if let Some(map) = proxy.as_mapping() {
@@ -1574,5 +1577,30 @@ proxies:
         assert!(leftover_temps.is_empty(), "expected no leftover .tmp_ files");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn disabled_profile_raw_proxies_are_excluded_until_reenabled() {
+        let manager = ProfileManager::new_in_memory();
+        let prof_a = manager
+            .add_in_memory_profile("SubA".to_string(), SAMPLE_CLASH_YAML)
+            .expect("add SubA");
+        let _prof_b = manager
+            .add_in_memory_profile("SubB".to_string(), SAMPLE_CLASH_YAML)
+            .expect("add SubB");
+
+        assert_eq!(manager.get_raw_proxies_for_all_profiles().len(), 8);
+
+        manager.set_profile_enabled(&prof_a.id, false).expect("disable SubA");
+        let active_raw = manager.get_raw_proxies_for_all_profiles();
+        assert_eq!(active_raw.len(), 4);
+        assert!(
+            active_raw
+                .iter()
+                .all(|p| p["name"].as_str().unwrap_or("").starts_with("[SubB] "))
+        );
+
+        manager.set_profile_enabled(&prof_a.id, true).expect("re-enable SubA");
+        assert_eq!(manager.get_raw_proxies_for_all_profiles().len(), 8);
     }
 }
