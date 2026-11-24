@@ -42,9 +42,60 @@ pub fn build_egress_chain(mappings: &[PortMapping]) -> Vec<UpdateEgress> {
     chain
 }
 
-/// Resolves the current fallback chain from the live port router.
+/// Builds the ordered fallback chain: every enabled proxy listener ranked by
+/// its active node's composite availability score (descending), followed by
+/// unranked listeners in port-mapping order, and finally a direct connection.
+pub fn build_ranked_egress_chain(
+    mappings: &[PortMapping],
+    node_scores: &std::collections::HashMap<String, f64>,
+) -> Vec<UpdateEgress> {
+    let mut ranked: Vec<(usize, Option<f64>, UpdateEgress)> = mappings
+        .iter()
+        .enumerate()
+        .filter(|(_, mapping)| mapping.enabled && mapping.id != FIXED_DIRECT_PORT_ID)
+        .map(|(idx, mapping)| {
+            let active_node = if mapping.manual_fallback {
+                mapping.fallback_node_name.as_deref().unwrap_or(&mapping.node_name)
+            } else {
+                &mapping.node_name
+            };
+            let score = node_scores.get(active_node).copied();
+            (
+                idx,
+                score,
+                UpdateEgress::Proxy {
+                    port: mapping.port,
+                    protocol: mapping.protocol,
+                },
+            )
+        })
+        .collect();
+
+    ranked.sort_by(|(idx_a, score_a, _), (idx_b, score_b, _)| match (score_a, score_b) {
+        (Some(a), Some(b)) => b
+            .partial_cmp(a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| idx_a.cmp(idx_b)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => idx_a.cmp(idx_b),
+    });
+
+    let mut chain: Vec<UpdateEgress> = ranked.into_iter().map(|(_, _, egress)| egress).collect();
+    chain.push(UpdateEgress::Direct);
+    chain
+}
+
+/// Resolves the current fallback chain from the live port router,
+/// ordered by each port's active node availability score.
 pub fn update_egress_chain(state: &AppState) -> Vec<UpdateEgress> {
-    build_egress_chain(&state.port_router.get_port_mappings())
+    let dashboard = state.node_analytics.build_dashboard(24, None);
+    let node_scores: std::collections::HashMap<String, f64> = dashboard
+        .nodes
+        .into_iter()
+        .map(|summary| (summary.node_name, summary.score))
+        .collect();
+    build_ranked_egress_chain(&state.port_router.get_port_mappings(), &node_scores)
 }
 
 /// Builds an HTTP client bound to the given egress candidate.
@@ -267,5 +318,61 @@ mod tests {
         }
 
         assert!(build_update_client(UpdateEgress::Direct, Duration::from_secs(5), Duration::from_secs(2)).is_ok());
+    }
+
+    #[test]
+    fn test_build_ranked_egress_chain_orders_by_active_node_score() {
+        let mut m1 = PortMapping {
+            id: "1".to_string(),
+            port: 7891,
+            protocol: InboundProtocol::Mixed,
+            node_name: "Node-Low".to_string(),
+            enabled: true,
+            ..PortMapping::default()
+        };
+        let m2 = PortMapping {
+            id: "2".to_string(),
+            port: 7892,
+            protocol: InboundProtocol::Socks5,
+            node_name: "Node-Unranked".to_string(),
+            enabled: true,
+            ..PortMapping::default()
+        };
+        let m3 = PortMapping {
+            id: "3".to_string(),
+            port: 7893,
+            protocol: InboundProtocol::Http,
+            node_name: "Node-High".to_string(),
+            enabled: true,
+            ..PortMapping::default()
+        };
+        // m1 is in manual_fallback, so its active node is its fallback node.
+        m1.manual_fallback = true;
+        m1.fallback_node_name = Some("Node-Top".to_string());
+
+        let mut scores = std::collections::HashMap::new();
+        scores.insert("Node-Low".to_string(), 20.0);
+        scores.insert("Node-High".to_string(), 85.0);
+        scores.insert("Node-Top".to_string(), 96.5);
+
+        let chain = build_ranked_egress_chain(&[m1, m2, m3], &scores);
+        assert_eq!(
+            chain,
+            vec![
+                UpdateEgress::Proxy {
+                    port: 7891,
+                    protocol: InboundProtocol::Mixed,
+                },
+                UpdateEgress::Proxy {
+                    port: 7893,
+                    protocol: InboundProtocol::Http,
+                },
+                UpdateEgress::Proxy {
+                    port: 7892,
+                    protocol: InboundProtocol::Socks5,
+                },
+                UpdateEgress::Direct,
+            ]
+        );
     }
 }
