@@ -559,13 +559,8 @@ export const createPortSlice: StateCreator<
   },
 
   testPortDelay: async (id, testUrl, timeoutMs) => {
-    const mapping = get().portMappings.find((m) => m.id === id)
-    const hasFb = Boolean(mapping?.fallbackNodeName)
     set((state) => ({
       testingPortIds: { ...state.testingPortIds, [id]: true },
-      testingFbPortIds: hasFb
-        ? { ...state.testingFbPortIds, [id]: true }
-        : state.testingFbPortIds,
       portError: null,
     }))
 
@@ -576,14 +571,7 @@ export const createPortSlice: StateCreator<
           p.id === id ? { ...p, latency } : p,
         ),
         testingPortIds: { ...state.testingPortIds, [id]: false },
-        testingFbPortIds: { ...state.testingFbPortIds, [id]: false },
       }))
-
-      if (hasFb) {
-        get()
-          .fetchFallbackStatuses()
-          .catch(() => {})
-      }
 
       return latency
     } catch (err) {
@@ -593,14 +581,8 @@ export const createPortSlice: StateCreator<
           p.id === id ? { ...p, latency: null } : p,
         ),
         testingPortIds: { ...state.testingPortIds, [id]: false },
-        testingFbPortIds: { ...state.testingFbPortIds, [id]: false },
         portError: api.isCoreNotRunningError(err) ? errMsg : state.portError,
       }))
-      if (hasFb) {
-        get()
-          .fetchFallbackStatuses()
-          .catch(() => {})
-      }
       return null
     }
   },
