@@ -158,11 +158,13 @@ enum SubAction {
 
 #[derive(Subcommand, Debug)]
 enum NodeAction {
-    /// List all nodes or nodes in a specific subscription
+    /// List all nodes, optionally filtered by subscription and node keyword
     #[command(visible_alias = "ls")]
     List {
-        /// Optional subscription name or ID filter
+        /// Optional subscription name or ID filter (supports fuzzy/subsequence match)
         sub: Option<String>,
+        /// Optional node name/region filter (supports fuzzy/subsequence match)
+        query: Option<String>,
     },
 }
 
@@ -673,10 +675,18 @@ fn run(cli: Cli) -> Result<(), String> {
             }
         },
         Commands::Node { action } => match action {
-            NodeAction::List { sub } => {
-                let path = match &sub {
-                    Some(s) => format!("/v1/nodes?sub={}", urlencoding::encode(s)),
-                    None => "/v1/nodes".to_string(),
+            NodeAction::List { sub, query } => {
+                let mut params = Vec::new();
+                if let Some(s) = &sub {
+                    params.push(format!("sub={}", urlencoding::encode(s)));
+                }
+                if let Some(q) = &query {
+                    params.push(format!("q={}", urlencoding::encode(q)));
+                }
+                let path = if params.is_empty() {
+                    "/v1/nodes".to_string()
+                } else {
+                    format!("/v1/nodes?{}", params.join("&"))
                 };
                 let data = client.get(&path)?;
                 if cli.json {

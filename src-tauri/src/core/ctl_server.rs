@@ -486,7 +486,7 @@ fn handle_list_ports(state: &AppState) -> HttpResponse {
     let tun = state.build_tun_status();
     let env_proxy = state.build_env_proxy_status();
 
-    let items: Vec<PortListItem> = mappings
+    let mut items: Vec<PortListItem> = mappings
         .into_iter()
         .map(|mapping| {
             let delay = delays.get(&mapping.node_name).copied().flatten().or(mapping.latency);
@@ -500,6 +500,7 @@ fn handle_list_ports(state: &AppState) -> HttpResponse {
             }
         })
         .collect();
+    items.sort_by_key(|item| item.mapping.port);
     HttpResponse::ok(&items)
 }
 
@@ -532,7 +533,8 @@ async fn handle_toggle_port(path: &str, state: &AppState) -> HttpResponse {
 }
 
 fn handle_list_subs(state: &AppState) -> HttpResponse {
-    let profiles: Vec<ProfileItem> = state.profile_manager.get_profiles();
+    let mut profiles: Vec<ProfileItem> = state.profile_manager.get_profiles();
+    profiles.sort_by_key(|b| std::cmp::Reverse(b.last_updated_at));
     HttpResponse::ok(&profiles)
 }
 
@@ -582,30 +584,97 @@ async fn handle_update_subs(req: &HttpRequest, state: &AppState) -> HttpResponse
     }))
 }
 
+fn fuzzy_subsequence_match(haystack: &str, needle: &str) -> bool {
+    let needle_chars: Vec<char> = needle.trim().to_lowercase().chars().collect();
+    if needle_chars.is_empty() {
+        return true;
+    }
+    let mut idx = 0;
+    for ch in haystack.to_lowercase().chars() {
+        if ch == needle_chars[idx] {
+            idx += 1;
+            if idx == needle_chars.len() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn region_alias(code: &str) -> Option<&'static str> {
+    match code.trim().to_ascii_lowercase().as_str() {
+        "jp" => Some("日本"),
+        "hk" => Some("香港"),
+        "tw" => Some("台湾"),
+        "sg" => Some("新加坡"),
+        "us" => Some("美国"),
+        "kr" => Some("韩国"),
+        "uk" | "gb" => Some("英国"),
+        "de" => Some("德国"),
+        "fr" => Some("法国"),
+        "ca" => Some("加拿大"),
+        "au" => Some("澳大利亚"),
+        "ru" => Some("俄罗斯"),
+        "in" => Some("印度"),
+        "nl" => Some("荷兰"),
+        "tr" => Some("土耳其"),
+        "my" => Some("马来西亚"),
+        "th" => Some("泰国"),
+        "vn" => Some("越南"),
+        "ph" => Some("菲律宾"),
+        "id" => Some("印尼"),
+        _ => None,
+    }
+}
+
+fn node_matches_query(node_name: &str, query: &str) -> bool {
+    if fuzzy_subsequence_match(node_name, query) {
+        return true;
+    }
+    if let Some(alias) = region_alias(query) {
+        return node_name.contains(alias);
+    }
+    false
+}
+
 fn handle_list_nodes(req: &HttpRequest, state: &AppState) -> HttpResponse {
     let profiles = state.profile_manager.get_profiles();
     let profile_names: HashMap<String, String> = profiles.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
     let delays = state.latency_probe.get_latencies();
 
     let all_nodes = state.profile_manager.get_all_nodes();
-    let filter_profile_id = if let Some(sub) = req.query.get("sub").filter(|s| !s.trim().is_empty()) {
-        let Some(profile) = resolve_profile(&profiles, sub) else {
-            return HttpResponse::err(404, "Not Found", format!("subscription '{sub}' not found"));
-        };
-        Some(profile.id.clone())
+    let filter_profile_ids: Option<Vec<String>> = if let Some(sub) = req.query.get("sub").filter(|s| !s.trim().is_empty())
+    {
+        if let Some(exact) = resolve_profile(&profiles, sub) {
+            Some(vec![exact.id.clone()])
+        } else {
+            let matched: Vec<String> = profiles
+                .iter()
+                .filter(|p| fuzzy_subsequence_match(&p.name, sub))
+                .map(|p| p.id.clone())
+                .collect();
+            if matched.is_empty() {
+                return HttpResponse::err(404, "Not Found", format!("subscription '{sub}' not found"));
+            }
+            Some(matched)
+        }
     } else {
         None
     };
+    let node_query = req.query.get("q").filter(|s| !s.trim().is_empty()).map(String::as_str);
 
-    let items: Vec<NodeListItem> = all_nodes
+    let mut items: Vec<NodeListItem> = all_nodes
         .into_iter()
-        .enumerate()
-        .filter(|(_, node)| {
-            filter_profile_id
-                .as_ref()
-                .is_none_or(|pid| node.profile_id.as_deref() == Some(pid.as_str()))
+        .filter(|node| {
+            let sub_ok = filter_profile_ids.as_ref().is_none_or(|pids| {
+                node.profile_id
+                    .as_deref()
+                    .is_some_and(|pid| pids.iter().any(|id| id == pid))
+            });
+            let query_ok = node_query.is_none_or(|q| node_matches_query(&node.name, q));
+            sub_ok && query_ok
         })
-        .map(|(idx, node)| {
+        .map(|node| {
             let delay = delays.get(&node.name).copied().flatten();
             let profile_id = node.profile_id.unwrap_or_default();
             let profile_name = profile_names
@@ -613,7 +682,7 @@ fn handle_list_nodes(req: &HttpRequest, state: &AppState) -> HttpResponse {
                 .cloned()
                 .unwrap_or_else(|| profile_id.clone());
             NodeListItem {
-                index: idx + 1,
+                index: 0,
                 name: node.name,
                 runtime_name: node.runtime_name,
                 protocol: node.node_type,
@@ -623,6 +692,15 @@ fn handle_list_nodes(req: &HttpRequest, state: &AppState) -> HttpResponse {
             }
         })
         .collect();
+    items.sort_by(|a, b| match (a.delay, b.delay) {
+        (Some(da), Some(db)) => da.cmp(&db),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+    for (idx, item) in items.iter_mut().enumerate() {
+        item.index = idx + 1;
+    }
     HttpResponse::ok(&items)
 }
 
@@ -689,7 +767,17 @@ async fn handle_test_node(req: &HttpRequest, state: &AppState) -> HttpResponse {
             "node": raw_name,
             "delay": delay,
         })),
-        Err(err) => HttpResponse::err(502, "Bad Gateway", err.to_string()),
+        Err(err) => {
+            let msg = err.to_string();
+            if msg.contains("504") || msg.contains("Timeout") || msg.contains("timeout") {
+                HttpResponse::ok(&serde_json::json!({
+                    "node": raw_name,
+                    "delay": Option::<u32>::None,
+                }))
+            } else {
+                HttpResponse::err(502, "Bad Gateway", msg)
+            }
+        }
     }
 }
 
