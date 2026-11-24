@@ -359,6 +359,7 @@ struct PortListItem {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NodeListItem {
+    index: usize,
     name: String,
     runtime_name: Option<String>,
     protocol: String,
@@ -586,21 +587,25 @@ fn handle_list_nodes(req: &HttpRequest, state: &AppState) -> HttpResponse {
     let profile_names: HashMap<String, String> = profiles.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
     let delays = state.latency_probe.get_latencies();
 
-    let raw_nodes = if let Some(sub) = req.query.get("sub").filter(|s| !s.trim().is_empty()) {
+    let all_nodes = state.profile_manager.get_all_nodes();
+    let filter_profile_id = if let Some(sub) = req.query.get("sub").filter(|s| !s.trim().is_empty()) {
         let Some(profile) = resolve_profile(&profiles, sub) else {
             return HttpResponse::err(404, "Not Found", format!("subscription '{sub}' not found"));
         };
-        match state.profile_manager.get_profile_nodes(&profile.id) {
-            Ok(nodes) => nodes,
-            Err(err) => return HttpResponse::err(500, "Internal Server Error", err.to_string()),
-        }
+        Some(profile.id.clone())
     } else {
-        state.profile_manager.get_all_nodes()
+        None
     };
 
-    let items: Vec<NodeListItem> = raw_nodes
+    let items: Vec<NodeListItem> = all_nodes
         .into_iter()
-        .map(|node| {
+        .enumerate()
+        .filter(|(_, node)| {
+            filter_profile_id
+                .as_ref()
+                .is_none_or(|pid| node.profile_id.as_deref() == Some(pid.as_str()))
+        })
+        .map(|(idx, node)| {
             let delay = delays.get(&node.name).copied().flatten();
             let profile_id = node.profile_id.unwrap_or_default();
             let profile_name = profile_names
@@ -608,6 +613,7 @@ fn handle_list_nodes(req: &HttpRequest, state: &AppState) -> HttpResponse {
                 .cloned()
                 .unwrap_or_else(|| profile_id.clone());
             NodeListItem {
+                index: idx + 1,
                 name: node.name,
                 runtime_name: node.runtime_name,
                 protocol: node.node_type,
@@ -617,7 +623,6 @@ fn handle_list_nodes(req: &HttpRequest, state: &AppState) -> HttpResponse {
             }
         })
         .collect();
-
     HttpResponse::ok(&items)
 }
 
@@ -639,14 +644,41 @@ async fn handle_test_node(req: &HttpRequest, state: &AppState) -> HttpResponse {
     let actual_timeout = body.timeout_ms.unwrap_or(default_timeout);
 
     let all_nodes = state.profile_manager.get_all_nodes();
-    let target_node = all_nodes
-        .into_iter()
-        .find(|n| n.name == body.node || n.runtime_name.as_deref() == Some(&body.node));
-    let raw_name = target_node
-        .as_ref()
-        .map(|n| n.name.clone())
-        .unwrap_or_else(|| body.node.clone());
-    let runtime_name = target_node.and_then(|n| n.runtime_name);
+    let query = body.node.trim();
+    let target_node = query
+        .parse::<usize>()
+        .ok()
+        .filter(|&idx| idx >= 1)
+        .and_then(|idx| all_nodes.get(idx - 1))
+        .or_else(|| {
+            all_nodes
+                .iter()
+                .find(|n| n.name == query || n.runtime_name.as_deref() == Some(query))
+        })
+        .or_else(|| all_nodes.iter().find(|n| strip_flag_prefix(&n.name) == query))
+        .cloned();
+    let Some(target_node) = target_node else {
+        return HttpResponse::err(404, "Not Found", format!("node '{query}' not found"));
+    };
+
+    if let Some(pid) = &target_node.profile_id {
+        let profiles = state.profile_manager.get_profiles();
+        if let Some(profile) = profiles.iter().find(|p| &p.id == pid)
+            && !profile.enabled
+        {
+            return HttpResponse::err(
+                409,
+                "Conflict",
+                format!(
+                    "node '{}' belongs to disabled subscription '{}'",
+                    target_node.name, profile.name
+                ),
+            );
+        }
+    }
+
+    let raw_name = target_node.name;
+    let runtime_name = target_node.runtime_name;
 
     match state
         .latency_probe
@@ -659,6 +691,14 @@ async fn handle_test_node(req: &HttpRequest, state: &AppState) -> HttpResponse {
         })),
         Err(err) => HttpResponse::err(502, "Bad Gateway", err.to_string()),
     }
+}
+
+fn strip_flag_prefix(raw: &str) -> String {
+    raw.chars()
+        .filter(|&ch| !('\u{1F1E6}'..='\u{1F1FF}').contains(&ch) && ch != '\u{FE0F}')
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 async fn handle_test_sub(req: &HttpRequest, state: &AppState) -> HttpResponse {

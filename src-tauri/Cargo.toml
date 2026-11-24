@@ -4,10 +4,19 @@ version = "1.6.8"
 description = "High-performance multi-port proxy listener client based on Mihomo"
 authors = ["sheepyu"]
 edition = "2024"
+default-run = "mihomo-multi"
 
 [lib]
 name = "mihomo_multi_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "mihomo-multi"
+path = "src/main.rs"
+
+[[bin]]
+name = "mihomo-multi-cli"
+path = "src/bin/mihomo-multi-cli.rs"
 
 [build-dependencies]
 tauri-build = { version = "2.2.0", features = [] }
@@ -36,6 +45,7 @@ urlencoding = "2.1.3"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 flate2 = "1.0"
 arboard = { version = "3.7", default-features = false }
+clap = { version = "4.5", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59.0", features = [
