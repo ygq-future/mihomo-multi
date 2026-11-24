@@ -60,6 +60,7 @@ import type {
   MrsRulesInfo,
   UwpLoopbackStats,
 } from '../../types'
+import { CliSettingsCard } from '../settings/CliSettingsCard'
 
 import { createEventScope } from '../../services/events'
 import {
@@ -2573,44 +2574,11 @@ export const SettingView: React.FC = () => {
         </div>
       </div>
 
-      {/* 4. Storage & Directories Card */}
-      <div
-        id="setting-section-storage"
-        className="scroll-mt-6 bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm"
-      >
-        <div className="flex items-center justify-between pb-3 border-b border-border">
-          <div className="flex items-center gap-2.5">
-            <FolderOpen className="w-5 h-5 text-primary" />
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">
-                {t('settingsPage.storage.title')}
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                {t('settingsPage.storage.desc')}
-              </p>
-            </div>
-          </div>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => openAppDataDir()}
-            icon={<FolderOpen className="w-3.5 h-3.5" />}
-          >
-            {t('settingsPage.storage.openFolder')}
-          </Button>
-        </div>
-
-        <div className="p-3 rounded-lg bg-background/50 border border-border text-xs space-y-1">
-          <span className="text-muted-foreground">
-            {t('settingsPage.storage.currentDir')}
-          </span>
-          <div className="font-mono text-foreground break-all select-all">
-            {appDataDir || t('settingsPage.storage.reading')}
-          </div>
-        </div>
-      </div>
-
+      {/* 4. CLI Tool & Storage Directories Card */}
+      <CliSettingsCard
+        appDataDir={appDataDir}
+        onOpenAppDataDir={() => openAppDataDir()}
+      />
       {/* 5. Software About & Update Card */}
       <div
         id="setting-section-about"

@@ -490,3 +490,14 @@ export interface SystemNetworkStatus {
   offlineSinceMs?: number | null
   consecutiveFailures: number
 }
+
+export interface CliStatus {
+  alias: string
+  installed: boolean
+  inPath: boolean
+  cliDir: string
+  sourceBinary?: string | null
+  sourceExists: boolean
+  shellProfileInstalled: boolean
+  shellProfilePath?: string | null
+}

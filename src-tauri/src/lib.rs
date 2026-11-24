@@ -271,6 +271,7 @@ pub fn run() {
             if !is_dev_instance && let Ok(exe_path) = std::env::current_exe() {
                 let _ = crate::core::autostart::sync_autostart_state(&config, &exe_path);
             }
+            crate::core::cli_manager::sync_on_startup(&config.cli_alias);
             tauri::async_runtime::spawn(async move {
                 if let Some(pid) = restart_from_pid {
                     let _ = tokio::task::spawn_blocking(move || {
@@ -503,6 +504,12 @@ pub fn run() {
             clear_node_analytics,
             get_system_network_status,
             check_system_network_status,
+            get_cli_status,
+            set_cli_alias,
+            install_cli,
+            uninstall_cli,
+            install_cli_shell_integration,
+            open_cli_dir,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {

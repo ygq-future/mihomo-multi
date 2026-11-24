@@ -26,6 +26,7 @@ import type {
   AutoUpdateEventPayload,
   AvailabilityWeights,
   AutoUpdaterStatus,
+  CliStatus,
   ConnectionSnapshot,
   CoreStatus,
   DirectEgressInfo,
@@ -1436,4 +1437,53 @@ export async function onSystemNetworkChanged(
   return listen<SystemNetworkStatus>('system-network-changed', (event) => {
     handler(event.payload)
   })
+}
+
+export async function getCliStatus(): Promise<CliStatus> {
+  if (!isTauriEnvironment()) {
+    return {
+      alias: 'mm',
+      installed: false,
+      inPath: false,
+      cliDir: '',
+      sourceBinary: null,
+      sourceExists: false,
+      shellProfileInstalled: false,
+      shellProfilePath: null,
+    }
+  }
+  return invoke<CliStatus>('get_cli_status')
+}
+
+export async function setCliAlias(alias: string): Promise<CliStatus> {
+  if (!isTauriEnvironment()) {
+    throw new Error('CLI alias configuration requires Tauri desktop runtime')
+  }
+  return invoke<CliStatus>('set_cli_alias', { alias })
+}
+
+export async function installCli(): Promise<CliStatus> {
+  if (!isTauriEnvironment()) {
+    throw new Error('CLI registration requires Tauri desktop runtime')
+  }
+  return invoke<CliStatus>('install_cli')
+}
+
+export async function uninstallCli(): Promise<CliStatus> {
+  if (!isTauriEnvironment()) {
+    throw new Error('CLI uninstallation requires Tauri desktop runtime')
+  }
+  return invoke<CliStatus>('uninstall_cli')
+}
+
+export async function installCliShellIntegration(): Promise<CliStatus> {
+  if (!isTauriEnvironment()) {
+    throw new Error('Shell integration requires Tauri desktop runtime')
+  }
+  return invoke<CliStatus>('install_cli_shell_integration')
+}
+
+export async function openCliDir(): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('open_cli_dir')
 }

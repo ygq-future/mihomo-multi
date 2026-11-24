@@ -3,7 +3,7 @@ import {
   BarChart3,
   Compass,
   Cpu,
-  FolderOpen,
+  Terminal,
   Globe,
   Layers,
   Network,
@@ -73,9 +73,9 @@ const settingSections: {
     color: 'hover:text-amber-500 hover:bg-amber-500/10',
   },
   {
-    id: 'setting-section-storage',
-    labelKey: 'nav.settingStorage',
-    icon: FolderOpen,
+    id: 'setting-section-cli',
+    labelKey: 'nav.settingCli',
+    icon: Terminal,
     color: 'hover:text-indigo-500 hover:bg-indigo-500/10',
   },
   {

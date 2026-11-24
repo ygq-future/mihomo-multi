@@ -642,6 +642,9 @@ pub struct AppConfig {
     /// Interval in seconds for background host-level internet connectivity checks.
     #[serde(default = "default_network_check_interval_secs")]
     pub network_check_interval_secs: u32,
+    /// Custom terminal CLI command alias (defaults to "mm").
+    #[serde(default = "default_cli_alias")]
+    pub cli_alias: String,
 }
 
 fn default_true() -> bool {
@@ -680,6 +683,14 @@ fn default_controller_port() -> u16 {
     if cfg!(debug_assertions) { 9998 } else { 9999 }
 }
 
+fn default_cli_alias() -> String {
+    if cfg!(debug_assertions) {
+        "mm-dev".to_string()
+    } else {
+        "mm".to_string()
+    }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -715,6 +726,7 @@ impl Default for AppConfig {
             check_update_on_start: true,
             uwp_auto_exempt: false,
             network_check_interval_secs: default_network_check_interval_secs(),
+            cli_alias: default_cli_alias(),
         }
     }
 }
@@ -732,6 +744,19 @@ pub struct SystemProxyStatus {
 pub struct EnvProxyStatus {
     pub enabled: bool,
     pub port: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CliStatus {
+    pub alias: String,
+    pub installed: bool,
+    pub in_path: bool,
+    pub cli_dir: String,
+    pub source_binary: Option<String>,
+    pub source_exists: bool,
+    pub shell_profile_installed: bool,
+    pub shell_profile_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

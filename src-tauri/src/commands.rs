@@ -2444,6 +2444,107 @@ pub async fn check_system_network_status(
     Ok(state.network_monitor.check_now().await)
 }
 
+#[tauri::command]
+pub fn get_cli_status(state: State<'_, AppState>) -> Result<crate::models::CliStatus, String> {
+    let alias = state.config.read().cli_alias.clone();
+    Ok(crate::core::cli_manager::get_cli_status(&alias))
+}
+
+#[tauri::command]
+pub fn set_cli_alias(state: State<'_, AppState>, alias: String) -> Result<crate::models::CliStatus, String> {
+    let valid = crate::core::cli_manager::validate_cli_alias(&alias)?;
+    let updated_cfg = {
+        let mut cfg = state.config.write();
+        cfg.cli_alias = valid.clone();
+        cfg.clone()
+    };
+    state.persist_config(&updated_cfg).map_err(|e| e.to_string())?;
+
+    let status = crate::core::cli_manager::get_cli_status(&valid);
+    if let (Ok(cli_dir), Some(source_bin)) = (
+        crate::core::cli_manager::resolve_cli_dir(),
+        crate::core::cli_manager::resolve_source_binary(),
+    ) && (status.installed || status.in_path)
+    {
+        crate::core::cli_manager::sync_cli_in_dir(&cli_dir, &source_bin, &valid)?;
+    }
+    if crate::core::cli_manager::is_shell_integration_installed() {
+        let _ = crate::core::cli_manager::install_shell_integration(&valid);
+    }
+    Ok(crate::core::cli_manager::get_cli_status(&valid))
+}
+
+#[tauri::command]
+pub fn install_cli(state: State<'_, AppState>) -> Result<crate::models::CliStatus, String> {
+    let alias = state.config.read().cli_alias.clone();
+    let cli_dir = crate::core::cli_manager::resolve_cli_dir()?;
+    let source_bin = crate::core::cli_manager::resolve_source_binary().ok_or_else(|| {
+        crate::tr!(
+            "未找到内置 CLI 二进制文件 (mihomo-multi-cli)，请重新安装或构建完整包".to_string(),
+            "Bundled CLI binary (mihomo-multi-cli) was not found".to_string()
+        )
+    })?;
+    crate::core::cli_manager::sync_cli_in_dir(&cli_dir, &source_bin, &alias)?;
+    crate::core::cli_manager::register_cli_path(&cli_dir)?;
+    Ok(crate::core::cli_manager::get_cli_status(&alias))
+}
+
+#[tauri::command]
+pub fn uninstall_cli(state: State<'_, AppState>) -> Result<crate::models::CliStatus, String> {
+    let alias = state.config.read().cli_alias.clone();
+    let cli_dir = crate::core::cli_manager::resolve_cli_dir()?;
+    crate::core::cli_manager::unregister_cli_path(&cli_dir, &alias)?;
+    Ok(crate::core::cli_manager::get_cli_status(&alias))
+}
+
+#[tauri::command]
+pub fn install_cli_shell_integration(state: State<'_, AppState>) -> Result<crate::models::CliStatus, String> {
+    let alias = state.config.read().cli_alias.clone();
+    crate::core::cli_manager::install_shell_integration(&alias)?;
+    Ok(crate::core::cli_manager::get_cli_status(&alias))
+}
+
+#[tauri::command]
+pub fn open_cli_dir() -> Result<(), String> {
+    let dir = crate::core::cli_manager::resolve_cli_dir()?;
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            crate::tr!(
+                format!("创建目录失败: {e}"),
+                format!("Failed to create directory: {e}"),
+            )
+        })?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer").arg(&dir).spawn().map_err(|e| {
+            crate::tr!(
+                format!("打开目录失败: {e}"),
+                format!("Failed to open directory: {e}"),
+            )
+        })?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open").arg(&dir).spawn().map_err(|e| {
+            crate::tr!(
+                format!("打开目录失败: {e}"),
+                format!("Failed to open directory: {e}"),
+            )
+        })?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new("xdg-open").arg(&dir).spawn().map_err(|e| {
+            crate::tr!(
+                format!("打开目录失败: {e}"),
+                format!("Failed to open directory: {e}"),
+            )
+        })?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3,6 +3,7 @@ pub mod auto_updater;
 pub mod autostart;
 pub mod clash_client;
 pub mod cli_format;
+pub mod cli_manager;
 pub mod ctl_server;
 pub mod icon_cache;
 pub mod config_generator;
