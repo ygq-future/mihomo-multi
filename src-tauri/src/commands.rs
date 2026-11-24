@@ -1077,7 +1077,10 @@ pub async fn get_port_fallback_statuses(
 
     let mappings = state.port_router.get_port_mappings();
     let profiles = state.profile_manager.get_profiles();
-    let profile_map: std::collections::HashMap<String, String> = profiles.into_iter().map(|p| (p.id, p.name)).collect();
+    let profile_map: std::collections::HashMap<String, String> =
+        profiles.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
+    let profile_enabled_map: std::collections::HashMap<String, bool> =
+        profiles.into_iter().map(|p| (p.id, p.enabled)).collect();
 
     let (default_url, default_timeout, fallback_interval_secs) = {
         let cfg = state.config.read();
@@ -1101,6 +1104,10 @@ pub async fn get_port_fallback_statuses(
             _ => continue,
         };
 
+        let fb_profile_id = m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id);
+        let primary_profile_enabled = profile_enabled_map.get(&m.profile_id).copied().unwrap_or(false);
+        let fb_profile_enabled = profile_enabled_map.get(fb_profile_id).copied().unwrap_or(false);
+
         let group_name = format!("fb-{}", m.port);
         let mut is_fallback_active = if m.manual_fallback {
             true
@@ -1108,7 +1115,7 @@ pub async fn get_port_fallback_statuses(
             let active_node = detail.now.clone().unwrap_or_default();
             active_node.ends_with(&fallback_node)
         } else {
-            false
+            !primary_profile_enabled && fb_profile_enabled
         };
 
         let primary_runtime_name = if let Some(pname) = profile_map.get(&m.profile_id) {
@@ -1117,7 +1124,6 @@ pub async fn get_port_fallback_statuses(
             m.node_name.clone()
         };
 
-        let fb_profile_id = m.fallback_profile_id.as_deref().unwrap_or(&m.profile_id);
         let fb_runtime_name = if let Some(pname) = profile_map.get(fb_profile_id) {
             format!("[{}] {}", pname, fallback_node)
         } else {
@@ -1137,7 +1143,7 @@ pub async fn get_port_fallback_statuses(
             .unwrap_or_default();
         let mut kernel_primary_history_delay = primary_history.last().map(|h| h.delay);
         let need_first_timeout_recheck = should_recheck_timeout(&primary_history, cached_primary_entry);
-        let need_fallback_recovery_probe = !m.manual_fallback && is_fallback_active;
+        let need_fallback_recovery_probe = !m.manual_fallback && is_fallback_active && primary_profile_enabled;
         let mut primary_recheck_succeeded = false;
         if system_online && (need_first_timeout_recheck || need_fallback_recovery_probe) {
             let cooldown_secs = if need_first_timeout_recheck {
