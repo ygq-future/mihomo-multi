@@ -212,11 +212,9 @@ impl ResidentialProxy {
     pub fn validate(&self) -> Result<(), String> {
         let id = self.id.trim();
         if id.is_empty() {
-            return Err(crate::tr!(
-                "住宅代理出口 ID 不能为空",
-                "Residential proxy exit ID cannot be empty"
-            )
-            .to_string());
+            return Err(
+                crate::tr!("住宅代理出口 ID 不能为空", "Residential proxy exit ID cannot be empty").to_string(),
+            );
         }
         let name = self.name.trim();
         if name.is_empty() {
@@ -229,9 +227,7 @@ impl ResidentialProxy {
         if self.proxy_type().is_none() {
             return Err(crate::tr!(
                 format!("住宅代理出口「{name}」协议无效，仅支持 http 或 socks5"),
-                format!(
-                    "Residential proxy exit \"{name}\" has an invalid protocol; only http or socks5 are supported"
-                ),
+                format!("Residential proxy exit \"{name}\" has an invalid protocol; only http or socks5 are supported"),
             ));
         }
         let server = self.server.trim();
@@ -269,9 +265,7 @@ impl ResidentialProxy {
         if has_username != has_password {
             return Err(crate::tr!(
                 format!("住宅代理出口「{name}」用户名与密码必须同时填写或同时留空"),
-                format!(
-                    "Residential proxy exit \"{name}\" username and password must both be set or both be empty"
-                ),
+                format!("Residential proxy exit \"{name}\" username and password must both be set or both be empty"),
             ));
         }
         Ok(())

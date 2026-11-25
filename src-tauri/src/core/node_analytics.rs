@@ -337,10 +337,7 @@ impl NodeAnalyticsStore {
         if nodes.len() <= MAX_TRACKED_NODES {
             return;
         }
-        let mut by_age: Vec<(String, u64)> = nodes
-            .iter()
-            .map(|(k, v)| (k.clone(), v.last_seen_ms))
-            .collect();
+        let mut by_age: Vec<(String, u64)> = nodes.iter().map(|(k, v)| (k.clone(), v.last_seen_ms)).collect();
         by_age.sort_by_key(|(_, ts)| *ts);
         let remove_count = nodes.len().saturating_sub(MAX_TRACKED_NODES);
         for (name, _) in by_age.into_iter().take(remove_count) {
@@ -414,13 +411,10 @@ impl NodeAnalyticsStore {
             });
         record.last_seen_ms = now_ms;
 
-        let bucket = record
-            .buckets
-            .entry(bucket_ts)
-            .or_insert_with(|| HourlyNodeBucket {
-                bucket_start_ms: bucket_ts,
-                ..Default::default()
-            });
+        let bucket = record.buckets.entry(bucket_ts).or_insert_with(|| HourlyNodeBucket {
+            bucket_start_ms: bucket_ts,
+            ..Default::default()
+        });
         bucket.probe_total = bucket.probe_total.saturating_add(1);
 
         match latency_ms {
@@ -544,13 +538,10 @@ impl NodeAnalyticsStore {
                 });
             record.last_seen_ms = now_ms;
 
-            let bucket = record
-                .buckets
-                .entry(bucket_ts)
-                .or_insert_with(|| HourlyNodeBucket {
-                    bucket_start_ms: bucket_ts,
-                    ..Default::default()
-                });
+            let bucket = record.buckets.entry(bucket_ts).or_insert_with(|| HourlyNodeBucket {
+                bucket_start_ms: bucket_ts,
+                ..Default::default()
+            });
             bucket.connection_samples = bucket.connection_samples.saturating_add(conn_count);
 
             let du = node_delta_upload.get(&node_name).copied().unwrap_or(0);
@@ -607,13 +598,10 @@ impl NodeAnalyticsStore {
                 });
             record.last_seen_ms = now_ms;
 
-            let bucket = record
-                .buckets
-                .entry(bucket_ts)
-                .or_insert_with(|| HourlyNodeBucket {
-                    bucket_start_ms: bucket_ts,
-                    ..Default::default()
-                });
+            let bucket = record.buckets.entry(bucket_ts).or_insert_with(|| HourlyNodeBucket {
+                bucket_start_ms: bucket_ts,
+                ..Default::default()
+            });
             bucket.connection_errors = bucket.connection_errors.saturating_add(1);
             Self::push_event(
                 record,
@@ -656,7 +644,11 @@ impl NodeAnalyticsStore {
     }
 
     /// Build the aggregated dashboard payload for the given time window (`window_hours == 0` means all).
-    pub fn build_dashboard(&self, window_hours: u64, allowed_nodes: Option<&HashSet<String>>) -> NodeAnalyticsDashboard {
+    pub fn build_dashboard(
+        &self,
+        window_hours: u64,
+        allowed_nodes: Option<&HashSet<String>>,
+    ) -> NodeAnalyticsDashboard {
         let now_ms = now_epoch_ms();
         let cutoff_ms = if window_hours == 0 {
             0
@@ -842,10 +834,7 @@ impl NodeAnalyticsStore {
             .iter()
             .map(|n| n.total_upload_bytes.saturating_add(n.total_download_bytes))
             .sum();
-        let global_peak_speed_bps = summaries
-            .iter()
-            .map(|n| n.max_speed_bps)
-            .fold(0.0_f64, f64::max);
+        let global_peak_speed_bps = summaries.iter().map(|n| n.max_speed_bps).fold(0.0_f64, f64::max);
         let active_speed_nodes: Vec<f64> = summaries
             .iter()
             .filter(|n| n.avg_speed_bps > 0.0)
@@ -1143,10 +1132,7 @@ mod tests {
     fn parses_mihomo_dial_error_log_line() {
         let line = r#"time="2026-11-21T10:00:00Z" level=warning msg="[TCP] dial HK Node 01 (match IN-PORT/7890) 127.0.0.1:54321 --> example.com:443 error: i/o timeout""#;
         let parsed = parse_connection_error_from_log(line);
-        assert_eq!(
-            parsed,
-            Some(("HK Node 01".to_string(), "i/o timeout".to_string()))
-        );
+        assert_eq!(parsed, Some(("HK Node 01".to_string(), "i/o timeout".to_string())));
     }
 
     #[test]
@@ -1270,10 +1256,7 @@ mod tests {
 
     #[test]
     fn offline_system_network_suppresses_timeouts_and_log_errors() {
-        let dir = std::env::temp_dir().join(format!(
-            "mhm-analytics-offline-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("mhm-analytics-offline-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
         let store = NodeAnalyticsStore::new(&dir);
@@ -1282,10 +1265,7 @@ mod tests {
         store.record_latency_sample("HK-01", Some(45));
         // Go offline: timeouts and log errors must be ignored
         store.set_system_network_online(false);
-        store.record_latency_samples_batch(&[
-            ("HK-01".to_string(), None),
-            ("US-01".to_string(), None),
-        ]);
+        store.record_latency_samples_batch(&[("HK-01".to_string(), None), ("US-01".to_string(), None)]);
         store.record_log_line("time=\"2026-01-01T00:00:00Z\" level=warning msg=\"[TCP] dial HK-01 (match Rule) to example.com:443 error: i/o timeout\"");
 
         let dash = store.build_dashboard(24, None);

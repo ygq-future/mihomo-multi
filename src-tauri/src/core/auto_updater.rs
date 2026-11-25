@@ -95,10 +95,7 @@ impl AutoUpdater {
     pub fn get_status(&self, app_state: &AppState) -> AutoUpdaterStatus {
         let profiles = app_state.profile_manager.get_profiles();
         let total_managed_profiles = profiles.len();
-        let eligible_profiles_count = profiles
-            .iter()
-            .filter(|p| Self::is_profile_eligible(p))
-            .count();
+        let eligible_profiles_count = profiles.iter().filter(|p| Self::is_profile_eligible(p)).count();
 
         AutoUpdaterStatus {
             running: self.running.load(Ordering::Relaxed),
@@ -129,9 +126,7 @@ impl AutoUpdater {
 
             let in_backoff = {
                 let map = PROFILE_BACKOFF.lock();
-                map.get(&profile.id)
-                    .map(|b| now < b.next_retry_at)
-                    .unwrap_or(false)
+                map.get(&profile.id).map(|b| now < b.next_retry_at).unwrap_or(false)
             };
             if in_backoff {
                 continue;

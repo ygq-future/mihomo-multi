@@ -23,11 +23,7 @@ pub(crate) fn is_english() -> bool {
 #[macro_export]
 macro_rules! tr {
     ($zh:expr, $en:expr $(,)?) => {
-        if $crate::error::is_english() {
-            $en
-        } else {
-            $zh
-        }
+        if $crate::error::is_english() { $en } else { $zh }
     };
 }
 

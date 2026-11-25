@@ -77,7 +77,11 @@ pub fn enable_elevated_autostart(app_path: &Path, silent: bool) -> Result<(), St
 
 #[cfg(not(windows))]
 pub fn enable_elevated_autostart(_app_path: &Path, _silent: bool) -> Result<(), String> {
-    Err(crate::tr!("当前平台不支持管理员计划任务", "Elevated scheduled tasks are not supported on this platform").to_string())
+    Err(crate::tr!(
+        "当前平台不支持管理员计划任务",
+        "Elevated scheduled tasks are not supported on this platform"
+    )
+    .to_string())
 }
 
 pub fn sync_autostart_state(config: &crate::models::AppConfig, app_path: &Path) -> Result<(), String> {

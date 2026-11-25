@@ -195,8 +195,12 @@ fn parse_query(raw: &str) -> HashMap<String, String> {
             continue;
         }
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
-        let key = urlencoding::decode(k).map(|s| s.into_owned()).unwrap_or_else(|_| k.to_string());
-        let val = urlencoding::decode(v).map(|s| s.into_owned()).unwrap_or_else(|_| v.to_string());
+        let key = urlencoding::decode(k)
+            .map(|s| s.into_owned())
+            .unwrap_or_else(|_| k.to_string());
+        let val = urlencoding::decode(v)
+            .map(|s| s.into_owned())
+            .unwrap_or_else(|_| v.to_string());
         map.insert(key, val);
     }
     map
@@ -253,7 +257,11 @@ async fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, HttpRe
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(0);
     if header_end + 4 + content_length > MAX_REQUEST_BYTES {
-        return Err(HttpResponse::err(413, "Payload Too Large", "request body exceeds 64 KiB"));
+        return Err(HttpResponse::err(
+            413,
+            "Payload Too Large",
+            "request body exceeds 64 KiB",
+        ));
     }
 
     let mut body = buf[(header_end + 4)..].to_vec();
@@ -691,24 +699,24 @@ fn handle_list_nodes(req: &HttpRequest, state: &AppState) -> HttpResponse {
     let delays = state.latency_probe.get_latencies();
 
     let all_nodes = state.profile_manager.get_all_nodes();
-    let filter_profile_ids: Option<Vec<String>> = if let Some(sub) = req.query.get("sub").filter(|s| !s.trim().is_empty())
-    {
-        if let Some(exact) = resolve_profile(&profiles, sub) {
-            Some(vec![exact.id.clone()])
-        } else {
-            let matched: Vec<String> = profiles
-                .iter()
-                .filter(|p| fuzzy_subsequence_match(&p.name, sub))
-                .map(|p| p.id.clone())
-                .collect();
-            if matched.is_empty() {
-                return HttpResponse::err(404, "Not Found", format!("subscription '{sub}' not found"));
+    let filter_profile_ids: Option<Vec<String>> =
+        if let Some(sub) = req.query.get("sub").filter(|s| !s.trim().is_empty()) {
+            if let Some(exact) = resolve_profile(&profiles, sub) {
+                Some(vec![exact.id.clone()])
+            } else {
+                let matched: Vec<String> = profiles
+                    .iter()
+                    .filter(|p| fuzzy_subsequence_match(&p.name, sub))
+                    .map(|p| p.id.clone())
+                    .collect();
+                if matched.is_empty() {
+                    return HttpResponse::err(404, "Not Found", format!("subscription '{sub}' not found"));
+                }
+                Some(matched)
             }
-            Some(matched)
-        }
-    } else {
-        None
-    };
+        } else {
+            None
+        };
     let node_query = req.query.get("q").filter(|s| !s.trim().is_empty()).map(String::as_str);
 
     let mut items: Vec<NodeListItem> = all_nodes
@@ -806,7 +814,13 @@ async fn handle_test_node(req: &HttpRequest, state: &AppState) -> HttpResponse {
 
     match state
         .latency_probe
-        .test_node(&raw_name, runtime_name.as_deref(), Some(actual_url), Some(actual_timeout), None)
+        .test_node(
+            &raw_name,
+            runtime_name.as_deref(),
+            Some(actual_url),
+            Some(actual_timeout),
+            None,
+        )
         .await
     {
         Ok(delay) => HttpResponse::ok(&serde_json::json!({
@@ -1069,7 +1083,9 @@ mod tests {
     use super::*;
 
     async fn send_raw(port: u16, req: &str) -> String {
-        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.expect("connect ctl server");
+        let mut stream = TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("connect ctl server");
         stream.write_all(req.as_bytes()).await.expect("write request");
         let mut resp = String::new();
         stream.read_to_string(&mut resp).await.expect("read response");
@@ -1099,9 +1115,7 @@ mod tests {
         assert!(unauth.starts_with("HTTP/1.1 401 Unauthorized"));
 
         // Authorized GET /v1/status succeeds
-        let status_req = format!(
-            "GET /v1/status HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\n\r\n"
-        );
+        let status_req = format!("GET /v1/status HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\n\r\n");
         let status_resp = send_raw(port, &status_req).await;
         assert!(status_resp.starts_with("HTTP/1.1 200 OK"));
         assert!(status_resp.contains("\"ok\":true"));
@@ -1112,7 +1126,10 @@ mod tests {
             "GET /v1/copy?port={test_port}&format=http HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\n\r\n"
         );
         let copy_resp = send_raw(port, &copy_req).await;
-        assert!(copy_resp.starts_with("HTTP/1.1 200 OK"), "unexpected copy_resp: {copy_resp}");
+        assert!(
+            copy_resp.starts_with("HTTP/1.1 200 OK"),
+            "unexpected copy_resp: {copy_resp}"
+        );
         assert!(copy_resp.contains(&format!("http://127.0.0.1:{test_port}")));
         // Authorized POST /v1/env off returns unset command
         let env_body = r#"{"enabled":false,"shell":"pwsh"}"#;

@@ -222,9 +222,7 @@ pub fn run() {
                         // Destroying it synchronously here would leave the tray in its default
                         // language. The fallback still releases a webview whose frontend failed.
                         let _ = main_win.hide();
-                        info!(
-                            "Silent start mode with lightweight mode: keeping hidden webview for tray locale sync"
-                        );
+                        info!("Silent start mode with lightweight mode: keeping hidden webview for tray locale sync");
                         let pending_win = main_win.clone();
                         let pending_state = app_state.clone();
                         tauri::async_runtime::spawn(async move {
@@ -283,10 +281,8 @@ pub fn run() {
                 let start_engine = engine.clone();
                 let start_handle = handle.clone();
                 let start_config = config.clone();
-                let start_res = tokio::task::spawn_blocking(move || {
-                    start_engine.start(Some(&start_handle), &start_config)
-                })
-                .await;
+                let start_res =
+                    tokio::task::spawn_blocking(move || start_engine.start(Some(&start_handle), &start_config)).await;
                 match start_res {
                     Ok(Ok(_)) => {
                         info!("Mihomo core auto-started successfully");
@@ -545,7 +541,6 @@ pub fn run() {
     #[cfg(unix)]
     register_unix_signal_handler(app.handle().clone());
 
-
     app.run(|app_handle, event| match event {
         tauri::RunEvent::ExitRequested { api, code, .. } => {
             if code.is_none() {
@@ -565,8 +560,7 @@ pub fn run() {
 fn register_windows_ctrl_handler(app_handle: tauri::AppHandle) {
     use std::sync::OnceLock;
     use windows_sys::Win32::System::Console::{
-        CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT, CTRL_C_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT,
-        SetConsoleCtrlHandler,
+        CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT, SetConsoleCtrlHandler,
     };
 
     static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
@@ -574,8 +568,7 @@ fn register_windows_ctrl_handler(app_handle: tauri::AppHandle) {
 
     unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
         match ctrl_type {
-            CTRL_C_EVENT | CTRL_BREAK_EVENT | CTRL_CLOSE_EVENT | CTRL_LOGOFF_EVENT
-            | CTRL_SHUTDOWN_EVENT => {
+            CTRL_C_EVENT | CTRL_BREAK_EVENT | CTRL_CLOSE_EVENT | CTRL_LOGOFF_EVENT | CTRL_SHUTDOWN_EVENT => {
                 if let Some(handle) = APP_HANDLE.get()
                     && let Some(state) = handle.try_state::<AppState>()
                 {

@@ -601,7 +601,10 @@ impl MinimalRuntimeConfig {
                     }
                     if !visited_dialers.insert(dialer_cursor) {
                         return Err(crate::tr!(
-                            format!("上游节点「{}」存在循环 dialer-proxy 引用，无法生成代理链", mapping.node_name),
+                            format!(
+                                "上游节点「{}」存在循环 dialer-proxy 引用，无法生成代理链",
+                                mapping.node_name
+                            ),
                             format!(
                                 "Upstream node \"{}\" has a circular dialer-proxy reference; cannot generate the proxy chain",
                                 mapping.node_name
@@ -654,11 +657,7 @@ impl MinimalRuntimeConfig {
                             .to_string()
                         })?;
                     let proxy_type = exit.proxy_type().ok_or_else(|| {
-                        crate::tr!(
-                            "住宅代理出口协议无效",
-                            "The residential proxy exit protocol is invalid"
-                        )
-                        .to_string()
+                        crate::tr!("住宅代理出口协议无效", "The residential proxy exit protocol is invalid").to_string()
                     })?;
                     let mut map = serde_yaml_ng::Mapping::new();
                     map.insert(
@@ -694,11 +693,7 @@ impl MinimalRuntimeConfig {
                     map
                 } else {
                     let exit_node = node_exit_name.ok_or_else(|| {
-                        crate::tr!(
-                            "链式代理出口节点不能为空",
-                            "Chain proxy exit node cannot be empty"
-                        )
-                        .to_string()
+                        crate::tr!("链式代理出口节点不能为空", "Chain proxy exit node cannot be empty").to_string()
                     })?;
                     let exit_profile_id = mapping
                         .chain_exit_profile_id
@@ -737,10 +732,7 @@ impl MinimalRuntimeConfig {
                         .ok_or_else(|| {
                             crate::tr!(
                                 format!("链式出口节点「{}」未在已导入订阅中找到", exit_node),
-                                format!(
-                                    "Chain exit node \"{}\" was not found in imported profiles",
-                                    exit_node
-                                ),
+                                format!("Chain exit node \"{}\" was not found in imported profiles", exit_node),
                             )
                         })?;
                     let mut map = raw_exit.clone();

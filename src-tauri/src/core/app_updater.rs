@@ -501,16 +501,12 @@ pub async fn download_and_install_update(
         },
     );
 
-    while let Some(chunk) = res
-        .chunk()
-        .await
-        .map_err(|e| {
-            AppError::Internal(crate::tr!(
-                format!("下载流读取失败: {e}"),
-                format!("Download stream error: {e}"),
-            ))
-        })?
-    {
+    while let Some(chunk) = res.chunk().await.map_err(|e| {
+        AppError::Internal(crate::tr!(
+            format!("下载流读取失败: {e}"),
+            format!("Download stream error: {e}"),
+        ))
+    })? {
         file.write_all(&chunk).map_err(AppError::Io)?;
         downloaded_bytes += chunk.len() as u64;
 

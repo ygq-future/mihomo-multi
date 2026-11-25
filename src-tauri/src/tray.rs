@@ -1271,8 +1271,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 let mapping_id = mapping_id.to_string();
                 let app_handle = app.clone();
                 if let Some(tray) = app.tray_by_id(get_tray_id(app))
-                    && let Err(error) =
-                        tray.set_tooltip(Some(current_locale().text().probe_egress_ip))
+                    && let Err(error) = tray.set_tooltip(Some(current_locale().text().probe_egress_ip))
                 {
                     show_tray_error(app, &error.to_string());
                     return;

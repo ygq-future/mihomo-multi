@@ -273,14 +273,8 @@ async fn query_egress_over_endpoints<'a>(
     }
 
     Err(AppError::Internal(crate::tr!(
-        format!(
-            "所有出口 IP 探测接口均失败，最后一次错误: {}",
-            last_err
-        ),
-        format!(
-            "All egress IP probe endpoints failed; last error: {}",
-            last_err
-        )
+        format!("所有出口 IP 探测接口均失败，最后一次错误: {}", last_err),
+        format!("All egress IP probe endpoints failed; last error: {}", last_err)
     )))
 }
 
@@ -360,9 +354,10 @@ mod tests {
         }"#;
         let res = parse_probe_response("ip.sb", payload_ipv6);
         assert!(res.is_err());
-        assert!(res
-            .unwrap_err()
-            .contains(crate::tr!("不是合法的 IPv4 地址", "not a valid IPv4 address")));
+        assert!(
+            res.unwrap_err()
+                .contains(crate::tr!("不是合法的 IPv4 地址", "not a valid IPv4 address"))
+        );
     }
 
     #[test]

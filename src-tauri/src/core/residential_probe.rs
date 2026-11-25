@@ -279,7 +279,10 @@ fn collect_dialer_chain(by_name: &HashMap<&str, &Value>, upstream: &str) -> Resu
     loop {
         if !visited.insert(current) {
             return Err(crate::tr!(
-                format!("上游节点「{}」存在循环 dialer-proxy 引用，无法进行住宅代理连通性测试", upstream),
+                format!(
+                    "上游节点「{}」存在循环 dialer-proxy 引用，无法进行住宅代理连通性测试",
+                    upstream
+                ),
                 format!(
                     "Upstream node \"{}\" has a circular dialer-proxy reference; the residential proxy connectivity test cannot run",
                     upstream
@@ -482,10 +485,7 @@ async fn wait_for_listener(child: &mut IsolatedCoreProcess, port: u16) -> Result
             )
         })? {
             return Err(crate::tr!(
-                format!(
-                    "住宅代理测试内核提前退出（{}），请检查上游节点订阅配置是否有效",
-                    status
-                ),
+                format!("住宅代理测试内核提前退出（{}），请检查上游节点订阅配置是否有效", status),
                 format!(
                     "The residential probe core exited early ({}); check whether the upstream node subscription configuration is valid",
                     status
@@ -548,9 +548,7 @@ async fn run_probe(
     let binary = CoreSupervisor::resolve_sidecar_path(app_handle).map_err(|err| {
         crate::tr!(
             format!("无法定位 Mihomo 内核，住宅代理连通性测试未执行: {err}"),
-            format!(
-                "Failed to locate the Mihomo core; the residential proxy connectivity test did not run: {err}"
-            ),
+            format!("Failed to locate the Mihomo core; the residential proxy connectivity test did not run: {err}"),
         )
     })?;
     let (listener_port, controller_port) = allocate_loopback_ports()?;
@@ -578,12 +576,14 @@ async fn run_probe(
                 format!("Failed to write the residential probe configuration: {err}"),
             )
         })?;
-        workspace.child = Some(IsolatedCoreProcess::spawn(&binary, &workspace.path, &config_path).map_err(|err| {
-            crate::tr!(
-                format!("启动住宅代理测试内核失败: {err}"),
-                format!("Failed to start the residential probe core: {err}"),
-            )
-        })?);
+        workspace.child = Some(
+            IsolatedCoreProcess::spawn(&binary, &workspace.path, &config_path).map_err(|err| {
+                crate::tr!(
+                    format!("启动住宅代理测试内核失败: {err}"),
+                    format!("Failed to start the residential probe core: {err}"),
+                )
+            })?,
+        );
         Ok(workspace)
     };
     #[cfg(target_os = "macos")]
@@ -614,8 +614,7 @@ async fn run_probe(
             .filter(|u| !u.is_empty())
             .unwrap_or("http://cp.cloudflare.com/generate_204");
         let proxy_url = format!("http://127.0.0.1:{listener_port}");
-        let proxy = reqwest::Proxy::all(&proxy_url)
-            .map_err(|e| format!("构造临时链式代理失败: {e}"))?;
+        let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| format!("构造临时链式代理失败: {e}"))?;
         let client = reqwest::Client::builder()
             .proxy(proxy)
             .timeout(Duration::from_millis(per_api_timeout))

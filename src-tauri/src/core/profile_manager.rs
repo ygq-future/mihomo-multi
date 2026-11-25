@@ -343,9 +343,7 @@ impl Drop for TempFileCleanup {
 #[cfg(windows)]
 fn replace_file_atomic(src: &Path, dst: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{
-        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
-    };
+    use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW};
     let src_w: Vec<u16> = src.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
     let dst_w: Vec<u16> = dst.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
     let ok = unsafe {

@@ -955,10 +955,7 @@ mod windows {
 
         if !run_elevated_loopback_script(
             &lines,
-            crate::tr!(
-                "执行 UWP 回环豁免失败",
-                "Failed to run UWP loopback exemptions"
-            ),
+            crate::tr!("执行 UWP 回环豁免失败", "Failed to run UWP loopback exemptions"),
         )? {
             return Err(AppError::Internal(
                 crate::tr!(

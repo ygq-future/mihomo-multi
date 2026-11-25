@@ -43,15 +43,12 @@ pub async fn get_core_status(state: State<'_, AppState>) -> Result<CoreStatus, S
 
 #[tauri::command]
 pub async fn start_core(app: AppHandle, state: State<'_, AppState>) -> Result<CoreStatus, String> {
-    state
-        .sync_runtime_config()
-        .await
-        .map_err(|err| {
-            crate::tr!(
-                format!("生成运行时配置失败: {err}"),
-                format!("Failed to generate runtime configuration: {err}"),
-            )
-        })?;
+    state.sync_runtime_config().await.map_err(|err| {
+        crate::tr!(
+            format!("生成运行时配置失败: {err}"),
+            format!("Failed to generate runtime configuration: {err}"),
+        )
+    })?;
     let config = state.config.read().clone();
     let engine = state.engine.clone();
     let app_clone = app.clone();
@@ -81,15 +78,12 @@ pub async fn stop_core(app: AppHandle, state: State<'_, AppState>) -> Result<(),
 
 #[tauri::command]
 pub async fn restart_core(app: AppHandle, state: State<'_, AppState>) -> Result<CoreStatus, String> {
-    state
-        .sync_runtime_config()
-        .await
-        .map_err(|err| {
-            crate::tr!(
-                format!("生成运行时配置失败: {err}"),
-                format!("Failed to generate runtime configuration: {err}"),
-            )
-        })?;
+    state.sync_runtime_config().await.map_err(|err| {
+        crate::tr!(
+            format!("生成运行时配置失败: {err}"),
+            format!("Failed to generate runtime configuration: {err}"),
+        )
+    })?;
     let config = state.config.read().clone();
     let engine = state.engine.clone();
     let app_clone = app.clone();
@@ -201,7 +195,8 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
             if sys_proxy_changed {
                 if cfg_for_proxy.system_proxy_enabled {
                     if let Some(port) = cfg_for_proxy.system_proxy_port {
-                        let _ = crate::core::sysproxy::apply_system_proxy(port, &cfg_for_proxy.system_proxy_bypass_user);
+                        let _ =
+                            crate::core::sysproxy::apply_system_proxy(port, &cfg_for_proxy.system_proxy_bypass_user);
                     }
                 } else {
                     let _ = crate::core::sysproxy::clear_system_proxy();
@@ -307,7 +302,8 @@ pub async fn save_config(app: AppHandle, mut config: AppConfig, state: State<'_,
             && let Ok(snapshot) = state.engine.adapter().get_connections().await
         {
             for conn in snapshot.connections {
-                let matches_host = crate::core::sysproxy::bypass_rule_matches_host_list(&added_rules, &conn.metadata.host);
+                let matches_host =
+                    crate::core::sysproxy::bypass_rule_matches_host_list(&added_rules, &conn.metadata.host);
                 let matches_sniff = conn
                     .metadata
                     .sniff_host
@@ -398,11 +394,10 @@ pub async fn set_tun(
         let engine_stop = state.engine.clone();
         let _ = tokio::task::spawn_blocking(move || engine_stop.stop()).await;
         let relaunch_arg = format!("--restart-from-pid={}", std::process::id());
-        let relaunch_res = tokio::task::spawn_blocking(move || {
-            crate::core::elevation::relaunch_as_admin(&[relaunch_arg])
-        })
-        .await
-        .map_err(|e| format!("Task join error: {e}"))?;
+        let relaunch_res =
+            tokio::task::spawn_blocking(move || crate::core::elevation::relaunch_as_admin(&[relaunch_arg]))
+                .await
+                .map_err(|e| format!("Task join error: {e}"))?;
         if let Err(e) = relaunch_res {
             // UAC 被拒绝或启动失败：回滚开关并恢复内核，避免留下"已开启但内核已停止"的破损状态
             let rollback = state.rollback_tun_transition();
@@ -441,11 +436,9 @@ pub async fn restart_as_admin(app: AppHandle, state: State<'_, AppState>) -> Res
     let engine_stop = state.engine.clone();
     let _ = tokio::task::spawn_blocking(move || engine_stop.stop()).await;
     let relaunch_arg = format!("--restart-from-pid={}", std::process::id());
-    let relaunch_res = tokio::task::spawn_blocking(move || {
-        crate::core::elevation::relaunch_as_admin(&[relaunch_arg])
-    })
-    .await
-    .map_err(|e| format!("Task join error: {e}"))?;
+    let relaunch_res = tokio::task::spawn_blocking(move || crate::core::elevation::relaunch_as_admin(&[relaunch_arg]))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?;
     if let Err(e) = relaunch_res {
         // UAC 被拒绝：恢复内核，避免留下无内核运行的破损状态
         let config = state.config.read().clone();
@@ -616,15 +609,12 @@ pub async fn test_port_mapping_delay(
     }
     ensure_system_network_online(&state).await?;
 
-    let mapping = state
-        .port_router
-        .get_port_mapping_by_id(&id)
-        .ok_or_else(|| {
-            crate::tr!(
-                format!("未找到 ID 为 '{}' 的端口映射", id),
-                format!("Port mapping with ID '{}' not found", id),
-            )
-        })?;
+    let mapping = state.port_router.get_port_mapping_by_id(&id).ok_or_else(|| {
+        crate::tr!(
+            format!("未找到 ID 为 '{}' 的端口映射", id),
+            format!("Port mapping with ID '{}' not found", id),
+        )
+    })?;
 
     let profile = state.profile_manager.get_profile_by_id(&mapping.profile_id);
     let runtime_name = if let Some(prof) = profile.as_ref() {
@@ -700,27 +690,18 @@ pub async fn test_port_fallback_delay(
     }
     ensure_system_network_online(&state).await?;
 
-    let mapping = state
-        .port_router
-        .get_port_mapping_by_id(&id)
-        .ok_or_else(|| {
-            crate::tr!(
-                format!("未找到 ID 为 '{}' 的端口映射", id),
-                format!("Port mapping with ID '{}' not found", id),
-            )
-        })?;
-
+    let mapping = state.port_router.get_port_mapping_by_id(&id).ok_or_else(|| {
+        crate::tr!(
+            format!("未找到 ID 为 '{}' 的端口映射", id),
+            format!("Port mapping with ID '{}' not found", id),
+        )
+    })?;
 
     let fb_name = mapping
         .fallback_node_name
         .as_ref()
         .filter(|fb| !fb.trim().is_empty())
-        .ok_or_else(|| {
-            crate::tr!(
-                "该端口未配置备用节点",
-                "This port has no fallback node configured"
-            )
-        })?;
+        .ok_or_else(|| crate::tr!("该端口未配置备用节点", "This port has no fallback node configured"))?;
 
     let fb_profile_id = mapping.fallback_profile_id.as_deref().unwrap_or(&mapping.profile_id);
     let fb_profile = state.profile_manager.get_profile_by_id(fb_profile_id);
@@ -1218,14 +1199,18 @@ pub async fn get_port_fallback_statuses(
         }
         let kernel_fb_timed_out = kernel_fb_history_delay == Some(0);
 
-        let mut fallback_latency =
-            resolve_fallback_node_latency(kernel_fb_history_delay, cached_fb_entry, None, false);
+        let mut fallback_latency = resolve_fallback_node_latency(kernel_fb_history_delay, cached_fb_entry, None, false);
 
         // If primary node is known to have timed out (`Some(None)` in probe cache or `delay == 0` in kernel history),
         // fallback node is reachable, and Mihomo has not yet switched `fb-{port}` to the backup node,
         // immediately trigger group healthcheck and re-query `fb-{port}` so fallback engages without delay.
         let primary_known_timeout = kernel_primary_timed_out || cached_primary_entry == Some(None);
-        if system_online && !m.manual_fallback && !is_fallback_active && primary_known_timeout && fallback_latency.is_some() {
+        if system_online
+            && !m.manual_fallback
+            && !is_fallback_active
+            && primary_known_timeout
+            && fallback_latency.is_some()
+        {
             let _ = engine
                 .test_group_delay(&group_name, Some(&default_url), Some(default_timeout))
                 .await;
@@ -1375,11 +1360,7 @@ pub async fn edit_profile(
 }
 
 #[tauri::command]
-pub async fn set_profile_enabled(
-    id: String,
-    enabled: bool,
-    state: State<'_, AppState>,
-) -> Result<ProfileItem, String> {
+pub async fn set_profile_enabled(id: String, enabled: bool, state: State<'_, AppState>) -> Result<ProfileItem, String> {
     let item = state
         .profile_manager
         .set_profile_enabled(&id, enabled)
@@ -1441,12 +1422,8 @@ pub async fn get_profile_nodes(profile_id: String, state: State<'_, AppState>) -
 pub async fn open_app_data_dir(state: State<'_, AppState>) -> Result<(), String> {
     let dir = &state.app_dir;
     if !dir.exists() {
-        std::fs::create_dir_all(dir).map_err(|e| {
-            crate::tr!(
-                format!("创建目录失败: {e}"),
-                format!("Failed to create directory: {e}"),
-            )
-        })?;
+        std::fs::create_dir_all(dir)
+            .map_err(|e| crate::tr!(format!("创建目录失败: {e}"), format!("Failed to create directory: {e}"),))?;
     }
 
     #[cfg(target_os = "windows")]
@@ -1454,36 +1431,21 @@ pub async fn open_app_data_dir(state: State<'_, AppState>) -> Result<(), String>
         Command::new("explorer")
             .arg(dir)
             .spawn()
-            .map_err(|e| {
-                crate::tr!(
-                    format!("打开目录失败: {e}"),
-                    format!("Failed to open directory: {e}"),
-                )
-            })?;
+            .map_err(|e| crate::tr!(format!("打开目录失败: {e}"), format!("Failed to open directory: {e}"),))?;
     }
     #[cfg(target_os = "macos")]
     {
         Command::new("open")
             .arg(dir)
             .spawn()
-            .map_err(|e| {
-                crate::tr!(
-                    format!("打开目录失败: {e}"),
-                    format!("Failed to open directory: {e}"),
-                )
-            })?;
+            .map_err(|e| crate::tr!(format!("打开目录失败: {e}"), format!("Failed to open directory: {e}"),))?;
     }
     #[cfg(target_os = "linux")]
     {
         Command::new("xdg-open")
             .arg(dir)
             .spawn()
-            .map_err(|e| {
-                crate::tr!(
-                    format!("打开目录失败: {e}"),
-                    format!("Failed to open directory: {e}"),
-                )
-            })?;
+            .map_err(|e| crate::tr!(format!("打开目录失败: {e}"), format!("Failed to open directory: {e}"),))?;
     }
     Ok(())
 }
@@ -1516,12 +1478,7 @@ pub async fn open_file_in_folder(file_path: String) -> Result<(), String> {
             .arg("-R")
             .arg(&path)
             .spawn()
-            .map_err(|e| {
-                crate::tr!(
-                    format!("打开访达失败: {e}"),
-                    format!("Failed to open finder: {e}"),
-                )
-            })?;
+            .map_err(|e| crate::tr!(format!("打开访达失败: {e}"), format!("Failed to open finder: {e}"),))?;
     }
     #[cfg(target_os = "linux")]
     {
@@ -1529,12 +1486,7 @@ pub async fn open_file_in_folder(file_path: String) -> Result<(), String> {
         Command::new("xdg-open")
             .arg(parent)
             .spawn()
-            .map_err(|e| {
-                crate::tr!(
-                    format!("打开目录失败: {e}"),
-                    format!("Failed to open directory: {e}"),
-                )
-            })?;
+            .map_err(|e| crate::tr!(format!("打开目录失败: {e}"), format!("Failed to open directory: {e}"),))?;
     }
     Ok(())
 }
@@ -1892,11 +1844,7 @@ pub async fn show_window(app: AppHandle) -> Result<(), String> {
 /// synchronized the tray locale and reported readiness. The window must stay invisible so
 /// silent startup never flashes on screen; a visible window means the user reopened it from
 /// the tray (or it was displayed concurrently), so it is kept alive instead.
-pub(crate) fn destroy_hidden_silent_window(
-    state: &AppState,
-    window: &tauri::WebviewWindow,
-    source: &str,
-) -> bool {
+pub(crate) fn destroy_hidden_silent_window(state: &AppState, window: &tauri::WebviewWindow, source: &str) -> bool {
     if !state.config.read().lightweight_mode {
         return false;
     }
@@ -1910,7 +1858,10 @@ pub(crate) fn destroy_hidden_silent_window(
                 tracing::debug!("{}: hidden main window was already gone: {}", source, err);
                 return false;
             }
-            tracing::info!("{}: hidden lightweight webview destroyed after tray locale sync", source);
+            tracing::info!(
+                "{}: hidden lightweight webview destroyed after tray locale sync",
+                source
+            );
             true
         }
         Ok(true) => {
@@ -2018,11 +1969,7 @@ pub async fn query_node_egress_info(
     state: State<'_, AppState>,
 ) -> Result<DirectEgressInfo, String> {
     if node_name.trim().is_empty() {
-        return Err(crate::tr!(
-            "节点名称不能为空",
-            "Node name cannot be empty"
-        )
-        .to_string());
+        return Err(crate::tr!("节点名称不能为空", "Node name cannot be empty").to_string());
     }
     if node_name == "DIRECT" {
         return crate::core::egress_probe::query_direct_egress_info(None, timeout_ms)
@@ -2148,11 +2095,7 @@ pub async fn query_port_egress_info(
 pub async fn get_connections(state: State<'_, AppState>) -> Result<ConnectionSnapshot, String> {
     let status = state.engine.get_status();
     if !status.running {
-        return Err(crate::tr!(
-            "Mihomo 内核未运行",
-            "The Mihomo core is not running"
-        )
-        .to_string());
+        return Err(crate::tr!("Mihomo 内核未运行", "The Mihomo core is not running").to_string());
     }
     state
         .engine
@@ -2166,11 +2109,7 @@ pub async fn get_connections(state: State<'_, AppState>) -> Result<ConnectionSna
 pub async fn close_connection(id: String, state: State<'_, AppState>) -> Result<(), String> {
     let status = state.engine.get_status();
     if !status.running {
-        return Err(crate::tr!(
-            "Mihomo 内核未运行",
-            "The Mihomo core is not running"
-        )
-        .to_string());
+        return Err(crate::tr!("Mihomo 内核未运行", "The Mihomo core is not running").to_string());
     }
     state
         .engine
@@ -2184,11 +2123,7 @@ pub async fn close_connection(id: String, state: State<'_, AppState>) -> Result<
 pub async fn close_all_connections(state: State<'_, AppState>) -> Result<(), String> {
     let status = state.engine.get_status();
     if !status.running {
-        return Err(crate::tr!(
-            "Mihomo 内核未运行",
-            "The Mihomo core is not running"
-        )
-        .to_string());
+        return Err(crate::tr!("Mihomo 内核未运行", "The Mihomo core is not running").to_string());
     }
     state
         .engine
@@ -2246,10 +2181,7 @@ fn resolve_sniffer_proxy_mapping(mappings: &[PortMapping], preferred_port: Optio
         if let Some(found) = mappings.iter().find(|m| m.port == port) {
             if !found.enabled {
                 return Err(crate::tr!(
-                    format!(
-                        "当前监听端口 {} 尚未启用，请先启用该端口后再执行沙盒嗅探",
-                        port
-                    ),
+                    format!("当前监听端口 {} 尚未启用，请先启用该端口后再执行沙盒嗅探", port),
                     format!(
                         "Listener port {} is not enabled; enable it before running sandbox sniffing",
                         port
@@ -2524,39 +2456,29 @@ pub fn install_cli_shell_integration(state: State<'_, AppState>) -> Result<crate
 pub fn open_cli_dir() -> Result<(), String> {
     let dir = crate::core::cli_manager::resolve_cli_dir()?;
     if !dir.exists() {
-        std::fs::create_dir_all(&dir).map_err(|e| {
-            crate::tr!(
-                format!("创建目录失败: {e}"),
-                format!("Failed to create directory: {e}"),
-            )
-        })?;
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| crate::tr!(format!("创建目录失败: {e}"), format!("Failed to create directory: {e}"),))?;
     }
     #[cfg(target_os = "windows")]
     {
-        Command::new("explorer").arg(&dir).spawn().map_err(|e| {
-            crate::tr!(
-                format!("打开目录失败: {e}"),
-                format!("Failed to open directory: {e}"),
-            )
-        })?;
+        Command::new("explorer")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| crate::tr!(format!("打开目录失败: {e}"), format!("Failed to open directory: {e}"),))?;
     }
     #[cfg(target_os = "macos")]
     {
-        Command::new("open").arg(&dir).spawn().map_err(|e| {
-            crate::tr!(
-                format!("打开目录失败: {e}"),
-                format!("Failed to open directory: {e}"),
-            )
-        })?;
+        Command::new("open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| crate::tr!(format!("打开目录失败: {e}"), format!("Failed to open directory: {e}"),))?;
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        Command::new("xdg-open").arg(&dir).spawn().map_err(|e| {
-            crate::tr!(
-                format!("打开目录失败: {e}"),
-                format!("Failed to open directory: {e}"),
-            )
-        })?;
+        Command::new("xdg-open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| crate::tr!(format!("打开目录失败: {e}"), format!("Failed to open directory: {e}"),))?;
     }
     Ok(())
 }

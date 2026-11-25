@@ -368,8 +368,7 @@ export const enUS: Record<TranslationKey, string> = {
   'addPort.titleEdit': 'Edit Port Mapping',
   'addPort.titleQuickBind': 'Quick Bind to Port Listener',
   'addPort.titleAdd': 'Add Port Mapping',
-  'addPort.subEditChain':
-    'Modify inbound port, primary node, and chain exit',
+  'addPort.subEditChain': 'Modify inbound port, primary node, and chain exit',
   'addPort.subAddChain':
     'Primary Node → Chain Exit → Target; all traffic exits via the chain exit',
   'addPort.subEditNormal': 'Modify inbound port and 1:1 bound proxy node',
@@ -1226,7 +1225,8 @@ export const enUS: Record<TranslationKey, string> = {
   'settingsPage.storage.reading': 'Reading...',
 
   'settingsPage.cli.title': 'Command-Line Tool (CLI)',
-  'settingsPage.cli.desc': 'Query ports, subscriptions, test latency, and toggle proxies from your terminal',
+  'settingsPage.cli.desc':
+    'Query ports, subscriptions, test latency, and toggle proxies from your terminal',
   'settingsPage.cli.statusReady': 'Registered in PATH',
   'settingsPage.cli.statusNotInstalled': 'Not Registered',
   'settingsPage.cli.aliasLabel': 'Command Alias',
@@ -1239,10 +1239,13 @@ export const enUS: Record<TranslationKey, string> = {
   'settingsPage.cli.installShell': 'Configure Shell',
   'settingsPage.cli.reinstallShell': 'Update Profile',
   'settingsPage.cli.aliasSaved': 'CLI alias updated to {alias}',
-  'settingsPage.cli.registered': 'Registered in user PATH; open a new terminal to run {alias}',
+  'settingsPage.cli.registered':
+    'Registered in user PATH; open a new terminal to run {alias}',
   'settingsPage.cli.unregistered': 'CLI removed from user PATH',
-  'settingsPage.cli.shellDone': 'Shell profile updated; reopen terminal for instant {alias} env',
-  'settingsPage.cli.missingBinary': 'Bundled CLI binary (mihomo-multi-cli) was not found',
+  'settingsPage.cli.shellDone':
+    'Shell profile updated; reopen terminal for instant {alias} env',
+  'settingsPage.cli.missingBinary':
+    'Bundled CLI binary (mihomo-multi-cli) was not found',
   'settingsPage.cli.cliDirLabel': 'CLI Directory',
   'settingsPage.about.title': 'About & Updates',
   'settingsPage.about.desc':

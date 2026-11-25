@@ -146,15 +146,12 @@ pub fn get_kernel_destination(app: &tauri::AppHandle, state: &AppState) -> AppRe
         ));
     }
 
-    let app_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| {
-            AppError::Internal(crate::tr!(
-                format!("解析应用本地数据目录失败: {e}"),
-                format!("Failed to resolve app local data dir: {e}"),
-            ))
-        })?;
+    let app_dir = app.path().app_local_data_dir().map_err(|e| {
+        AppError::Internal(crate::tr!(
+            format!("解析应用本地数据目录失败: {e}"),
+            format!("Failed to resolve app local data dir: {e}"),
+        ))
+    })?;
     let bin_dir = app_dir.join("binaries");
     Ok((KernelInstallMode::Installed, bin_dir.join(&binary_name)))
 }
@@ -286,11 +283,7 @@ async fn fetch_kernel_release(egress: UpdateEgress) -> AppResult<(String, Option
 
     if latest_version.is_empty() {
         return Err(AppError::Internal(
-            crate::tr!(
-                "最新内核版本响应为空",
-                "Latest kernel version response was empty"
-            )
-            .to_string(),
+            crate::tr!("最新内核版本响应为空", "Latest kernel version response was empty").to_string(),
         ));
     }
 
@@ -382,11 +375,7 @@ pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState)
     let version = version_text.trim().to_string();
     if version.is_empty() {
         return Err(AppError::Internal(
-            crate::tr!(
-                "最新内核版本响应为空",
-                "Latest kernel version response was empty"
-            )
-            .to_string(),
+            crate::tr!("最新内核版本响应为空", "Latest kernel version response was empty").to_string(),
         ));
     }
 
@@ -420,9 +409,7 @@ pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState)
     };
 
     let target_dir = target_path.parent().ok_or_else(|| {
-        AppError::Internal(
-            crate::tr!("目标路径的父目录无效", "Invalid target path parent").to_string(),
-        )
+        AppError::Internal(crate::tr!("目标路径的父目录无效", "Invalid target path parent").to_string())
     })?;
     std::fs::create_dir_all(target_dir)?;
 
@@ -481,25 +468,14 @@ pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState)
     // 6. Backup-then-swap replacement so a failed move never leaves the user without a kernel
     let backup_path = target_path.with_file_name(format!(
         ".bak_{}",
-        target_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("mihomo")
+        target_path.file_name().and_then(|n| n.to_str()).unwrap_or("mihomo")
     ));
     let has_backup = if target_path.exists() {
         let _ = std::fs::remove_file(&backup_path);
         std::fs::rename(&target_path, &backup_path).map_err(|e| {
             AppError::Internal(crate::tr!(
-                format!(
-                    "备份旧内核文件失败 {}: {}",
-                    target_path.display(),
-                    e
-                ),
-                format!(
-                    "Failed to back up old kernel file at {}: {}",
-                    target_path.display(),
-                    e
-                ),
+                format!("备份旧内核文件失败 {}: {}", target_path.display(), e),
+                format!("Failed to back up old kernel file at {}: {}", target_path.display(), e),
             ))
         })?;
         true
@@ -520,11 +496,7 @@ pub async fn download_and_apply_kernel(app: &tauri::AppHandle, state: &AppState)
         }
         return Err(AppError::Internal(crate::tr!(
             format!("放置新内核到 {} 失败: {}", target_path.display(), e),
-            format!(
-                "Failed to place new kernel into {}: {}",
-                target_path.display(),
-                e
-            ),
+            format!("Failed to place new kernel into {}: {}", target_path.display(), e),
         )));
     }
 

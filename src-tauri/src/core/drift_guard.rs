@@ -123,9 +123,7 @@ impl DriftGuard {
                     profile_name: profile_map
                         .get(&mapping.profile_id)
                         .cloned()
-                        .unwrap_or_else(|| {
-                            crate::tr!("未知订阅".to_string(), "Unknown Subscription".to_string())
-                        }),
+                        .unwrap_or_else(|| crate::tr!("未知订阅".to_string(), "Unknown Subscription".to_string())),
                     node_name: mapping.node_name.clone(),
                     enabled: mapping.enabled,
                     status: DriftStatus::NodeMissing,
@@ -285,10 +283,7 @@ impl DriftGuard {
                 )
             } else {
                 crate::tr!(
-                    format!(
-                        "订阅「{}」中无可用代理节点，端口流量已安全直连 (DIRECT)",
-                        profile_name
-                    ),
+                    format!("订阅「{}」中无可用代理节点，端口流量已安全直连 (DIRECT)", profile_name),
                     format!(
                         "Subscription \"{}\" has no usable proxy nodes; port traffic safely uses DIRECT",
                         profile_name
@@ -855,16 +850,16 @@ proxies:
         let report = DriftGuard::check_single(&mapping, &manager, std::slice::from_ref(&exit));
         assert_eq!(report.status, DriftStatus::ProfileMissing);
         assert_eq!(report.fallback_action, "REJECT");
-        assert!(report
-            .message
-            .contains(crate::tr!("不会回退直连", "no DIRECT fallback")));
+        assert!(
+            report
+                .message
+                .contains(crate::tr!("不会回退直连", "no DIRECT fallback"))
+        );
 
         let report = DriftGuard::check_single(&mapping, &manager, &[]);
         assert_eq!(report.status, DriftStatus::NodeMissing);
         assert_eq!(report.fallback_action, "REJECT");
-        assert!(report
-            .message
-            .contains(crate::tr!("住宅代理出口", "Residential exit")));
+        assert!(report.message.contains(crate::tr!("住宅代理出口", "Residential exit")));
 
         // Non-chain mappings keep the existing DIRECT drift semantics.
         mapping.residential_proxy_id = None;

@@ -633,10 +633,7 @@ fn spawn_macos_parent_watchdog(probe_pid: libc::pid_t) -> Result<libc::pid_t, Ap
     let mut fds: [libc::c_int; 2] = [0; 2];
     if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
         return Err(AppError::Supervisor(crate::tr!(
-            format!(
-                "无法创建 macOS 父进程监视管道: {}",
-                std::io::Error::last_os_error()
-            ),
+            format!("无法创建 macOS 父进程监视管道: {}", std::io::Error::last_os_error()),
             format!(
                 "Failed to create the macOS parent watchdog pipe: {}",
                 std::io::Error::last_os_error()
@@ -653,10 +650,7 @@ fn spawn_macos_parent_watchdog(probe_pid: libc::pid_t) -> Result<libc::pid_t, Ap
             libc::close(write_fd);
         }
         return Err(AppError::Supervisor(crate::tr!(
-            format!(
-                "无法创建 macOS 父进程监视子进程: {}",
-                std::io::Error::last_os_error()
-            ),
+            format!("无法创建 macOS 父进程监视子进程: {}", std::io::Error::last_os_error()),
             format!(
                 "Failed to create the macOS parent watchdog child process: {}",
                 std::io::Error::last_os_error()
@@ -1273,8 +1267,7 @@ impl CoreSupervisor {
                 if let Some(ref mut child) = inner.child {
                     match child.try_wait() {
                         Ok(Some(status)) => {
-                            let (should_report, err_msg) =
-                                inner.record_crash(crate::tr!(
+                            let (should_report, err_msg) = inner.record_crash(crate::tr!(
                                 format!("Mihomo 内核异常退出 (退出码: {})", status),
                                 format!("The Mihomo core exited unexpectedly (exit code: {})", status),
                             ));
@@ -1286,8 +1279,7 @@ impl CoreSupervisor {
                             break;
                         }
                         Err(err) => {
-                            let (should_report, err_msg) =
-                                inner.record_crash(crate::tr!(
+                            let (should_report, err_msg) = inner.record_crash(crate::tr!(
                                 format!("检查 Mihomo 子进程状态异常: {}", err),
                                 format!("Failed to check the Mihomo child process status: {}", err),
                             ));
@@ -1352,11 +1344,10 @@ impl CoreSupervisor {
             match child.try_wait() {
                 Ok(None) => (true, None),
                 Ok(Some(status)) => {
-                    let (should_report, err_msg) =
-                        inner.record_crash(crate::tr!(
-                                format!("Mihomo 内核异常退出 (退出码: {})", status),
-                                format!("The Mihomo core exited unexpectedly (exit code: {})", status),
-                            ));
+                    let (should_report, err_msg) = inner.record_crash(crate::tr!(
+                        format!("Mihomo 内核异常退出 (退出码: {})", status),
+                        format!("The Mihomo core exited unexpectedly (exit code: {})", status),
+                    ));
                     let err = if should_report { Some(err_msg) } else { None };
                     (false, err)
                 }

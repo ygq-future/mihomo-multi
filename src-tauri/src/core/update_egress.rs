@@ -169,11 +169,7 @@ pub async fn fetch_bytes_with_fallback(
 
     Err(AppError::Internal(crate::tr!(
         format!("所有更新网络出口均失败（{}）: {}", url, failures.join("; ")),
-        format!(
-            "All update network egresses failed ({}): {}",
-            url,
-            failures.join("; ")
-        ),
+        format!("All update network egresses failed ({}): {}", url, failures.join("; ")),
     )))
 }
 
@@ -207,11 +203,7 @@ pub async fn fetch_text_with_fallback(
 
     Err(AppError::Internal(crate::tr!(
         format!("所有更新网络出口均失败（{}）: {}", url, failures.join("; ")),
-        format!(
-            "All update network egresses failed ({}): {}",
-            url,
-            failures.join("; ")
-        ),
+        format!("All update network egresses failed ({}): {}", url, failures.join("; ")),
     )))
 }
 

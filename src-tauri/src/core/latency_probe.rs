@@ -83,7 +83,6 @@ impl LatencyEventEmitter for AppLatencyEventEmitter {
 }
 pub type LatencySampleCallback = Arc<dyn Fn(&[(String, Option<u32>)]) + Send + Sync>;
 
-
 /// Centralized Backend Latency Probe managing concurrency pools, timeout handling,
 /// cancellation tokens, authoritative cache persistence, and real-time event streaming.
 pub struct LatencyProbe {
@@ -928,30 +927,21 @@ mod tests {
         let probe = LatencyProbe::new(fake_adapter, &temp_dir, emitter);
 
         // First call persists immediately
-        probe.set_latencies_batch_throttled(
-            &[("Node-A".to_string(), Some(42))],
-            std::time::Duration::from_secs(60),
-        );
+        probe.set_latencies_batch_throttled(&[("Node-A".to_string(), Some(42))], std::time::Duration::from_secs(60));
         assert_eq!(probe.get_latency("Node-A"), Some(Some(42)));
         let disk_first: HashMap<String, Option<u32>> =
             serde_json::from_str(&std::fs::read_to_string(temp_dir.join("latencies.json")).unwrap()).unwrap();
         assert_eq!(disk_first.get("Node-A").copied(), Some(Some(42)));
 
         // Second call within throttle window updates memory immediately, skips disk write
-        probe.set_latencies_batch_throttled(
-            &[("Node-A".to_string(), Some(58))],
-            std::time::Duration::from_secs(60),
-        );
+        probe.set_latencies_batch_throttled(&[("Node-A".to_string(), Some(58))], std::time::Duration::from_secs(60));
         assert_eq!(probe.get_latency("Node-A"), Some(Some(58)));
         let disk_second: HashMap<String, Option<u32>> =
             serde_json::from_str(&std::fs::read_to_string(temp_dir.join("latencies.json")).unwrap()).unwrap();
         assert_eq!(disk_second.get("Node-A").copied(), Some(Some(42)));
 
         // Zero interval forces disk flush with latest memory value
-        probe.set_latencies_batch_throttled(
-            &[("Node-A".to_string(), Some(61))],
-            std::time::Duration::ZERO,
-        );
+        probe.set_latencies_batch_throttled(&[("Node-A".to_string(), Some(61))], std::time::Duration::ZERO);
         let disk_third: HashMap<String, Option<u32>> =
             serde_json::from_str(&std::fs::read_to_string(temp_dir.join("latencies.json")).unwrap()).unwrap();
         assert_eq!(disk_third.get("Node-A").copied(), Some(Some(61)));

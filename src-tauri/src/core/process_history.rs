@@ -1,5 +1,5 @@
-use crate::core::profile_manager::atomic_write_file;
 use crate::core::process_resolver::{ProcessTreeSnapshot, is_transient_or_helper_process};
+use crate::core::profile_manager::atomic_write_file;
 use crate::error::{AppError, AppResult};
 use crate::models::{ConnectionMetadata, ConnectionSnapshot, PortProcessRecord, PortProcessUsageItem};
 use parking_lot::{Mutex, RwLock};
@@ -293,8 +293,7 @@ impl PortProcessHistoryStore {
                 _ => normalize_token(&item.process_name) == norm_name,
             }) {
                 let should_touch_last_seen = now_ms > existing.last_seen_at
-                    && (is_new_conn
-                        || now_ms.saturating_sub(existing.last_seen_at) >= LAST_SEEN_TOUCH_INTERVAL_MS);
+                    && (is_new_conn || now_ms.saturating_sub(existing.last_seen_at) >= LAST_SEEN_TOUCH_INTERVAL_MS);
                 if should_touch_last_seen {
                     existing.last_seen_at = now_ms;
                     mutated = true;

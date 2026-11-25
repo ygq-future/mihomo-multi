@@ -218,10 +218,7 @@ impl AppState {
         }
     }
 
-    fn collect_bound_runtime_nodes(
-        port_router: &PortRouter,
-        profile_manager: &ProfileManager,
-    ) -> HashSet<String> {
+    fn collect_bound_runtime_nodes(port_router: &PortRouter, profile_manager: &ProfileManager) -> HashSet<String> {
         let mut names = HashSet::new();
         for mapping in port_router.get_port_mappings() {
             if let Some(name) =
@@ -230,10 +227,7 @@ impl AppState {
                 names.insert(name);
             }
             if let Some(fb_node) = mapping.fallback_node_name.as_deref() {
-                let fb_profile = mapping
-                    .fallback_profile_id
-                    .as_deref()
-                    .unwrap_or(&mapping.profile_id);
+                let fb_profile = mapping.fallback_profile_id.as_deref().unwrap_or(&mapping.profile_id);
                 if let Some(name) = Self::resolve_runtime_node_name(profile_manager, fb_profile, fb_node) {
                     names.insert(name);
                 }
@@ -408,9 +402,11 @@ impl AppState {
         let mut modified = false;
 
         if config.system_proxy_enabled {
-            let valid = config
-                .system_proxy_port
-                .is_some_and(|p| mappings.iter().any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids)));
+            let valid = config.system_proxy_port.is_some_and(|p| {
+                mappings
+                    .iter()
+                    .any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids))
+            });
             if !valid {
                 let _ = crate::core::sysproxy::clear_system_proxy();
                 config.system_proxy_enabled = false;
@@ -420,9 +416,11 @@ impl AppState {
         }
 
         if config.env_proxy_enabled {
-            let valid = config
-                .env_proxy_port
-                .is_some_and(|p| mappings.iter().any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids)));
+            let valid = config.env_proxy_port.is_some_and(|p| {
+                mappings
+                    .iter()
+                    .any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids))
+            });
             if !valid {
                 let _ = crate::core::sysproxy::clear_env_proxy();
                 config.env_proxy_enabled = false;
@@ -432,9 +430,11 @@ impl AppState {
         }
 
         if config.tun_enabled {
-            let valid = config
-                .tun_port
-                .is_some_and(|p| mappings.iter().any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids)));
+            let valid = config.tun_port.is_some_and(|p| {
+                mappings
+                    .iter()
+                    .any(|m| m.port == p && Self::is_mapping_effective(m, &disabled_ids))
+            });
             if !valid {
                 config.tun_enabled = false;
                 config.tun_port = None;
@@ -575,9 +575,7 @@ impl AppState {
             {
                 return Err(crate::tr!(
                     format!("端口 {p} 未在监听列表中或未启用，无法作为 TUN 出口"),
-                    format!(
-                        "Port {p} is not in the listener list or is disabled; it cannot be used as the TUN exit"
-                    ),
+                    format!("Port {p} is not in the listener list or is disabled; it cannot be used as the TUN exit"),
                 ));
             }
             if config.system_proxy_enabled {
@@ -784,7 +782,9 @@ impl AppState {
             .collect();
         let cfg = self.config.read().clone();
 
-        let (active_mappings, occupied_set) = self.engine.filter_available_mappings(&effective_mappings, cfg.allow_lan);
+        let (active_mappings, occupied_set) = self
+            .engine
+            .filter_available_mappings(&effective_mappings, cfg.allow_lan);
         *self.occupied_ports.write() = occupied_set;
         let probe_port = self.resolve_egress_probe_port(&mappings, cfg.controller_port);
         let params = RuntimeGeneratorParams {
@@ -1009,10 +1009,7 @@ impl AppState {
             self.process_history.record_snapshot(snapshot, &allowed_ports);
         }
         let mut items = self.process_history.get_port_usage(port, live_snapshot.as_ref());
-        let paths_to_warm: Vec<String> = items
-            .iter()
-            .filter_map(|item| item.process_path.clone())
-            .collect();
+        let paths_to_warm: Vec<String> = items.iter().filter_map(|item| item.process_path.clone()).collect();
         if !paths_to_warm.is_empty() {
             let cache = self.icon_cache.clone();
             let _ = tokio::task::spawn_blocking(move || {
@@ -1638,10 +1635,7 @@ proxies:
             .expect("add SubB");
 
         let port_only_a = save_mapping_on_free_port(&state, "map-a", "NodeA").await;
-        let mut mapping_a = state
-            .port_router
-            .get_port_mapping_by_id("map-a")
-            .expect("map-a exists");
+        let mut mapping_a = state.port_router.get_port_mapping_by_id("map-a").expect("map-a exists");
         mapping_a.profile_id = prof_a.id.clone();
         state.save_port_mapping(mapping_a).await.expect("bind map-a to SubA");
 

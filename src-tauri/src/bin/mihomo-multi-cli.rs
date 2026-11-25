@@ -270,18 +270,20 @@ impl CtlClient {
             if !path.exists() {
                 continue;
             }
-            let content = std::fs::read_to_string(path)
-                .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
-            let info: CtlDiscoveryInfo = serde_json::from_str(&content)
-                .map_err(|e| format!("invalid {}: {e}", path.display()))?;
+            let content =
+                std::fs::read_to_string(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+            let info: CtlDiscoveryInfo =
+                serde_json::from_str(&content).map_err(|e| format!("invalid {}: {e}", path.display()))?;
             return Ok(Self {
                 port: info.port,
                 token: info.token,
             });
         }
 
-        Err("Mihomo Multi desktop app is not running (ctl.json not found). Please start Mihomo Multi first."
-            .to_string())
+        Err(
+            "Mihomo Multi desktop app is not running (ctl.json not found). Please start Mihomo Multi first."
+                .to_string(),
+        )
     }
 
     fn get(&self, path: &str) -> Result<Value, String> {
@@ -320,8 +322,8 @@ impl CtlClient {
         let Some((_headers, body_str)) = raw.split_once("\r\n\r\n") else {
             return Err("malformed HTTP response from control server".to_string());
         };
-        let env: ApiEnvelope = serde_json::from_str(body_str)
-            .map_err(|e| format!("invalid JSON response from control server: {e}"))?;
+        let env: ApiEnvelope =
+            serde_json::from_str(body_str).map_err(|e| format!("invalid JSON response from control server: {e}"))?;
         if !env.ok {
             return Err(env.error.unwrap_or_else(|| "unknown control server error".to_string()));
         }
@@ -399,11 +401,7 @@ impl Palette {
     }
 
     fn state_badge(&self, on: bool) -> String {
-        if on {
-            self.green("● ON")
-        } else {
-            self.dim("○ OFF")
-        }
+        if on { self.green("● ON") } else { self.dim("○ OFF") }
     }
 
     fn delay_badge(&self, delay: Option<u64>, timeout_label: &str) -> String {
@@ -594,7 +592,6 @@ fn run(cli: Cli) -> Result<(), String> {
         return run_update(&cli, lang, &palette, check);
     }
 
-
     let client = CtlClient::discover(cli.data_dir.as_deref())?;
 
     match cli.command {
@@ -618,10 +615,7 @@ fn run(cli: Cli) -> Result<(), String> {
             let tun = palette.mode_status(&data["tun"]);
             let env = palette.mode_status(&data["envProxy"]);
             let core_badge = if running {
-                palette.green(&format!(
-                    "● {} (pid: {pid})",
-                    lang.tr("运行中", "running")
-                ))
+                palette.green(&format!("● {} (pid: {pid})", lang.tr("运行中", "running")))
             } else {
                 palette.red(&format!("○ {}", lang.tr("已停止", "stopped")))
             };
@@ -631,7 +625,10 @@ fn run(cli: Cli) -> Result<(), String> {
                 let pad = 16usize.saturating_sub(width);
                 format!("{label}{}", " ".repeat(pad))
             };
-            println!("{}", palette.bold_cyan(&format!("Mihomo Multi v{}", data["version"].as_str().unwrap_or("-"))));
+            println!(
+                "{}",
+                palette.bold_cyan(&format!("Mihomo Multi v{}", data["version"].as_str().unwrap_or("-")))
+            );
             println!("{}{core_badge}", pad_label(lang.tr("内核状态:", "Core:")));
             println!(
                 "{}{}",
@@ -645,10 +642,12 @@ fn run(cli: Cli) -> Result<(), String> {
         Commands::Lang { target } => {
             if let Some(raw) = target {
                 let Some(parsed) = Lang::parse(&raw) else {
-                    return Err(lang.tr(
-                        &format!("不支持的语言 '{raw}'，请使用 zh-CN 或 en-US"),
-                        &format!("unsupported language '{raw}'; use zh-CN or en-US"),
-                    ).to_string());
+                    return Err(lang
+                        .tr(
+                            &format!("不支持的语言 '{raw}'，请使用 zh-CN 或 en-US"),
+                            &format!("unsupported language '{raw}'; use zh-CN or en-US"),
+                        )
+                        .to_string());
                 };
                 let data = client.post(
                     "/v1/lang",
@@ -669,10 +668,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 }
             } else {
                 let data = client.get("/v1/status")?;
-                let current = data["language"]
-                    .as_str()
-                    .and_then(Lang::parse)
-                    .unwrap_or(lang);
+                let current = data["language"].as_str().and_then(Lang::parse).unwrap_or(lang);
                 if cli.json {
                     print_json(&json!({ "language": current.code() }));
                 } else {
@@ -733,7 +729,11 @@ fn run(cli: Cli) -> Result<(), String> {
             }
         }
         Commands::Disable { port } => {
-            let data = client.post(&format!("/v1/ports/{port}/disable"), &json!({}), Duration::from_secs(15))?;
+            let data = client.post(
+                &format!("/v1/ports/{port}/disable"),
+                &json!({}),
+                Duration::from_secs(15),
+            )?;
             if cli.json {
                 print_json(&data);
             } else {
@@ -1126,7 +1126,12 @@ mod tests {
         assert!(matches!(cli.command, Commands::List));
 
         let cli = Cli::try_parse_from(["mm", "sub", "list"]).expect("parse sub list");
-        assert!(matches!(cli.command, Commands::Sub { action: SubAction::List }));
+        assert!(matches!(
+            cli.command,
+            Commands::Sub {
+                action: SubAction::List
+            }
+        ));
 
         let cli = Cli::try_parse_from(["mm", "env", "17890", "--eval"]).expect("parse env set");
         match cli.command {
@@ -1272,23 +1277,15 @@ fn pre_scan_arg(flag: &str) -> Option<String> {
 }
 
 fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Result<(), String> {
-    use mihomo_multi_lib::core::app_updater::{
-        AppPackageType, check_app_update_direct, download_update_asset_direct,
-    };
+    use mihomo_multi_lib::core::app_updater::{AppPackageType, check_app_update_direct, download_update_asset_direct};
 
-    let rt = tokio::runtime::Runtime::new()
-        .map_err(|e| format!("failed to initialize async runtime: {e}"))?;
+    let rt = tokio::runtime::Runtime::new().map_err(|e| format!("failed to initialize async runtime: {e}"))?;
 
     if !cli.json {
-        println!(
-            "{}",
-            palette.dim(lang.tr("正在检查更新...", "Checking for updates..."))
-        );
+        println!("{}", palette.dim(lang.tr("正在检查更新...", "Checking for updates...")));
     }
 
-    let check = rt
-        .block_on(check_app_update_direct())
-        .map_err(|e| e.to_string())?;
+    let check = rt.block_on(check_app_update_direct()).map_err(|e| e.to_string())?;
 
     if !check.has_update {
         if cli.json {
@@ -1327,13 +1324,11 @@ fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Res
         if let Some(url) = &check.release_url {
             println!("{} {url}", palette.dim(lang.tr("发布地址:", "Release URL:")));
         }
-        if let Some(notes) = check
-            .release_notes
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            println!("\n{}", palette.cyan(lang.tr("发布说明 (Release Notes):", "Release Notes:")));
+        if let Some(notes) = check.release_notes.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            println!(
+                "\n{}",
+                palette.cyan(lang.tr("发布说明 (Release Notes):", "Release Notes:"))
+            );
             println!("{notes}\n");
         }
     }
@@ -1446,7 +1441,10 @@ fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Res
                     palette.green("✓"),
                     lang.tr(
                         &format!("更新包已下载至「{}」并已启动安装程序。", dest_path.display()),
-                        &format!("Update downloaded to \"{}\" and installer launched.", dest_path.display()),
+                        &format!(
+                            "Update downloaded to \"{}\" and installer launched.",
+                            dest_path.display()
+                        ),
                     )
                 );
             }
@@ -1468,7 +1466,10 @@ fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Res
                     palette.green("✓"),
                     lang.tr(
                         &format!("便携包已下载至「{}」，请关闭程序后解压替换。", dest_path.display()),
-                        &format!("Portable package downloaded to \"{}\". Close the app, then extract and replace.", dest_path.display()),
+                        &format!(
+                            "Portable package downloaded to \"{}\". Close the app, then extract and replace.",
+                            dest_path.display()
+                        ),
                     )
                 );
             }
@@ -1486,8 +1487,12 @@ fn localize_command(mut cmd: clap::Command, lang: Lang) -> clap::Command {
         .about("Mihomo Multi 桌面端外部命令行控制工具")
         .mut_arg("json", |a| a.help("以 JSON 格式输出"))
         .mut_arg("no_color", |a| a.help("禁用 ANSI 彩色输出"))
-        .mut_arg("data_dir", |a| a.help("覆盖包含 ctl.json 的数据目录（也可设置 MIHOMO_MULTI_DATA_DIR）"))
-        .mut_arg("lang", |a| a.help("覆盖 CLI 输出语言（zh-CN 或 en-US，也可设置 MM_LANG）"));
+        .mut_arg("data_dir", |a| {
+            a.help("覆盖包含 ctl.json 的数据目录（也可设置 MIHOMO_MULTI_DATA_DIR）")
+        })
+        .mut_arg("lang", |a| {
+            a.help("覆盖 CLI 输出语言（zh-CN 或 en-US，也可设置 MM_LANG）")
+        });
 
     let sub_abouts = |name: &str| -> Option<&'static str> {
         match name {

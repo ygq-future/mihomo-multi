@@ -329,8 +329,7 @@ export const zhCN = {
   'addPort.titleQuickBind': '快速绑定到端口监听',
   'addPort.titleAdd': '添加端口映射',
   'addPort.subEditChain': '修改入站端口、主节点与链式出口',
-  'addPort.subAddChain':
-    '主节点 → 链式出口 → 目标，全量流量固定从链式出口发出',
+  'addPort.subAddChain': '主节点 → 链式出口 → 目标，全量流量固定从链式出口发出',
   'addPort.subEditNormal': '修改入站监听端口及 1:1 绑定的代理节点',
   'addPort.subAddNormal': '分配独立本地入站监听端口并 1:1 绑定至指定代理节点',
   'addPort.saveChanges': '保存修改',
@@ -360,7 +359,8 @@ export const zhCN = {
     '单段输入直接匹配节点名称；支持空格两段式筛选（“订阅 节点”，两者均支持模糊匹配；输入“订阅 ”可直接列出该订阅全部节点）。',
   'addPort.residentialLabel': '链式代理出口 (可选)',
   'addPort.noResidentialConfigured': '尚未配置链式出口',
-  'addPort.selectResidentialPlaceholder': '选择链式代理出口（住宅代理或订阅节点）',
+  'addPort.selectResidentialPlaceholder':
+    '选择链式代理出口（住宅代理或订阅节点）',
   'addPort.residentialEmptyHint':
     '可在「订阅配置」页的「住宅出口」中管理 HTTP / SOCKS5 住宅代理，或直接选择现有订阅节点作为链式出口。',
   'addPort.residentialChainHint':
@@ -1142,8 +1142,10 @@ export const zhCN = {
   'settingsPage.cli.aliasSaved': 'CLI 别名已更新为 {alias}',
   'settingsPage.cli.registered': '已注册到用户 PATH，新开终端即可使用 {alias}',
   'settingsPage.cli.unregistered': '已从用户 PATH 移除 CLI 注册',
-  'settingsPage.cli.shellDone': '已写入终端配置，重开终端后 {alias} env 将立即生效',
-  'settingsPage.cli.missingBinary': '未找到内置 CLI 二进制文件 (mihomo-multi-cli)',
+  'settingsPage.cli.shellDone':
+    '已写入终端配置，重开终端后 {alias} env 将立即生效',
+  'settingsPage.cli.missingBinary':
+    '未找到内置 CLI 二进制文件 (mihomo-multi-cli)',
   'settingsPage.cli.cliDirLabel': 'CLI 注册目录',
   'settingsPage.about.title': '软件关于与更新',
   'settingsPage.about.desc':

@@ -633,11 +633,16 @@ impl PortRouter {
                 .ok_or_else(|| port_mapping_not_found(second_id))?;
             (first, second)
         };
-        if [&first, &second].iter().any(|mapping| {
-            mapping.id == crate::models::FIXED_DIRECT_PORT_ID || mapping.node_name == "DIRECT"
-        }) {
+        if [&first, &second]
+            .iter()
+            .any(|mapping| mapping.id == crate::models::FIXED_DIRECT_PORT_ID || mapping.node_name == "DIRECT")
+        {
             return Err(AppError::InvalidConfig(
-                crate::tr!("固定直连监听卡片不能交换端口", "The fixed direct listener cannot swap ports").to_string(),
+                crate::tr!(
+                    "固定直连监听卡片不能交换端口",
+                    "The fixed direct listener cannot swap ports"
+                )
+                .to_string(),
             ));
         }
 
@@ -764,11 +769,7 @@ impl PortRouter {
             }
         }
 
-        if found {
-            Ok(())
-        } else {
-            Err(port_mapping_not_found(id))
-        }
+        if found { Ok(()) } else { Err(port_mapping_not_found(id)) }
     }
 }
 

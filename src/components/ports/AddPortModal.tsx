@@ -1098,9 +1098,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
             : null,
         chainExitNodeName:
           isChainMode && chainExitNodeName ? chainExitNodeName : null,
-        fallbackProfileId: fallbackNodeName.trim()
-          ? fallbackProfileId
-          : null,
+        fallbackProfileId: fallbackNodeName.trim() ? fallbackProfileId : null,
         fallbackNodeName: fallbackNodeName.trim() || null,
         bypassCn: isChainMode ? false : bypassCn,
         manualFallback: initialMapping?.manualFallback,

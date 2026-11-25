@@ -412,9 +412,9 @@ fn capture_socket_owners() -> (SocketOwnerMap, SocketOwnerMap) {
     let mut tcp = HashMap::new();
     let mut udp = HashMap::new();
 
-    if let Some(buf) = query_table(|t, s| unsafe {
-        GetExtendedTcpTable(t, s, 0, AF_INET as u32, TCP_TABLE_OWNER_PID_ALL, 0)
-    }) {
+    if let Some(buf) =
+        query_table(|t, s| unsafe { GetExtendedTcpTable(t, s, 0, AF_INET as u32, TCP_TABLE_OWNER_PID_ALL, 0) })
+    {
         for row in unsafe { rows_from::<MIB_TCPROW_OWNER_PID>(&buf) } {
             let port = decode_port(row.dwLocalPort);
             if port > 0 && row.dwOwningPid > 0 {
@@ -424,9 +424,9 @@ fn capture_socket_owners() -> (SocketOwnerMap, SocketOwnerMap) {
         }
     }
 
-    if let Some(buf) = query_table(|t, s| unsafe {
-        GetExtendedTcpTable(t, s, 0, AF_INET6 as u32, TCP_TABLE_OWNER_PID_ALL, 0)
-    }) {
+    if let Some(buf) =
+        query_table(|t, s| unsafe { GetExtendedTcpTable(t, s, 0, AF_INET6 as u32, TCP_TABLE_OWNER_PID_ALL, 0) })
+    {
         for row in unsafe { rows_from::<MIB_TCP6ROW_OWNER_PID>(&buf) } {
             let port = decode_port(row.dwLocalPort);
             if port > 0 && row.dwOwningPid > 0 {
@@ -436,9 +436,9 @@ fn capture_socket_owners() -> (SocketOwnerMap, SocketOwnerMap) {
         }
     }
 
-    if let Some(buf) = query_table(|t, s| unsafe {
-        GetExtendedUdpTable(t, s, 0, AF_INET as u32, UDP_TABLE_OWNER_PID, 0)
-    }) {
+    if let Some(buf) =
+        query_table(|t, s| unsafe { GetExtendedUdpTable(t, s, 0, AF_INET as u32, UDP_TABLE_OWNER_PID, 0) })
+    {
         for row in unsafe { rows_from::<MIB_UDPROW_OWNER_PID>(&buf) } {
             let port = decode_port(row.dwLocalPort);
             if port > 0 && row.dwOwningPid > 0 {
@@ -448,9 +448,9 @@ fn capture_socket_owners() -> (SocketOwnerMap, SocketOwnerMap) {
         }
     }
 
-    if let Some(buf) = query_table(|t, s| unsafe {
-        GetExtendedUdpTable(t, s, 0, AF_INET6 as u32, UDP_TABLE_OWNER_PID, 0)
-    }) {
+    if let Some(buf) =
+        query_table(|t, s| unsafe { GetExtendedUdpTable(t, s, 0, AF_INET6 as u32, UDP_TABLE_OWNER_PID, 0) })
+    {
         for row in unsafe { rows_from::<MIB_UDP6ROW_OWNER_PID>(&buf) } {
             let port = decode_port(row.dwLocalPort);
             if port > 0 && row.dwOwningPid > 0 {
@@ -496,9 +496,18 @@ mod tests {
             Some(r"C:\Users\me\.cursor\extensions\ext\bin\custom-helper.exe")
         ));
 
-        assert!(!is_transient_or_helper_process("chrome.exe", Some(r"C:\Chrome\chrome.exe")));
-        assert!(!is_transient_or_helper_process("Cursor.exe", Some(r"C:\Cursor\Cursor.exe")));
-        assert!(!is_transient_or_helper_process("Telegram.exe", Some(r"C:\Telegram\Telegram.exe")));
+        assert!(!is_transient_or_helper_process(
+            "chrome.exe",
+            Some(r"C:\Chrome\chrome.exe")
+        ));
+        assert!(!is_transient_or_helper_process(
+            "Cursor.exe",
+            Some(r"C:\Cursor\Cursor.exe")
+        ));
+        assert!(!is_transient_or_helper_process(
+            "Telegram.exe",
+            Some(r"C:\Telegram\Telegram.exe")
+        ));
     }
 
     #[test]

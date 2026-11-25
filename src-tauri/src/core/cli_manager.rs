@@ -408,10 +408,7 @@ pub fn resolve_shell_profile_path() -> Option<PathBuf> {
         if pwsh7.parent().is_some_and(|p| p.exists()) {
             return Some(pwsh7);
         }
-        Some(
-            docs.join("WindowsPowerShell")
-                .join("Microsoft.PowerShell_profile.ps1"),
-        )
+        Some(docs.join("WindowsPowerShell").join("Microsoft.PowerShell_profile.ps1"))
     }
     #[cfg(not(windows))]
     {

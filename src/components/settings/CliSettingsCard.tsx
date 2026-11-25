@@ -85,7 +85,8 @@ export function CliSettingsCard({
 
   const isReady = Boolean(status?.installed && status?.inPath)
   const aliasChanged =
-    aliasInput.trim().length > 0 && aliasInput.trim() !== (status?.alias ?? 'mm')
+    aliasInput.trim().length > 0 &&
+    aliasInput.trim() !== (status?.alias ?? 'mm')
 
   return (
     <div

@@ -23,11 +23,7 @@ impl ShellKind {
 
     /// Returns the platform default shell when the caller does not specify one.
     pub fn default_for_platform() -> Self {
-        if cfg!(windows) {
-            Self::PowerShell
-        } else {
-            Self::Sh
-        }
+        if cfg!(windows) { Self::PowerShell } else { Self::Sh }
     }
 }
 
@@ -209,10 +205,7 @@ pub fn build_all_copy_values(
 ) -> Result<Vec<(CopyFormat, String)>, EnvFormatError> {
     let mut out = Vec::with_capacity(CopyFormat::ALL.len());
     for fmt in CopyFormat::ALL {
-        out.push((
-            fmt,
-            build_copy_value(fmt, shell, host, port, protocol, user_bypass)?,
-        ));
+        out.push((fmt, build_copy_value(fmt, shell, host, port, protocol, user_bypass)?));
     }
     Ok(out)
 }
@@ -242,13 +235,7 @@ mod tests {
 
     #[test]
     fn copy_formats_match_quick_copy_menu() -> Result<(), EnvFormatError> {
-        let all = build_all_copy_values(
-            ShellKind::PowerShell,
-            "127.0.0.1",
-            17890,
-            InboundProtocol::Mixed,
-            &[],
-        )?;
+        let all = build_all_copy_values(ShellKind::PowerShell, "127.0.0.1", 17890, InboundProtocol::Mixed, &[])?;
         assert_eq!(all.len(), 5);
         assert_eq!(all[1], (CopyFormat::Host, "127.0.0.1:17890".to_string()));
         assert_eq!(all[2], (CopyFormat::Http, "http://127.0.0.1:17890".to_string()));
