@@ -174,6 +174,9 @@ pub fn run() {
             std::fs::create_dir_all(&app_dir).ok();
 
             info!("App local data directory: {}", app_dir.display());
+            if let Ok(current_exe) = std::env::current_exe() {
+                crate::core::cli_manager::write_app_exe_metadata(&app_dir, &current_exe);
+            }
             let app_state = AppState::new(app_dir);
             app_state.set_app_handle(app_handle.clone());
             app.manage(app_state.clone());

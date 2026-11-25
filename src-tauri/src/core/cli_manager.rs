@@ -17,6 +17,124 @@ const PROFILE_END_MARKER: &str = if cfg!(debug_assertions) {
 } else {
     "# <<< mihomo-multi-cli <<<"
 };
+const APP_META_FILE_NAME: &str = "app.json";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppExeMetadata {
+    exe_path: String,
+}
+
+/// Records the main application's executable path in `app_dir/app.json` so the CLI
+/// `start` command can launch the matching dev or release binary when the app is offline.
+pub fn write_app_exe_metadata(app_dir: &Path, exe_path: &Path) {
+    if !exe_path.is_file() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(app_dir);
+    let meta = AppExeMetadata {
+        exe_path: exe_path.to_string_lossy().into_owned(),
+    };
+    if let Ok(json) = serde_json::to_string_pretty(&meta) {
+        let _ = std::fs::write(app_dir.join(APP_META_FILE_NAME), json);
+    }
+}
+
+/// Reads the recorded main application executable path from `app_dir/app.json` if it still exists on disk.
+pub fn read_app_exe_metadata(app_dir: &Path) -> Option<PathBuf> {
+    let content = std::fs::read_to_string(app_dir.join(APP_META_FILE_NAME)).ok()?;
+    let meta: AppExeMetadata = serde_json::from_str(&content).ok()?;
+    let path = PathBuf::from(meta.exe_path);
+    path.is_file().then_some(path)
+}
+
+/// Removes `app_dir/app.json` (used during uninstallation).
+pub fn remove_app_exe_metadata(app_dir: &Path) {
+    let _ = std::fs::remove_file(app_dir.join(APP_META_FILE_NAME));
+}
+
+/// Resolves the installed release `mihomo-multi.exe` path from Windows Uninstall registry entries.
+#[cfg(windows)]
+pub fn read_windows_installed_app_exe() -> Option<PathBuf> {
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+
+    let subkey = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Mihomo Multi";
+    for root in [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER] {
+        if let Some(install_loc) = read_registry_string(root, subkey, "InstallLocation") {
+            let cleaned = install_loc.trim().trim_matches('"');
+            if !cleaned.is_empty() {
+                let candidate = PathBuf::from(cleaned).join("mihomo-multi.exe");
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+        if let Some(display_icon) = read_registry_string(root, subkey, "DisplayIcon") {
+            let cleaned = display_icon.trim().trim_matches('"');
+            let icon_path = cleaned.split(',').next().unwrap_or("").trim().trim_matches('"');
+            if !icon_path.is_empty() {
+                let candidate = PathBuf::from(icon_path);
+                if candidate
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.eq_ignore_ascii_case("mihomo-multi.exe"))
+                    && candidate.is_file()
+                {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn read_registry_string(
+    root: windows_sys::Win32::System::Registry::HKEY,
+    subkey: &str,
+    value_name: &str,
+) -> Option<String> {
+    use windows_sys::Win32::System::Registry::{HKEY, KEY_READ, RegCloseKey, RegOpenKeyExW, RegQueryValueExW};
+
+    let subkey_w = to_wide_null(subkey);
+    let value_w = to_wide_null(value_name);
+    let mut hkey: HKEY = std::ptr::null_mut();
+    if unsafe { RegOpenKeyExW(root, subkey_w.as_ptr(), 0, KEY_READ, &mut hkey) } != 0 {
+        return None;
+    }
+    let mut data_len: u32 = 0;
+    let query_ret = unsafe {
+        RegQueryValueExW(
+            hkey,
+            value_w.as_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut data_len,
+        )
+    };
+    if query_ret != 0 || data_len == 0 {
+        unsafe { RegCloseKey(hkey) };
+        return None;
+    }
+    let mut buf = vec![0u16; (data_len as usize).div_ceil(2)];
+    let query_ret = unsafe {
+        RegQueryValueExW(
+            hkey,
+            value_w.as_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            buf.as_mut_ptr().cast::<u8>(),
+            &mut data_len,
+        )
+    };
+    unsafe { RegCloseKey(hkey) };
+    if query_ret != 0 {
+        return None;
+    }
+    let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    Some(String::from_utf16_lossy(&buf[..end]))
+}
 
 const RESERVED_COMMANDS: &[&str] = &[
     "cmd",
@@ -561,5 +679,24 @@ mod tests {
         assert!(second.contains("px"));
         assert!(!second.contains("function mm") && !second.contains("mm()"));
         assert_eq!(second.matches(PROFILE_BEGIN_MARKER).count(), 1);
+    }
+
+    #[test]
+    fn app_exe_metadata_roundtrips_only_existing_files() {
+        let root = std::env::temp_dir().join(format!("mhm-app-meta-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create temp root");
+        let fake_exe = root.join("mihomo-multi.exe");
+        std::fs::write(&fake_exe, b"exe").expect("write dummy exe");
+
+        write_app_exe_metadata(&root, &fake_exe);
+        assert_eq!(read_app_exe_metadata(&root).as_deref(), Some(fake_exe.as_path()));
+
+        let _ = std::fs::remove_file(&fake_exe);
+        assert_eq!(read_app_exe_metadata(&root), None);
+
+        remove_app_exe_metadata(&root);
+        assert!(!root.join(APP_META_FILE_NAME).exists());
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -470,6 +470,7 @@ async fn dispatch_request(req: &HttpRequest, state: &AppState) -> HttpResponse {
         ("POST", "/v1/ip") => handle_probe_ip(req, state).await,
         ("GET", "/v1/copy") => handle_copy(req, state),
         ("POST", "/v1/lang") => handle_set_lang(req, state),
+        ("POST", "/v1/stop") => handle_stop(state),
         ("POST", path) if path.starts_with("/v1/ports/") => handle_toggle_port(path, state).await,
         _ => HttpResponse::err(404, "Not Found", format!("unknown route: {} {}", req.method, req.path)),
     }
@@ -492,6 +493,20 @@ fn handle_status(state: &AppState) -> HttpResponse {
         language,
     };
     HttpResponse::ok(&resp)
+}
+
+fn handle_stop(state: &AppState) -> HttpResponse {
+    let pid = std::process::id();
+    if let Some(app) = state.app_handle.read().clone() {
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            app.exit(0);
+        });
+    }
+    HttpResponse::ok(&serde_json::json!({
+        "stopping": true,
+        "pid": pid,
+    }))
 }
 
 #[derive(Deserialize)]

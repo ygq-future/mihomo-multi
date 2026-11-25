@@ -2,15 +2,26 @@ use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::io::{IsTerminal, Read, Write};
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
-use std::time::Duration;
+use std::process::{Command, ExitCode, Stdio};
+use std::time::{Duration, Instant};
 
 const APP_IDENTIFIER: &str = "com.mihomo.multi";
 const DEV_APP_IDENTIFIER: &str = "com.mihomo.multi.dev";
 const CTL_FILE_NAME: &str = "ctl.json";
-
+use mihomo_multi_lib::core::cli_manager::DEFAULT_CLI_ALIAS;
+const APP_DISPLAY_NAME: &str = if cfg!(debug_assertions) {
+    "Mihomo Multi [Dev]"
+} else {
+    "Mihomo Multi"
+};
+const DEFAULT_START_TIMEOUT_SECS: u64 = if cfg!(debug_assertions) { 60 } else { 15 };
+const APP_BIN_NAME: &str = if cfg!(windows) {
+    "mihomo-multi.exe"
+} else {
+    "mihomo-multi"
+};
 #[derive(Parser, Debug)]
 #[command(
     name = "mm",
@@ -39,6 +50,29 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Start the Mihomo Multi desktop application if it is not already running
+    Start {
+        /// Launch minimized to the system tray
+        #[arg(short = 's', long)]
+        silent: bool,
+        /// Do not wait for the control server to become ready
+        #[arg(long)]
+        no_wait: bool,
+        /// Maximum seconds to wait for control server readiness
+        #[arg(long, default_value_t = DEFAULT_START_TIMEOUT_SECS)]
+        timeout: u64,
+    },
+
+    /// Stop the running Mihomo Multi desktop application gracefully
+    Stop {
+        /// Do not wait for the application to finish shutting down
+        #[arg(long)]
+        no_wait: bool,
+        /// Maximum seconds to wait for shutdown completion
+        #[arg(long, default_value_t = 10)]
+        timeout: u64,
+    },
+
     /// Show core, listener, system proxy, TUN, and terminal env status
     Status,
 
@@ -236,6 +270,8 @@ struct EnvArgs {
 struct CtlDiscoveryInfo {
     port: u16,
     token: String,
+    #[serde(default)]
+    pid: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -248,42 +284,79 @@ struct ApiEnvelope {
 struct CtlClient {
     port: u16,
     token: String,
+    pid: Option<u32>,
+    lang: Lang,
+    err_palette: Palette,
+}
+
+fn resolve_app_data_dir_with(
+    override_dir: Option<&Path>,
+    env_dir: Option<&Path>,
+    local_base: Option<&Path>,
+    is_dev: bool,
+) -> Option<PathBuf> {
+    if let Some(dir) = override_dir.or(env_dir) {
+        return Some(dir.to_path_buf());
+    }
+    let base = local_base?;
+    let id = if is_dev { DEV_APP_IDENTIFIER } else { APP_IDENTIFIER };
+    Some(base.join(id))
+}
+
+fn resolve_app_data_dir(override_dir: Option<&Path>) -> Option<PathBuf> {
+    let env_dir = std::env::var_os("MIHOMO_MULTI_DATA_DIR").map(PathBuf::from);
+    let base = local_data_base_dir();
+    resolve_app_data_dir_with(
+        override_dir,
+        env_dir.as_deref(),
+        base.as_deref(),
+        cfg!(debug_assertions),
+    )
+}
+
+fn offline_error_message(lang: Lang, reason: &str, palette: Palette) -> String {
+    let app_name = palette.bold_yellow(APP_DISPLAY_NAME);
+    let start_cmd = palette.bold_green(&format!("`{DEFAULT_CLI_ALIAS} start`"));
+    let zh_reason = palette.dim(&format!("（{reason}）"));
+    let en_reason = palette.dim(&format!("({reason})"));
+    lang.tr(
+        &format!("{app_name} 主程序未运行{zh_reason}。请先启动主程序，或运行 {start_cmd}。"),
+        &format!("{app_name} is not running {en_reason}. Start the app first, or run {start_cmd}."),
+    )
+    .to_string()
 }
 
 impl CtlClient {
-    fn discover(override_dir: Option<&Path>) -> Result<Self, String> {
-        let mut candidates = Vec::new();
-        let env_dir = std::env::var_os("MIHOMO_MULTI_DATA_DIR").map(PathBuf::from);
-        if let Some(dir) = override_dir.or(env_dir.as_deref()) {
-            candidates.push(dir.join(CTL_FILE_NAME));
-        } else if let Some(base) = local_data_base_dir() {
-            if cfg!(debug_assertions) {
-                candidates.push(base.join(DEV_APP_IDENTIFIER).join(CTL_FILE_NAME));
-                candidates.push(base.join(APP_IDENTIFIER).join(CTL_FILE_NAME));
-            } else {
-                candidates.push(base.join(APP_IDENTIFIER).join(CTL_FILE_NAME));
-                candidates.push(base.join(DEV_APP_IDENTIFIER).join(CTL_FILE_NAME));
-            }
-        }
+    fn discover(override_dir: Option<&Path>, lang: Lang, err_palette: Palette) -> Result<Self, String> {
+        let Some(dir) = resolve_app_data_dir(override_dir) else {
+            return Err(offline_error_message(
+                lang,
+                lang.tr("无法定位数据目录", "cannot locate data directory"),
+                err_palette,
+            ));
+        };
+        Self::discover_in_dir(&dir, lang, err_palette)
+    }
 
-        for path in &candidates {
-            if !path.exists() {
-                continue;
-            }
-            let content =
-                std::fs::read_to_string(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
-            let info: CtlDiscoveryInfo =
-                serde_json::from_str(&content).map_err(|e| format!("invalid {}: {e}", path.display()))?;
-            return Ok(Self {
-                port: info.port,
-                token: info.token,
-            });
+    fn discover_in_dir(dir: &Path, lang: Lang, err_palette: Palette) -> Result<Self, String> {
+        let path = dir.join(CTL_FILE_NAME);
+        if !path.exists() {
+            return Err(offline_error_message(
+                lang,
+                lang.tr("未找到 ctl.json", "ctl.json not found"),
+                err_palette,
+            ));
         }
-
-        Err(
-            "Mihomo Multi desktop app is not running (ctl.json not found). Please start Mihomo Multi first."
-                .to_string(),
-        )
+        let content = std::fs::read_to_string(&path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+        let info: CtlDiscoveryInfo =
+            serde_json::from_str(&content).map_err(|e| format!("invalid {}: {e}", path.display()))?;
+        Ok(Self {
+            port: info.port,
+            token: info.token,
+            pid: info.pid,
+            lang,
+            err_palette,
+        })
     }
 
     fn get(&self, path: &str) -> Result<Value, String> {
@@ -296,8 +369,14 @@ impl CtlClient {
     }
 
     fn request(&self, method: &str, path: &str, body: Option<&str>, timeout: Duration) -> Result<Value, String> {
-        let mut stream = TcpStream::connect(("127.0.0.1", self.port)).map_err(|_| {
-            "Failed to connect to Mihomo Multi control server. Please ensure Mihomo Multi is running.".to_string()
+        let addr = SocketAddr::from(([127, 0, 0, 1], self.port));
+        let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(500)).map_err(|_| {
+            offline_error_message(
+                self.lang,
+                self.lang
+                    .tr("无法连接本地控制服务，主程序可能已退出", "control server unreachable"),
+                self.err_palette,
+            )
         })?;
         let _ = stream.set_read_timeout(Some(timeout));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
@@ -354,6 +433,30 @@ fn print_json(value: &Value) {
     }
 }
 
+#[cfg(windows)]
+fn enable_windows_ansi() {
+    use windows_sys::Win32::System::Console::{
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+        SetConsoleMode,
+    };
+    for handle_id in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: Best-effort console mode update on standard handles; failures are ignored.
+        unsafe {
+            let handle = GetStdHandle(handle_id);
+            if handle.is_null() || handle == (-1isize as _) {
+                continue;
+            }
+            let mut mode: u32 = 0;
+            if GetConsoleMode(handle, &mut mode) != 0 && (mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) == 0 {
+                let _ = SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn enable_windows_ansi() {}
+
 #[derive(Clone, Copy)]
 struct Palette {
     enabled: bool,
@@ -367,6 +470,18 @@ impl Palette {
         }
     }
 
+    fn for_stderr(no_color: bool) -> Self {
+        let env_disabled = std::env::var_os("NO_COLOR").is_some();
+        Self {
+            enabled: !no_color && !env_disabled && std::io::stderr().is_terminal(),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_enabled(enabled: bool) -> Self {
+        Self { enabled }
+    }
+
     fn paint(&self, code: &str, text: &str) -> String {
         if self.enabled {
             format!("\x1b[{code}m{text}\x1b[0m")
@@ -375,8 +490,20 @@ impl Palette {
         }
     }
 
+    fn bold(&self, text: &str) -> String {
+        self.paint("1", text)
+    }
     fn bold_cyan(&self, text: &str) -> String {
         self.paint("1;36", text)
+    }
+    fn bold_green(&self, text: &str) -> String {
+        self.paint("1;32", text)
+    }
+    fn bold_yellow(&self, text: &str) -> String {
+        self.paint("1;33", text)
+    }
+    fn bold_red(&self, text: &str) -> String {
+        self.paint("1;31", text)
     }
     fn cyan(&self, text: &str) -> String {
         self.paint("36", text)
@@ -401,7 +528,11 @@ impl Palette {
     }
 
     fn state_badge(&self, on: bool) -> String {
-        if on { self.green("● ON") } else { self.dim("○ OFF") }
+        if on {
+            self.bold_green("● ON")
+        } else {
+            self.dim("○ OFF")
+        }
     }
 
     fn delay_badge(&self, delay: Option<u64>, timeout_label: &str) -> String {
@@ -416,8 +547,8 @@ impl Palette {
     fn mode_status(&self, val: &Value) -> String {
         if val["enabled"].as_bool().unwrap_or(false) {
             match val["port"].as_u64() {
-                Some(p) => self.green(&format!("● ON (port {p})")),
-                None => self.green("● ON"),
+                Some(p) => format!("{} {}", self.bold_green("● ON"), self.cyan(&format!("(port {p})"))),
+                None => self.bold_green("● ON"),
             }
         } else {
             self.dim("○ OFF")
@@ -588,13 +719,27 @@ fn run(cli: Cli) -> Result<(), String> {
     }
     let lang = detect_lang(cli.lang.as_deref(), cli.data_dir.as_deref());
     let palette = Palette::new(cli.no_color);
+    let err_palette = Palette::for_stderr(cli.no_color);
+    if let Commands::Start {
+        silent,
+        no_wait,
+        timeout,
+    } = cli.command
+    {
+        return run_start(&cli, lang, &palette, silent, no_wait, timeout);
+    }
+    if let Commands::Stop { no_wait, timeout } = cli.command {
+        return run_stop(&cli, lang, &palette, no_wait, timeout);
+    }
     if let Commands::Update { check } = cli.command {
         return run_update(&cli, lang, &palette, check);
     }
 
-    let client = CtlClient::discover(cli.data_dir.as_deref())?;
+    let client = CtlClient::discover(cli.data_dir.as_deref(), lang, err_palette)?;
 
     match cli.command {
+        Commands::Start { .. } => unreachable!(),
+        Commands::Stop { .. } => unreachable!(),
         Commands::Update { .. } => unreachable!(),
         Commands::Init { .. } => unreachable!(),
         Commands::NsisInstall | Commands::NsisUninstall => unreachable!(),
@@ -615,25 +760,31 @@ fn run(cli: Cli) -> Result<(), String> {
             let tun = palette.mode_status(&data["tun"]);
             let env = palette.mode_status(&data["envProxy"]);
             let core_badge = if running {
-                palette.green(&format!("● {} (pid: {pid})", lang.tr("运行中", "running")))
+                format!(
+                    "{} {}",
+                    palette.bold_green(&format!("● {}", lang.tr("运行中", "running"))),
+                    palette.dim(&format!("(pid: {pid})"))
+                )
             } else {
-                palette.red(&format!("○ {}", lang.tr("已停止", "stopped")))
+                palette.bold_red(&format!("○ {}", lang.tr("已停止", "stopped")))
             };
 
             let pad_label = |label: &str| -> String {
                 let width: usize = label.chars().map(|c| if c.is_ascii() { 1 } else { 2 }).sum();
                 let pad = 16usize.saturating_sub(width);
-                format!("{label}{}", " ".repeat(pad))
+                palette.dim(&format!("{label}{}", " ".repeat(pad)))
             };
             println!(
-                "{}",
-                palette.bold_cyan(&format!("Mihomo Multi v{}", data["version"].as_str().unwrap_or("-")))
+                "{} {}",
+                palette.bold_cyan(APP_DISPLAY_NAME),
+                palette.cyan(&format!("v{}", data["version"].as_str().unwrap_or("-")))
             );
             println!("{}{core_badge}", pad_label(lang.tr("内核状态:", "Core:")));
             println!(
-                "{}{}",
+                "{}{} {}",
                 pad_label(lang.tr("端口映射:", "Ports:")),
-                palette.cyan(&format!("{enabled}/{total} {}", lang.tr("已启用", "enabled")))
+                palette.bold_cyan(&format!("{enabled}/{total}")),
+                palette.dim(lang.tr("已启用", "enabled"))
             );
             println!("{}{sp}", pad_label(lang.tr("系统代理:", "System Proxy:")));
             println!("{}{tun}", pad_label(lang.tr("TUN 模式:", "TUN Mode:")));
@@ -659,11 +810,10 @@ fn run(cli: Cli) -> Result<(), String> {
                 } else {
                     let code = data["language"].as_str().unwrap_or(parsed.code());
                     println!(
-                        "{}",
-                        parsed.tr(
-                            &format!("语言已切换为: {code}"),
-                            &format!("Language switched to: {code}"),
-                        )
+                        "{} {} {}",
+                        palette.bold_green("✓"),
+                        parsed.tr("语言已切换为:", "Language switched to:"),
+                        palette.bold_cyan(code),
                     );
                 }
             } else {
@@ -673,11 +823,9 @@ fn run(cli: Cli) -> Result<(), String> {
                     print_json(&json!({ "language": current.code() }));
                 } else {
                     println!(
-                        "{}",
-                        current.tr(
-                            &format!("当前语言: {}", current.code()),
-                            &format!("Current language: {}", current.code()),
-                        )
+                        "{} {}",
+                        palette.dim(current.tr("当前语言:", "Current language:")),
+                        palette.bold_cyan(current.code()),
                     );
                 }
             }
@@ -690,17 +838,22 @@ fn run(cli: Cli) -> Result<(), String> {
             }
             let items = data.as_array().cloned().unwrap_or_default();
             if items.is_empty() {
-                println!("No port mappings configured.");
+                println!("{}", palette.yellow("No port mappings configured."));
                 return Ok(());
             }
             let rows: Vec<Vec<String>> = items
                 .iter()
                 .map(|item| {
                     let m = &item["mapping"];
-                    let port = palette.cyan(&m["port"].as_u64().map(|p| p.to_string()).unwrap_or_default());
+                    let port = palette.bold_cyan(&m["port"].as_u64().map(|p| p.to_string()).unwrap_or_default());
                     let proto = palette.magenta(&m["protocol"].as_str().unwrap_or("mixed").to_uppercase());
                     let state = palette.state_badge(m["enabled"].as_bool().unwrap_or(false));
-                    let node = clean_node_name(m["nodeName"].as_str().unwrap_or("-"));
+                    let raw_node = clean_node_name(m["nodeName"].as_str().unwrap_or("-"));
+                    let node = if raw_node == "DIRECT" {
+                        palette.dim(&raw_node)
+                    } else {
+                        raw_node
+                    };
                     let delay = palette.delay_badge(item["delay"].as_u64(), "-");
                     let mut flags = Vec::new();
                     if item["isSystemProxy"].as_bool().unwrap_or(false) {
@@ -725,7 +878,12 @@ fn run(cli: Cli) -> Result<(), String> {
             if cli.json {
                 print_json(&data);
             } else {
-                println!("Port {port} enabled.");
+                println!(
+                    "{} Port {} {}.",
+                    palette.bold_green("✓"),
+                    palette.bold_cyan(&port.to_string()),
+                    palette.green("enabled"),
+                );
             }
         }
         Commands::Disable { port } => {
@@ -737,7 +895,12 @@ fn run(cli: Cli) -> Result<(), String> {
             if cli.json {
                 print_json(&data);
             } else {
-                println!("Port {port} disabled.");
+                println!(
+                    "{} Port {} {}.",
+                    palette.yellow("○"),
+                    palette.bold_cyan(&port.to_string()),
+                    palette.yellow("disabled"),
+                );
             }
         }
         Commands::Sub { action } => match action {
@@ -749,13 +912,13 @@ fn run(cli: Cli) -> Result<(), String> {
                 }
                 let items = data.as_array().cloned().unwrap_or_default();
                 if items.is_empty() {
-                    println!("No subscriptions configured.");
+                    println!("{}", palette.yellow("No subscriptions configured."));
                     return Ok(());
                 }
                 let rows: Vec<Vec<String>> = items
                     .iter()
                     .map(|p| {
-                        let name = p["name"].as_str().unwrap_or("-").to_string();
+                        let name = palette.bold(p["name"].as_str().unwrap_or("-"));
                         let state = palette.state_badge(p["enabled"].as_bool().unwrap_or(false));
                         let count = palette.cyan(&p["nodeCount"].as_u64().unwrap_or(0).to_string());
                         let updated = palette.dim(&format_timestamp(p["lastUpdatedAt"].as_u64()));
@@ -776,12 +939,17 @@ fn run(cli: Cli) -> Result<(), String> {
                 }
                 let updated = data["updated"].as_array().map(|a| a.len()).unwrap_or(0);
                 let errors = data["errors"].as_array().cloned().unwrap_or_default();
-                println!("Updated {updated} subscription(s).");
+                println!(
+                    "{} Updated {} subscription(s).",
+                    palette.bold_green("✓"),
+                    palette.bold_cyan(&updated.to_string()),
+                );
                 for err in errors {
                     eprintln!(
-                        "  [FAILED] {}: {}",
-                        err["name"].as_str().unwrap_or("-"),
-                        err["error"].as_str().unwrap_or("unknown error")
+                        "  {} {}: {}",
+                        err_palette.bold_red("[FAILED]"),
+                        err_palette.yellow(err["name"].as_str().unwrap_or("-")),
+                        err_palette.red(err["error"].as_str().unwrap_or("unknown error")),
                     );
                 }
             }
@@ -812,11 +980,11 @@ fn run(cli: Cli) -> Result<(), String> {
                 if items.is_empty() {
                     println!(
                         "{}",
-                        if available {
+                        palette.yellow(if available {
                             "No available nodes found."
                         } else {
                             "No nodes found."
-                        }
+                        })
                     );
                     return Ok(());
                 }
@@ -824,7 +992,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     .iter()
                     .enumerate()
                     .map(|(i, n)| {
-                        let idx = palette.cyan(&n["index"].as_u64().unwrap_or((i + 1) as u64).to_string());
+                        let idx = palette.dim(&n["index"].as_u64().unwrap_or((i + 1) as u64).to_string());
                         let name = clean_node_name(n["name"].as_str().unwrap_or("-"));
                         let proto = palette.magenta(n["protocol"].as_str().unwrap_or("-"));
                         let sub_name = palette.cyan(n["profileName"].as_str().unwrap_or("-"));
@@ -858,7 +1026,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 } else {
                     let node = clean_node_name(data["node"].as_str().unwrap_or("-"));
                     let delay = palette.delay_badge(data["delay"].as_u64(), "timeout");
-                    println!("{node}: {delay}");
+                    println!("{}: {delay}", palette.bold_cyan(&node));
                 }
             }
             Some(TestAction::Node { name, url, timeout }) => {
@@ -872,7 +1040,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 } else {
                     let node = clean_node_name(data["node"].as_str().unwrap_or("-"));
                     let delay = palette.delay_badge(data["delay"].as_u64(), "timeout");
-                    println!("{node}: {delay}");
+                    println!("{}: {delay}", palette.bold_cyan(&node));
                 }
             }
             Some(TestAction::Sub {
@@ -917,7 +1085,7 @@ fn run(cli: Cli) -> Result<(), String> {
             if cli.json {
                 print_json(&data);
             } else {
-                println!("System Proxy: {}", palette.mode_status(&data));
+                println!("{} {}", palette.dim("System Proxy:"), palette.mode_status(&data));
             }
         }
         Commands::Tun { target } => {
@@ -935,7 +1103,7 @@ fn run(cli: Cli) -> Result<(), String> {
             if cli.json {
                 print_json(&data);
             } else {
-                println!("TUN Mode: {}", palette.mode_status(&data));
+                println!("{} {}", palette.dim("TUN Mode:"), palette.mode_status(&data));
             }
         }
         Commands::Env(args) => {
@@ -966,9 +1134,14 @@ fn run(cli: Cli) -> Result<(), String> {
                     return Ok(());
                 }
                 if let Some(port) = args.port {
-                    eprintln!("Current Shell Env: {}", palette.green(&format!("● ON (port {port})")));
+                    eprintln!(
+                        "{} {} {}",
+                        err_palette.dim("Current Shell Env:"),
+                        err_palette.bold_green("● ON"),
+                        err_palette.cyan(&format!("(port {port})")),
+                    );
                 } else {
-                    eprintln!("Current Shell Env: {}", palette.dim("○ OFF"));
+                    eprintln!("{} {}", err_palette.dim("Current Shell Env:"), err_palette.dim("○ OFF"));
                 }
                 println!("{cmd}");
                 return Ok(());
@@ -984,8 +1157,8 @@ fn run(cli: Cli) -> Result<(), String> {
                 return Ok(());
             }
             let cmd = data["command"].as_str().unwrap_or("");
-            let status = palette.mode_status(&data["status"]);
-            eprintln!("Terminal Env: {status}");
+            let status = err_palette.mode_status(&data["status"]);
+            eprintln!("{} {status}", err_palette.dim("Terminal Env:"));
             println!("{cmd}");
         }
         Commands::Ip { port, copy, timeout } => {
@@ -1005,9 +1178,18 @@ fn run(cli: Cli) -> Result<(), String> {
             let location = data["location"].as_str().unwrap_or("-");
             let country = data["countryCode"].as_str().unwrap_or("-");
             if copy {
-                println!("{ip} ({country} / {location}) [copied]");
+                println!(
+                    "{} {} {}",
+                    palette.bold_cyan(&ip),
+                    palette.dim(&format!("({country} / {location})")),
+                    palette.bold_green("[copied]"),
+                );
             } else {
-                println!("{ip} ({country} / {location})");
+                println!(
+                    "{} {}",
+                    palette.bold_cyan(&ip),
+                    palette.dim(&format!("({country} / {location})")),
+                );
             }
         }
         Commands::Copy {
@@ -1032,7 +1214,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 let val = data["value"].as_str().unwrap_or("");
                 if !print {
                     copy_to_clipboard(val)?;
-                    eprintln!("Copied to clipboard:");
+                    eprintln!("{}", err_palette.green("✓ Copied to clipboard:"));
                 }
                 println!("{val}");
             } else {
@@ -1080,6 +1262,14 @@ fn run_nsis_install() -> Result<(), String> {
     let alias = resolve_release_alias(&cli_dir);
     mihomo_multi_lib::core::cli_manager::sync_cli_in_dir(&cli_dir, &source, &alias)?;
     mihomo_multi_lib::core::cli_manager::register_cli_path(&cli_dir)?;
+    if let Some(inst_dir) = source.parent() {
+        let app_exe = inst_dir.join(APP_BIN_NAME);
+        if app_exe.is_file()
+            && let Some(base) = local_data_base_dir()
+        {
+            mihomo_multi_lib::core::cli_manager::write_app_exe_metadata(&base.join(APP_IDENTIFIER), &app_exe);
+        }
+    }
     Ok(())
 }
 
@@ -1087,19 +1277,25 @@ fn run_nsis_uninstall() -> Result<(), String> {
     let cli_dir = mihomo_multi_lib::core::cli_manager::resolve_cli_dir()?;
     let alias = resolve_release_alias(&cli_dir);
     mihomo_multi_lib::core::cli_manager::unregister_cli_path(&cli_dir, &alias)?;
+    if let Some(base) = local_data_base_dir() {
+        mihomo_multi_lib::core::cli_manager::remove_app_exe_metadata(&base.join(APP_IDENTIFIER));
+    }
     Ok(())
 }
 
 fn main() -> ExitCode {
+    enable_windows_ansi();
     let pre_lang = pre_scan_arg("--lang");
     let pre_data_dir = pre_scan_arg("--data-dir").map(PathBuf::from);
+    let pre_no_color = std::env::args().skip(1).any(|a| a == "--no-color");
     let lang = detect_lang(pre_lang.as_deref(), pre_data_dir.as_deref());
     let matches = localize_command(Cli::command(), lang).get_matches();
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    let err_palette = Palette::for_stderr(cli.no_color || pre_no_color);
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("error: {err}");
+            eprintln!("{} {err}", err_palette.bold_red("error:"));
             ExitCode::FAILURE
         }
     }
@@ -1184,6 +1380,178 @@ mod tests {
         assert_eq!(clean_node_name("🇭🇰 香港S01"), "香港S01");
         assert_eq!(clean_node_name("DIRECT"), "DIRECT");
     }
+
+    #[test]
+    fn parses_start_subcommand_flags() {
+        let cli = Cli::try_parse_from(["mm", "start"]).expect("parse start default");
+        match cli.command {
+            Commands::Start {
+                silent,
+                no_wait,
+                timeout,
+            } => {
+                assert!(!silent);
+                assert!(!no_wait);
+                assert_eq!(timeout, DEFAULT_START_TIMEOUT_SECS);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli =
+            Cli::try_parse_from(["mm", "start", "-s", "--no-wait", "--timeout", "30"]).expect("parse start with flags");
+        match cli.command {
+            Commands::Start {
+                silent,
+                no_wait,
+                timeout,
+            } => {
+                assert!(silent);
+                assert!(no_wait);
+                assert_eq!(timeout, 30);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolves_app_data_dir_with_strict_env_isolation() {
+        let base = PathBuf::from("local-data");
+        assert_eq!(
+            resolve_app_data_dir_with(None, None, Some(&base), true),
+            Some(base.join(DEV_APP_IDENTIFIER))
+        );
+        assert_eq!(
+            resolve_app_data_dir_with(None, None, Some(&base), false),
+            Some(base.join(APP_IDENTIFIER))
+        );
+
+        let custom = PathBuf::from("custom-dir");
+        let env_dir = PathBuf::from("env-dir");
+        assert_eq!(
+            resolve_app_data_dir_with(Some(&custom), Some(&env_dir), Some(&base), true),
+            Some(custom)
+        );
+        assert_eq!(
+            resolve_app_data_dir_with(None, Some(&env_dir), Some(&base), false),
+            Some(env_dir)
+        );
+    }
+
+    #[test]
+    fn discover_in_dir_requires_target_ctl_and_never_falls_back() {
+        let root = std::env::temp_dir().join(format!("mhm-cli-iso-{}", uuid::Uuid::new_v4()));
+        let dev_dir = root.join(DEV_APP_IDENTIFIER);
+        let prod_dir = root.join(APP_IDENTIFIER);
+        std::fs::create_dir_all(&dev_dir).expect("create dev dir");
+        std::fs::create_dir_all(&prod_dir).expect("create prod dir");
+        std::fs::write(
+            prod_dir.join(CTL_FILE_NAME),
+            r#"{"port":61568,"token":"prod-token","pid":123,"version":"1.6.8"}"#,
+        )
+        .expect("write prod ctl.json");
+
+        let err = CtlClient::discover_in_dir(&dev_dir, Lang::Zh, Palette::with_enabled(false))
+            .err()
+            .expect("dev missing ctl");
+        assert!(err.contains("ctl.json"));
+
+        let prod =
+            CtlClient::discover_in_dir(&prod_dir, Lang::En, Palette::with_enabled(false)).expect("prod ctl present");
+        assert_eq!(prod.port, 61568);
+        assert_eq!(prod.token, "prod-token");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn unreachable_ctl_reports_localized_colored_offline_error() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind ephemeral port");
+        let dead_port = listener.local_addr().expect("addr").port();
+        drop(listener);
+
+        let client = CtlClient {
+            port: dead_port,
+            token: "dead".to_string(),
+            pid: None,
+            lang: Lang::Zh,
+            err_palette: Palette::with_enabled(true),
+        };
+        let err = client.get("/v1/status").expect_err("dead server should error");
+        assert!(err.contains("主程序未运行"));
+        assert!(err.contains(&format!("\x1b[1;32m`{DEFAULT_CLI_ALIAS} start`\x1b[0m")));
+    }
+
+    #[test]
+    fn resolves_dev_workspace_root_from_dev_dir() {
+        let root = std::env::temp_dir().join(format!("mhm-cli-ws-{}", uuid::Uuid::new_v4()));
+        let nested = root.join("src-tauri").join("src");
+        std::fs::create_dir_all(&nested).expect("create nested dir");
+        std::fs::write(root.join("package.json"), "{}").expect("write package.json");
+        std::fs::write(root.join("src-tauri").join("tauri.dev.conf.json"), "{}").expect("write tauri.dev.conf.json");
+
+        assert!(is_dev_workspace_root(&root));
+        let found = find_dev_workspace_root_from(&nested).expect("find workspace root");
+        assert_eq!(found, root);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolves_app_executable_from_sibling_or_metadata() {
+        let root = std::env::temp_dir().join(format!("mhm-cli-exe-{}", uuid::Uuid::new_v4()));
+        let bin_dir = root.join("bin");
+        let data_dir = root.join("data");
+        std::fs::create_dir_all(&bin_dir).expect("create bin dir");
+        std::fs::create_dir_all(&data_dir).expect("create data dir");
+
+        let cli_exe = bin_dir.join(if cfg!(windows) {
+            "mihomo-multi-cli.exe"
+        } else {
+            "mihomo-multi-cli"
+        });
+        let sibling_app = bin_dir.join(APP_BIN_NAME);
+        std::fs::write(&cli_exe, b"cli").expect("write cli");
+        std::fs::write(&sibling_app, b"app").expect("write sibling app");
+
+        let resolved = resolve_app_executable_from(Some(&cli_exe), Some(&data_dir), true).expect("sibling resolved");
+        assert_eq!(
+            std::fs::canonicalize(&resolved).expect("canon"),
+            std::fs::canonicalize(&sibling_app).expect("canon")
+        );
+
+        std::fs::remove_file(&sibling_app).expect("remove sibling");
+        let meta_app = root.join("installed").join(APP_BIN_NAME);
+        std::fs::create_dir_all(meta_app.parent().expect("parent")).expect("create installed dir");
+        std::fs::write(&meta_app, b"installed-app").expect("write meta app");
+        mihomo_multi_lib::core::cli_manager::write_app_exe_metadata(&data_dir, &meta_app);
+
+        let resolved_meta =
+            resolve_app_executable_from(Some(&cli_exe), Some(&data_dir), false).expect("metadata resolved");
+        assert_eq!(resolved_meta, meta_app);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn parses_stop_subcommand_flags() {
+        let cli = Cli::try_parse_from(["mm", "stop"]).expect("parse stop default");
+        match cli.command {
+            Commands::Stop { no_wait, timeout } => {
+                assert!(!no_wait);
+                assert_eq!(timeout, 10);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from(["mm", "stop", "--no-wait", "--timeout", "20"]).expect("parse stop with flags");
+        match cli.command {
+            Commands::Stop { no_wait, timeout } => {
+                assert!(no_wait);
+                assert_eq!(timeout, 20);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1227,20 +1595,8 @@ fn detect_lang(cli_lang: Option<&str>, data_dir: Option<&Path>) -> Lang {
     {
         return l;
     }
-    let mut config_candidates = Vec::new();
-    let env_dir = std::env::var_os("MIHOMO_MULTI_DATA_DIR").map(PathBuf::from);
-    if let Some(dir) = data_dir.or(env_dir.as_deref()) {
-        config_candidates.push(dir.join("config.json"));
-    } else if let Some(base) = local_data_base_dir() {
-        if cfg!(debug_assertions) {
-            config_candidates.push(base.join(DEV_APP_IDENTIFIER).join("config.json"));
-            config_candidates.push(base.join(APP_IDENTIFIER).join("config.json"));
-        } else {
-            config_candidates.push(base.join(APP_IDENTIFIER).join("config.json"));
-            config_candidates.push(base.join(DEV_APP_IDENTIFIER).join("config.json"));
-        }
-    }
-    for path in config_candidates {
+    if let Some(dir) = resolve_app_data_dir(data_dir) {
+        let path = dir.join("config.json");
         if let Ok(content) = std::fs::read_to_string(path)
             && let Ok(val) = serde_json::from_str::<serde_json::Value>(&content)
             && let Some(raw) = val["language"].as_str()
@@ -1276,6 +1632,510 @@ fn pre_scan_arg(flag: &str) -> Option<String> {
     None
 }
 
+fn is_dev_workspace_root(dir: &Path) -> bool {
+    dir.join("package.json").is_file() && dir.join("src-tauri").join("tauri.dev.conf.json").is_file()
+}
+
+fn find_dev_workspace_root_from(start: &Path) -> Option<PathBuf> {
+    start
+        .ancestors()
+        .find(|p| is_dev_workspace_root(p))
+        .map(Path::to_path_buf)
+}
+
+fn resolve_dev_workspace_root(lang: Lang) -> Result<PathBuf, String> {
+    if let Ok(cwd) = std::env::current_dir()
+        && let Some(found) = find_dev_workspace_root_from(&cwd)
+    {
+        return Ok(found);
+    }
+    if let Some(manifest_dir) = option_env!("CARGO_MANIFEST_DIR")
+        && let Some(repo_root) = Path::new(manifest_dir).parent()
+        && is_dev_workspace_root(repo_root)
+    {
+        return Ok(repo_root.to_path_buf());
+    }
+    Err(lang
+        .tr(
+            "未找到开发工作区根目录（缺少 package.json 或 src-tauri/tauri.dev.conf.json）。",
+            "Could not locate the development workspace root (missing package.json or src-tauri/tauri.dev.conf.json).",
+        )
+        .to_string())
+}
+
+fn collect_app_exe_candidates(
+    current_cli_exe: Option<&Path>,
+    app_data_dir: Option<&Path>,
+    is_dev: bool,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(cli_exe) = current_cli_exe {
+        let resolved = std::fs::canonicalize(cli_exe).unwrap_or_else(|_| cli_exe.to_path_buf());
+        if let Some(cli_dir) = resolved.parent() {
+            candidates.push(cli_dir.join(APP_BIN_NAME));
+            #[cfg(target_os = "macos")]
+            if let Some(contents_dir) = cli_dir.parent() {
+                candidates.push(contents_dir.join("MacOS").join(APP_BIN_NAME));
+            }
+        }
+    }
+
+    if let Some(dir) = app_data_dir
+        && let Some(recorded) = mihomo_multi_lib::core::cli_manager::read_app_exe_metadata(dir)
+    {
+        candidates.push(recorded);
+    }
+
+    if is_dev {
+        if let Some(manifest_dir) = option_env!("CARGO_MANIFEST_DIR") {
+            candidates.push(Path::new(manifest_dir).join("target").join("debug").join(APP_BIN_NAME));
+        }
+    } else {
+        #[cfg(windows)]
+        {
+            if let Some(reg_exe) = mihomo_multi_lib::core::cli_manager::read_windows_installed_app_exe() {
+                candidates.push(reg_exe);
+            }
+            for env_key in ["ProgramFiles", "ProgramW6432"] {
+                if let Some(dir) = std::env::var_os(env_key) {
+                    candidates.push(PathBuf::from(dir).join("Mihomo Multi").join(APP_BIN_NAME));
+                }
+            }
+            if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                candidates.push(
+                    PathBuf::from(local)
+                        .join("Programs")
+                        .join("Mihomo Multi")
+                        .join(APP_BIN_NAME),
+                );
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            candidates.push(PathBuf::from("/Applications/Mihomo Multi.app/Contents/MacOS").join(APP_BIN_NAME));
+            if let Some(home) = std::env::var_os("HOME") {
+                candidates.push(
+                    PathBuf::from(home)
+                        .join("Applications/Mihomo Multi.app/Contents/MacOS")
+                        .join(APP_BIN_NAME),
+                );
+            }
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            candidates.push(PathBuf::from("/usr/bin").join(APP_BIN_NAME));
+            candidates.push(PathBuf::from("/usr/local/bin").join(APP_BIN_NAME));
+        }
+    }
+
+    candidates
+}
+
+fn resolve_app_executable_from(
+    current_cli_exe: Option<&Path>,
+    app_data_dir: Option<&Path>,
+    is_dev: bool,
+) -> Option<PathBuf> {
+    collect_app_exe_candidates(current_cli_exe, app_data_dir, is_dev)
+        .into_iter()
+        .find(|p| p.is_file())
+}
+
+fn resolve_app_executable(override_dir: Option<&Path>, lang: Lang) -> Result<PathBuf, String> {
+    let current_exe = std::env::current_exe().ok();
+    let app_dir = resolve_app_data_dir(override_dir);
+    resolve_app_executable_from(current_exe.as_deref(), app_dir.as_deref(), cfg!(debug_assertions)).ok_or_else(|| {
+        lang.tr(
+            &format!("未找到 {APP_DISPLAY_NAME} 主程序可执行文件，请确认当前环境对应的主程序已安装或已构建。"),
+            &format!("Could not locate the {APP_DISPLAY_NAME} executable for this environment."),
+        )
+        .to_string()
+    })
+}
+
+fn configure_detached_process(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+}
+
+fn spawn_detached_app(app_exe: &Path, silent: bool) -> Result<std::process::Child, String> {
+    let mut cmd = Command::new(app_exe);
+    if silent {
+        cmd.arg("--silent");
+    }
+    if let Some(parent) = app_exe.parent() {
+        cmd.current_dir(parent);
+    }
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    configure_detached_process(&mut cmd);
+
+    cmd.spawn()
+        .map_err(|e| format!("failed to launch {}: {e}", app_exe.display()))
+}
+
+fn open_dev_start_log(app_data_dir: Option<&Path>) -> (Option<PathBuf>, Stdio, Stdio) {
+    if let Some(dir) = app_data_dir {
+        let _ = std::fs::create_dir_all(dir);
+        let log_path = dir.join("dev-start.log");
+        if let Ok(stdout_file) = std::fs::File::create(&log_path)
+            && let Ok(stderr_file) = stdout_file.try_clone()
+        {
+            return (Some(log_path), Stdio::from(stdout_file), Stdio::from(stderr_file));
+        }
+    }
+    (None, Stdio::null(), Stdio::null())
+}
+
+fn read_log_tail(path: &Path, max_lines: usize) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+    if lines.is_empty() {
+        return None;
+    }
+    let start = lines.len().saturating_sub(max_lines);
+    Some(lines[start..].join("\n"))
+}
+
+fn spawn_dev_tauri_process(
+    repo_root: &Path,
+    app_data_dir: Option<&Path>,
+    silent: bool,
+) -> Result<(std::process::Child, Option<PathBuf>), String> {
+    let tauri_js = repo_root
+        .join("node_modules")
+        .join("@tauri-apps")
+        .join("cli")
+        .join("tauri.js");
+    let tauri_args = ["dev", "-c", "src-tauri/tauri.dev.conf.json"];
+
+    let mut launcher_attempts: Vec<(&str, Vec<String>)> = Vec::new();
+    if tauri_js.is_file() {
+        let tauri_js_str = tauri_js.to_string_lossy().into_owned();
+        for runtime in ["node", "bun"] {
+            let mut args = vec![tauri_js_str.clone()];
+            args.extend(tauri_args.iter().map(|s| (*s).to_string()));
+            if silent {
+                args.extend(["--".to_string(), "--".to_string(), "--silent".to_string()]);
+            }
+            launcher_attempts.push((runtime, args));
+        }
+    } else {
+        let mut bun_args = vec!["x".to_string(), "tauri".to_string()];
+        bun_args.extend(tauri_args.iter().map(|s| (*s).to_string()));
+        if silent {
+            bun_args.extend(["--".to_string(), "--".to_string(), "--silent".to_string()]);
+        }
+        launcher_attempts.push(("bun", bun_args));
+    }
+
+    let (log_path, stdout_io, stderr_io) = open_dev_start_log(app_data_dir);
+    let mut last_not_found = None;
+    let attempts_len = launcher_attempts.len();
+    let mut stdout_opt = Some(stdout_io);
+    let mut stderr_opt = Some(stderr_io);
+
+    for (idx, (program, args)) in launcher_attempts.into_iter().enumerate() {
+        let mut cmd = Command::new(program);
+        cmd.args(&args).current_dir(repo_root).stdin(Stdio::null());
+        if idx + 1 == attempts_len {
+            cmd.stdout(stdout_opt.take().unwrap_or_else(Stdio::null))
+                .stderr(stderr_opt.take().unwrap_or_else(Stdio::null));
+        } else if let Some(path) = &log_path
+            && let Ok(f_out) = std::fs::File::create(path)
+            && let Ok(f_err) = f_out.try_clone()
+        {
+            cmd.stdout(Stdio::from(f_out)).stderr(Stdio::from(f_err));
+        } else {
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        }
+        configure_detached_process(&mut cmd);
+
+        match cmd.spawn() {
+            Ok(child) => return Ok((child, log_path)),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                last_not_found = Some(format!("{program}: {err}"));
+            }
+            Err(err) => return Err(format!("failed to start dev server via {program}: {err}")),
+        }
+    }
+
+    Err(format!(
+        "could not find node or bun to start Tauri dev ({})",
+        last_not_found.unwrap_or_else(|| "launcher not found".to_string())
+    ))
+}
+
+fn run_start(
+    cli: &Cli,
+    lang: Lang,
+    palette: &Palette,
+    silent: bool,
+    no_wait: bool,
+    timeout_secs: u64,
+) -> Result<(), String> {
+    let err_palette = Palette::for_stderr(cli.no_color);
+    let stale_ctl = match CtlClient::discover(cli.data_dir.as_deref(), lang, err_palette) {
+        Ok(client) => match client.get("/v1/status") {
+            Ok(status) => {
+                if cli.json {
+                    print_json(&json!({
+                        "started": false,
+                        "alreadyRunning": true,
+                        "ready": true,
+                        "pid": client.pid,
+                        "status": status,
+                    }));
+                } else {
+                    let ver = status["version"].as_str().unwrap_or("-");
+                    println!(
+                        "{} {} {} {}",
+                        palette.bold_green("●"),
+                        palette.bold_cyan(APP_DISPLAY_NAME),
+                        palette.cyan(&format!("(v{ver})")),
+                        lang.tr("已在运行中。", "is already running."),
+                    );
+                }
+                return Ok(());
+            }
+            Err(_) => Some((client.port, client.token)),
+        },
+        Err(_) => None,
+    };
+
+    let app_data_dir = resolve_app_data_dir(cli.data_dir.as_deref());
+    let (mut child, launch_target, log_path) = if cfg!(debug_assertions) {
+        let repo_root = resolve_dev_workspace_root(lang)?;
+        if !cli.json {
+            println!(
+                "{} {}",
+                palette.cyan("→"),
+                palette.dim(lang.tr(
+                    "正在通过 Tauri Dev（含 Vite 热更新）启动开发环境...",
+                    "Starting dev environment via `tauri dev` (with Vite HMR)...",
+                ))
+            );
+        }
+        let (child, log_path) = spawn_dev_tauri_process(&repo_root, app_data_dir.as_deref(), silent)?;
+        (child, repo_root, log_path)
+    } else {
+        let app_exe = resolve_app_executable(cli.data_dir.as_deref(), lang)?;
+        let child = spawn_detached_app(&app_exe, silent)?;
+        (child, app_exe, None)
+    };
+    let runner_pid = child.id();
+
+    if no_wait {
+        if cli.json {
+            print_json(&json!({
+                "started": true,
+                "alreadyRunning": false,
+                "ready": false,
+                "pid": runner_pid,
+                "target": launch_target,
+                "logPath": log_path,
+            }));
+        } else {
+            println!(
+                "{} {} {} {}",
+                palette.bold_green("✓"),
+                lang.tr("已启动", "Launched"),
+                palette.bold_cyan(APP_DISPLAY_NAME),
+                palette.dim(&format!("(pid: {runner_pid})")),
+            );
+            if let Some(lp) = &log_path {
+                println!(
+                    "  {} {}",
+                    palette.dim(lang.tr("日志:", "Log:")),
+                    palette.dim(&lp.display().to_string())
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    let wait_timeout = Duration::from_secs(timeout_secs.max(1));
+    let deadline = Instant::now() + wait_timeout;
+    loop {
+        if let Ok(Some(exit_status)) = child.try_wait() {
+            let tail = log_path
+                .as_deref()
+                .and_then(|p| read_log_tail(p, 12))
+                .map(|t| format!("\n{t}"))
+                .unwrap_or_default();
+            return Err(lang
+                .tr(
+                    &format!("{APP_DISPLAY_NAME} 启动进程提前退出（{exit_status}）。{tail}"),
+                    &format!("{APP_DISPLAY_NAME} launcher exited early ({exit_status}).{tail}"),
+                )
+                .to_string());
+        }
+
+        if let Ok(client) = CtlClient::discover(cli.data_dir.as_deref(), lang, err_palette) {
+            let is_stale = stale_ctl
+                .as_ref()
+                .is_some_and(|(p, t)| *p == client.port && t == &client.token);
+            if !is_stale && let Ok(status) = client.get("/v1/status") {
+                let app_pid = client.pid.unwrap_or(runner_pid);
+                if cli.json {
+                    print_json(&json!({
+                        "started": true,
+                        "alreadyRunning": false,
+                        "ready": true,
+                        "pid": app_pid,
+                        "runnerPid": runner_pid,
+                        "target": launch_target,
+                        "logPath": log_path,
+                        "status": status,
+                    }));
+                } else {
+                    let ver = status["version"].as_str().unwrap_or("-");
+                    println!(
+                        "{} {} {} {}",
+                        palette.bold_green("✓"),
+                        palette.bold_cyan(APP_DISPLAY_NAME),
+                        palette.green(lang.tr("已启动并就绪", "started and ready")),
+                        palette.cyan(&format!("(pid: {app_pid}, v{ver})")),
+                    );
+                }
+                return Ok(());
+            }
+        }
+
+        if Instant::now() >= deadline {
+            let log_hint = log_path
+                .as_deref()
+                .map(|p| format!(" ({})", p.display()))
+                .unwrap_or_default();
+            return Err(lang
+                .tr(
+                    &format!(
+                        "{APP_DISPLAY_NAME} 启动进程仍在运行 (pid: {runner_pid})，但等待控制服务就绪超时（{}s）{log_hint}。",
+                        wait_timeout.as_secs()
+                    ),
+                    &format!(
+                        "{APP_DISPLAY_NAME} launcher is still running (pid: {runner_pid}), but timed out after {}s waiting for control server readiness{log_hint}.",
+                        wait_timeout.as_secs()
+                    ),
+                )
+                .to_string());
+        }
+
+        std::thread::sleep(Duration::from_millis(150));
+    }
+}
+
+fn run_stop(cli: &Cli, lang: Lang, palette: &Palette, no_wait: bool, timeout_secs: u64) -> Result<(), String> {
+    let err_palette = Palette::for_stderr(cli.no_color);
+    let Ok(client) = CtlClient::discover(cli.data_dir.as_deref(), lang, err_palette) else {
+        if cli.json {
+            print_json(&json!({
+                "stopped": false,
+                "alreadyStopped": true,
+            }));
+        } else {
+            println!(
+                "{} {} {}",
+                palette.dim("○"),
+                palette.bold_cyan(APP_DISPLAY_NAME),
+                palette.dim(lang.tr("未在运行。", "is not running.")),
+            );
+        }
+        return Ok(());
+    };
+
+    let resp = match client.post("/v1/stop", &json!({}), Duration::from_secs(5)) {
+        Ok(v) => v,
+        Err(_) => {
+            if cli.json {
+                print_json(&json!({
+                    "stopped": false,
+                    "alreadyStopped": true,
+                }));
+            } else {
+                println!(
+                    "{} {} {}",
+                    palette.dim("○"),
+                    palette.bold_cyan(APP_DISPLAY_NAME),
+                    palette.dim(lang.tr("未在运行。", "is not running.")),
+                );
+            }
+            return Ok(());
+        }
+    };
+
+    let pid = resp["pid"].as_u64().or_else(|| client.pid.map(u64::from));
+
+    if no_wait {
+        if cli.json {
+            print_json(&json!({
+                "stopped": true,
+                "alreadyStopped": false,
+                "pid": pid,
+            }));
+        } else {
+            let pid_label = pid.map(|p| format!(" (pid: {p})")).unwrap_or_default();
+            println!(
+                "{} {} {}{}",
+                palette.bold_green("✓"),
+                lang.tr("已发送退出信号至", "Sent stop signal to"),
+                palette.bold_cyan(APP_DISPLAY_NAME),
+                palette.dim(&pid_label),
+            );
+        }
+        return Ok(());
+    }
+
+    let wait_timeout = Duration::from_secs(timeout_secs.max(1));
+    let deadline = Instant::now() + wait_timeout;
+    loop {
+        let still_alive = CtlClient::discover(cli.data_dir.as_deref(), lang, err_palette)
+            .ok()
+            .is_some_and(|c| c.get("/v1/status").is_ok());
+        if !still_alive {
+            if cli.json {
+                print_json(&json!({
+                    "stopped": true,
+                    "alreadyStopped": false,
+                    "pid": pid,
+                }));
+            } else {
+                let pid_label = pid.map(|p| format!(" (pid: {p})")).unwrap_or_default();
+                println!(
+                    "{} {} {}{}",
+                    palette.bold_green("✓"),
+                    palette.bold_cyan(APP_DISPLAY_NAME),
+                    palette.green(lang.tr("已停止", "stopped")),
+                    palette.dim(&pid_label),
+                );
+            }
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(lang
+                .tr(
+                    &format!("等待 {APP_DISPLAY_NAME} 退出超时（{}s）。", wait_timeout.as_secs()),
+                    &format!(
+                        "Timed out after {}s waiting for {APP_DISPLAY_NAME} to stop.",
+                        wait_timeout.as_secs()
+                    ),
+                )
+                .to_string());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Result<(), String> {
     use mihomo_multi_lib::core::app_updater::{AppPackageType, check_app_update_direct, download_update_asset_direct};
 
@@ -1297,10 +2157,16 @@ fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Res
         } else {
             println!(
                 "{} {}",
-                palette.green("✓"),
+                palette.bold_green("✓"),
                 lang.tr(
-                    &format!("当前已是最新版本: v{}", check.current_version),
-                    &format!("Already up to date: v{}", check.current_version),
+                    &format!(
+                        "当前已是最新版本: {}",
+                        palette.bold_cyan(&format!("v{}", check.current_version))
+                    ),
+                    &format!(
+                        "Already up to date: {}",
+                        palette.bold_cyan(&format!("v{}", check.current_version))
+                    ),
                 )
             );
         }
@@ -1318,11 +2184,15 @@ fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Res
             "{} v{} -> {}{}",
             palette.cyan(lang.tr("发现新版本:", "New version available:")),
             check.current_version,
-            palette.green(&format!("v{}", check.latest_version)),
-            title
+            palette.bold_green(&format!("v{}", check.latest_version)),
+            palette.dim(&title)
         );
         if let Some(url) = &check.release_url {
-            println!("{} {url}", palette.dim(lang.tr("发布地址:", "Release URL:")));
+            println!(
+                "{} {}",
+                palette.dim(lang.tr("发布地址:", "Release URL:")),
+                palette.cyan(url)
+            );
         }
         if let Some(notes) = check.release_notes.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             println!(
@@ -1496,6 +2366,8 @@ fn localize_command(mut cmd: clap::Command, lang: Lang) -> clap::Command {
 
     let sub_abouts = |name: &str| -> Option<&'static str> {
         match name {
+            "start" => Some("启动主程序（若未运行）并等待控制服务就绪"),
+            "stop" => Some("优雅退出正在运行的主程序"),
             "status" => Some("查看内核、端口监听、系统代理、TUN 与终端环境状态"),
             "list" => Some("列出所有已配置的端口监听"),
             "enable" => Some("启用指定端口监听并热重载 Mihomo"),
@@ -1517,6 +2389,11 @@ fn localize_command(mut cmd: clap::Command, lang: Lang) -> clap::Command {
 
     let localize_arg = |arg: clap::Arg, sub_path: &str| -> clap::Arg {
         let help = match (sub_path, arg.get_id().as_str()) {
+            ("start", "silent") => Some("以静默模式启动并最小化到系统托盘"),
+            ("start", "no_wait") => Some("仅拉起主程序进程，不等待控制服务就绪"),
+            ("start", "timeout") => Some("等待控制服务就绪的最大秒数（dev 默认 60 秒，release 默认 15 秒）"),
+            ("stop", "no_wait") => Some("仅发送退出信号，不等待主程序完全退出"),
+            ("stop", "timeout") => Some("等待主程序退出的最大秒数（默认 10 秒）"),
             ("enable", "port") => Some("要启用的监听端口号"),
             ("disable", "port") => Some("要停用的监听端口号"),
             ("sub update", "target") => Some("订阅名称或 ID（支持模糊匹配）"),
