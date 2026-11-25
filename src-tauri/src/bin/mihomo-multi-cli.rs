@@ -128,8 +128,8 @@ enum Commands {
 
     /// Print shell integration snippet so `<alias> env [port]` updates the current terminal
     Init {
-        /// Target shell: pwsh, bash, zsh, cmd
-        shell: String,
+        /// Target shell: pwsh, bash, zsh, cmd (auto-detected if omitted)
+        shell: Option<String>,
         /// CLI command alias name (defaults to mm)
         #[arg(long, default_value = "mm")]
         alias: String,
@@ -141,9 +141,11 @@ enum Commands {
         target: Option<String>,
     },
     /// Check for updates, print release notes, and download the latest release
-    Update,
-
-
+    Update {
+        /// Only check for updates without downloading
+        #[arg(short = 'c', long)]
+        check: bool,
+    },
     /// Internal NSIS post-install hook (registers CLI alias and user PATH)
     #[command(name = "__nsis-install", hide = true)]
     NsisInstall,
@@ -178,6 +180,9 @@ enum NodeAction {
         sub: Option<String>,
         /// Optional node name/region filter (supports fuzzy/subsequence match)
         query: Option<String>,
+        /// Show only available nodes with valid latency
+        #[arg(short = 'a', long)]
+        available: bool,
     },
 }
 
@@ -218,6 +223,9 @@ struct EnvArgs {
     /// Target shell syntax: pwsh, cmd, sh
     #[arg(long)]
     shell: Option<String>,
+    /// Only update the current shell session without changing global/persisted env proxy
+    #[arg(short = 'c', long)]
+    current: bool,
     /// Emit only the raw shell command on stdout (used by shell wrappers / .cmd shim)
     #[arg(long)]
     eval: bool,
@@ -538,11 +546,37 @@ fn parse_proxy_toggle_target(raw: &str) -> Result<(bool, Option<u16>), String> {
     Ok((true, Some(port)))
 }
 
+fn detect_current_shell() -> &'static str {
+    let shell_env = std::env::var("SHELL").unwrap_or_default();
+    if shell_env.ends_with("zsh") {
+        return "zsh";
+    }
+    if !shell_env.is_empty() || std::env::var_os("MSYSTEM").is_some() {
+        return "bash";
+    }
+    #[cfg(windows)]
+    {
+        if std::env::var_os("PSModulePath").is_some() {
+            "pwsh"
+        } else {
+            "cmd"
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        "bash"
+    }
+}
+
 fn run(cli: Cli) -> Result<(), String> {
     if let Commands::Init { shell, alias } = &cli.command {
-        let script = render_init_script(shell, alias)?;
+        let resolved_shell = match shell.as_deref() {
+            Some(s) => s,
+            None => detect_current_shell(),
+        };
+        let script = render_init_script(resolved_shell, alias)?;
         if cli.json {
-            print_json(&json!({ "shell": shell, "alias": alias, "script": script }));
+            print_json(&json!({ "shell": resolved_shell, "alias": alias, "script": script }));
         } else {
             println!("{script}");
         }
@@ -556,15 +590,15 @@ fn run(cli: Cli) -> Result<(), String> {
     }
     let lang = detect_lang(cli.lang.as_deref(), cli.data_dir.as_deref());
     let palette = Palette::new(cli.no_color);
-    if matches!(cli.command, Commands::Update) {
-        return run_update(&cli, lang, &palette);
+    if let Commands::Update { check } = cli.command {
+        return run_update(&cli, lang, &palette, check);
     }
 
 
     let client = CtlClient::discover(cli.data_dir.as_deref())?;
 
     match cli.command {
-        Commands::Update => unreachable!(),
+        Commands::Update { .. } => unreachable!(),
         Commands::Init { .. } => unreachable!(),
         Commands::NsisInstall | Commands::NsisUninstall => unreachable!(),
         Commands::Status => {
@@ -592,16 +626,21 @@ fn run(cli: Cli) -> Result<(), String> {
                 palette.red(&format!("○ {}", lang.tr("已停止", "stopped")))
             };
 
+            let pad_label = |label: &str| -> String {
+                let width: usize = label.chars().map(|c| if c.is_ascii() { 1 } else { 2 }).sum();
+                let pad = 16usize.saturating_sub(width);
+                format!("{label}{}", " ".repeat(pad))
+            };
             println!("{}", palette.bold_cyan(&format!("Mihomo Multi v{}", data["version"].as_str().unwrap_or("-"))));
-            println!("{:<14}{core_badge}", lang.tr("内核状态:", "Core:"));
+            println!("{}{core_badge}", pad_label(lang.tr("内核状态:", "Core:")));
             println!(
-                "{:<14}{}",
-                lang.tr("端口映射:", "Ports:"),
+                "{}{}",
+                pad_label(lang.tr("端口映射:", "Ports:")),
                 palette.cyan(&format!("{enabled}/{total} {}", lang.tr("已启用", "enabled")))
             );
-            println!("{:<14}{sp}", lang.tr("系统代理:", "System Proxy:"));
-            println!("{:<14}{tun}", lang.tr("TUN 模式:", "TUN Mode:"));
-            println!("{:<14}{env}", lang.tr("终端环境:", "Terminal Env:"));
+            println!("{}{sp}", pad_label(lang.tr("系统代理:", "System Proxy:")));
+            println!("{}{tun}", pad_label(lang.tr("TUN 模式:", "TUN Mode:")));
+            println!("{}{env}", pad_label(lang.tr("终端环境:", "Terminal Env:")));
         }
         Commands::Lang { target } => {
             if let Some(raw) = target {
@@ -677,6 +716,9 @@ fn run(cli: Cli) -> Result<(), String> {
                     if item["isEnvProxy"].as_bool().unwrap_or(false) {
                         flags.push(palette.green("ENV"));
                     }
+                    if flags.is_empty() {
+                        flags.push(palette.dim("LISTEN"));
+                    }
                     vec![port, proto, state, node, delay, flags.join(" ")]
                 })
                 .collect();
@@ -745,7 +787,7 @@ fn run(cli: Cli) -> Result<(), String> {
             }
         },
         Commands::Node { action } => match action {
-            NodeAction::List { sub, query } => {
+            NodeAction::List { sub, query, available } => {
                 let mut params = Vec::new();
                 if let Some(s) = &sub {
                     params.push(format!("sub={}", urlencoding::encode(s)));
@@ -759,13 +801,23 @@ fn run(cli: Cli) -> Result<(), String> {
                     format!("/v1/nodes?{}", params.join("&"))
                 };
                 let data = client.get(&path)?;
+                let mut items = data.as_array().cloned().unwrap_or_default();
+                if available {
+                    items.retain(|n| n["delay"].as_u64().is_some_and(|d| d > 0));
+                }
                 if cli.json {
-                    print_json(&data);
+                    print_json(&Value::Array(items));
                     return Ok(());
                 }
-                let items = data.as_array().cloned().unwrap_or_default();
                 if items.is_empty() {
-                    println!("No nodes found.");
+                    println!(
+                        "{}",
+                        if available {
+                            "No available nodes found."
+                        } else {
+                            "No nodes found."
+                        }
+                    );
                     return Ok(());
                 }
                 let rows: Vec<Vec<String>> = items
@@ -887,6 +939,40 @@ fn run(cli: Cli) -> Result<(), String> {
             }
         }
         Commands::Env(args) => {
+            if args.current {
+                let shell_str = match args.shell.as_deref() {
+                    Some(s) => s,
+                    None => detect_current_shell(),
+                };
+                let shell_kind = mihomo_multi_lib::core::cli_format::ShellKind::parse(shell_str)
+                    .ok_or_else(|| format!("unsupported shell: {shell_str}"))?;
+                let cmd = if let Some(port) = args.port {
+                    let copy_data = client.get(&format!(
+                        "/v1/copy?port={port}&format=env&shell={}",
+                        urlencoding::encode(shell_str)
+                    ))?;
+                    copy_data["text"].as_str().unwrap_or("").to_string()
+                } else {
+                    mihomo_multi_lib::core::cli_format::build_env_unset_command(shell_kind)
+                };
+                if cli.json {
+                    print_json(&json!({
+                        "currentOnly": true,
+                        "enabled": args.port.is_some(),
+                        "port": args.port,
+                        "shell": shell_str,
+                        "command": cmd,
+                    }));
+                    return Ok(());
+                }
+                if let Some(port) = args.port {
+                    eprintln!("Current Shell Env: {}", palette.green(&format!("● ON (port {port})")));
+                } else {
+                    eprintln!("Current Shell Env: {}", palette.dim("○ OFF"));
+                }
+                println!("{cmd}");
+                return Ok(());
+            }
             let enabled = args.port.is_some();
             let data = client.post(
                 "/v1/env",
@@ -898,13 +984,9 @@ fn run(cli: Cli) -> Result<(), String> {
                 return Ok(());
             }
             let cmd = data["command"].as_str().unwrap_or("");
-            if args.eval {
-                println!("{cmd}");
-            } else {
-                let status = palette.mode_status(&data["status"]);
-                eprintln!("Terminal Env: {status}");
-                println!("{cmd}");
-            }
+            let status = palette.mode_status(&data["status"]);
+            eprintln!("Terminal Env: {status}");
+            println!("{cmd}");
         }
         Commands::Ip { port, copy, timeout } => {
             let data = client.post(
@@ -1189,7 +1271,7 @@ fn pre_scan_arg(flag: &str) -> Option<String> {
     None
 }
 
-fn run_update(cli: &Cli, lang: Lang, palette: &Palette) -> Result<(), String> {
+fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Result<(), String> {
     use mihomo_multi_lib::core::app_updater::{
         AppPackageType, check_app_update_direct, download_update_asset_direct,
     };
@@ -1254,6 +1336,19 @@ fn run_update(cli: &Cli, lang: Lang, palette: &Palette) -> Result<(), String> {
             println!("\n{}", palette.cyan(lang.tr("发布说明 (Release Notes):", "Release Notes:")));
             println!("{notes}\n");
         }
+    }
+    if check_only {
+        if cli.json {
+            print_json(&json!({
+                "hasUpdate": true,
+                "currentVersion": check.current_version,
+                "latestVersion": check.latest_version,
+                "releaseName": check.release_name,
+                "releaseUrl": check.release_url,
+                "releaseNotes": check.release_notes,
+            }));
+        }
+        return Ok(());
     }
 
     let Some(asset) = check.asset else {

@@ -227,6 +227,15 @@ export const App: React.FC = () => {
           })
       })
       .catch(() => {})
+    scope
+      .listen('ctl-state-changed', () => {
+        fetchConfig().catch(() => {})
+        fetchTunStatus().catch(() => {})
+        fetchPortMappings().catch(() => {})
+        fetchProfiles().catch(() => {})
+        fetchStatus().catch(() => {})
+      })
+      .catch(() => {})
 
     return () => {
       clearTimeout(revealTimeout)

@@ -370,18 +370,46 @@ fn broadcast_env_change() {
     }
 }
 
+/// Resolves the user's Documents directory, honoring Windows Known Folder redirection.
+#[cfg(windows)]
+fn resolve_documents_dir() -> Option<PathBuf> {
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::{FOLDERID_Documents, SHGetKnownFolderPath};
+
+    let mut raw_path: *mut u16 = std::ptr::null_mut();
+    // SAFETY: `raw_path` is a valid out-pointer; on success `CoTaskMemFree` frees the buffer.
+    let hr = unsafe { SHGetKnownFolderPath(&FOLDERID_Documents, 0, std::ptr::null_mut(), &mut raw_path) };
+    if hr == 0 && !raw_path.is_null() {
+        let mut len = 0usize;
+        // SAFETY: `SHGetKnownFolderPath` guarantees a null-terminated UTF-16 string on S_OK.
+        unsafe {
+            while *raw_path.add(len) != 0 {
+                len += 1;
+            }
+            let slice = std::slice::from_raw_parts(raw_path, len);
+            let os_str = <std::ffi::OsString as std::os::windows::ffi::OsStringExt>::from_wide(slice);
+            CoTaskMemFree(raw_path.cast());
+            return Some(PathBuf::from(os_str));
+        }
+    }
+    if !raw_path.is_null() {
+        // SAFETY: `raw_path` was allocated by `SHGetKnownFolderPath` if non-null.
+        unsafe { CoTaskMemFree(raw_path.cast()) };
+    }
+    std::env::var_os("USERPROFILE").map(|home| PathBuf::from(home).join("Documents"))
+}
+
 /// Resolves the default user shell profile file for installing `<alias> env` session integration.
 pub fn resolve_shell_profile_path() -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        let home = std::env::var_os("USERPROFILE").map(PathBuf::from)?;
-        let pwsh7 = home.join("Documents").join("PowerShell").join("Microsoft.PowerShell_profile.ps1");
+        let docs = resolve_documents_dir()?;
+        let pwsh7 = docs.join("PowerShell").join("Microsoft.PowerShell_profile.ps1");
         if pwsh7.parent().is_some_and(|p| p.exists()) {
             return Some(pwsh7);
         }
         Some(
-            home.join("Documents")
-                .join("WindowsPowerShell")
+            docs.join("WindowsPowerShell")
                 .join("Microsoft.PowerShell_profile.ps1"),
         )
     }

@@ -328,8 +328,10 @@ fn parse_json_body<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, HttpR
 }
 
 fn refresh_tray_if_available(state: &AppState) {
+    use tauri::Emitter;
     if let Some(app) = state.app_handle.read().clone() {
         crate::tray::update_tray_menu(&app);
+        let _ = app.emit("ctl-state-changed", ());
     }
 }
 
