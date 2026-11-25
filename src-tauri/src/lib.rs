@@ -1,5 +1,3 @@
-#![allow(linker_messages)]
-
 pub mod commands;
 pub mod constants;
 pub mod core;
