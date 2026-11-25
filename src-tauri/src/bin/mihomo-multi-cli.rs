@@ -1510,11 +1510,85 @@ fn localize_command(mut cmd: clap::Command, lang: Lang) -> clap::Command {
         }
     };
 
+    let localize_arg = |arg: clap::Arg, sub_path: &str| -> clap::Arg {
+        let help = match (sub_path, arg.get_id().as_str()) {
+            ("enable", "port") => Some("要启用的监听端口号"),
+            ("disable", "port") => Some("要停用的监听端口号"),
+            ("sub update", "target") => Some("订阅名称或 ID（支持模糊匹配）"),
+            ("sub update", "all") => Some("更新全部订阅"),
+            ("node list", "sub") => Some("可选订阅名称或 ID 过滤（支持模糊匹配）"),
+            ("node list", "query") => Some("可选节点名称/地区关键字过滤（支持模糊匹配）"),
+            ("node list", "available") => Some("仅显示有效延迟内的可用节点"),
+            ("test node", "name") => Some("节点名称"),
+            ("test node", "url") => Some("自定义测速 URL"),
+            ("test node", "timeout") => Some("超时时间（毫秒）"),
+            ("test sub", "target") => Some("订阅名称或 ID（省略则测试全部订阅）"),
+            ("test sub", "url") => Some("自定义测速 URL"),
+            ("test sub", "timeout") => Some("超时时间（毫秒）"),
+            ("sysproxy", "target") => Some("端口号或 'off'（省略则查看当前状态）"),
+            ("tun", "target") => Some("端口号或 'off'（省略则查看当前状态）"),
+            ("env", "port") => Some("要绑定的端口号（省略则清除终端代理环境变量）"),
+            ("env", "shell") => Some("目标 Shell 语法：pwsh、cmd、sh"),
+            ("env", "current") => Some("仅作用于当前终端会话，不修改全局/持久化环境变量"),
+            ("env", "eval") => Some("仅在 stdout 输出原始 Shell 命令（供 Shell 集成包装函数使用）"),
+            ("ip", "port") => Some("要探测出口 IP 的已启用监听端口"),
+            ("ip", "copy") => Some("将探测到的 IP 复制到系统剪贴板"),
+            ("ip", "timeout") => Some("探测超时时间（毫秒）"),
+            ("copy", "port") => Some("目标监听端口"),
+            ("copy", "format") => Some("输出格式：env、host、http、socks5、curl（省略则输出 env）"),
+            ("copy", "copy") => Some("复制到系统剪贴板"),
+            ("copy", "shell") => Some("当 format 为 env 或省略时的 Shell 语法：pwsh、cmd、sh"),
+            ("init", "shell") => Some("目标 Shell：pwsh、bash、zsh、cmd（省略则自动检测当前终端）"),
+            ("init", "alias") => Some("CLI 命令别名（默认为 mm）"),
+            ("lang", "target") => Some("目标语言（zh、en、zh-CN、en-US，省略则显示当前语言）"),
+            ("update", "check") => Some("仅检查更新，不下载安装包"),
+            _ => None,
+        };
+        match help {
+            Some(h) => arg.help(h),
+            None => arg,
+        }
+    };
+
+    let nested_about = |parent: &str, child: &str| -> Option<&'static str> {
+        match (parent, child) {
+            ("sub", "list") => Some("列出所有订阅"),
+            ("sub", "update") => Some("更新指定订阅或全部订阅"),
+            ("node", "list") => Some("列出所有节点，可按订阅与关键字筛选"),
+            ("test", "node") => Some("测试单个节点延迟"),
+            ("test", "sub") => Some("批量测试指定订阅（或全部订阅）下所有节点的延迟"),
+            _ => None,
+        }
+    };
+
     let names: Vec<String> = cmd.get_subcommands().map(|s| s.get_name().to_string()).collect();
     for name in names {
-        if let Some(about) = sub_abouts(&name) {
-            cmd = cmd.mut_subcommand(&name, |sub| sub.about(about));
-        }
+        let about = sub_abouts(&name);
+        cmd = cmd.mut_subcommand(&name, |mut sub| {
+            if let Some(a) = about {
+                sub = sub.about(a);
+            }
+            let arg_ids: Vec<String> = sub.get_arguments().map(|a| a.get_id().to_string()).collect();
+            for arg_id in arg_ids {
+                sub = sub.mut_arg(&arg_id, |a| localize_arg(a, &name));
+            }
+            let child_names: Vec<String> = sub.get_subcommands().map(|s| s.get_name().to_string()).collect();
+            for child_name in child_names {
+                let child_about = nested_about(&name, &child_name);
+                let child_path = format!("{name} {child_name}");
+                sub = sub.mut_subcommand(&child_name, |mut child| {
+                    if let Some(ca) = child_about {
+                        child = child.about(ca);
+                    }
+                    let c_arg_ids: Vec<String> = child.get_arguments().map(|a| a.get_id().to_string()).collect();
+                    for c_arg_id in c_arg_ids {
+                        child = child.mut_arg(&c_arg_id, |a| localize_arg(a, &child_path));
+                    }
+                    child
+                });
+            }
+            sub
+        });
     }
     cmd
 }
