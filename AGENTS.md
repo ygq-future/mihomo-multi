@@ -76,6 +76,7 @@ XERJ prefix: "mhm"
 * **Triage labels**：使用标准标签词汇（`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`），见 `docs/agents/triage-labels.md`。
 * **Domain docs**：见 `docs/agents/domain.md`。
 * **Quality Gate**：统一质量门禁为 `pnpm quality`（详见 `docs/agents/quality.md`）。迭代期间可运行针对性单阶段检查（如 `node scripts/quality-gate.mjs --stage lint:fe,typecheck`），最终交付前必须完整运行一次 `pnpm quality` 并确保全阶段通过，禁止通过禁用规则或忽略警告绕过门禁。
+* **提交（Commit）规范**：一律使用 `commit.draft()` + `d.commit()`，禁止 `git add` / `git commit`（`--amend` 除外，仅用于修正本会话已产生的提交）。格式化工具（`cargo fmt`、`biome --write`）改写的行会被标记为 `unrecorded`，提交前必须检查 `draft()` 摘要：出现 `◐`（部分选中）或 `?`（Review）时，先 `d.show("<path>")` 取 hunk id，再 `d.take("<path>", "<id>", ...)` 纳入这些 hunk，最后才 `commit()`；单人工作区可直接 `d.take("**")` 全选。跳过此步会留下半截提交。
 ---
 
 ## 六、 版本协同与发版核对红线 (Version Synchronization & Release Redline)
