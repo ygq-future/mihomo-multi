@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::io::{IsTerminal, Read, Write};
@@ -29,6 +29,10 @@ struct Cli {
     /// Override Mihomo Multi data directory containing ctl.json (also reads MIHOMO_MULTI_DATA_DIR)
     #[arg(long, global = true)]
     data_dir: Option<PathBuf>,
+
+    /// Override CLI output language (zh-CN or en-US, also reads MM_LANG)
+    #[arg(long, global = true)]
+    lang: Option<String>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -129,6 +133,12 @@ enum Commands {
         /// CLI command alias name (defaults to mm)
         #[arg(long, default_value = "mm")]
         alias: String,
+    },
+
+    /// Get or set the application & CLI language (zh-CN / en-US)
+    Lang {
+        /// Target language (zh, en, zh-CN, en-US). Omit to show current language.
+        target: Option<String>,
     },
 
     /// Internal NSIS post-install hook (registers CLI alias and user PATH)
@@ -542,6 +552,7 @@ fn run(cli: Cli) -> Result<(), String> {
         return run_nsis_uninstall();
     }
 
+    let lang = detect_lang(cli.lang.as_deref(), cli.data_dir.as_deref());
     let palette = Palette::new(cli.no_color);
     let client = CtlClient::discover(cli.data_dir.as_deref())?;
 
@@ -565,17 +576,68 @@ fn run(cli: Cli) -> Result<(), String> {
             let tun = palette.mode_status(&data["tun"]);
             let env = palette.mode_status(&data["envProxy"]);
             let core_badge = if running {
-                palette.green(&format!("● running (pid: {pid})"))
+                palette.green(&format!(
+                    "● {} (pid: {pid})",
+                    lang.tr("运行中", "running")
+                ))
             } else {
-                palette.red("○ stopped")
+                palette.red(&format!("○ {}", lang.tr("已停止", "stopped")))
             };
 
             println!("{}", palette.bold_cyan(&format!("Mihomo Multi v{}", data["version"].as_str().unwrap_or("-"))));
-            println!("Core:         {core_badge}");
-            println!("Ports:        {}", palette.cyan(&format!("{enabled}/{total} enabled")));
-            println!("System Proxy: {sp}");
-            println!("TUN Mode:     {tun}");
-            println!("Terminal Env: {env}");
+            println!("{:<14}{core_badge}", lang.tr("内核状态:", "Core:"));
+            println!(
+                "{:<14}{}",
+                lang.tr("端口映射:", "Ports:"),
+                palette.cyan(&format!("{enabled}/{total} {}", lang.tr("已启用", "enabled")))
+            );
+            println!("{:<14}{sp}", lang.tr("系统代理:", "System Proxy:"));
+            println!("{:<14}{tun}", lang.tr("TUN 模式:", "TUN Mode:"));
+            println!("{:<14}{env}", lang.tr("终端环境:", "Terminal Env:"));
+        }
+        Commands::Lang { target } => {
+            if let Some(raw) = target {
+                let Some(parsed) = Lang::parse(&raw) else {
+                    return Err(lang.tr(
+                        &format!("不支持的语言 '{raw}'，请使用 zh-CN 或 en-US"),
+                        &format!("unsupported language '{raw}'; use zh-CN or en-US"),
+                    ).to_string());
+                };
+                let data = client.post(
+                    "/v1/lang",
+                    &json!({ "language": parsed.code() }),
+                    Duration::from_secs(5),
+                )?;
+                if cli.json {
+                    print_json(&data);
+                } else {
+                    let code = data["language"].as_str().unwrap_or(parsed.code());
+                    println!(
+                        "{}",
+                        parsed.tr(
+                            &format!("语言已切换为: {code}"),
+                            &format!("Language switched to: {code}"),
+                        )
+                    );
+                }
+            } else {
+                let data = client.get("/v1/status")?;
+                let current = data["language"]
+                    .as_str()
+                    .and_then(Lang::parse)
+                    .unwrap_or(lang);
+                if cli.json {
+                    print_json(&json!({ "language": current.code() }));
+                } else {
+                    println!(
+                        "{}",
+                        current.tr(
+                            &format!("当前语言: {}", current.code()),
+                            &format!("Current language: {}", current.code()),
+                        )
+                    );
+                }
+            }
         }
         Commands::List => {
             let data = client.get("/v1/ports")?;
@@ -939,7 +1001,11 @@ fn run_nsis_uninstall() -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let pre_lang = pre_scan_arg("--lang");
+    let pre_data_dir = pre_scan_arg("--data-dir").map(PathBuf::from);
+    let lang = detect_lang(pre_lang.as_deref(), pre_data_dir.as_deref());
+    let matches = localize_command(Cli::command(), lang).get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
@@ -1023,4 +1089,134 @@ mod tests {
         assert_eq!(clean_node_name("🇭🇰 香港S01"), "香港S01");
         assert_eq!(clean_node_name("DIRECT"), "DIRECT");
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Lang {
+    Zh,
+    En,
+}
+
+impl Lang {
+    fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "zh" | "zh-cn" | "zh_cn" | "zh-hans" => Some(Self::Zh),
+            "en" | "en-us" | "en_us" => Some(Self::En),
+            _ => None,
+        }
+    }
+
+    fn code(self) -> &'static str {
+        match self {
+            Self::Zh => "zh-CN",
+            Self::En => "en-US",
+        }
+    }
+
+    fn tr<'a>(self, zh: &'a str, en: &'a str) -> &'a str {
+        match self {
+            Self::Zh => zh,
+            Self::En => en,
+        }
+    }
+}
+
+fn detect_lang(cli_lang: Option<&str>, data_dir: Option<&Path>) -> Lang {
+    if let Some(raw) = cli_lang
+        && let Some(l) = Lang::parse(raw)
+    {
+        return l;
+    }
+    if let Ok(raw) = std::env::var("MM_LANG")
+        && let Some(l) = Lang::parse(&raw)
+    {
+        return l;
+    }
+    let mut config_candidates = Vec::new();
+    let env_dir = std::env::var_os("MIHOMO_MULTI_DATA_DIR").map(PathBuf::from);
+    if let Some(dir) = data_dir.or(env_dir.as_deref()) {
+        config_candidates.push(dir.join("config.json"));
+    } else if let Some(base) = local_data_base_dir() {
+        if cfg!(debug_assertions) {
+            config_candidates.push(base.join(DEV_APP_IDENTIFIER).join("config.json"));
+            config_candidates.push(base.join(APP_IDENTIFIER).join("config.json"));
+        } else {
+            config_candidates.push(base.join(APP_IDENTIFIER).join("config.json"));
+            config_candidates.push(base.join(DEV_APP_IDENTIFIER).join("config.json"));
+        }
+    }
+    for path in config_candidates {
+        if let Ok(content) = std::fs::read_to_string(path)
+            && let Ok(val) = serde_json::from_str::<serde_json::Value>(&content)
+            && let Some(raw) = val["language"].as_str()
+            && let Some(l) = Lang::parse(raw)
+        {
+            return l;
+        }
+    }
+    for key in ["LC_ALL", "LANG"] {
+        if let Ok(raw) = std::env::var(key) {
+            if raw.to_ascii_lowercase().starts_with("zh") {
+                return Lang::Zh;
+            }
+            if raw.to_ascii_lowercase().starts_with("en") {
+                return Lang::En;
+            }
+        }
+    }
+    Lang::En
+}
+
+fn pre_scan_arg(flag: &str) -> Option<String> {
+    let mut args = std::env::args().skip(1);
+    let prefix = format!("{flag}=");
+    while let Some(arg) = args.next() {
+        if arg == flag {
+            return args.next();
+        }
+        if let Some(val) = arg.strip_prefix(&prefix) {
+            return Some(val.to_string());
+        }
+    }
+    None
+}
+
+fn localize_command(mut cmd: clap::Command, lang: Lang) -> clap::Command {
+    if lang == Lang::En {
+        return cmd;
+    }
+    cmd = cmd
+        .about("Mihomo Multi 桌面端外部命令行控制工具")
+        .mut_arg("json", |a| a.help("以 JSON 格式输出"))
+        .mut_arg("no_color", |a| a.help("禁用 ANSI 彩色输出"))
+        .mut_arg("data_dir", |a| a.help("覆盖包含 ctl.json 的数据目录（也可设置 MIHOMO_MULTI_DATA_DIR）"))
+        .mut_arg("lang", |a| a.help("覆盖 CLI 输出语言（zh-CN 或 en-US，也可设置 MM_LANG）"));
+
+    let sub_abouts = |name: &str| -> Option<&'static str> {
+        match name {
+            "status" => Some("查看内核、端口监听、系统代理、TUN 与终端环境状态"),
+            "list" => Some("列出所有已配置的端口监听"),
+            "enable" => Some("启用指定端口监听并热重载 Mihomo"),
+            "disable" => Some("停用指定端口监听并热重载 Mihomo"),
+            "sub" => Some("订阅查询与更新"),
+            "node" => Some("代理节点查询"),
+            "test" => Some("对单个节点或订阅进行延迟测速"),
+            "sysproxy" => Some("查看、启用或关闭系统代理"),
+            "tun" => Some("查看、启用或关闭 TUN 虚拟网卡模式"),
+            "env" => Some("查看当前终端代理环境变量或绑定端口"),
+            "ip" => Some("通过指定端口或节点探测出口 IP"),
+            "copy" => Some("输出或复制代理地址"),
+            "init" => Some("输出 Shell 集成脚本，使 `<alias> env [port]` 可直接作用于当前终端"),
+            "lang" => Some("查看或切换应用与 CLI 语言（zh-CN / en-US）"),
+            _ => None,
+        }
+    };
+
+    let names: Vec<String> = cmd.get_subcommands().map(|s| s.get_name().to_string()).collect();
+    for name in names {
+        if let Some(about) = sub_abouts(&name) {
+            cmd = cmd.mut_subcommand(&name, |sub| sub.about(about));
+        }
+    }
+    cmd
 }

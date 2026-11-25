@@ -1934,6 +1934,22 @@ pub(crate) fn destroy_hidden_silent_window(
 /// the UI error toast has a chance to be seen.
 #[tauri::command]
 pub fn set_ui_locale(app: AppHandle, locale: String) -> Result<(), String> {
+    if let Some(state) = app.try_state::<AppState>() {
+        let cfg = {
+            let mut cfg = state.config.write();
+            if cfg.language.as_deref() == Some(locale.as_str()) {
+                None
+            } else {
+                cfg.language = Some(locale.clone());
+                Some(cfg.clone())
+            }
+        };
+        if let Some(cfg) = cfg
+            && let Err(err) = state.persist_config(&cfg)
+        {
+            tracing::warn!("Failed to persist UI locale to config: {}", err);
+        }
+    }
     crate::tray::set_ui_locale(app, locale).map_err(|err| {
         tracing::warn!("Failed to synchronize the tray locale: {}", err);
         err

@@ -581,6 +581,8 @@ pub struct AppConfig {
     pub controller_port: u16,
     pub controller_secret: String,
     pub theme: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
     pub log_level: String,
     #[serde(default)]
     pub allow_lan: bool,
@@ -697,6 +699,7 @@ impl Default for AppConfig {
             controller_port: default_controller_port(),
             controller_secret: uuid::Uuid::new_v4().to_string(),
             theme: "system".to_string(),
+            language: None,
             log_level: "info".to_string(),
             allow_lan: false,
             selected_lan_ip: None,

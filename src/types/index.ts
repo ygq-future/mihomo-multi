@@ -211,6 +211,7 @@ export interface AppConfig {
   controllerPort: number
   controllerSecret: string
   theme: string
+  language?: string | null
   logLevel: string
   allowLan: boolean
   selectedLanIp?: string | null

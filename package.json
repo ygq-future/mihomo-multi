@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:tauri": "tauri dev -c src-tauri/tauri.dev.conf.json",
+    "dev:cli": "cargo build --manifest-path src-tauri/Cargo.toml --bin mihomo-multi-cli && node -e \"const fs=require('fs'),path=require('path');const dir=path.join(process.env.LOCALAPPDATA,'Mihomo Multi','cli');fs.mkdirSync(dir,{recursive:true});fs.copyFileSync('src-tauri/target/debug/mihomo-multi-cli.exe',path.join(dir,'mm-dev.exe'))\"",
+    "dev:tauri": "node -e \"require('child_process').execSync('cargo build --manifest-path src-tauri/Cargo.toml --bin mihomo-multi-cli',{stdio:'inherit'});const fs=require('fs'),path=require('path');const dir=path.join(process.env.LOCALAPPDATA,'Mihomo Multi','cli');fs.mkdirSync(dir,{recursive:true});fs.copyFileSync('src-tauri/target/debug/mihomo-multi-cli.exe',path.join(dir,'mm-dev.exe'))\" && tauri dev -c src-tauri/tauri.dev.conf.json",
     "dev:sidecar": "node scripts/dev-sidecar.mjs",
     "build": "tsc && vite build",
     "build:tauri": "tauri build",

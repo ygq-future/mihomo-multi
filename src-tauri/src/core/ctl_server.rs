@@ -344,6 +344,8 @@ struct StatusResponse {
     system_proxy: SystemProxyStatus,
     tun: TunStatus,
     env_proxy: EnvProxyStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    language: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -457,6 +459,7 @@ async fn dispatch_request(req: &HttpRequest, state: &AppState) -> HttpResponse {
         ("POST", "/v1/env") => handle_set_env(req, state).await,
         ("POST", "/v1/ip") => handle_probe_ip(req, state).await,
         ("GET", "/v1/copy") => handle_copy(req, state),
+        ("POST", "/v1/lang") => handle_set_lang(req, state),
         ("POST", path) if path.starts_with("/v1/ports/") => handle_toggle_port(path, state).await,
         _ => HttpResponse::err(404, "Not Found", format!("unknown route: {} {}", req.method, req.path)),
     }
@@ -466,6 +469,7 @@ fn handle_status(state: &AppState) -> HttpResponse {
     let engine_status = state.engine.get_status();
     let mappings = state.port_router.get_port_mappings();
     let enabled_ports = mappings.iter().filter(|m| m.enabled).count();
+    let language = state.config.read().language.clone();
     let resp = StatusResponse {
         version: APP_VERSION.to_string(),
         core_running: engine_status.running,
@@ -475,8 +479,50 @@ fn handle_status(state: &AppState) -> HttpResponse {
         system_proxy: state.build_system_proxy_status(),
         tun: state.build_tun_status(),
         env_proxy: state.build_env_proxy_status(),
+        language,
     };
     HttpResponse::ok(&resp)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetLangRequest {
+    language: String,
+}
+
+fn normalize_locale(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "zh" | "zh-cn" | "zh_cn" | "zh-hans" => Some("zh-CN"),
+        "en" | "en-us" | "en_us" => Some("en-US"),
+        _ => None,
+    }
+}
+
+fn handle_set_lang(req: &HttpRequest, state: &AppState) -> HttpResponse {
+    let body: SetLangRequest = match parse_json_body(&req.body) {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let Some(normalized) = normalize_locale(&body.language) else {
+        return HttpResponse::err(
+            400,
+            "Bad Request",
+            format!("unsupported language '{}'; use zh-CN or en-US", body.language),
+        );
+    };
+    let cfg = {
+        let mut cfg = state.config.write();
+        cfg.language = Some(normalized.to_string());
+        cfg.clone()
+    };
+    if let Err(err) = state.persist_config(&cfg) {
+        return HttpResponse::err(500, "Internal Server Error", err.to_string());
+    }
+    if let Some(app_handle) = state.app_handle.read().as_ref() {
+        let _ = crate::tray::set_ui_locale(app_handle.clone(), normalized.to_string());
+        let _ = tauri::Emitter::emit(app_handle, "app:language-changed", normalized);
+    }
+    HttpResponse::ok(&serde_json::json!({ "language": normalized }))
 }
 
 fn handle_list_ports(state: &AppState) -> HttpResponse {

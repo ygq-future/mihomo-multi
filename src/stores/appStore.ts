@@ -12,7 +12,7 @@ import type {
 } from '../types'
 import { isVersionNewer, loadCachedAppUpdate } from '../utils/appUpdateCache'
 import { APP_VERSION } from '../constants'
-import { t } from '../i18n'
+import { t, useI18nStore } from '../i18n'
 import { type PortSlice, createPortSlice } from './portSlice'
 import { type ProfileSlice, createProfileSlice } from './profileSlice'
 import { type ProxySlice, createProxySlice } from './proxySlice'
@@ -249,6 +249,11 @@ export const useAppStore = create<RootStore>()((set, get, store) => ({
           localStorage.setItem('app_theme', config.theme)
         } catch {
           // ignore storage errors
+        }
+      }
+      if (config.language === 'zh-CN' || config.language === 'en-US') {
+        if (useI18nStore.getState().locale !== config.language) {
+          useI18nStore.getState().setLocale(config.language)
         }
       }
       set({ config })

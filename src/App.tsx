@@ -54,6 +54,21 @@ export const App: React.FC = () => {
   }, [locale])
 
   useEffect(() => {
+    const scope = createEventScope()
+    scope.listen<string>('app:language-changed', (event) => {
+      const nextLocale = event.payload
+      if (nextLocale === 'zh-CN' || nextLocale === 'en-US') {
+        if (useI18nStore.getState().locale !== nextLocale) {
+          useI18nStore.getState().setLocale(nextLocale)
+        }
+      }
+    })
+    return () => {
+      scope.dispose()
+    }
+  }, [])
+
+  useEffect(() => {
     fetchConfig()
     fetchLatencies().catch(() => {})
 
