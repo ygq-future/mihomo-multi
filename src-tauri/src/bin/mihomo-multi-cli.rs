@@ -2013,19 +2013,20 @@ fn run_start(
         }
 
         if Instant::now() >= deadline {
+            let app_name = err_palette.bold_yellow(APP_DISPLAY_NAME);
+            let pid_info = err_palette.dim(&format!("(pid: {runner_pid})"));
+            let timeout_str = err_palette.bold_yellow(&format!("{}s", wait_timeout.as_secs()));
             let log_hint = log_path
                 .as_deref()
-                .map(|p| format!(" ({})", p.display()))
+                .map(|p| err_palette.dim(&format!(" ({})", p.display())))
                 .unwrap_or_default();
             return Err(lang
                 .tr(
                     &format!(
-                        "{APP_DISPLAY_NAME} 启动进程仍在运行 (pid: {runner_pid})，但等待控制服务就绪超时（{}s）{log_hint}。",
-                        wait_timeout.as_secs()
+                        "{app_name} 启动进程仍在运行 {pid_info}，但等待控制服务就绪超时（{timeout_str}）{log_hint}。",
                     ),
                     &format!(
-                        "{APP_DISPLAY_NAME} launcher is still running (pid: {runner_pid}), but timed out after {}s waiting for control server readiness{log_hint}.",
-                        wait_timeout.as_secs()
+                        "{app_name} launcher is still running {pid_info}, but timed out after {timeout_str} waiting for control server readiness{log_hint}.",
                     ),
                 )
                 .to_string());
@@ -2122,13 +2123,12 @@ fn run_stop(cli: &Cli, lang: Lang, palette: &Palette, no_wait: bool, timeout_sec
             return Ok(());
         }
         if Instant::now() >= deadline {
+            let app_name = err_palette.bold_yellow(APP_DISPLAY_NAME);
+            let timeout_str = err_palette.bold_yellow(&format!("{}s", wait_timeout.as_secs()));
             return Err(lang
                 .tr(
-                    &format!("等待 {APP_DISPLAY_NAME} 退出超时（{}s）。", wait_timeout.as_secs()),
-                    &format!(
-                        "Timed out after {}s waiting for {APP_DISPLAY_NAME} to stop.",
-                        wait_timeout.as_secs()
-                    ),
+                    &format!("等待 {app_name} 退出超时（{timeout_str}）。"),
+                    &format!("Timed out after {timeout_str} waiting for {app_name} to stop."),
                 )
                 .to_string());
         }
@@ -2181,9 +2181,10 @@ fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Res
             .map(|n| format!(" ({n})"))
             .unwrap_or_default();
         println!(
-            "{} v{} -> {}{}",
+            "{} {} {} {}{}",
             palette.cyan(lang.tr("发现新版本:", "New version available:")),
-            check.current_version,
+            palette.dim(&format!("v{}", check.current_version)),
+            palette.dim("->"),
             palette.bold_green(&format!("v{}", check.latest_version)),
             palette.dim(&title)
         );
@@ -2228,7 +2229,7 @@ fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Res
         println!(
             "{} {}",
             palette.dim(lang.tr("正在下载更新包:", "Downloading update:")),
-            asset.name
+            palette.bold_cyan(&asset.name)
         );
     }
 
@@ -2258,9 +2259,13 @@ fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Res
                 let total_mb = total as f64 / (1024.0 * 1024.0);
                 if is_tty {
                     if total > 0 {
-                        print!("\r  {pct:>3}% ({dl_mb:.1} MB / {total_mb:.1} MB)");
+                        print!(
+                            "\r  {} {}",
+                            palette.bold_cyan(&format!("{pct:>3}%")),
+                            palette.dim(&format!("({dl_mb:.1} MB / {total_mb:.1} MB)"))
+                        );
                     } else {
-                        print!("\r  {dl_mb:.1} MB");
+                        print!("\r  {}", palette.bold_cyan(&format!("{dl_mb:.1} MB")));
                     }
                     let _ = std::io::stdout().flush();
                 }
@@ -2306,15 +2311,13 @@ fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Res
                     "downloadedPath": dest_path,
                 }));
             } else {
+                let path_str = palette.cyan(&dest_path.display().to_string());
                 println!(
                     "{} {}",
-                    palette.green("✓"),
+                    palette.bold_green("✓"),
                     lang.tr(
-                        &format!("更新包已下载至「{}」并已启动安装程序。", dest_path.display()),
-                        &format!(
-                            "Update downloaded to \"{}\" and installer launched.",
-                            dest_path.display()
-                        ),
+                        &format!("更新包已下载至「{path_str}」并已启动安装程序。"),
+                        &format!("Update downloaded to \"{path_str}\" and installer launched."),
                     )
                 );
             }
@@ -2331,15 +2334,13 @@ fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Res
                     "downloadedPath": dest_path,
                 }));
             } else {
+                let path_str = palette.cyan(&dest_path.display().to_string());
                 println!(
                     "{} {}",
-                    palette.green("✓"),
+                    palette.bold_green("✓"),
                     lang.tr(
-                        &format!("便携包已下载至「{}」，请关闭程序后解压替换。", dest_path.display()),
-                        &format!(
-                            "Portable package downloaded to \"{}\". Close the app, then extract and replace.",
-                            dest_path.display()
-                        ),
+                        &format!("便携包已下载至「{path_str}」，请关闭程序后解压替换。"),
+                        &format!("Portable package downloaded to \"{path_str}\". Close the app, then extract and replace."),
                     )
                 );
             }
