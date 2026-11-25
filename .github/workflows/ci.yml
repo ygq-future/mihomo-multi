@@ -45,18 +45,8 @@ jobs:
       - name: Prepare Sidecar Binary
         run: node scripts/dev-sidecar.mjs
 
-      - name: Check code formatting (Biome)
-        run: pnpm format:check
-
-      - name: Lint frontend code (ESLint)
-        run: pnpm lint:fe
-
-      - name: Typecheck frontend code (TypeScript)
-        run: pnpm typecheck
-
-      - name: Lint backend code (Rust Clippy)
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-
+      - name: Run static quality gate (version, format, lint, typecheck, clippy)
+        run: node scripts/quality-gate.mjs --stage version,format:fe,format:be,lint:fe,typecheck,lint:be
   test:
     name: Test Suite (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -94,5 +84,11 @@ jobs:
       - name: Prepare Sidecar Binary
         run: node scripts/dev-sidecar.mjs
 
-      - name: Run test suite
+      - name: Run frontend unit tests
+        run: pnpm test:fe
+
+      - name: Run backend test suite
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Verify frontend production build
+        run: pnpm build

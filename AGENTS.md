@@ -75,7 +75,7 @@ XERJ prefix: "mhm"
 * **Issue tracker**：`https://github.com/ygq-future/mihomo-multi.git`，见 `docs/agents/issue-tracker.md`。
 * **Triage labels**：使用标准标签词汇（`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`），见 `docs/agents/triage-labels.md`。
 * **Domain docs**：见 `docs/agents/domain.md`。
-
+* **Quality Gate**：统一质量门禁为 `pnpm quality`（详见 `docs/agents/quality.md`）。迭代期间可运行针对性单阶段检查（如 `node scripts/quality-gate.mjs --stage lint:fe,typecheck`），最终交付前必须完整运行一次 `pnpm quality` 并确保全阶段通过，禁止通过禁用规则或忽略警告绕过门禁。
 ---
 
 ## 六、 版本协同与发版核对红线 (Version Synchronization & Release Redline)

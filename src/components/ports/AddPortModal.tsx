@@ -592,7 +592,7 @@ export const AddPortModal: React.FC<AddPortModalProps> = ({
 
       return compareNodesByLatencyAndName(a, b, sortLatencies, locale)
     })
-  }, [allAvailableNodes, sortLatencies, locale, selectedNodeRegion])
+  }, [allAvailableNodes, latencies, sortLatencies, locale, selectedNodeRegion])
 
   const nodeOptions = useMemo(() => {
     return sortedNodes.map((n) => {
