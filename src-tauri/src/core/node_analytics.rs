@@ -993,8 +993,15 @@ fn compute_dimension_scores(
     };
 
     // 3. Runtime connection error score: penalizes error rate against connection activity.
+    // Unused nodes (no connection samples and no observed traffic) get a neutral 50.0
+    // instead of a 100.0 "zero-sample bonus".
+    let has_observed_traffic = avg_speed_bps > 0.0 || max_speed_bps > 0.0;
     let connection_errors_score = if connection_errors == 0 {
-        100.0
+        if connection_samples == 0 && !has_observed_traffic {
+            50.0
+        } else {
+            100.0
+        }
     } else {
         let denom = (connection_samples.max(10)) as f64;
         let err_rate = (connection_errors as f64) / denom;
@@ -1003,12 +1010,11 @@ fn compute_dimension_scores(
     };
 
     // 4-6. Throughput scores (log-scaled against realistic proxy speed tiers).
-    // Neutral baseline (30) when no active traffic has been observed yet; any observed
-    // active traffic starts at 40 and scales up to 100 so idle 0 B/s nodes never outrank
-    // comparable nodes that actually carried traffic.
+    // Unobserved 0 B/s traffic scores 0.0; any observed active traffic starts at 40
+    // and scales up to 100 so idle 0 B/s nodes never outrank nodes that carried traffic.
     let speed_to_score = |bps: f64, ref_max_mbps: f64| -> f64 {
         if bps <= 0.0 {
-            return 30.0;
+            return 0.0;
         }
         let mbps = bps / (1024.0 * 1024.0);
         let ratio = (1.0 + mbps).ln() / (1.0 + ref_max_mbps).ln();
@@ -1238,6 +1244,28 @@ mod tests {
         assert!(active.min_speed > idle.min_speed);
         let w = AvailabilityWeights::default();
         assert!(compute_weighted_score(&active, &w) > compute_weighted_score(&idle, &w));
+    }
+
+    #[test]
+    fn unused_zero_traffic_node_scores_below_active_healthy_node() {
+        let unused = compute_dimension_scores(50, 0, 0, 0, 0, 0.0, 0.0, 0.0, Some(74.0), Some(0.0));
+        let active = compute_dimension_scores(
+            200,
+            5,
+            60_000,
+            0,
+            100,
+            200.0 * 1024.0,
+            1024.0 * 1024.0,
+            20.0 * 1024.0,
+            Some(250.0),
+            Some(8.0),
+        );
+        let w = AvailabilityWeights::default();
+        assert!(
+            compute_weighted_score(&active, &w) > compute_weighted_score(&unused, &w),
+            "active node should outrank unused 0 B/s node"
+        );
     }
 
     #[test]
