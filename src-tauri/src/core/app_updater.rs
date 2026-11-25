@@ -304,6 +304,71 @@ pub async fn check_app_update(state: &AppState) -> AppResult<AppUpdateCheckResul
     )))
 }
 
+/// Checks the latest release from GitHub API directly (without AppState).
+pub async fn check_app_update_direct() -> AppResult<AppUpdateCheckResult> {
+    check_app_update_via(UpdateEgress::Direct).await
+}
+
+/// Downloads an update asset directly to disk, invoking `on_progress(downloaded, total)`.
+pub async fn download_update_asset_direct<F>(
+    download_url: &str,
+    file_name: &str,
+    package_type: AppPackageType,
+    mut on_progress: F,
+) -> AppResult<PathBuf>
+where
+    F: FnMut(u64, u64),
+{
+    let client = build_update_client(UpdateEgress::Direct, Duration::from_secs(600), Duration::from_secs(15))?;
+    let mut res = client.get(download_url).send().await.map_err(|e| {
+        AppError::Internal(crate::tr!(
+            format!("下载更新包失败: {e}"),
+            format!("Failed to download update package: {e}"),
+        ))
+    })?;
+
+    if !res.status().is_success() {
+        return Err(AppError::Internal(crate::tr!(
+            format!("下载更新包失败: HTTP {}", res.status()),
+            format!("Failed to download update package: HTTP {}", res.status()),
+        )));
+    }
+
+    let total_bytes = res.content_length().unwrap_or(0);
+    let mut downloaded_bytes = 0u64;
+
+    let target_dir = match package_type {
+        AppPackageType::Installer => std::env::temp_dir(),
+        AppPackageType::Portable => get_app_root_dir(),
+    };
+
+    let dest_path = target_dir.join(file_name);
+    let temp_dest_path = target_dir.join(format!("{}.downloading", file_name));
+    let mut file = std::fs::File::create(&temp_dest_path).map_err(AppError::Io)?;
+
+    on_progress(0, total_bytes);
+    while let Some(chunk) = res.chunk().await.map_err(|e| {
+        AppError::Internal(crate::tr!(
+            format!("下载流读取失败: {e}"),
+            format!("Download stream error: {e}"),
+        ))
+    })? {
+        file.write_all(&chunk).map_err(AppError::Io)?;
+        downloaded_bytes += chunk.len() as u64;
+        on_progress(downloaded_bytes, total_bytes);
+    }
+
+    file.flush().map_err(AppError::Io)?;
+    drop(file);
+
+    if dest_path.exists() {
+        let _ = std::fs::remove_file(&dest_path);
+    }
+    std::fs::rename(&temp_dest_path, &dest_path).map_err(AppError::Io)?;
+
+    Ok(dest_path)
+}
+
 async fn check_app_update_via(egress: UpdateEgress) -> AppResult<AppUpdateCheckResult> {
     let client = build_update_client(egress, Duration::from_secs(10), Duration::from_secs(5))?;
 

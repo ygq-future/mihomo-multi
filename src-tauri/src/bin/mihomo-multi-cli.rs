@@ -140,6 +140,9 @@ enum Commands {
         /// Target language (zh, en, zh-CN, en-US). Omit to show current language.
         target: Option<String>,
     },
+    /// Check for updates, print release notes, and download the latest release
+    Update,
+
 
     /// Internal NSIS post-install hook (registers CLI alias and user PATH)
     #[command(name = "__nsis-install", hide = true)]
@@ -551,12 +554,17 @@ fn run(cli: Cli) -> Result<(), String> {
     if matches!(cli.command, Commands::NsisUninstall) {
         return run_nsis_uninstall();
     }
-
     let lang = detect_lang(cli.lang.as_deref(), cli.data_dir.as_deref());
     let palette = Palette::new(cli.no_color);
+    if matches!(cli.command, Commands::Update) {
+        return run_update(&cli, lang, &palette);
+    }
+
+
     let client = CtlClient::discover(cli.data_dir.as_deref())?;
 
     match cli.command {
+        Commands::Update => unreachable!(),
         Commands::Init { .. } => unreachable!(),
         Commands::NsisInstall | Commands::NsisUninstall => unreachable!(),
         Commands::Status => {
@@ -1181,6 +1189,200 @@ fn pre_scan_arg(flag: &str) -> Option<String> {
     None
 }
 
+fn run_update(cli: &Cli, lang: Lang, palette: &Palette) -> Result<(), String> {
+    use mihomo_multi_lib::core::app_updater::{
+        AppPackageType, check_app_update_direct, download_update_asset_direct,
+    };
+
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| format!("failed to initialize async runtime: {e}"))?;
+
+    if !cli.json {
+        println!(
+            "{}",
+            palette.dim(lang.tr("正在检查更新...", "Checking for updates..."))
+        );
+    }
+
+    let check = rt
+        .block_on(check_app_update_direct())
+        .map_err(|e| e.to_string())?;
+
+    if !check.has_update {
+        if cli.json {
+            print_json(&json!({
+                "hasUpdate": false,
+                "currentVersion": check.current_version,
+                "latestVersion": check.latest_version,
+            }));
+        } else {
+            println!(
+                "{} {}",
+                palette.green("✓"),
+                lang.tr(
+                    &format!("当前已是最新版本: v{}", check.current_version),
+                    &format!("Already up to date: v{}", check.current_version),
+                )
+            );
+        }
+        return Ok(());
+    }
+
+    if !cli.json {
+        let title = check
+            .release_name
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(|n| format!(" ({n})"))
+            .unwrap_or_default();
+        println!(
+            "{} v{} -> {}{}",
+            palette.cyan(lang.tr("发现新版本:", "New version available:")),
+            check.current_version,
+            palette.green(&format!("v{}", check.latest_version)),
+            title
+        );
+        if let Some(url) = &check.release_url {
+            println!("{} {url}", palette.dim(lang.tr("发布地址:", "Release URL:")));
+        }
+        if let Some(notes) = check
+            .release_notes
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            println!("\n{}", palette.cyan(lang.tr("发布说明 (Release Notes):", "Release Notes:")));
+            println!("{notes}\n");
+        }
+    }
+
+    let Some(asset) = check.asset else {
+        let msg = lang.tr(
+            "未找到适用于当前平台的更新包，请前往发布页面手动下载。",
+            "No compatible update package found for the current platform; please download manually.",
+        );
+        return Err(msg.to_string());
+    };
+
+    if !cli.json {
+        println!(
+            "{} {}",
+            palette.dim(lang.tr("正在下载更新包:", "Downloading update:")),
+            asset.name
+        );
+    }
+
+    let is_tty = std::io::stdout().is_terminal();
+    let show_progress = !cli.json;
+    let mut last_pct: Option<u32> = None;
+
+    let dest_path = rt
+        .block_on(download_update_asset_direct(
+            &asset.download_url,
+            &asset.name,
+            asset.package_type.clone(),
+            |downloaded, total| {
+                if !show_progress {
+                    return;
+                }
+                let pct = if total > 0 {
+                    ((downloaded as f64 / total as f64) * 100.0).clamp(0.0, 100.0) as u32
+                } else {
+                    0
+                };
+                if last_pct == Some(pct) && downloaded < total {
+                    return;
+                }
+                last_pct = Some(pct);
+                let dl_mb = downloaded as f64 / (1024.0 * 1024.0);
+                let total_mb = total as f64 / (1024.0 * 1024.0);
+                if is_tty {
+                    if total > 0 {
+                        print!("\r  {pct:>3}% ({dl_mb:.1} MB / {total_mb:.1} MB)");
+                    } else {
+                        print!("\r  {dl_mb:.1} MB");
+                    }
+                    let _ = std::io::stdout().flush();
+                }
+            },
+        ))
+        .map_err(|e| e.to_string())?;
+
+    if show_progress && is_tty {
+        println!();
+    }
+
+    match asset.package_type {
+        AppPackageType::Installer => {
+            #[cfg(target_os = "windows")]
+            {
+                std::process::Command::new(&dest_path)
+                    .spawn()
+                    .map_err(|e| format!("failed to launch installer: {e}"))?;
+            }
+            #[cfg(target_os = "macos")]
+            {
+                std::process::Command::new("open")
+                    .arg(&dest_path)
+                    .spawn()
+                    .map_err(|e| format!("failed to open installer: {e}"))?;
+            }
+            #[cfg(target_os = "linux")]
+            {
+                std::process::Command::new("xdg-open")
+                    .arg(&dest_path)
+                    .spawn()
+                    .map_err(|e| format!("failed to open package: {e}"))?;
+            }
+
+            if cli.json {
+                print_json(&json!({
+                    "hasUpdate": true,
+                    "currentVersion": check.current_version,
+                    "latestVersion": check.latest_version,
+                    "releaseNotes": check.release_notes,
+                    "releaseUrl": check.release_url,
+                    "packageType": "installer",
+                    "downloadedPath": dest_path,
+                }));
+            } else {
+                println!(
+                    "{} {}",
+                    palette.green("✓"),
+                    lang.tr(
+                        &format!("更新包已下载至「{}」并已启动安装程序。", dest_path.display()),
+                        &format!("Update downloaded to \"{}\" and installer launched.", dest_path.display()),
+                    )
+                );
+            }
+        }
+        AppPackageType::Portable => {
+            if cli.json {
+                print_json(&json!({
+                    "hasUpdate": true,
+                    "currentVersion": check.current_version,
+                    "latestVersion": check.latest_version,
+                    "releaseNotes": check.release_notes,
+                    "releaseUrl": check.release_url,
+                    "packageType": "portable",
+                    "downloadedPath": dest_path,
+                }));
+            } else {
+                println!(
+                    "{} {}",
+                    palette.green("✓"),
+                    lang.tr(
+                        &format!("便携包已下载至「{}」，请关闭程序后解压替换。", dest_path.display()),
+                        &format!("Portable package downloaded to \"{}\". Close the app, then extract and replace.", dest_path.display()),
+                    )
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn localize_command(mut cmd: clap::Command, lang: Lang) -> clap::Command {
     if lang == Lang::En {
         return cmd;
@@ -1208,6 +1410,7 @@ fn localize_command(mut cmd: clap::Command, lang: Lang) -> clap::Command {
             "copy" => Some("输出或复制代理地址"),
             "init" => Some("输出 Shell 集成脚本，使 `<alias> env [port]` 可直接作用于当前终端"),
             "lang" => Some("查看或切换应用与 CLI 语言（zh-CN / en-US）"),
+            "update" => Some("检查应用更新，如有新版本则输出发布说明并下载更新"),
             _ => None,
         }
     };
