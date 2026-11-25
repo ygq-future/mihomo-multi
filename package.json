@@ -11,6 +11,7 @@
     "build": "tsc && vite build",
     "build:tauri": "tauri build",
     "build:release": "node scripts/build-packages.mjs",
+    "clean:stale": "node scripts/clean-stale-target.mjs",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "check:version": "node scripts/check-version-parity.mjs",
