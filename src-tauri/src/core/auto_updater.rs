@@ -97,7 +97,7 @@ impl AutoUpdater {
         let total_managed_profiles = profiles.len();
         let eligible_profiles_count = profiles
             .iter()
-            .filter(|p| p.enabled && p.profile_type == ProfileType::Remote && p.auto_update_interval_mins > 0)
+            .filter(|p| Self::is_profile_eligible(p))
             .count();
 
         AutoUpdaterStatus {
@@ -120,8 +120,7 @@ impl AutoUpdater {
         let mut results = Vec::new();
 
         for profile in profiles {
-            // Only remote profiles with interval > 0 are eligible
-            if profile.profile_type != ProfileType::Remote || profile.auto_update_interval_mins == 0 {
+            if !Self::is_profile_eligible(&profile) {
                 continue;
             }
 
@@ -232,6 +231,10 @@ impl AutoUpdater {
 
         results
     }
+
+    fn is_profile_eligible(profile: &crate::models::ProfileItem) -> bool {
+        profile.enabled && profile.profile_type == ProfileType::Remote && profile.auto_update_interval_mins > 0
+    }
 }
 
 impl Default for AutoUpdater {
@@ -284,5 +287,26 @@ mod tests {
         assert_eq!(status2.eligible_profiles_count, 0); // Local is not eligible
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_disabled_remote_profile_is_not_eligible_for_auto_update() {
+        let mut profile = crate::models::ProfileItem {
+            id: "remote-1".to_string(),
+            name: "Remote".to_string(),
+            profile_type: ProfileType::Remote,
+            url: Some("https://example.com/sub.yaml".to_string()),
+            file_path: "profiles/remote-1.yaml".to_string(),
+            auto_update_interval_mins: 60,
+            last_updated_at: 0,
+            node_count: 1,
+            subscription_info: None,
+            enabled: true,
+        };
+
+        assert!(AutoUpdater::is_profile_eligible(&profile));
+
+        profile.enabled = false;
+        assert!(!AutoUpdater::is_profile_eligible(&profile));
     }
 }
