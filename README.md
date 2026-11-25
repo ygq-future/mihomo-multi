@@ -36,7 +36,7 @@ With a single managed Mihomo sidecar (~30 MB RAM), you can visually spin up and 
 | **Multi-Port Setup** | Hand-edit `listeners` / `IN-PORT` rules or override scripts | **Visual point-and-click creation with pre-bind port conflict detection** |
 | **IP Isolation & Anti-Leak** | Rule routing can misclassify; chained residential proxies are hard to wire and may leak | **Strict 1:1 port binding + residential chain fail-closed (`REJECT`, never falls back to direct)** |
 | **Per-Port Governance** | No same-region failover, per-port process tracking, or per-port site rules UI | **Same-region Fallback, per-port process history, and per-port site routing rules** |
-| **Daily Workflow** | Editing configs or switching windows; manually formatting terminal env vars | **Drag-to-swap ports, 1-click primary/fallback swap, quick copy/env binding, multi-level tray** |
+| **Daily Workflow** | Editing configs or switching windows; manually formatting terminal env vars | **Drag-to-swap ports, 1-click primary/fallback swap, quick copy/env binding, multi-level tray & full CLI (`mm`)** |
 | **Node Quality Insights** | One-off ping tests miss intermittent timeouts and jitter | **7-dimensional weighted availability scoring + 30-day trend history for bound nodes** |
 | **Reload & Footprint** | Multiple instances eat 500 MB–1 GB+ RAM; changes often drop connections | **Single ~30 MB kernel, millisecond REST API hot-reload without dropping active connections** |
 
@@ -110,25 +110,30 @@ With a single managed Mihomo sidecar (~30 MB RAM), you can visually spin up and 
 - **Drag-to-Swap Ports & 1-Click Primary/Fallback Swap**: Drag a listener card handle onto another card to atomically swap their listening ports, or swap primary and fallback nodes in one click/drag—applied via millisecond hot-reload **without dropping active connections**.
 - **Inline Selector Speedtest & Region Quick-Search**: Type 2-letter region codes (`jp`, `hk`, `us`, `sg`, etc., across 55+ regions) inside node/port/residential selectors to filter instantly, and run single or batch latency tests right inside the dropdown.
 
-### 2. Deterministic Anti-Leak: Same-Region Failover & Residential Proxy Chains
+### 2. Deterministic Anti-Leak: Same-Region Failover & Chained Proxy Exits
 - **Same-Region Fallback**: Attach a fallback node from the same region to any port. If the primary node times out, traffic fails over smoothly and automatically switches back once recovered.
-- **Residential Exit Chains (`Relay → Residential IP`)**: Manage authenticated HTTP/SOCKS5 residential proxies and chain `Local Port → Subscription Relay → Residential Exit → Target` with zero manual YAML.
-  - **Fail-Closed IP Protection**: Chained ports bypass direct/split rules and fallbacks; if the relay or residential proxy is unavailable, traffic is strictly `REJECT`ed—never leaked to direct.
-  - **Pre-Flight Connection Test**: Test any `Relay → Residential Exit` combination before creating a port using an isolated temporary Mihomo instance to verify end-to-end latency, final IPv4, and geolocation without touching live listeners.
+- **Chained Proxy Exits (`Relay → Residential IP / Subscription Node`)**: Manage authenticated HTTP/SOCKS5 residential proxies—or pick any subscription node directly—to chain `Local Port → Subscription Relay → Exit Proxy → Target` with zero manual YAML, complete with failover and candidate probing.
+  - **Fail-Closed IP Protection**: Chained ports bypass direct/split rules and fallbacks; if the relay or exit proxy is unavailable, traffic is strictly `REJECT`ed—never leaked to direct.
+  - **Pre-Flight Connection Test**: Test any `Relay → Exit` combination before creating a port using an isolated temporary Mihomo instance to verify end-to-end latency, final IPv4, and geolocation without touching live listeners.
 
 ### 3. Per-Port Governance: Process Tracking, Site Rules & Terminal Workflow
 - **Per-Port Process History & Safe Deletion**: Tracks which local applications route through each port (app icon, executable path, hit count, and last active time) and warns you before deleting a port that is actively in use.
 - **Per-Port Site Routing Rules**: Override specific domains on an individual port to route through a chosen node or direct (with built-in presets for AI, dev tools, streaming, and social platforms) without affecting other ports.
-- **Quick Copy & Terminal Env Binding**: Copy `Host:Port`, HTTP/SOCKS5 URLs, PowerShell/CMD/Bash commands, or cURL exit-IP probes from any port card—or bind Windows user environment variables in one click.
+- **Quick Copy & Terminal Env Binding**: Copy `Host:Port`, HTTP/SOCKS5 URLs, PowerShell/CMD/Bash commands, or cURL exit-IP probes from any port card—or bind Windows user environment variables in one click (automatically restored on app startup).
 
 ### 4. Bound Node Availability Analytics (30-Day History)
 - Focuses strictly on primary and fallback nodes bound to your listening ports with zero extra probe overhead (reusing kernel latency history, logs, and connection snapshots). Provides customizable **7-dimensional weighted availability scores** (timeout count/duration, connection errors, active avg/max/min speed, latency, and jitter) with 30-day visual trends.
 
-### 5. Native Multi-Level System Tray Control
+### 5. Full-Featured Terminal CLI (`mm`)
+- **Bundled & Script-Ready**: Ships `mihomo-multi-cli` alongside the app (Windows installer automatically registers/cleans up `PATH`, with configurable CLI alias in Settings). Supports `--json` output for scripting, bilingual (`en-US` / `zh-CN`) help synced with the app and tray, and real-time UI state sync on CLI changes.
+- **Complete Command Coverage**: Control everything from the terminal—`start` / `stop` / `status` / `list` / `enable` / `disable`, `sub`, `node` (with fuzzy search & consistent global index), `test`, `sysproxy`, `tun`, `env`, `ip`, `copy`, `init`, `lang`, and `update`.
+- **Shell Integration**: Run `mm init` to generate `pwsh` / `bash` / `zsh` / `cmd` snippets so `mm env [port]` applies proxy variables directly to your current terminal session.
+
+### 6. Native Multi-Level System Tray Control
 - Control everything without opening the main window: expand per-port submenus to toggle listeners, inspect primary/fallback latencies, probe and copy the active public exit IP, switch System Proxy / TUN target ports, or copy terminal proxy commands.
 
-### 6. Complete Core Proxy Capabilities
-- Also includes all standard essentials out of the box: multi-subscription & local YAML management (with traffic quota and expiry parsing), concurrent node speedtesting, 3-way outbound takeover (`Off / System Proxy / Managed Windows TUN` with automatic cleanup on exit to prevent broken internet), live connection monitor, Windows UWP loopback exemption, automatic MRS rule updates, English & Simplified Chinese UI with adaptive light/dark themes, and ~30 MB Tauri v2 footprint.
+### 7. Complete Core Proxy Capabilities
+- Also includes all standard essentials out of the box: multi-subscription & local YAML management (with traffic quota/expiry parsing and per-subscription enable/disable toggles that cleanly exclude disabled profiles from runtime config and auto-updates), concurrent node speedtesting, 3-way outbound takeover (`Off / System Proxy / Managed Windows TUN` with automatic cleanup on exit to prevent broken internet), live connection monitor, Windows UWP loopback exemption, automatic MRS rule updates, English & Simplified Chinese UI with adaptive light/dark themes, and ~30 MB Tauri v2 footprint.
 
 ---
 
@@ -161,7 +166,10 @@ pnpm dev:sidecar
 # 3. Start development mode
 pnpm dev:tauri
 
-# 4. Build production packages
+# 4. Run unified quality gate (format, lint, typecheck, tests, build)
+pnpm quality
+
+# 5. Build production packages
 pnpm build:tauri
 ```
 
