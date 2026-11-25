@@ -2340,7 +2340,9 @@ fn run_update(cli: &Cli, lang: Lang, palette: &Palette, check_only: bool) -> Res
                     palette.bold_green("✓"),
                     lang.tr(
                         &format!("便携包已下载至「{path_str}」，请关闭程序后解压替换。"),
-                        &format!("Portable package downloaded to \"{path_str}\". Close the app, then extract and replace."),
+                        &format!(
+                            "Portable package downloaded to \"{path_str}\". Close the app, then extract and replace."
+                        ),
                     )
                 );
             }
