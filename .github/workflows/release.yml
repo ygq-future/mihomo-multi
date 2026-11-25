@@ -189,6 +189,9 @@ jobs:
       - name: Prepare Mihomo Sidecar Binary
         run: node scripts/dev-sidecar.mjs --target ${{ matrix.target }}
 
+      - name: Prepare CLI Binary
+        run: node scripts/build-cli.mjs --target ${{ matrix.target }}
+
       - name: Build Tauri Application
         run: pnpm tauri build --target ${{ matrix.target }} ${{ matrix.bundle_args }}
         env:
