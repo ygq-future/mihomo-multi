@@ -713,7 +713,8 @@ fn handle_list_nodes(req: &HttpRequest, state: &AppState) -> HttpResponse {
 
     let mut items: Vec<NodeListItem> = all_nodes
         .into_iter()
-        .filter(|node| {
+        .enumerate()
+        .filter(|(_, node)| {
             let sub_ok = filter_profile_ids.as_ref().is_none_or(|pids| {
                 node.profile_id
                     .as_deref()
@@ -722,7 +723,7 @@ fn handle_list_nodes(req: &HttpRequest, state: &AppState) -> HttpResponse {
             let query_ok = node_query.is_none_or(|q| node_matches_query(&node.name, q));
             sub_ok && query_ok
         })
-        .map(|node| {
+        .map(|(idx, node)| {
             let delay = delays.get(&node.name).copied().flatten();
             let profile_id = node.profile_id.unwrap_or_default();
             let profile_name = profile_names
@@ -730,7 +731,7 @@ fn handle_list_nodes(req: &HttpRequest, state: &AppState) -> HttpResponse {
                 .cloned()
                 .unwrap_or_else(|| profile_id.clone());
             NodeListItem {
-                index: 0,
+                index: idx + 1,
                 name: node.name,
                 runtime_name: node.runtime_name,
                 protocol: node.node_type,
@@ -746,9 +747,6 @@ fn handle_list_nodes(req: &HttpRequest, state: &AppState) -> HttpResponse {
         (None, Some(_)) => std::cmp::Ordering::Greater,
         (None, None) => std::cmp::Ordering::Equal,
     });
-    for (idx, item) in items.iter_mut().enumerate() {
-        item.index = idx + 1;
-    }
     HttpResponse::ok(&items)
 }
 
