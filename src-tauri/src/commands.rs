@@ -5,10 +5,10 @@ use crate::core::port_probe::{PortTransport, is_port_available};
 use crate::error::CommandError;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
-    DriftStatus, EnvProxyStatus, FIXED_DIRECT_PORT_ID, InboundProtocol, LanIpInfo, NodeLatencyResult, PortDriftReport,
-    PortFallbackStatus, PortMapping, PortProcessUsageItem, ProfileItem, ProxyNode, ResidentialProxyTestResult,
-    SniffedAccessLogEntry, SystemProxyStatus, TunStatus, UwpAppInfo, UwpLoopbackStats, validate_residential_proxies,
-    validate_residential_proxy_removal,
+    DriftStatus, EnvProxyStatus, FIXED_DIRECT_PORT_ID, InboundProtocol, LanIpInfo, NodeIpQualityReport,
+    NodeLatencyResult, NodeMediaUnlockReport, PortDriftReport, PortFallbackStatus, PortMapping, PortProcessUsageItem,
+    ProfileItem, ProxyNode, ResidentialProxyTestResult, SniffedAccessLogEntry, SystemProxyStatus, TunStatus,
+    UwpAppInfo, UwpLoopbackStats, validate_residential_proxies, validate_residential_proxy_removal,
 };
 use crate::state::AppState;
 use std::process::Command;
@@ -1961,20 +1961,21 @@ pub async fn query_direct_egress_info(port: Option<u16>, timeout_ms: Option<u64>
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub async fn query_node_egress_info(
-    node_name: String,
-    profile_id: Option<String>,
-    timeout_ms: Option<u64>,
-    state: State<'_, AppState>,
-) -> Result<DirectEgressInfo, String> {
+async fn with_node_probe_channel<T, F, Fut>(
+    state: &AppState,
+    node_name: &str,
+    profile_id: Option<&str>,
+    probe: F,
+) -> Result<T, String>
+where
+    F: FnOnce(Option<u16>) -> Fut,
+    Fut: Future<Output = Result<T, String>>,
+{
     if node_name.trim().is_empty() {
         return Err(crate::tr!("节点名称不能为空", "Node name cannot be empty").to_string());
     }
     if node_name == "DIRECT" {
-        return crate::core::egress_probe::query_direct_egress_info(None, timeout_ms)
-            .await
-            .map_err(|e| e.to_string());
+        return probe(None).await;
     }
 
     let status = state.engine.get_status();
@@ -1987,26 +1988,26 @@ pub async fn query_node_egress_info(
     }
 
     let all_nodes = state.profile_manager.get_all_nodes();
-    let target_runtime_name = if let Some(ref pid) = profile_id
+    let target_runtime_name = if let Some(pid) = profile_id
         && !pid.trim().is_empty()
     {
         if let Some(found) = all_nodes
             .iter()
-            .find(|n| n.profile_id.as_deref() == Some(pid.as_str()) && n.name == node_name)
+            .find(|n| n.profile_id.as_deref() == Some(pid) && n.name == node_name)
         {
             found.runtime_name.clone().unwrap_or_else(|| found.name.clone())
         } else if let Some(prof) = state.profile_manager.get_profile_by_id(pid) {
             format!("[{}] {}", prof.name, node_name)
         } else {
-            node_name.clone()
+            node_name.to_string()
         }
     } else if let Some(found) = all_nodes
         .iter()
-        .find(|n| n.runtime_name.as_deref() == Some(node_name.as_str()) || n.name == node_name)
+        .find(|n| n.runtime_name.as_deref() == Some(node_name) || n.name == node_name)
     {
         found.runtime_name.clone().unwrap_or_else(|| found.name.clone())
     } else {
-        node_name.clone()
+        node_name.to_string()
     };
 
     let mut probe_port_opt = *state.egress_probe_port.read();
@@ -2037,9 +2038,55 @@ pub async fn query_node_egress_info(
             )
         })?;
 
-    crate::core::egress_probe::query_proxy_egress_info(probe_port, timeout_ms)
-        .await
-        .map_err(|e| e.to_string())
+    probe(Some(probe_port)).await
+}
+
+#[tauri::command]
+pub async fn query_node_egress_info(
+    node_name: String,
+    profile_id: Option<String>,
+    timeout_ms: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<DirectEgressInfo, String> {
+    with_node_probe_channel(&state, &node_name, profile_id.as_deref(), |port| async move {
+        match port {
+            None => crate::core::egress_probe::query_direct_egress_info(None, timeout_ms)
+                .await
+                .map_err(|e| e.to_string()),
+            Some(p) => crate::core::egress_probe::query_proxy_egress_info(p, timeout_ms)
+                .await
+                .map_err(|e| e.to_string()),
+        }
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn query_node_ip_quality(
+    node_name: String,
+    profile_id: Option<String>,
+    timeout_ms: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<NodeIpQualityReport, String> {
+    with_node_probe_channel(&state, &node_name, profile_id.as_deref(), |port| async move {
+        crate::core::ip_quality::query_ip_quality(port, timeout_ms)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn query_node_media_unlock(
+    node_name: String,
+    profile_id: Option<String>,
+    timeout_ms: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<NodeMediaUnlockReport, String> {
+    with_node_probe_channel(&state, &node_name, profile_id.as_deref(), |port| async move {
+        Ok(crate::core::ip_quality::query_media_unlock(port, timeout_ms).await)
+    })
+    .await
 }
 
 /// Tests a saved residential exit through the selected upstream node using a disposable,

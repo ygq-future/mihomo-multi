@@ -97,6 +97,108 @@ export interface DirectEgressInfo {
   source: string
 }
 
+export type IpNetworkCategory =
+  | 'residential'
+  | 'datacenter'
+  | 'conflict'
+  | 'unknown'
+
+export type IpNativeStatus = 'native' | 'broadcast' | 'conflict' | 'unknown'
+
+export interface CleanIpQualitySource {
+  ip: string
+  hostname?: string | null
+  score?: number | null
+  grade?: string | null
+  ipType?: string | null
+  scoreBand?: string | null
+  country?: string | null
+  countryEn?: string | null
+  countryCode?: string | null
+  region?: string | null
+  regionEn?: string | null
+  city?: string | null
+  cityEn?: string | null
+  timezone?: string | null
+  asn?: number | null
+  asnName?: string | null
+  asnOrg?: string | null
+  isp?: string | null
+  networkType?: string | null
+  nativeOrBroadcast?: string | null
+  rpkiStatus?: string | null
+  typeTags: string[]
+  riskLevel?: string | null
+  riskScore?: number | null
+  isDatacenter?: boolean | null
+  isProxy?: boolean | null
+  isResidentialProxy?: boolean | null
+  isVpn?: boolean | null
+  isTor?: boolean | null
+  isCrawler?: boolean | null
+  isAbuser?: boolean | null
+  isMobile?: boolean | null
+  dnsblCount?: number | null
+  abuseReports?: number | null
+  latencyMs: number
+}
+
+export interface IpPureQualitySource {
+  ip: string
+  asn?: number | null
+  asOrganization?: string | null
+  country?: string | null
+  countryCode?: string | null
+  region?: string | null
+  city?: string | null
+  timezone?: string | null
+  fraudScore?: number | null
+  isResidential?: boolean | null
+  isBroadcast?: boolean | null
+  latencyMs: number
+}
+
+export interface NodeIpQualityReport {
+  probedAtMs: number
+  ip: string
+  ipConsistent?: boolean | null
+  countryCode?: string | null
+  locationDisplay: string
+  asn?: number | null
+  asnOrg?: string | null
+  timezone?: string | null
+  purityScore?: number | null
+  networkCategory: IpNetworkCategory
+  nativeStatus: IpNativeStatus
+  cleanip?: CleanIpQualitySource | null
+  cleanipError?: string | null
+  ippure?: IpPureQualitySource | null
+  ippureError?: string | null
+}
+
+export type MediaUnlockStatus =
+  | 'unlocked'
+  | 'originals-only'
+  | 'web-only'
+  | 'blocked'
+  | 'failed'
+
+export type MediaServiceCategory = 'ai' | 'streaming' | 'social'
+
+export interface MediaUnlockItem {
+  id: string
+  name: string
+  category: MediaServiceCategory
+  status: MediaUnlockStatus
+  region?: string | null
+  latencyMs: number
+}
+
+export interface NodeMediaUnlockReport {
+  probedAtMs: number
+  items: MediaUnlockItem[]
+}
+
 export interface PortFallbackStatus {
   mappingId: string
   port: number

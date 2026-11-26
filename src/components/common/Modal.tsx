@@ -1,8 +1,9 @@
 import { X } from 'lucide-react'
 import type React from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
+const openModalStack: string[] = []
 export interface ModalProps {
   isOpen: boolean
   onClose: () => void
@@ -40,7 +41,7 @@ export const Modal: React.FC<ModalProps> = ({
   const [isClosing, setIsClosing] = useState(false)
   const isMouseDownOnBackdrop = useRef(false)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
-
+  const modalId = useId()
   useEffect(() => {
     if (isOpen) {
       if (typeof window !== 'undefined') {
@@ -71,15 +72,27 @@ export const Modal: React.FC<ModalProps> = ({
   }, [])
 
   useEffect(() => {
+    if (!isOpen) return
+    openModalStack.push(modalId)
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen && !isClosing) {
+      if (
+        e.key === 'Escape' &&
+        !isClosing &&
+        openModalStack[openModalStack.length - 1] === modalId
+      ) {
+        e.stopPropagation()
         onClose()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, isClosing, onClose])
-
+    return () => {
+      const idx = openModalStack.lastIndexOf(modalId)
+      if (idx !== -1) {
+        openModalStack.splice(idx, 1)
+      }
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen, isClosing, modalId, onClose])
   if (!shouldRender) return null
 
   return createPortal(

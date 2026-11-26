@@ -883,6 +883,191 @@ pub struct PortProcessUsageItem {
     pub icon_data_url: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum IpNetworkCategory {
+    Residential,
+    Datacenter,
+    Conflict,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum IpNativeStatus {
+    Native,
+    Broadcast,
+    Conflict,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanIpQualitySource {
+    pub ip: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grade: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score_band: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub city_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asn: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asn_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asn_org: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub isp: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_or_broadcast: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rpki_status: Option<String>,
+    #[serde(default)]
+    pub type_tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risk_level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risk_score: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_datacenter: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_proxy: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_residential_proxy: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_vpn: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_tor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_crawler: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_abuser: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_mobile: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dnsbl_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abuse_reports: Option<u32>,
+    pub latency_ms: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IpPureQualitySource {
+    pub ip: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asn: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub as_organization: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fraud_score: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_residential: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_broadcast: Option<bool>,
+    pub latency_ms: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeIpQualityReport {
+    pub probed_at_ms: u64,
+    pub ip: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip_consistent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country_code: Option<String>,
+    pub location_display: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asn: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asn_org: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purity_score: Option<u8>,
+    pub network_category: IpNetworkCategory,
+    pub native_status: IpNativeStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleanip: Option<CleanIpQualitySource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleanip_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ippure: Option<IpPureQualitySource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ippure_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum MediaUnlockStatus {
+    Unlocked,
+    OriginalsOnly,
+    WebOnly,
+    Blocked,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum MediaServiceCategory {
+    Ai,
+    Streaming,
+    Social,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaUnlockItem {
+    pub id: String,
+    pub name: String,
+    pub category: MediaServiceCategory,
+    pub status: MediaUnlockStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    pub latency_ms: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeMediaUnlockReport {
+    pub probed_at_ms: u64,
+    pub items: Vec<MediaUnlockItem>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

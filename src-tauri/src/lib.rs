@@ -438,6 +438,8 @@ pub fn run() {
             get_port_fallback_statuses,
             query_direct_egress_info,
             query_node_egress_info,
+            query_node_ip_quality,
+            query_node_media_unlock,
             test_residential_proxy,
             test_chain_node_exit,
             query_port_egress_info,

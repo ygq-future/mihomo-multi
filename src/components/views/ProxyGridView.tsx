@@ -2,7 +2,6 @@ import {
   AlertCircle,
   ArrowUpDown,
   Compass,
-  Copy,
   FileCode,
   Gauge,
   Globe,
@@ -30,8 +29,11 @@ import {
   Badge,
   Button,
   Input,
+  IpQualityModal,
+  type IpQualityTarget,
   MultiSelect,
   type MultiSelectOption,
+  NodeEgressActions,
   RegionFlag,
   Select,
   toast,
@@ -55,11 +57,12 @@ interface ProxyNodeCardProps {
   boundPort?: number
   egressInfo?: DirectEgressInfo | null
   isProbingEgress: boolean
+  isProbingQuality: boolean
   onTestDelay: (nodeKey: string) => void
   onCopyEgressIp: (node: AugmentedNode) => void
+  onInspectIpQuality: (node: AugmentedNode) => void
   onQuickBind: (target: { profileId: string; nodeName: string }) => void
 }
-
 const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
   ({
     node,
@@ -70,8 +73,10 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
     boundPort,
     egressInfo,
     isProbingEgress,
+    isProbingQuality,
     onTestDelay,
     onCopyEgressIp,
+    onInspectIpQuality,
     onQuickBind,
   }) => {
     const { t } = useTranslation()
@@ -91,19 +96,14 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
             >
               {node.name}
             </span>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                onCopyEgressIp(node)
-              }}
-              disabled={isProbingEgress}
-              className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-5 px-2 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer disabled:opacity-70 transition-all duration-200 ease-out ${
-                isProbingEgress
-                  ? 'opacity-100 scale-100 translate-x-0 pointer-events-auto'
-                  : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/name:opacity-100 group-hover/name:scale-100 group-hover/name:translate-x-0 group-hover/name:pointer-events-auto'
-              }`}
-              title={
+            <NodeEgressActions
+              isProbingIp={isProbingEgress}
+              isProbingQuality={isProbingQuality}
+              copyLabel={t('proxies.copyIp')}
+              qualityLabel={t('ipQuality.actionShort')}
+              qualityTitle={t('ipQuality.actionTitle')}
+              probingLabel={t('proxies.detectingIp')}
+              copyTitle={
                 isProbingEgress
                   ? t('proxies.detectingIpTitle')
                   : egressInfo
@@ -113,19 +113,9 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
                       })
                     : t('proxies.detectIpTitle')
               }
-            >
-              {isProbingEgress ? (
-                <>
-                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                  <span>{t('proxies.detectingIp')}</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-2.5 h-2.5" />
-                  <span>{t('proxies.copyIp')}</span>
-                </>
-              )}
-            </button>
+              onCopyIp={() => onCopyEgressIp(node)}
+              onOpenQuality={() => onInspectIpQuality(node)}
+            />
           </div>
           <span
             className="shrink-0 max-w-[85px] truncate text-right text-[10px] text-muted-foreground/80"
@@ -222,6 +212,11 @@ export const ProxyGridView: React.FC = () => {
     (state) => state.probingEgressNodeKeys,
   )
   const probeNodeEgressIp = useAppStore((state) => state.probeNodeEgressIp)
+  const probingIpQualityKeys = useAppStore(
+    (state) => state.probingIpQualityKeys,
+  )
+  const [ipQualityTarget, setIpQualityTarget] =
+    useState<IpQualityTarget | null>(null)
   const proxyError = useAppStore((state) => state.proxyError)
   const setProxyError = useAppStore((state) => state.setProxyError)
 
@@ -595,6 +590,18 @@ export const ProxyGridView: React.FC = () => {
     [nodeEgressIps, probeNodeEgressIp, t],
   )
 
+  const handleInspectIpQuality = useCallback((node: AugmentedNode) => {
+    const runtimeKey =
+      node.runtimeName ||
+      (node.profileName ? `[${node.profileName}] ${node.name}` : node.name)
+    setIpQualityTarget({
+      nodeName: node.name,
+      profileId: node.profileId,
+      profileName: node.profileName,
+      runtimeKey,
+    })
+  }, [])
+
   // Profile select dropdown options
   const profileOptions = useMemo<MultiSelectOption<string>[]>(() => {
     return profiles.map((p) => ({
@@ -912,6 +919,12 @@ export const ProxyGridView: React.FC = () => {
                 node.profileId,
                 nodeKey,
               )
+              const isProbingQuality = isNodeEgressProbing(
+                probingIpQualityKeys,
+                node.name,
+                node.profileId,
+                nodeKey,
+              )
 
               return (
                 <ProxyNodeCard
@@ -924,8 +937,10 @@ export const ProxyGridView: React.FC = () => {
                   boundPort={boundPort}
                   egressInfo={egressInfo}
                   isProbingEgress={isProbingEgress}
+                  isProbingQuality={isProbingQuality}
                   onTestDelay={handleSingleTest}
                   onCopyEgressIp={handleCopyNodeEgress}
+                  onInspectIpQuality={handleInspectIpQuality}
                   onQuickBind={handleQuickBind}
                 />
               )
@@ -943,6 +958,12 @@ export const ProxyGridView: React.FC = () => {
           initialNodeName={quickBindNode.nodeName}
         />
       )}
+
+      <IpQualityModal
+        isOpen={ipQualityTarget !== null}
+        onClose={() => setIpQualityTarget(null)}
+        target={ipQualityTarget}
+      />
     </div>
   )
 }

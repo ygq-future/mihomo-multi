@@ -6,11 +6,14 @@ import type {
   InboundProtocol,
   LatencyProgressPayload,
   LatencyUpdatePayload,
+  NodeIpQualityReport,
   NodeLatencyResult,
+  NodeMediaUnlockReport,
   PortMapping,
 } from '../types'
 import { DEFAULT_TIMEOUT_MS } from '../constants'
 import { t } from '../i18n'
+import { getNodeQualityCacheKey } from '../utils/proxy'
 
 export interface ProxySlice {
   latencies: Record<string, number | null>
@@ -21,6 +24,11 @@ export interface ProxySlice {
   portEgressIps: Record<number, DirectEgressInfo>
   portEgressCachedAt: Record<number, number>
   probingPortEgress: Record<number, boolean>
+  nodeIpQualities: Record<string, NodeIpQualityReport>
+  nodeIpQualityCachedAt: Record<string, number>
+  probingIpQualityKeys: Record<string, boolean>
+  nodeMediaUnlocks: Record<string, NodeMediaUnlockReport>
+  nodeMediaUnlockCachedAt: Record<string, number>
   isTestingAll: boolean
   quickBindTarget: { profileId: string; nodeName: string } | null
   isAddPortModalOpen: boolean
@@ -41,6 +49,18 @@ export interface ProxySlice {
     protocol: InboundProtocol,
   ) => Promise<DirectEgressInfo>
   clearEgressCache: (profileId?: string) => void
+  probeNodeIpQuality: (
+    nodeName: string,
+    profileId?: string | null,
+    runtimeKey?: string,
+    forceRefresh?: boolean,
+  ) => Promise<NodeIpQualityReport>
+  probeNodeMediaUnlock: (
+    nodeName: string,
+    profileId?: string | null,
+    runtimeKey?: string,
+    forceRefresh?: boolean,
+  ) => Promise<NodeMediaUnlockReport>
   testAllNodesDelay: (
     nodeNames: string[],
     testUrl?: string,
@@ -110,6 +130,11 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
   portEgressIps: {},
   portEgressCachedAt: {},
   probingPortEgress: {},
+  nodeIpQualities: {},
+  nodeIpQualityCachedAt: {},
+  probingIpQualityKeys: {},
+  nodeMediaUnlocks: {},
+  nodeMediaUnlockCachedAt: {},
   isTestingAll: false,
   quickBindTarget: null,
   isAddPortModalOpen: false,
@@ -256,30 +281,202 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
     }
   },
 
+  probeNodeIpQuality: async (
+    nodeName,
+    profileId,
+    runtimeKey,
+    forceRefresh = false,
+  ) => {
+    const qualityKey = getNodeQualityCacheKey(nodeName, profileId, runtimeKey)
+    const egressKey =
+      runtimeKey || (profileId ? `${profileId}_${nodeName}` : nodeName)
+    if (!forceRefresh) {
+      const state = get()
+      const existing = state.nodeIpQualities[qualityKey]
+      const cachedAt = state.nodeIpQualityCachedAt[qualityKey]
+      if (
+        existing &&
+        typeof cachedAt === 'number' &&
+        Date.now() - cachedAt <= EGRESS_CACHE_TTL_MS
+      ) {
+        return existing
+      }
+    }
+
+    set((state) => ({
+      probingIpQualityKeys: {
+        ...state.probingIpQualityKeys,
+        [egressKey]: true,
+        [qualityKey]: true,
+      },
+    }))
+    try {
+      const report = await api.queryNodeIpQuality(nodeName, profileId)
+      set((state) => {
+        const now = Date.now()
+        const nextProbing = { ...state.probingIpQualityKeys }
+        delete nextProbing[egressKey]
+        delete nextProbing[qualityKey]
+        const pruned = pruneExpiredRecord(
+          state.nodeIpQualities,
+          state.nodeIpQualityCachedAt,
+          now,
+        )
+        const nextQualities: Record<string, NodeIpQualityReport> = {
+          ...pruned.values,
+          [qualityKey]: report,
+        }
+        const nextTimestamps: Record<string, number> = {
+          ...pruned.timestamps,
+          [qualityKey]: now,
+        }
+
+        const egressUpdate: Partial<ProxySlice> = {}
+        if (report.ip) {
+          const egressInfo: DirectEgressInfo = {
+            ip: report.ip,
+            region: report.locationDisplay,
+            countryCode: report.countryCode ?? null,
+            isp: report.asnOrg ?? null,
+            latencyMs:
+              report.cleanip?.latencyMs ?? report.ippure?.latencyMs ?? null,
+            source: report.cleanip ? 'cleanip' : 'ippure',
+          }
+          const prunedEgress = pruneExpiredRecord(
+            state.nodeEgressIps,
+            state.nodeEgressCachedAt,
+            now,
+          )
+          const nextEgress: Record<string, DirectEgressInfo> = {
+            ...prunedEgress.values,
+            [egressKey]: egressInfo,
+          }
+          const nextEgressTs: Record<string, number> = {
+            ...prunedEgress.timestamps,
+            [egressKey]: now,
+          }
+          if (profileId) {
+            nextEgress[`${profileId}_${nodeName}`] = egressInfo
+            nextEgressTs[`${profileId}_${nodeName}`] = now
+          } else if (!runtimeKey) {
+            nextEgress[nodeName] = egressInfo
+            nextEgressTs[nodeName] = now
+          }
+          egressUpdate.nodeEgressIps = nextEgress
+          egressUpdate.nodeEgressCachedAt = nextEgressTs
+        }
+
+        return {
+          ...egressUpdate,
+          nodeIpQualities: nextQualities,
+          nodeIpQualityCachedAt: nextTimestamps,
+          probingIpQualityKeys: nextProbing,
+        }
+      })
+      return report
+    } catch (err) {
+      set((state) => {
+        const nextProbing = { ...state.probingIpQualityKeys }
+        delete nextProbing[egressKey]
+        delete nextProbing[qualityKey]
+        return { probingIpQualityKeys: nextProbing }
+      })
+      throw err
+    }
+  },
+
+  probeNodeMediaUnlock: async (
+    nodeName,
+    profileId,
+    runtimeKey,
+    forceRefresh = false,
+  ) => {
+    const mediaKey = getNodeQualityCacheKey(nodeName, profileId, runtimeKey)
+    if (!forceRefresh) {
+      const state = get()
+      const existing = state.nodeMediaUnlocks[mediaKey]
+      const cachedAt = state.nodeMediaUnlockCachedAt[mediaKey]
+      if (
+        existing &&
+        typeof cachedAt === 'number' &&
+        Date.now() - cachedAt <= EGRESS_CACHE_TTL_MS
+      ) {
+        return existing
+      }
+    }
+
+    const report = await api.queryNodeMediaUnlock(nodeName, profileId)
+    set((state) => {
+      const now = Date.now()
+      const pruned = pruneExpiredRecord(
+        state.nodeMediaUnlocks,
+        state.nodeMediaUnlockCachedAt,
+        now,
+      )
+      return {
+        nodeMediaUnlocks: {
+          ...pruned.values,
+          [mediaKey]: report,
+        },
+        nodeMediaUnlockCachedAt: {
+          ...pruned.timestamps,
+          [mediaKey]: now,
+        },
+      }
+    })
+    return report
+  },
+
   clearEgressCache: (profileId) => {
     set((state) => {
       if (!profileId) {
         return {
           nodeEgressIps: {},
           nodeEgressCachedAt: {},
+          nodeIpQualities: {},
+          nodeIpQualityCachedAt: {},
+          nodeMediaUnlocks: {},
+          nodeMediaUnlockCachedAt: {},
           portEgressIps: {},
           portEgressCachedAt: {},
         }
       }
       const prefix = `${profileId}_`
-      const nextNodeEgress: Record<string, DirectEgressInfo> = {}
-      const nextNodeTimestamps: Record<string, number> = {}
-      for (const [key, val] of Object.entries(state.nodeEgressIps)) {
-        if (!key.startsWith(prefix)) {
-          nextNodeEgress[key] = val
-          if (state.nodeEgressCachedAt[key] !== undefined) {
-            nextNodeTimestamps[key] = state.nodeEgressCachedAt[key]
+      const filterOutPrefix = <T>(
+        values: Record<string, T>,
+        timestamps: Record<string, number>,
+      ) => {
+        const nextVals: Record<string, T> = {}
+        const nextTs: Record<string, number> = {}
+        for (const [key, val] of Object.entries(values)) {
+          if (!key.startsWith(prefix)) {
+            nextVals[key] = val
+            if (timestamps[key] !== undefined) {
+              nextTs[key] = timestamps[key]
+            }
           }
         }
+        return { values: nextVals, timestamps: nextTs }
       }
+      const egress = filterOutPrefix(
+        state.nodeEgressIps,
+        state.nodeEgressCachedAt,
+      )
+      const quality = filterOutPrefix(
+        state.nodeIpQualities,
+        state.nodeIpQualityCachedAt,
+      )
+      const media = filterOutPrefix(
+        state.nodeMediaUnlocks,
+        state.nodeMediaUnlockCachedAt,
+      )
       return {
-        nodeEgressIps: nextNodeEgress,
-        nodeEgressCachedAt: nextNodeTimestamps,
+        nodeEgressIps: egress.values,
+        nodeEgressCachedAt: egress.timestamps,
+        nodeIpQualities: quality.values,
+        nodeIpQualityCachedAt: quality.timestamps,
+        nodeMediaUnlocks: media.values,
+        nodeMediaUnlockCachedAt: media.timestamps,
         portEgressIps: {},
         portEgressCachedAt: {},
       }

@@ -38,6 +38,8 @@ import type {
   MrsRulesInfo,
   NodeAnalyticsDashboard,
   SystemNetworkStatus,
+  NodeIpQualityReport,
+  NodeMediaUnlockReport,
   NodeLatencyResult,
   PortDriftReport,
   PortFallbackStatus,
@@ -399,6 +401,140 @@ export async function queryNodeEgressInfo(
     }
   }
   return invoke<DirectEgressInfo>('query_node_egress_info', {
+    nodeName,
+    profileId: profileId ?? null,
+    timeoutMs: timeoutMs ?? null,
+  })
+}
+
+export async function queryNodeIpQuality(
+  nodeName: string,
+  profileId?: string | null,
+  timeoutMs?: number | null,
+): Promise<NodeIpQualityReport> {
+  if (!isTauriEnvironment()) {
+    return {
+      probedAtMs: Date.now(),
+      ip: '141.11.146.79',
+      ipConsistent: true,
+      countryCode: 'HK',
+      locationDisplay: '香港 · 葵青区',
+      asn: 134972,
+      asnOrg: 'IKUUU NETWORK LTD',
+      timezone: 'Asia/Hong_Kong',
+      purityScore: 70,
+      networkCategory: 'datacenter',
+      nativeStatus: 'broadcast',
+      cleanip: {
+        ip: '141.11.146.79',
+        score: 69,
+        grade: 'C',
+        ipType: 'IDC',
+        country: '香港',
+        countryCode: 'HK',
+        asn: 134972,
+        asnOrg: 'IKUUU NETWORK LTD',
+        networkType: 'Datacenter',
+        nativeOrBroadcast: 'BROADCAST',
+        rpkiStatus: 'invalid',
+        typeTags: ['cloud'],
+        riskLevel: 'Clean',
+        riskScore: 31,
+        isDatacenter: true,
+        isProxy: false,
+        isResidentialProxy: false,
+        isVpn: false,
+        isTor: false,
+        isCrawler: false,
+        isAbuser: false,
+        isMobile: false,
+        dnsblCount: 0,
+        abuseReports: 0,
+        latencyMs: 320,
+      },
+      ippure: {
+        ip: '141.11.146.79',
+        asn: 134972,
+        asOrganization: 'IKUUU NETWORK LTD',
+        country: 'Hong Kong',
+        countryCode: 'HK',
+        city: 'Kwai Chung',
+        timezone: 'Asia/Hong_Kong',
+        fraudScore: 29,
+        isResidential: false,
+        isBroadcast: true,
+        latencyMs: 280,
+      },
+    }
+  }
+  return invoke<NodeIpQualityReport>('query_node_ip_quality', {
+    nodeName,
+    profileId: profileId ?? null,
+    timeoutMs: timeoutMs ?? null,
+  })
+}
+
+export async function queryNodeMediaUnlock(
+  nodeName: string,
+  profileId?: string | null,
+  timeoutMs?: number | null,
+): Promise<NodeMediaUnlockReport> {
+  if (!isTauriEnvironment()) {
+    return {
+      probedAtMs: Date.now(),
+      items: [
+        {
+          id: 'chatgpt',
+          name: 'ChatGPT',
+          category: 'ai',
+          status: 'blocked',
+          region: 'HK',
+          latencyMs: 180,
+        },
+        {
+          id: 'claude',
+          name: 'Claude',
+          category: 'ai',
+          status: 'blocked',
+          region: 'HK',
+          latencyMs: 210,
+        },
+        {
+          id: 'gemini',
+          name: 'Gemini',
+          category: 'ai',
+          status: 'blocked',
+          region: 'HK',
+          latencyMs: 195,
+        },
+        {
+          id: 'tiktok',
+          name: 'TikTok',
+          category: 'social',
+          status: 'blocked',
+          region: null,
+          latencyMs: 240,
+        },
+        {
+          id: 'netflix',
+          name: 'Netflix',
+          category: 'streaming',
+          status: 'unlocked',
+          region: 'HK',
+          latencyMs: 310,
+        },
+        {
+          id: 'youtube',
+          name: 'YouTube',
+          category: 'streaming',
+          status: 'unlocked',
+          region: 'HK',
+          latencyMs: 260,
+        },
+      ],
+    }
+  }
+  return invoke<NodeMediaUnlockReport>('query_node_media_unlock', {
     nodeName,
     profileId: profileId ?? null,
     timeoutMs: timeoutMs ?? null,

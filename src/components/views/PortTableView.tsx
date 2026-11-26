@@ -57,7 +57,10 @@ import {
   Badge,
   Button,
   HoverStepSlider,
+  IpQualityModal,
+  type IpQualityTarget,
   Modal,
+  NodeEgressActions,
   RegionFlag,
   Select,
   toast,
@@ -166,6 +169,7 @@ export const PortTableView: React.FC = () => {
     fetchFallbackStatuses,
     nodeEgressIps,
     probingEgressNodeKeys,
+    probingIpQualityKeys,
     probeNodeEgressIp,
     portEgressIps,
     probingPortEgress,
@@ -209,6 +213,7 @@ export const PortTableView: React.FC = () => {
       fetchFallbackStatuses: s.fetchFallbackStatuses,
       nodeEgressIps: s.nodeEgressIps,
       probingEgressNodeKeys: s.probingEgressNodeKeys,
+      probingIpQualityKeys: s.probingIpQualityKeys,
       probeNodeEgressIp: s.probeNodeEgressIp,
       portEgressIps: s.portEgressIps,
       probingPortEgress: s.probingPortEgress,
@@ -231,6 +236,8 @@ export const PortTableView: React.FC = () => {
   const [isLoadingDeleteProcesses, setIsLoadingDeleteProcesses] =
     useState(false)
   const [historyModalPort, setHistoryModalPort] = useState<number | null>(null)
+  const [ipQualityTarget, setIpQualityTarget] =
+    useState<IpQualityTarget | null>(null)
 
   useEffect(() => {
     if (!deletingMapping) {
@@ -2538,53 +2545,53 @@ export const PortTableView: React.FC = () => {
                                   >
                                     {m.nodeName}
                                   </span>
-                                  <button
-                                    type="button"
-                                    disabled={isProbingPrimary}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      void handleCopyNodeEgressIp(
+                                  {Boolean(primaryProfile?.enabled) && (
+                                    <NodeEgressActions
+                                      isProbingIp={isProbingPrimary}
+                                      isProbingQuality={isNodeEgressProbing(
+                                        probingIpQualityKeys,
                                         m.nodeName,
                                         m.profileId,
                                         nodeKey,
-                                        hasFallback
-                                          ? t('ports.primaryNodeLabel')
-                                          : t('ports.nodeLabel'),
-                                        false,
-                                      )
-                                    }}
-                                    className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-5 px-2 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer disabled:opacity-70 transition-all duration-200 ease-out ${
-                                      isDraggingThis
-                                        ? 'opacity-0 pointer-events-none'
-                                        : isProbingPrimary
-                                          ? 'opacity-100 scale-100 translate-x-0 pointer-events-auto'
-                                          : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/name:opacity-100 group-hover/name:scale-100 group-hover/name:translate-x-0 group-hover/name:pointer-events-auto'
-                                    }`}
-                                    title={
-                                      isProbingPrimary
-                                        ? t('ports.probingEgressIp')
-                                        : primaryEgressInfo
-                                          ? t('ports.clickCopyNodeIp', {
-                                              ip: primaryEgressInfo.ip,
-                                              region: primaryEgressInfo.region
-                                                ? ` (${primaryEgressInfo.region})`
-                                                : '',
-                                            })
-                                          : t('ports.clickProbeNodeIp')
-                                    }
-                                  >
-                                    {isProbingPrimary ? (
-                                      <>
-                                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                        <span>{t('ports.probingShort')}</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Copy className="w-2.5 h-2.5" />
-                                        <span>{t('ports.copyIpShort')}</span>
-                                      </>
-                                    )}
-                                  </button>
+                                      )}
+                                      hidden={isDraggingThis}
+                                      copyLabel={t('ports.copyIpShort')}
+                                      qualityLabel={t('ipQuality.actionShort')}
+                                      qualityTitle={t('ipQuality.actionTitle')}
+                                      probingLabel={t('ports.probingShort')}
+                                      copyTitle={
+                                        isProbingPrimary
+                                          ? t('ports.probingEgressIp')
+                                          : primaryEgressInfo
+                                            ? t('ports.clickCopyNodeIp', {
+                                                ip: primaryEgressInfo.ip,
+                                                region: primaryEgressInfo.region
+                                                  ? ` (${primaryEgressInfo.region})`
+                                                  : '',
+                                              })
+                                            : t('ports.clickProbeNodeIp')
+                                      }
+                                      onCopyIp={() =>
+                                        void handleCopyNodeEgressIp(
+                                          m.nodeName,
+                                          m.profileId,
+                                          nodeKey,
+                                          hasFallback
+                                            ? t('ports.primaryNodeLabel')
+                                            : t('ports.nodeLabel'),
+                                          false,
+                                        )
+                                      }
+                                      onOpenQuality={() =>
+                                        setIpQualityTarget({
+                                          nodeName: m.nodeName,
+                                          profileId: m.profileId,
+                                          profileName: profileName || null,
+                                          runtimeKey: nodeKey,
+                                        })
+                                      }
+                                    />
+                                  )}
                                 </div>
                                 {isDrifted && (
                                   <Badge
@@ -2669,62 +2676,64 @@ export const PortTableView: React.FC = () => {
                                   <GripVertical className="w-3 h-3" />
                                 </span>
 
-                                <button
-                                  type="button"
-                                  disabled={!canClickFallback}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    const lastDragAt =
-                                      justDraggedRef.current[m.id] ?? 0
-                                    if (Date.now() - lastDragAt < 220) return
-                                    if (!canClickFallback) return
-                                    handleToggleManualFallback(
-                                      m.id,
-                                      isManualFallback,
-                                    )
-                                  }}
-                                  className={`flex-1 flex items-center justify-between gap-1.5 min-w-0 text-left focus:outline-none ${
-                                    isDraggingThis
-                                      ? 'cursor-grabbing'
-                                      : canClickFallback
-                                        ? 'cursor-pointer'
-                                        : 'cursor-grab'
-                                  }`}
-                                  title={
-                                    !m.enabled
-                                      ? `${t('ports.fallbackDisabledTitle')} · ${t('ports.dragFallbackHint')}`
-                                      : isManualFallback
-                                        ? t('ports.fallbackManualTitle')
-                                        : isAutoFallbackActive
-                                          ? `${t('ports.fallbackAutoTitle')} · ${t('ports.dragFallbackHint')}`
-                                          : t('ports.fallbackStandbyTitle')
-                                  }
-                                >
-                                  <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
-                                    <ShieldCheck
-                                      className={`w-3 h-3 shrink-0 ${
-                                        isManualFallback
-                                          ? 'text-primary animate-pulse'
-                                          : isAutoFallbackActive
-                                            ? 'text-amber-500 animate-pulse'
-                                            : 'text-muted-foreground/60 group-hover/fb:text-primary'
+                                <div className="flex-1 flex items-center justify-between gap-1.5 min-w-0">
+                                  <div className="relative flex items-center gap-1.5 min-w-0 flex-1 group/fbname">
+                                    <button
+                                      type="button"
+                                      disabled={!canClickFallback}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        const lastDragAt =
+                                          justDraggedRef.current[m.id] ?? 0
+                                        if (Date.now() - lastDragAt < 220)
+                                          return
+                                        if (!canClickFallback) return
+                                        handleToggleManualFallback(
+                                          m.id,
+                                          isManualFallback,
+                                        )
+                                      }}
+                                      className={`flex items-center gap-1.5 min-w-0 flex-1 text-left focus:outline-none ${
+                                        isDraggingThis
+                                          ? 'cursor-grabbing'
+                                          : canClickFallback
+                                            ? 'cursor-pointer'
+                                            : 'cursor-grab'
                                       }`}
-                                    />
-                                    {fbProfileName && (
-                                      <ProfileBadgeTooltip
-                                        profile={fbProfile}
-                                        fallbackName={fbProfileName}
-                                        size="xs"
-                                      />
-                                    )}
-                                    <RegionFlag
-                                      code={
-                                        extractRegion(m.fallbackNodeName || '')
-                                          .code
+                                      title={
+                                        !m.enabled
+                                          ? `${t('ports.fallbackDisabledTitle')} · ${t('ports.dragFallbackHint')}`
+                                          : isManualFallback
+                                            ? t('ports.fallbackManualTitle')
+                                            : isAutoFallbackActive
+                                              ? `${t('ports.fallbackAutoTitle')} · ${t('ports.dragFallbackHint')}`
+                                              : t('ports.fallbackStandbyTitle')
                                       }
-                                      size="sm"
-                                    />
-                                    <div className="relative flex items-center flex-1 min-w-0 group/fbname">
+                                    >
+                                      <ShieldCheck
+                                        className={`w-3 h-3 shrink-0 ${
+                                          isManualFallback
+                                            ? 'text-primary animate-pulse'
+                                            : isAutoFallbackActive
+                                              ? 'text-amber-500 animate-pulse'
+                                              : 'text-muted-foreground/60 group-hover/fb:text-primary'
+                                        }`}
+                                      />
+                                      {fbProfileName && (
+                                        <ProfileBadgeTooltip
+                                          profile={fbProfile}
+                                          fallbackName={fbProfileName}
+                                          size="xs"
+                                        />
+                                      )}
+                                      <RegionFlag
+                                        code={
+                                          extractRegion(
+                                            m.fallbackNodeName || '',
+                                          ).code
+                                        }
+                                        size="sm"
+                                      />
                                       <span
                                         className="truncate font-medium text-[11px] flex-1 min-w-0 text-left"
                                         title={
@@ -2735,59 +2744,28 @@ export const PortTableView: React.FC = () => {
                                       >
                                         {m.fallbackNodeName}
                                       </span>
-                                      <span
-                                        role="button"
-                                        tabIndex={0}
-                                        data-no-drag="true"
-                                        onPointerDown={(e) =>
-                                          e.stopPropagation()
-                                        }
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          e.preventDefault()
-                                          if (
-                                            isProbingFallback ||
-                                            !m.fallbackNodeName
-                                          )
-                                            return
-                                          void handleCopyNodeEgressIp(
-                                            m.fallbackNodeName,
-                                            m.fallbackProfileId || m.profileId,
-                                            fbNodeKey,
-                                            t('ports.fallbackNodeLabel'),
-                                            false,
-                                          )
-                                        }}
-                                        onKeyDown={(e) => {
-                                          if (
-                                            e.key === 'Enter' ||
-                                            e.key === ' '
-                                          ) {
-                                            e.stopPropagation()
-                                            e.preventDefault()
-                                            if (
-                                              isProbingFallback ||
-                                              !m.fallbackNodeName
-                                            )
-                                              return
-                                            void handleCopyNodeEgressIp(
-                                              m.fallbackNodeName,
-                                              m.fallbackProfileId ||
-                                                m.profileId,
-                                              fbNodeKey,
-                                              t('ports.fallbackNodeLabel'),
-                                              false,
-                                            )
-                                          }
-                                        }}
-                                        className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 inline-flex items-center gap-1 h-[18px] px-1.5 rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer transition-all duration-200 ease-out ${
-                                          isDraggingThis
-                                            ? 'opacity-0 pointer-events-none'
-                                            : isProbingFallback
-                                              ? 'opacity-80 scale-100 translate-x-0 pointer-events-auto'
-                                              : 'opacity-0 scale-95 translate-x-1 pointer-events-none group-hover/fbname:opacity-100 group-hover/fbname:scale-100 group-hover/fbname:translate-x-0 group-hover/fbname:pointer-events-auto'
-                                        }`}
-                                        title={
+                                    </button>
+                                    {(m.fallbackNodeName === 'DIRECT' ||
+                                      Boolean(fbProfile?.enabled)) && (
+                                      <NodeEgressActions
+                                        hoverScope="fbname"
+                                        isProbingIp={isProbingFallback}
+                                        isProbingQuality={isNodeEgressProbing(
+                                          probingIpQualityKeys,
+                                          m.fallbackNodeName || '',
+                                          m.fallbackProfileId || m.profileId,
+                                          fbNodeKey,
+                                        )}
+                                        hidden={isDraggingThis}
+                                        copyLabel={t('ports.copyIpShort')}
+                                        qualityLabel={t(
+                                          'ipQuality.actionShort',
+                                        )}
+                                        qualityTitle={t(
+                                          'ipQuality.actionTitle',
+                                        )}
+                                        probingLabel={t('ports.probingShort')}
+                                        copyTitle={
                                           isProbingFallback
                                             ? t('ports.probingFallbackIp')
                                             : fallbackEgressInfo
@@ -2800,69 +2778,99 @@ export const PortTableView: React.FC = () => {
                                                 })
                                               : t('ports.clickProbeFallbackIp')
                                         }
-                                      >
-                                        {isProbingFallback ? (
-                                          <>
-                                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                            <span>
-                                              {t('ports.probingShort')}
-                                            </span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <Copy className="w-2.5 h-2.5" />
-                                            <span>
-                                              {t('ports.copyIpShort')}
-                                            </span>
-                                          </>
-                                        )}
-                                      </span>
-                                    </div>
+                                        onCopyIp={() => {
+                                          if (!m.fallbackNodeName) return
+                                          void handleCopyNodeEgressIp(
+                                            m.fallbackNodeName,
+                                            m.fallbackProfileId || m.profileId,
+                                            fbNodeKey,
+                                            t('ports.fallbackNodeLabel'),
+                                            false,
+                                          )
+                                        }}
+                                        onOpenQuality={() => {
+                                          if (!m.fallbackNodeName) return
+                                          setIpQualityTarget({
+                                            nodeName: m.fallbackNodeName,
+                                            profileId:
+                                              m.fallbackProfileId ||
+                                              m.profileId,
+                                            profileName: fbProfileName || null,
+                                            runtimeKey: fbNodeKey,
+                                          })
+                                        }}
+                                      />
+                                    )}
                                   </div>
 
-                                  {isDropReady ? (
-                                    <Badge
-                                      variant="primary"
-                                      size="sm"
-                                      className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-primary/15 text-primary border-primary/40 font-medium"
-                                    >
-                                      {t('ports.dropToSwapHint')}
-                                    </Badge>
-                                  ) : isManualFallback ? (
-                                    <Badge
-                                      variant="primary"
-                                      size="sm"
-                                      dot
-                                      className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-primary/20 text-primary border-primary/40 font-medium animate-pulse group-hover/fb:bg-primary/30"
-                                    >
-                                      <span className="group-hover/fb:hidden">
-                                        {t('ports.manualLocked')}
+                                  <button
+                                    type="button"
+                                    disabled={!canClickFallback}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      const lastDragAt =
+                                        justDraggedRef.current[m.id] ?? 0
+                                      if (Date.now() - lastDragAt < 220) return
+                                      if (!canClickFallback) return
+                                      handleToggleManualFallback(
+                                        m.id,
+                                        isManualFallback,
+                                      )
+                                    }}
+                                    className={`shrink-0 focus:outline-none ${
+                                      isDraggingThis
+                                        ? 'cursor-grabbing'
+                                        : canClickFallback
+                                          ? 'cursor-pointer'
+                                          : 'cursor-grab'
+                                    }`}
+                                  >
+                                    {isDropReady ? (
+                                      <Badge
+                                        variant="primary"
+                                        size="sm"
+                                        className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-primary/15 text-primary border-primary/40 font-medium"
+                                      >
+                                        {t('ports.dropToSwapHint')}
+                                      </Badge>
+                                    ) : isManualFallback ? (
+                                      <Badge
+                                        variant="primary"
+                                        size="sm"
+                                        dot
+                                        className="!text-[9px] !py-0 !px-1.5 shrink-0 bg-primary/20 text-primary border-primary/40 font-medium animate-pulse group-hover/fb:bg-primary/30"
+                                      >
+                                        <span className="group-hover/fb:hidden">
+                                          {t('ports.manualLocked')}
+                                        </span>
+                                        <span className="hidden group-hover/fb:inline">
+                                          {t('ports.clickRestoreAuto')}
+                                        </span>
+                                      </Badge>
+                                    ) : isAutoFallbackActive ? (
+                                      <Badge
+                                        variant="warning"
+                                        size="sm"
+                                        dot
+                                        className="!text-[9px] !py-0 !px-1.5 shrink-0 animate-pulse"
+                                        title={t(
+                                          'ports.autoFallbackActiveTitle',
+                                        )}
+                                      >
+                                        {t('ports.autoFallbackActive')}
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0 bg-secondary/80 px-1.5 py-0.5 rounded transition-colors group-hover/fb:text-primary group-hover/fb:bg-primary/10">
+                                        <span className="group-hover/fb:hidden">
+                                          {t('ports.standby')}
+                                        </span>
+                                        <span className="hidden group-hover/fb:inline">
+                                          {t('ports.clickEnableManual')}
+                                        </span>
                                       </span>
-                                      <span className="hidden group-hover/fb:inline">
-                                        {t('ports.clickRestoreAuto')}
-                                      </span>
-                                    </Badge>
-                                  ) : isAutoFallbackActive ? (
-                                    <Badge
-                                      variant="warning"
-                                      size="sm"
-                                      dot
-                                      className="!text-[9px] !py-0 !px-1.5 shrink-0 animate-pulse"
-                                      title={t('ports.autoFallbackActiveTitle')}
-                                    >
-                                      {t('ports.autoFallbackActive')}
-                                    </Badge>
-                                  ) : (
-                                    <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0 bg-secondary/80 px-1.5 py-0.5 rounded transition-colors group-hover/fb:text-primary group-hover/fb:bg-primary/10">
-                                      <span className="group-hover/fb:hidden">
-                                        {t('ports.standby')}
-                                      </span>
-                                      <span className="hidden group-hover/fb:inline">
-                                        {t('ports.clickEnableManual')}
-                                      </span>
-                                    </span>
-                                  )}
-                                </button>
+                                    )}
+                                  </button>
+                                </div>
 
                                 <button
                                   type="button"
@@ -3342,6 +3350,11 @@ export const PortTableView: React.FC = () => {
         isOpen={historyModalPort !== null}
         port={historyModalPort}
         onClose={() => setHistoryModalPort(null)}
+      />
+      <IpQualityModal
+        isOpen={ipQualityTarget !== null}
+        onClose={() => setIpQualityTarget(null)}
+        target={ipQualityTarget}
       />
     </div>
   )

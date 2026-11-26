@@ -11,6 +11,7 @@ pub mod egress_probe;
 pub mod elevation;
 pub mod geo_manager;
 pub mod icon_cache;
+pub mod ip_quality;
 pub mod kernel_engine;
 pub mod kernel_updater;
 pub mod latency_probe;

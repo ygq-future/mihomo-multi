@@ -1040,3 +1040,14 @@ export function isNodeEgressProbing(
       probingEgressNodeKeys[nodeName],
   )
 }
+
+export function getNodeQualityCacheKey(
+  nodeName: string,
+  profileId?: string | null,
+  runtimeKey?: string,
+): string {
+  if (profileId) {
+    return `${profileId}_${nodeName}`
+  }
+  return runtimeKey || nodeName
+}
