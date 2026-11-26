@@ -1,3 +1,4 @@
+import { twMerge } from 'tailwind-merge'
 import type React from 'react'
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
@@ -43,7 +44,12 @@ export const Badge: React.FC<BadgeProps> = ({
 
   return (
     <span
-      className={`${baseStyles} ${sizeStyles[size]} ${variantStyles[variant]} ${className}`}
+      className={twMerge(
+        baseStyles,
+        sizeStyles[size],
+        variantStyles[variant],
+        className,
+      )}
       {...props}
     >
       {dot && (

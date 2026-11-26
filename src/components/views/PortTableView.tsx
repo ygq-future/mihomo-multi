@@ -2165,8 +2165,8 @@ export const PortTableView: React.FC = () => {
                       </span>
                     </div>
                   )}
-                  <div className="flex items-center justify-between gap-2 min-w-0">
-                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2 min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
                       {!isDirectCard && (
                         <button
                           type="button"
@@ -2289,12 +2289,12 @@ export const PortTableView: React.FC = () => {
                       )}
                       {isDirectCard ? (
                         <Badge
-                          variant="outline"
+                          variant="secondary"
                           size="sm"
-                          className="!text-[10px] !py-0.5 !px-1.5 font-medium text-sky-500/90 border-sky-500/30 bg-sky-500/5 shrink-0 flex items-center gap-1"
+                          className="!text-[10px] !py-0.5 !px-1.5 font-medium text-muted-foreground border-border/70 shrink-0 flex items-center gap-1"
                           title={t('ports.directBadgeTitle')}
                         >
-                          <Zap className="w-2.5 h-2.5 text-sky-500" />
+                          <Zap className="w-2.5 h-2.5 text-muted-foreground" />
                           {t('ports.directBadge')}
                         </Badge>
                       ) : isChainPort ? (
@@ -2337,10 +2337,10 @@ export const PortTableView: React.FC = () => {
                         <Badge
                           variant="outline"
                           size="sm"
-                          className="!text-[10px] !py-0.5 !px-1.5 font-medium text-purple-500 border-purple-500/30 bg-purple-500/5 shrink-0 flex items-center gap-1"
+                          className="!text-[10px] !py-0.5 !px-1.5 font-medium bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30 shrink-0 flex items-center gap-1"
                           title={t('ports.tunExitTitle')}
                         >
-                          <Shield className="w-2.5 h-2.5 text-purple-500" />
+                          <Shield className="w-2.5 h-2.5 text-purple-600 dark:text-purple-400" />
                           {t('ports.tunExit')}
                         </Badge>
                       )}
@@ -2349,10 +2349,10 @@ export const PortTableView: React.FC = () => {
                           <Badge
                             variant="outline"
                             size="sm"
-                            className="!text-[10px] !py-0.5 !px-1.5 font-medium text-blue-500 border-blue-500/30 bg-blue-500/5 shrink-0 flex items-center gap-1"
+                            className="!text-[10px] !py-0.5 !px-1.5 font-medium bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30 shrink-0 flex items-center gap-1"
                             title={t('ports.envExitTitle')}
                           >
-                            <Terminal className="w-2.5 h-2.5 text-blue-500" />
+                            <Terminal className="w-2.5 h-2.5 text-sky-600 dark:text-sky-400" />
                             {t('ports.envExit')}
                           </Badge>
                         )}
@@ -2381,6 +2381,7 @@ export const PortTableView: React.FC = () => {
                     </div>
 
                     <HoverStepSlider
+                      className="shrink-0 mt-0.5"
                       value={sliderValue}
                       onChange={(level) => {
                         const stateMap: Record<number, PortState> = {
@@ -2439,7 +2440,7 @@ export const PortTableView: React.FC = () => {
                             </span>
                           )}
                           <span
-                            className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 shrink-0 select-none"
+                            className="inline-flex items-center justify-center text-[10px] font-medium leading-none px-1.5 py-0.5 rounded bg-secondary/80 text-muted-foreground border border-border/60 shrink-0 select-none"
                             title={t('ports.egressDirectTitle')}
                           >
                             {t('ports.egressDirectLabel')}

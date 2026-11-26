@@ -189,10 +189,10 @@ export const enUS: Record<TranslationKey, string> = {
   'ports.globalProxyTitle': 'All traffic routes through the bound proxy node',
   'ports.globalProxy': 'Global',
   'ports.tunExitTitle': 'This port is the global TUN mode egress',
-  'ports.tunExit': 'TUN Exit',
+  'ports.tunExit': 'TUN',
   'ports.envExitTitle':
     'This port is the global terminal env proxy (http_proxy / all_proxy)',
-  'ports.envExit': 'ENV Proxy',
+  'ports.envExit': 'ENV',
   'ports.rulesBadgeTitle':
     '{count} website routing rule(s) configured, click to manage',
   'ports.rulesBadge': '{count} Rules',

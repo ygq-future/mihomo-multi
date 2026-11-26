@@ -170,10 +170,10 @@ export const zhCN = {
   'ports.globalProxyTitle': '所有网络流量全局走绑定的代理节点',
   'ports.globalProxy': '全局代理',
   'ports.tunExitTitle': '当前端口作为全局 TUN 模式出口',
-  'ports.tunExit': 'TUN 出口',
+  'ports.tunExit': 'TUN',
   'ports.envExitTitle':
     '当前端口作为全局终端环境变量代理出口 (http_proxy / all_proxy)',
-  'ports.envExit': 'ENV代理',
+  'ports.envExit': 'ENV',
   'ports.rulesBadgeTitle': '已配置 {count} 条特定网站规则，点击管理',
   'ports.rulesBadge': '{count} 网站分流',
   'ports.listeningStopped': '(监听已停止)',
