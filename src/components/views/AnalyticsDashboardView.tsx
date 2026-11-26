@@ -624,14 +624,15 @@ export const AnalyticsDashboardView: React.FC = () => {
   const weightFields: {
     key: keyof AvailabilityWeights
     label: string
+    target: string
   }[] = [
-    { key: 'timeoutCount', label: t('analytics.dimTimeoutCount') },
-    { key: 'timeoutDuration', label: t('analytics.dimTimeoutDuration') },
-    { key: 'connectionErrors', label: t('analytics.dimConnErrors') },
-    { key: 'avgSpeed', label: t('analytics.dimAvgSpeed') },
-    { key: 'maxSpeed', label: t('analytics.dimMaxSpeed') },
-    { key: 'minSpeed', label: t('analytics.dimMinSpeed') },
-    { key: 'latencyQuality', label: t('analytics.dimLatency') },
+    { key: 'timeoutCount', label: t('analytics.dimTimeoutCount'), target: '0' },
+    { key: 'timeoutDuration', label: t('analytics.dimTimeoutDuration'), target: '0s' },
+    { key: 'connectionErrors', label: t('analytics.dimConnErrors'), target: '0' },
+    { key: 'avgSpeed', label: t('analytics.dimAvgSpeed'), target: '≥ 2 MB/s' },
+    { key: 'maxSpeed', label: t('analytics.dimMaxSpeed'), target: '≥ 10 MB/s' },
+    { key: 'minSpeed', label: t('analytics.dimMinSpeed'), target: '≥ 200 KB/s' },
+    { key: 'latencyQuality', label: t('analytics.dimLatency'), target: '≤ 60ms' },
   ]
 
   return (
@@ -1109,7 +1110,7 @@ export const AnalyticsDashboardView: React.FC = () => {
         }
       >
         <div className="space-y-3.5 py-1">
-          {weightFields.map(({ key, label }) => {
+          {weightFields.map(({ key, label, target }) => {
             const val = draftWeights[key]
             const pct =
               totalDraftWeight > 0
@@ -1118,7 +1119,12 @@ export const AnalyticsDashboardView: React.FC = () => {
             return (
               <div key={key} className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-foreground">{label}</span>
+                  <span className="font-medium text-foreground">
+                    {label}
+                    <span className="ml-1.5 font-normal text-muted-foreground">
+                      ({target})
+                    </span>
+                  </span>
                   <span className="text-muted-foreground tabular-nums">
                     {val} ({pct}%)
                   </span>

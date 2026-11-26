@@ -1009,17 +1009,17 @@ fn compute_dimension_scores(
         let ratio = (1.0 + mbps).ln() / (1.0 + ref_max_mbps).ln();
         (40.0 + ratio * 60.0).clamp(40.0, 100.0)
     };
-    let avg_speed_score = speed_to_score(avg_speed_bps, 10.0); // 10 MB/s -> 100
-    let max_speed_score = speed_to_score(max_speed_bps, 30.0); // 30 MB/s -> 100
-    let min_speed_score = speed_to_score(min_speed_bps, 2.0); // 2 MB/s floor -> 100
+    let avg_speed_score = speed_to_score(avg_speed_bps, 2.0); // 2 MB/s -> 100
+    let max_speed_score = speed_to_score(max_speed_bps, 10.0); // 10 MB/s -> 100
+    let min_speed_score = speed_to_score(min_speed_bps, 0.2); // 200 KB/s floor -> 100
 
-    // 7. Latency & jitter quality: <=50ms -> 100, 200ms -> ~70, 500ms -> ~35, >=1000ms -> 0.
+    // 7. Latency & jitter quality: <=60ms -> 100, 200ms -> ~70, 500ms -> ~35, >=1000ms -> 0.
     let latency_quality_score = match avg_latency_ms {
         Some(lat) => {
-            let lat_score = if lat <= 50.0 {
+            let lat_score = if lat <= 60.0 {
                 100.0
             } else {
-                (100.0 - ((lat - 50.0) / 950.0) * 100.0).clamp(0.0, 100.0)
+                (100.0 - ((lat - 60.0) / 940.0) * 100.0).clamp(0.0, 100.0)
             };
             let jitter_penalty = jitter_ms.map(|j| (j / 10.0).min(25.0)).unwrap_or(0.0);
             (lat_score - jitter_penalty).clamp(0.0, 100.0)
