@@ -627,12 +627,28 @@ export const AnalyticsDashboardView: React.FC = () => {
     target: string
   }[] = [
     { key: 'timeoutCount', label: t('analytics.dimTimeoutCount'), target: '0' },
-    { key: 'timeoutDuration', label: t('analytics.dimTimeoutDuration'), target: '0s' },
-    { key: 'connectionErrors', label: t('analytics.dimConnErrors'), target: '0' },
+    {
+      key: 'timeoutDuration',
+      label: t('analytics.dimTimeoutDuration'),
+      target: '0s',
+    },
+    {
+      key: 'connectionErrors',
+      label: t('analytics.dimConnErrors'),
+      target: '0',
+    },
     { key: 'avgSpeed', label: t('analytics.dimAvgSpeed'), target: '≥ 2 MB/s' },
     { key: 'maxSpeed', label: t('analytics.dimMaxSpeed'), target: '≥ 10 MB/s' },
-    { key: 'minSpeed', label: t('analytics.dimMinSpeed'), target: '≥ 200 KB/s' },
-    { key: 'latencyQuality', label: t('analytics.dimLatency'), target: '≤ 60ms' },
+    {
+      key: 'minSpeed',
+      label: t('analytics.dimMinSpeed'),
+      target: '≥ 200 KB/s',
+    },
+    {
+      key: 'latencyQuality',
+      label: t('analytics.dimLatency'),
+      target: '≤ 60ms',
+    },
   ]
 
   return (
