@@ -21,6 +21,9 @@ fn windows_schtasks_command() -> std::process::Command {
 
 #[cfg(windows)]
 pub fn is_elevated_autostart_enabled() -> bool {
+    if crate::core::virtual_mode::is_enabled() {
+        return false;
+    }
     matches!(windows_schtasks_command().args(["Query", "/TN", AUTOSTART_TASK_NAME]).output(),
         Ok(out) if out.status.success())
 }
@@ -32,6 +35,9 @@ pub fn is_elevated_autostart_enabled() -> bool {
 
 #[cfg(windows)]
 pub fn delete_elevated_autostart() -> Result<(), String> {
+    if crate::core::virtual_mode::is_enabled() {
+        return Ok(());
+    }
     let out = windows_schtasks_command()
         .args(["Delete", "/F", "/TN", AUTOSTART_TASK_NAME])
         .output();
@@ -48,6 +54,10 @@ pub fn delete_elevated_autostart() -> Result<(), String> {
 
 #[cfg(windows)]
 pub fn enable_elevated_autostart(app_path: &Path, silent: bool) -> Result<(), String> {
+    if crate::core::virtual_mode::is_enabled() {
+        let _ = (app_path, silent);
+        return Ok(());
+    }
     let path_str = app_path.to_string_lossy();
     let cmd_value = if silent {
         format!("\"{}\" --silent", path_str)
@@ -85,6 +95,10 @@ pub fn enable_elevated_autostart(_app_path: &Path, _silent: bool) -> Result<(), 
 }
 
 pub fn sync_autostart_state(config: &crate::models::AppConfig, app_path: &Path) -> Result<(), String> {
+    if crate::core::virtual_mode::is_enabled() {
+        let _ = (config, app_path);
+        return Ok(());
+    }
     if !config.auto_launch {
         if is_autostart_enabled() {
             disable_autostart()?;
@@ -117,6 +131,10 @@ fn windows_reg_command() -> std::process::Command {
 
 #[cfg(windows)]
 pub fn enable_autostart(app_path: &Path, silent: bool) -> Result<(), String> {
+    if crate::core::virtual_mode::is_enabled() {
+        let _ = (app_path, silent);
+        return Ok(());
+    }
     let path_str = app_path.to_string_lossy();
     let cmd_value = if silent {
         format!("\"{}\" --silent", path_str)
@@ -164,6 +182,9 @@ pub fn enable_autostart(_app_path: &Path, _silent: bool) -> Result<(), String> {
 
 #[cfg(windows)]
 pub fn disable_autostart() -> Result<(), String> {
+    if crate::core::virtual_mode::is_enabled() {
+        return Ok(());
+    }
     let status = windows_reg_command()
         .args(["delete", RUN_KEY, "/v", APP_REG_KEY, "/f"])
         .output();
@@ -189,6 +210,9 @@ pub fn disable_autostart() -> Result<(), String> {
 
 #[cfg(windows)]
 pub fn is_autostart_enabled() -> bool {
+    if crate::core::virtual_mode::is_enabled() {
+        return false;
+    }
     let run_status = windows_reg_command()
         .args(["query", RUN_KEY, "/v", APP_REG_KEY])
         .output();

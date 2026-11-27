@@ -1,5 +1,11 @@
+use crate::core::virtual_mode;
 use crate::error::{AppError, AppResult};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use tracing::info;
+
+static VIRTUAL_SYSTEM_PROXY_PORT: AtomicU16 = AtomicU16::new(0);
+static VIRTUAL_ENV_PROXY_PORT: AtomicU16 = AtomicU16::new(0);
+static VIRTUAL_UWP_EXEMPT_ALL: AtomicBool = AtomicBool::new(false);
 
 pub const DEFAULT_BYPASS_ITEMS: &[&str] = &[
     "localhost",
@@ -150,6 +156,13 @@ pub fn sort_bypass_items(items: &mut [String]) {
 /// Applies system proxy to the OS
 pub fn apply_system_proxy(port: u16, user_bypass: &[String]) -> AppResult<()> {
     info!(port = port, "Applying system proxy");
+
+    if virtual_mode::is_enabled() {
+        VIRTUAL_SYSTEM_PROXY_PORT.store(port, Ordering::SeqCst);
+        info!(port = port, "[virtual] Simulated system proxy apply");
+        return Ok(());
+    }
+
     let combined_bypass = build_combined_bypass_list(user_bypass);
 
     if cfg!(test) {
@@ -178,6 +191,12 @@ pub fn apply_system_proxy(port: u16, user_bypass: &[String]) -> AppResult<()> {
 pub fn clear_system_proxy() -> AppResult<()> {
     info!("Clearing system proxy");
 
+    if virtual_mode::is_enabled() {
+        VIRTUAL_SYSTEM_PROXY_PORT.store(0, Ordering::SeqCst);
+        info!("[virtual] Simulated system proxy cleanup");
+        return Ok(());
+    }
+
     if cfg!(test) {
         info!("[test] Skipped OS system proxy cleanup");
         return Ok(());
@@ -204,6 +223,13 @@ pub fn clear_system_proxy() -> AppResult<()> {
 /// Applies terminal environment variables proxy (http_proxy, https_proxy, all_proxy, no_proxy)
 pub fn apply_env_proxy(port: u16, user_bypass: &[String]) -> AppResult<()> {
     info!(port = port, "Applying terminal environment proxy");
+
+    if virtual_mode::is_enabled() {
+        VIRTUAL_ENV_PROXY_PORT.store(port, Ordering::SeqCst);
+        info!(port = port, "[virtual] Simulated terminal environment proxy apply");
+        return Ok(());
+    }
+
     let combined_bypass = build_combined_bypass_list(user_bypass);
 
     if cfg!(test) {
@@ -227,6 +253,12 @@ pub fn apply_env_proxy(port: u16, user_bypass: &[String]) -> AppResult<()> {
 /// Clears terminal environment variables proxy from the OS
 pub fn clear_env_proxy() -> AppResult<()> {
     info!("Clearing terminal environment proxy");
+
+    if virtual_mode::is_enabled() {
+        VIRTUAL_ENV_PROXY_PORT.store(0, Ordering::SeqCst);
+        info!("[virtual] Simulated terminal environment proxy cleanup");
+        return Ok(());
+    }
 
     if cfg!(test) {
         info!("[test] Skipped environment variable proxy cleanup");
@@ -260,6 +292,10 @@ pub fn parse_proxy_server_matches_port(server: &str, port: u16) -> bool {
 
 /// Checks if the system proxy currently configured in OS is enabled and points to the specified port.
 pub fn is_system_proxy_active_on_port(port: u16) -> bool {
+    if virtual_mode::is_enabled() {
+        return VIRTUAL_SYSTEM_PROXY_PORT.load(Ordering::SeqCst) == port;
+    }
+
     #[cfg(windows)]
     {
         windows::is_system_proxy_active_on_port_windows(port)
@@ -284,6 +320,10 @@ pub fn is_system_proxy_active_on_port(port: u16) -> bool {
 
 /// Checks if the user environment variables proxy points to the specified port.
 pub fn is_env_proxy_active_on_port(port: u16) -> bool {
+    if virtual_mode::is_enabled() {
+        return VIRTUAL_ENV_PROXY_PORT.load(Ordering::SeqCst) == port;
+    }
+
     #[cfg(windows)]
     {
         windows::is_env_proxy_active_on_port_windows(port)
@@ -328,6 +368,22 @@ pub(crate) fn plan_uwp_exemption_maintenance(
 
 /// Queries current UWP Loopback exemption statistics
 pub fn get_uwp_loopback_stats(auto_exempt: bool) -> AppResult<crate::models::UwpLoopbackStats> {
+    if virtual_mode::is_enabled() {
+        #[cfg(windows)]
+        let total_count = windows::get_user_appcontainer_sids().len();
+        #[cfg(not(windows))]
+        let total_count = 0usize;
+        let exempt_all = VIRTUAL_UWP_EXEMPT_ALL.load(Ordering::SeqCst);
+        return Ok(crate::models::UwpLoopbackStats {
+            supported: cfg!(windows),
+            exempted_count: if exempt_all { total_count } else { 0 },
+            total_count,
+            cleaned_count: 0,
+            newly_exempted_count: 0,
+            auto_exempt,
+        });
+    }
+
     #[cfg(windows)]
     {
         let user_sids = windows::get_user_appcontainer_sids();
@@ -362,6 +418,11 @@ pub fn get_uwp_loopback_stats(auto_exempt: bool) -> AppResult<crate::models::Uwp
 /// when the "exempt all" intent is active, exempts newly installed AppContainers.
 /// Returns `(cleaned_count, newly_exempted_count)`.
 pub fn maintain_uwp_loopback(auto_exempt: bool) -> AppResult<(usize, usize)> {
+    if virtual_mode::is_enabled() {
+        let _ = auto_exempt;
+        return Ok((0, 0));
+    }
+
     #[cfg(windows)]
     {
         if cfg!(test) {
@@ -408,6 +469,11 @@ pub fn refresh_and_cleanup_uwp_loopback(auto_exempt: bool) -> AppResult<crate::m
 pub fn exempt_all_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
     #[cfg(windows)]
     {
+        if virtual_mode::is_enabled() {
+            VIRTUAL_UWP_EXEMPT_ALL.store(true, Ordering::SeqCst);
+            info!("[virtual] Simulated UWP loopback exempt-all");
+            return get_uwp_loopback_stats(true);
+        }
         windows::exempt_all_uwp_windows()?;
         get_uwp_loopback_stats(true)
     }
@@ -428,6 +494,11 @@ pub fn exempt_all_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
 pub fn clear_all_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
     #[cfg(windows)]
     {
+        if virtual_mode::is_enabled() {
+            VIRTUAL_UWP_EXEMPT_ALL.store(false, Ordering::SeqCst);
+            info!("[virtual] Simulated UWP loopback clear-all");
+            return get_uwp_loopback_stats(false);
+        }
         windows::clear_all_uwp_windows()?;
         get_uwp_loopback_stats(false)
     }
@@ -448,7 +519,14 @@ pub fn clear_all_uwp_loopback() -> AppResult<crate::models::UwpLoopbackStats> {
 pub fn get_uwp_app_list() -> AppResult<Vec<crate::models::UwpAppInfo>> {
     #[cfg(windows)]
     {
-        Ok(windows::get_uwp_apps_windows())
+        let mut apps = windows::get_uwp_apps_windows();
+        if virtual_mode::is_enabled() {
+            let exempt_all = VIRTUAL_UWP_EXEMPT_ALL.load(Ordering::SeqCst);
+            for app in &mut apps {
+                app.exempted = exempt_all;
+            }
+        }
+        Ok(apps)
     }
 
     #[cfg(not(windows))]

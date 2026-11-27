@@ -155,6 +155,10 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle();
             let is_dev_instance = cfg!(debug_assertions) || app_handle.config().identifier.ends_with(".dev");
+            crate::core::virtual_mode::set_enabled(is_dev_instance);
+            if is_dev_instance {
+                info!("Dev instance: OS system proxy, TUN, env and autostart mutations are virtualized");
+            }
             let mut app_dir = app_handle
                 .path()
                 .app_local_data_dir()

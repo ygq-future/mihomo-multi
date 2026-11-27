@@ -379,7 +379,8 @@ pub async fn set_tun(
     port: Option<u16>,
     state: State<'_, AppState>,
 ) -> Result<TunStatus, String> {
-    let elevated = crate::core::elevation::is_elevated();
+    let virtual_mode = crate::core::virtual_mode::is_enabled();
+    let elevated = virtual_mode || crate::core::elevation::is_elevated();
     let config = state.prepare_tun_transition(enabled, port)?;
 
     if let Ok(exe_path) = std::env::current_exe() {
@@ -430,7 +431,7 @@ pub async fn set_tun(
 
 #[tauri::command]
 pub async fn restart_as_admin(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    if crate::core::elevation::is_elevated() {
+    if crate::core::virtual_mode::is_enabled() || crate::core::elevation::is_elevated() {
         return Ok(());
     }
     let engine_stop = state.engine.clone();

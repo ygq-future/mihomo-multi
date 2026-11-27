@@ -26,3 +26,4 @@ pub mod residential_probe;
 pub mod supervisor;
 pub mod sysproxy;
 pub mod update_egress;
+pub mod virtual_mode;

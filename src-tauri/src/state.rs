@@ -361,7 +361,10 @@ impl AppState {
     /// Builds current TUN mode status snapshot based on elevation, port mapping state, and core status.
     pub fn build_tun_status(&self) -> TunStatus {
         let config = self.config.read().clone();
-        let elevated = crate::core::elevation::is_elevated();
+        // Virtual dev mode simulates elevation and the TUN adapter: the UI keeps full
+        // state fidelity while the kernel config never enables a real TUN device.
+        let virtual_mode = crate::core::virtual_mode::is_enabled();
+        let elevated = virtual_mode || crate::core::elevation::is_elevated();
         let disabled_ids = self.disabled_profile_ids();
         let port_active = config.tun_port.is_some_and(|p| {
             self.port_router
@@ -797,7 +800,9 @@ impl AppState {
             fallback_interval: cfg.fallback_interval,
             fallback_lazy: cfg.fallback_lazy,
             user_bypass: &cfg.system_proxy_bypass_user,
-            tun_enabled: cfg.tun_enabled && crate::core::elevation::is_elevated(),
+            tun_enabled: cfg.tun_enabled
+                && !crate::core::virtual_mode::is_enabled()
+                && crate::core::elevation::is_elevated(),
             tun_port: cfg.tun_port,
             global_rules: &cfg.global_rules,
             egress_probe_port: probe_port,
