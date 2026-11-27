@@ -2155,6 +2155,32 @@ pub async fn query_port_egress_info(
         .map_err(|e| e.to_string())
 }
 
+/// Probes IP quality (CleanIP + IPPure) through a specific local listener using its actual inbound protocol.
+/// Captures the true egress (including chain last-hop) without falling back to direct.
+#[tauri::command]
+pub async fn query_port_ip_quality(
+    port: u16,
+    protocol: InboundProtocol,
+    timeout_ms: Option<u64>,
+) -> Result<NodeIpQualityReport, String> {
+    crate::core::ip_quality::query_port_ip_quality(port, protocol, timeout_ms)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn retry_port_ip_quality_source(
+    port: u16,
+    protocol: InboundProtocol,
+    source: String,
+    existing_report: NodeIpQualityReport,
+    timeout_ms: Option<u64>,
+) -> Result<NodeIpQualityReport, String> {
+    crate::core::ip_quality::query_port_ip_quality_single_source(port, protocol, &source, existing_report, timeout_ms)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn get_connections(state: State<'_, AppState>) -> Result<ConnectionSnapshot, String> {
     let status = state.engine.get_status();

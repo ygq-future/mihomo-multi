@@ -448,6 +448,8 @@ pub fn run() {
             test_residential_proxy,
             test_chain_node_exit,
             query_port_egress_info,
+            query_port_ip_quality,
+            retry_port_ip_quality_source,
             get_profiles,
             add_remote_profile,
             add_local_profile,

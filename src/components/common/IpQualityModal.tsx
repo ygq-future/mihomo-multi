@@ -21,6 +21,7 @@ import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import type {
   CleanIpQualitySource,
+  InboundProtocol,
   IpNativeStatus,
   IpNetworkCategory,
   MediaUnlockItem,
@@ -40,6 +41,11 @@ export interface IpQualityTarget {
   profileId?: string | null
   profileName?: string | null
   runtimeKey?: string
+  portProbe?: {
+    port: number
+    protocol: InboundProtocol
+    isChain?: boolean
+  }
 }
 
 interface IpQualityModalProps {
@@ -48,16 +54,22 @@ interface IpQualityModalProps {
   target: IpQualityTarget | null
 }
 
-function lookupCachedRecord<T>(
-  map: Record<string, T>,
-  target: IpQualityTarget,
-): T | null {
-  const key = getNodeQualityCacheKey(
+function getTargetCacheKey(target: IpQualityTarget): string {
+  if (target.portProbe) {
+    return `port:${target.portProbe.port}:${target.portProbe.protocol}`
+  }
+  return getNodeQualityCacheKey(
     target.nodeName,
     target.profileId,
     target.runtimeKey,
   )
-  return map[key] || null
+}
+
+function lookupCachedRecord<T>(
+  map: Record<string, T>,
+  target: IpQualityTarget,
+): T | null {
+  return map[getTargetCacheKey(target)] || null
 }
 
 function getPurityBadgeVariant(
@@ -239,12 +251,27 @@ export const IpQualityModal: React.FC<IpQualityModalProps> = ({
     if (needQuality) {
       setQualityLoading(true)
       try {
-        await storeState.probeNodeIpQuality(
-          currentTarget.nodeName,
-          currentTarget.profileId,
-          currentTarget.runtimeKey,
-          forceRefresh,
-        )
+        if (currentTarget.portProbe) {
+          const report = await api.queryPortIpQuality(
+            currentTarget.portProbe.port,
+            currentTarget.portProbe.protocol,
+          )
+          if (qualitySeqRef.current !== qSeq) return
+          const key = getTargetCacheKey(currentTarget)
+          useAppStore.setState((state) => ({
+            nodeIpQualities: {
+              ...state.nodeIpQualities,
+              [key]: report,
+            },
+          }))
+        } else {
+          await storeState.probeNodeIpQuality(
+            currentTarget.nodeName,
+            currentTarget.profileId,
+            currentTarget.runtimeKey,
+            forceRefresh,
+          )
+        }
       } catch (err) {
         if (qualitySeqRef.current !== qSeq) return
         setQualityError(err instanceof Error ? err.message : String(err))
@@ -264,17 +291,20 @@ export const IpQualityModal: React.FC<IpQualityModalProps> = ({
       if (!currentTarget || !cachedQuality || retryingSource) return
       setRetryingSource(source)
       try {
-        const updated = await api.retryNodeIpQualitySource(
-          currentTarget.nodeName,
-          source,
-          cachedQuality,
-          currentTarget.profileId ?? null,
-        )
-        const key = getNodeQualityCacheKey(
-          currentTarget.nodeName,
-          currentTarget.profileId,
-          currentTarget.runtimeKey,
-        )
+        const updated = currentTarget.portProbe
+          ? await api.retryPortIpQualitySource(
+              currentTarget.portProbe.port,
+              currentTarget.portProbe.protocol,
+              source,
+              cachedQuality,
+            )
+          : await api.retryNodeIpQualitySource(
+              currentTarget.nodeName,
+              source,
+              cachedQuality,
+              currentTarget.profileId ?? null,
+            )
+        const key = getTargetCacheKey(currentTarget)
         useAppStore.setState((state) => ({
           nodeIpQualities: {
             ...state.nodeIpQualities,
@@ -315,13 +345,7 @@ export const IpQualityModal: React.FC<IpQualityModalProps> = ({
     }
   }, [])
 
-  const targetKey = target
-    ? getNodeQualityCacheKey(
-        target.nodeName,
-        target.profileId,
-        target.runtimeKey,
-      )
-    : ''
+  const targetKey = target ? getTargetCacheKey(target) : ''
 
   useEffect(() => {
     if (!isOpen || !targetKey) {
@@ -336,9 +360,20 @@ export const IpQualityModal: React.FC<IpQualityModalProps> = ({
 
   if (!target) return null
 
-  const subtitle = target.profileName
+  const nodeLabel = target.profileName
     ? `[${target.profileName}] ${target.nodeName}`
     : target.nodeName
+  const subtitle = target.portProbe
+    ? `${t(
+        target.portProbe.isChain
+          ? 'ipQuality.chainEgressScope'
+          : 'ipQuality.portEgressScope',
+        {
+          port: String(target.portProbe.port),
+          protocol: target.portProbe.protocol.toUpperCase(),
+        },
+      )} · ${nodeLabel}`
+    : nodeLabel
 
   const handleCopyIp = async (ip: string) => {
     await navigator.clipboard.writeText(ip).catch(() => {})
@@ -494,6 +529,19 @@ export const IpQualityModal: React.FC<IpQualityModalProps> = ({
                   )}
                 </div>
               </div>
+              {cachedQuality.ipConsistent === false &&
+                cachedQuality.cleanip &&
+                cachedQuality.ippure && (
+                  <div className="px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-[11px] text-amber-700 dark:text-amber-300 flex items-start gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      {t('ipQuality.mismatchBanner', {
+                        cleanipIp: cachedQuality.cleanip.ip,
+                        ippureIp: cachedQuality.ippure.ip,
+                      })}
+                    </span>
+                  </div>
+                )}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-border/60 text-[11px]">
                 <div className="min-w-0">

@@ -2588,6 +2588,14 @@ export const PortTableView: React.FC = () => {
                                           profileId: m.profileId,
                                           profileName: profileName || null,
                                           runtimeKey: nodeKey,
+                                          portProbe:
+                                            m.enabled && isRunning
+                                              ? {
+                                                  port: m.port,
+                                                  protocol: m.protocol,
+                                                  isChain: isChainPort,
+                                                }
+                                              : undefined,
                                         })
                                       }
                                     />

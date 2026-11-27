@@ -1,7 +1,7 @@
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    CleanIpQualitySource, IpNativeStatus, IpNetworkCategory, IpPureQualitySource, MediaServiceCategory,
-    MediaUnlockItem, MediaUnlockStatus, NodeIpQualityReport, NodeMediaUnlockReport,
+    CleanIpQualitySource, InboundProtocol, IpNativeStatus, IpNetworkCategory, IpPureQualitySource,
+    MediaServiceCategory, MediaUnlockItem, MediaUnlockStatus, NodeIpQualityReport, NodeMediaUnlockReport,
 };
 use serde_json::Value;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -44,8 +44,16 @@ fn opt_u32(v: &Value) -> Option<u32> {
     v.as_u64().and_then(|n| u32::try_from(n).ok())
 }
 
-fn build_http_client(
+fn protocol_to_proxy_scheme(protocol: InboundProtocol) -> &'static str {
+    match protocol {
+        InboundProtocol::Socks5 => "socks5h",
+        InboundProtocol::Mixed | InboundProtocol::Http => "http",
+    }
+}
+
+fn build_http_client_with_scheme(
     proxy_port: Option<u16>,
+    proxy_scheme: &str,
     user_agent: &str,
     timeout: Duration,
     follow_redirects: bool,
@@ -60,13 +68,22 @@ fn build_http_client(
     }
 
     if let Some(port) = proxy_port {
-        let proxy_url = format!("http://127.0.0.1:{port}");
+        let proxy_url = format!("{proxy_scheme}://127.0.0.1:{port}");
         builder = builder.no_proxy().proxy(reqwest::Proxy::all(&proxy_url)?);
     } else {
         builder = builder.no_proxy();
     }
 
     builder.build().map_err(AppError::Network)
+}
+
+fn build_http_client(
+    proxy_port: Option<u16>,
+    user_agent: &str,
+    timeout: Duration,
+    follow_redirects: bool,
+) -> AppResult<reqwest::Client> {
+    build_http_client_with_scheme(proxy_port, "http", user_agent, timeout, follow_redirects)
 }
 
 pub fn parse_cleanip_response(body: &str, latency_ms: u32) -> Result<CleanIpQualitySource, String> {
@@ -260,35 +277,48 @@ pub fn synthesize_ip_quality_report(
         .and_then(|c| c.timezone.clone())
         .or_else(|| ippure.as_ref().and_then(|p| p.timezone.clone()));
 
+    let ip_mismatched = ip_consistent == Some(false);
+
     let cleanip_purity = cleanip.as_ref().and_then(|c| c.score);
     let ippure_purity = ippure
         .as_ref()
         .and_then(|p| p.fraud_score.map(|f| 100u8.saturating_sub(f.min(100))));
-    let purity_score = match (cleanip_purity, ippure_purity) {
-        (Some(a), Some(b)) => Some(((u16::from(a) + u16::from(b)) / 2) as u8),
-        (Some(a), None) => Some(a),
-        (None, Some(b)) => Some(b),
-        (None, None) => None,
+    let purity_score = if ip_mismatched {
+        None
+    } else {
+        match (cleanip_purity, ippure_purity) {
+            (Some(a), Some(b)) => Some(((u16::from(a) + u16::from(b)) / 2) as u8),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        }
     };
 
     let cleanip_res_flag = cleanip.as_ref().and_then(infer_cleanip_is_residential);
     let ippure_res_flag = ippure.as_ref().and_then(|p| p.is_residential);
-    let network_category = match (cleanip_res_flag, ippure_res_flag) {
-        (Some(true), Some(true) | None) | (None, Some(true)) => IpNetworkCategory::Residential,
-        (Some(false), Some(false) | None) | (None, Some(false)) => IpNetworkCategory::Datacenter,
-        (Some(a), Some(b)) if a != b => IpNetworkCategory::Conflict,
-        _ => IpNetworkCategory::Unknown,
+    let network_category = if ip_mismatched {
+        IpNetworkCategory::Conflict
+    } else {
+        match (cleanip_res_flag, ippure_res_flag) {
+            (Some(true), Some(true) | None) | (None, Some(true)) => IpNetworkCategory::Residential,
+            (Some(false), Some(false) | None) | (None, Some(false)) => IpNetworkCategory::Datacenter,
+            (Some(a), Some(b)) if a != b => IpNetworkCategory::Conflict,
+            _ => IpNetworkCategory::Unknown,
+        }
     };
 
     let cleanip_bc_flag = cleanip.as_ref().and_then(infer_cleanip_is_broadcast);
     let ippure_bc_flag = ippure.as_ref().and_then(|p| p.is_broadcast);
-    let native_status = match (cleanip_bc_flag, ippure_bc_flag) {
-        (Some(false), Some(false) | None) | (None, Some(false)) => IpNativeStatus::Native,
-        (Some(true), Some(true) | None) | (None, Some(true)) => IpNativeStatus::Broadcast,
-        (Some(a), Some(b)) if a != b => IpNativeStatus::Conflict,
-        _ => IpNativeStatus::Unknown,
+    let native_status = if ip_mismatched {
+        IpNativeStatus::Conflict
+    } else {
+        match (cleanip_bc_flag, ippure_bc_flag) {
+            (Some(false), Some(false) | None) | (None, Some(false)) => IpNativeStatus::Native,
+            (Some(true), Some(true) | None) | (None, Some(true)) => IpNativeStatus::Broadcast,
+            (Some(a), Some(b)) if a != b => IpNativeStatus::Conflict,
+            _ => IpNativeStatus::Unknown,
+        }
     };
-
     Ok(NodeIpQualityReport {
         probed_at_ms,
         ip,
@@ -310,10 +340,12 @@ pub fn synthesize_ip_quality_report(
 
 async fn fetch_cleanip_quality(
     proxy_port: Option<u16>,
+    proxy_scheme: &str,
     via_proxy: bool,
     timeout: Duration,
 ) -> Result<CleanIpQualitySource, String> {
-    let client = build_http_client(proxy_port, CLEANIP_USER_AGENT, timeout, true).map_err(|e| e.to_string())?;
+    let client = build_http_client_with_scheme(proxy_port, proxy_scheme, CLEANIP_USER_AGENT, timeout, true)
+        .map_err(|e| e.to_string())?;
     let mut form = vec![
         ("v", "1.3.6"),
         ("lang", "zh"),
@@ -345,8 +377,13 @@ async fn fetch_cleanip_quality(
     parse_cleanip_response(&body, latency_ms)
 }
 
-async fn fetch_ippure_quality(proxy_port: Option<u16>, timeout: Duration) -> Result<IpPureQualitySource, String> {
-    let client = build_http_client(proxy_port, IPPURE_USER_AGENT, timeout, true).map_err(|e| e.to_string())?;
+async fn fetch_ippure_quality(
+    proxy_port: Option<u16>,
+    proxy_scheme: &str,
+    timeout: Duration,
+) -> Result<IpPureQualitySource, String> {
+    let client = build_http_client_with_scheme(proxy_port, proxy_scheme, IPPURE_USER_AGENT, timeout, true)
+        .map_err(|e| e.to_string())?;
     let start = Instant::now();
     let resp = client
         .get(IPPURE_INFO_URL)
@@ -408,8 +445,13 @@ pub fn parse_ipkk_response(body: &str) -> Result<IpkkFallbackSource, String> {
     })
 }
 
-async fn fetch_ipkk_fallback(proxy_port: Option<u16>, timeout: Duration) -> Result<IpkkFallbackSource, String> {
-    let client = build_http_client(proxy_port, IPPURE_USER_AGENT, timeout, true).map_err(|e| e.to_string())?;
+async fn fetch_ipkk_fallback(
+    proxy_port: Option<u16>,
+    proxy_scheme: &str,
+    timeout: Duration,
+) -> Result<IpkkFallbackSource, String> {
+    let client = build_http_client_with_scheme(proxy_port, proxy_scheme, IPPURE_USER_AGENT, timeout, true)
+        .map_err(|e| e.to_string())?;
     let resp = client.get(IPKK_URL).send().await.map_err(|e| e.to_string())?;
     let status = resp.status();
     let body = resp.text().await.map_err(|e| e.to_string())?;
@@ -458,21 +500,36 @@ pub fn apply_ipkk_fallback(report: &mut NodeIpQualityReport, ipkk: &IpkkFallback
     }
 }
 pub async fn query_ip_quality(proxy_port: Option<u16>, timeout_ms: Option<u64>) -> AppResult<NodeIpQualityReport> {
+    query_ip_quality_with_scheme(proxy_port, "http", timeout_ms).await
+}
+
+pub async fn query_port_ip_quality(
+    port: u16,
+    protocol: InboundProtocol,
+    timeout_ms: Option<u64>,
+) -> AppResult<NodeIpQualityReport> {
+    query_ip_quality_with_scheme(Some(port), protocol_to_proxy_scheme(protocol), timeout_ms).await
+}
+
+async fn query_ip_quality_with_scheme(
+    proxy_port: Option<u16>,
+    proxy_scheme: &str,
+    timeout_ms: Option<u64>,
+) -> AppResult<NodeIpQualityReport> {
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_QUALITY_TIMEOUT_MS).clamp(2000, 30_000));
     let via_proxy = proxy_port.is_some();
 
     let (cleanip_res, ippure_res) = tokio::join!(
-        fetch_cleanip_quality(proxy_port, via_proxy, timeout),
-        fetch_ippure_quality(proxy_port, timeout)
+        fetch_cleanip_quality(proxy_port, proxy_scheme, via_proxy, timeout),
+        fetch_ippure_quality(proxy_port, proxy_scheme, timeout)
     );
 
     let needs_fallback = cleanip_res.is_err() || ippure_res.is_err();
     let ipkk_res = if needs_fallback {
-        Some(fetch_ipkk_fallback(proxy_port, timeout).await)
+        Some(fetch_ipkk_fallback(proxy_port, proxy_scheme, timeout).await)
     } else {
         None
     };
-
     match synthesize_ip_quality_report(cleanip_res, ippure_res, now_epoch_ms()) {
         Ok(mut report) => {
             if let Some(ipkk_result) = ipkk_res.as_ref() {
@@ -520,14 +577,41 @@ pub async fn query_ip_quality_single_source(
     existing: NodeIpQualityReport,
     timeout_ms: Option<u64>,
 ) -> AppResult<NodeIpQualityReport> {
+    query_ip_quality_single_source_with_scheme(proxy_port, "http", source, existing, timeout_ms).await
+}
+
+pub async fn query_port_ip_quality_single_source(
+    port: u16,
+    protocol: InboundProtocol,
+    source: &str,
+    existing: NodeIpQualityReport,
+    timeout_ms: Option<u64>,
+) -> AppResult<NodeIpQualityReport> {
+    query_ip_quality_single_source_with_scheme(
+        Some(port),
+        protocol_to_proxy_scheme(protocol),
+        source,
+        existing,
+        timeout_ms,
+    )
+    .await
+}
+
+async fn query_ip_quality_single_source_with_scheme(
+    proxy_port: Option<u16>,
+    proxy_scheme: &str,
+    source: &str,
+    existing: NodeIpQualityReport,
+    timeout_ms: Option<u64>,
+) -> AppResult<NodeIpQualityReport> {
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_QUALITY_TIMEOUT_MS).clamp(2000, 30_000));
     let via_proxy = proxy_port.is_some();
 
     let (cleanip_res, ippure_res, ipkk_res) = match source {
         "cleanip" => {
-            let c_res = fetch_cleanip_quality(proxy_port, via_proxy, timeout).await;
+            let c_res = fetch_cleanip_quality(proxy_port, proxy_scheme, via_proxy, timeout).await;
             let ipkk = if c_res.is_err() {
-                Some(fetch_ipkk_fallback(proxy_port, timeout).await)
+                Some(fetch_ipkk_fallback(proxy_port, proxy_scheme, timeout).await)
             } else {
                 None
             };
@@ -539,9 +623,9 @@ pub async fn query_ip_quality_single_source(
             (c_res, p_res, ipkk)
         }
         "ippure" => {
-            let p_res = fetch_ippure_quality(proxy_port, timeout).await;
+            let p_res = fetch_ippure_quality(proxy_port, proxy_scheme, timeout).await;
             let ipkk = if p_res.is_err() {
-                Some(fetch_ipkk_fallback(proxy_port, timeout).await)
+                Some(fetch_ipkk_fallback(proxy_port, proxy_scheme, timeout).await)
             } else {
                 None
             };
@@ -1304,6 +1388,7 @@ mod tests {
         assert_eq!(conflict.ip_consistent, Some(false));
         assert_eq!(conflict.network_category, IpNetworkCategory::Conflict);
         assert_eq!(conflict.native_status, IpNativeStatus::Conflict);
+        assert_eq!(conflict.purity_score, None);
 
         // Single source fallback succeeds
         let fallback = synthesize_ip_quality_report(Err("timeout".to_string()), Ok(p), 100).expect("fallback");
@@ -1317,6 +1402,39 @@ mod tests {
         // Both failed -> error
         let both_err = synthesize_ip_quality_report(Err("c err".to_string()), Err("p err".to_string()), 100);
         assert!(both_err.is_err());
+    }
+
+    #[test]
+    fn test_ip_mismatch_prevents_cross_ip_merging() {
+        let cleanip_payload = r#"{
+            "ok": true,
+            "ip": {
+                "ok": true,
+                "ip": "1.2.3.4",
+                "assessment": { "score": 92, "ip_type": "Residential" },
+                "geo": { "country": "United States", "country_code": "US" },
+                "network": { "network_type": "Residential", "native_or_broadcast": "NATIVE" },
+                "risk": { "is_datacenter": false }
+            }
+        }"#;
+        let ippure_payload = r#"{
+            "ip": "5.6.7.8",
+            "country": "United States",
+            "countryCode": "US",
+            "fraudScore": 10,
+            "isResidential": true,
+            "isBroadcast": false
+        }"#;
+
+        let c = parse_cleanip_response(cleanip_payload, 40).expect("cleanip");
+        let p = parse_ippure_response(ippure_payload, 50).expect("ippure");
+        let report = synthesize_ip_quality_report(Ok(c), Ok(p), 200).expect("report");
+        assert_eq!(report.ip_consistent, Some(false));
+        assert_eq!(report.purity_score, None);
+        assert_eq!(report.network_category, IpNetworkCategory::Conflict);
+        assert_eq!(report.native_status, IpNativeStatus::Conflict);
+        assert_eq!(report.cleanip.as_ref().map(|x| x.ip.as_str()), Some("1.2.3.4"));
+        assert_eq!(report.ippure.as_ref().map(|x| x.ip.as_str()), Some("5.6.7.8"));
     }
 
     #[test]

@@ -385,6 +385,44 @@ export async function queryPortEgressInfo(
   })
 }
 
+/**
+ * Probe IP quality (CleanIP + IPPure) through a real local listener using its
+ * actual inbound protocol (supports HTTP, SOCKS5-only, Mixed, and proxy chains).
+ */
+export async function queryPortIpQuality(
+  port: number,
+  protocol: InboundProtocol,
+  timeoutMs?: number | null,
+): Promise<NodeIpQualityReport> {
+  if (!isTauriEnvironment()) {
+    throw new Error(t('errors.chainEgressDesktopOnly'))
+  }
+  return invoke<NodeIpQualityReport>('query_port_ip_quality', {
+    port,
+    protocol,
+    timeoutMs: timeoutMs ?? null,
+  })
+}
+
+export async function retryPortIpQualitySource(
+  port: number,
+  protocol: InboundProtocol,
+  source: 'cleanip' | 'ippure',
+  existingReport: NodeIpQualityReport,
+  timeoutMs?: number | null,
+): Promise<NodeIpQualityReport> {
+  if (!isTauriEnvironment()) {
+    return existingReport
+  }
+  return invoke<NodeIpQualityReport>('retry_port_ip_quality_source', {
+    port,
+    protocol,
+    source,
+    existingReport,
+    timeoutMs: timeoutMs ?? null,
+  })
+}
+
 export async function queryNodeEgressInfo(
   nodeName: string,
   profileId?: string | null,
