@@ -20,6 +20,7 @@ import {
 import { t } from '../i18n'
 import type {
   AppConfig,
+  DownloadSpeedTestResult,
   AppStatus,
   AppUpdateCheckResult,
   AppUpdateInstallResult,
@@ -421,6 +422,49 @@ export async function retryPortIpQualitySource(
     existingReport,
     timeoutMs: timeoutMs ?? null,
   })
+}
+
+export async function testNodeDownloadSpeed(
+  nodeName: string,
+  profileId?: string | null,
+  source?: string | null,
+  maxBytes?: number | null,
+  maxDurationMs?: number | null,
+): Promise<DownloadSpeedTestResult> {
+  if (!isTauriEnvironment()) {
+    throw new Error(t('errors.chainEgressDesktopOnly'))
+  }
+  return invoke<DownloadSpeedTestResult>('test_node_download_speed', {
+    nodeName,
+    profileId: profileId ?? null,
+    source: source ?? null,
+    maxBytes: maxBytes ?? null,
+    maxDurationMs: maxDurationMs ?? null,
+  })
+}
+
+export async function testPortDownloadSpeed(
+  port: number,
+  protocol: InboundProtocol,
+  source?: string | null,
+  maxBytes?: number | null,
+  maxDurationMs?: number | null,
+): Promise<DownloadSpeedTestResult> {
+  if (!isTauriEnvironment()) {
+    throw new Error(t('errors.chainEgressDesktopOnly'))
+  }
+  return invoke<DownloadSpeedTestResult>('test_port_download_speed', {
+    port,
+    protocol,
+    source: source ?? null,
+    maxBytes: maxBytes ?? null,
+    maxDurationMs: maxDurationMs ?? null,
+  })
+}
+
+export async function cancelDownloadSpeedTest(): Promise<void> {
+  if (!isTauriEnvironment()) return
+  return invoke<void>('cancel_download_speed_test')
 }
 
 export async function queryNodeEgressInfo(

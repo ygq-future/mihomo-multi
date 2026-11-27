@@ -604,3 +604,19 @@ export interface CliStatus {
   shellProfileInstalled: boolean
   shellProfilePath?: string | null
 }
+
+export interface DownloadSpeedProgressPayload {
+  downloadedBytes: number
+  elapsedMs: number
+  speedBytesPerSec: number
+  sourceName: string
+}
+
+export interface DownloadSpeedTestResult {
+  downloadedBytes: number
+  elapsedMs: number
+  avgBytesPerSec: number
+  cancelled: boolean
+  limitedBy: string
+  sourceName: string
+}

@@ -1068,6 +1068,26 @@ pub struct NodeMediaUnlockReport {
     pub items: Vec<MediaUnlockItem>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadSpeedProgressPayload {
+    pub downloaded_bytes: u64,
+    pub elapsed_ms: u64,
+    pub speed_bytes_per_sec: f64,
+    pub source_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadSpeedTestResult {
+    pub downloaded_bytes: u64,
+    pub elapsed_ms: u64,
+    pub avg_bytes_per_sec: f64,
+    pub cancelled: bool,
+    pub limited_by: String,
+    pub source_name: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

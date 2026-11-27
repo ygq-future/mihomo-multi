@@ -4,6 +4,7 @@ import type {
   AppConfig,
   DirectEgressInfo,
   InboundProtocol,
+  DownloadSpeedTestResult,
   LatencyProgressPayload,
   LatencyUpdatePayload,
   NodeIpQualityReport,
@@ -29,6 +30,8 @@ export interface ProxySlice {
   probingIpQualityKeys: Record<string, boolean>
   nodeMediaUnlocks: Record<string, NodeMediaUnlockReport>
   nodeMediaUnlockCachedAt: Record<string, number>
+  nodeDownloadSpeeds: Record<string, DownloadSpeedTestResult>
+  nodeDownloadSpeedCachedAt: Record<string, number>
   isTestingAll: boolean
   quickBindTarget: { profileId: string; nodeName: string } | null
   isAddPortModalOpen: boolean
@@ -61,6 +64,10 @@ export interface ProxySlice {
     runtimeKey?: string,
     forceRefresh?: boolean,
   ) => Promise<NodeMediaUnlockReport>
+  saveDownloadSpeedResult: (
+    cacheKey: string,
+    result: DownloadSpeedTestResult,
+  ) => void
   testAllNodesDelay: (
     nodeNames: string[],
     testUrl?: string,
@@ -99,7 +106,7 @@ function portProbeRoute(
   ])
 }
 
-const EGRESS_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+export const EGRESS_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
 function pruneExpiredRecord<K extends string | number, V>(
   values: Record<K, V>,
@@ -135,6 +142,8 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
   probingIpQualityKeys: {},
   nodeMediaUnlocks: {},
   nodeMediaUnlockCachedAt: {},
+  nodeDownloadSpeeds: {},
+  nodeDownloadSpeedCachedAt: {},
   isTestingAll: false,
   quickBindTarget: null,
   isAddPortModalOpen: false,
@@ -427,6 +436,27 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
     return report
   },
 
+  saveDownloadSpeedResult: (cacheKey, result) => {
+    set((state) => {
+      const now = Date.now()
+      const pruned = pruneExpiredRecord(
+        state.nodeDownloadSpeeds,
+        state.nodeDownloadSpeedCachedAt,
+        now,
+      )
+      return {
+        nodeDownloadSpeeds: {
+          ...pruned.values,
+          [cacheKey]: result,
+        },
+        nodeDownloadSpeedCachedAt: {
+          ...pruned.timestamps,
+          [cacheKey]: now,
+        },
+      }
+    })
+  },
+
   clearEgressCache: (profileId) => {
     set((state) => {
       if (!profileId) {
@@ -437,6 +467,8 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
           nodeIpQualityCachedAt: {},
           nodeMediaUnlocks: {},
           nodeMediaUnlockCachedAt: {},
+          nodeDownloadSpeeds: {},
+          nodeDownloadSpeedCachedAt: {},
           portEgressIps: {},
           portEgressCachedAt: {},
         }
@@ -470,6 +502,10 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
         state.nodeMediaUnlocks,
         state.nodeMediaUnlockCachedAt,
       )
+      const downloadSpeeds = filterOutPrefix(
+        state.nodeDownloadSpeeds,
+        state.nodeDownloadSpeedCachedAt,
+      )
       return {
         nodeEgressIps: egress.values,
         nodeEgressCachedAt: egress.timestamps,
@@ -477,6 +513,8 @@ export const createProxySlice: StateCreator<ProxySlice, [], [], ProxySlice> = (
         nodeIpQualityCachedAt: quality.timestamps,
         nodeMediaUnlocks: media.values,
         nodeMediaUnlockCachedAt: media.timestamps,
+        nodeDownloadSpeeds: downloadSpeeds.values,
+        nodeDownloadSpeedCachedAt: downloadSpeeds.timestamps,
         portEgressIps: {},
         portEgressCachedAt: {},
       }

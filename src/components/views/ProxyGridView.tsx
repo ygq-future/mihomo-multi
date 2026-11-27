@@ -38,6 +38,10 @@ import {
   Select,
   toast,
 } from '../common'
+import {
+  DownloadSpeedModal,
+  type DownloadSpeedTarget,
+} from '../common/DownloadSpeedModal'
 import { AddPortModal } from '../ports/AddPortModal'
 
 type SortOption = 'default' | 'latency-asc' | 'latency-desc' | 'name-asc'
@@ -61,6 +65,7 @@ interface ProxyNodeCardProps {
   onTestDelay: (nodeKey: string) => void
   onCopyEgressIp: (node: AugmentedNode) => void
   onInspectIpQuality: (node: AugmentedNode) => void
+  onInspectDownloadSpeed: (node: AugmentedNode) => void
   onQuickBind: (target: { profileId: string; nodeName: string }) => void
 }
 const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
@@ -77,6 +82,7 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
     onTestDelay,
     onCopyEgressIp,
     onInspectIpQuality,
+    onInspectDownloadSpeed,
     onQuickBind,
   }) => {
     const { t } = useTranslation()
@@ -115,6 +121,8 @@ const ProxyNodeCard = React.memo<ProxyNodeCardProps>(
               }
               onCopyIp={() => onCopyEgressIp(node)}
               onOpenQuality={() => onInspectIpQuality(node)}
+              downloadTitle={t('downloadTest.buttonTitle')}
+              onDownloadTest={() => onInspectDownloadSpeed(node)}
             />
           </div>
           <span
@@ -217,6 +225,8 @@ export const ProxyGridView: React.FC = () => {
   )
   const [ipQualityTarget, setIpQualityTarget] =
     useState<IpQualityTarget | null>(null)
+  const [downloadSpeedTarget, setDownloadSpeedTarget] =
+    useState<DownloadSpeedTarget | null>(null)
   const proxyError = useAppStore((state) => state.proxyError)
   const setProxyError = useAppStore((state) => state.setProxyError)
 
@@ -601,6 +611,17 @@ export const ProxyGridView: React.FC = () => {
       runtimeKey,
     })
   }, [])
+  const handleInspectDownloadSpeed = (node: AugmentedNode) => {
+    const runtimeKey =
+      node.runtimeName ||
+      (node.profileName ? `[${node.profileName}] ${node.name}` : node.name)
+    setDownloadSpeedTarget({
+      nodeName: node.name,
+      profileId: node.profileId,
+      profileName: node.profileName || null,
+      runtimeKey,
+    })
+  }
 
   // Profile select dropdown options
   const profileOptions = useMemo<MultiSelectOption<string>[]>(() => {
@@ -941,6 +962,7 @@ export const ProxyGridView: React.FC = () => {
                   onTestDelay={handleSingleTest}
                   onCopyEgressIp={handleCopyNodeEgress}
                   onInspectIpQuality={handleInspectIpQuality}
+                  onInspectDownloadSpeed={handleInspectDownloadSpeed}
                   onQuickBind={handleQuickBind}
                 />
               )
@@ -963,6 +985,11 @@ export const ProxyGridView: React.FC = () => {
         isOpen={ipQualityTarget !== null}
         onClose={() => setIpQualityTarget(null)}
         target={ipQualityTarget}
+      />
+      <DownloadSpeedModal
+        isOpen={Boolean(downloadSpeedTarget)}
+        onClose={() => setDownloadSpeedTarget(null)}
+        target={downloadSpeedTarget}
       />
     </div>
   )

@@ -65,6 +65,10 @@ import {
   Select,
   toast,
 } from '../common'
+import {
+  DownloadSpeedModal,
+  type DownloadSpeedTarget,
+} from '../common/DownloadSpeedModal'
 import { AddPortModal } from '../ports/AddPortModal'
 import { EditDirectPortModal } from '../ports/EditDirectPortModal'
 import {
@@ -238,6 +242,8 @@ export const PortTableView: React.FC = () => {
   const [historyModalPort, setHistoryModalPort] = useState<number | null>(null)
   const [ipQualityTarget, setIpQualityTarget] =
     useState<IpQualityTarget | null>(null)
+  const [downloadSpeedTarget, setDownloadSpeedTarget] =
+    useState<DownloadSpeedTarget | null>(null)
 
   useEffect(() => {
     if (!deletingMapping) {
@@ -2598,6 +2604,26 @@ export const PortTableView: React.FC = () => {
                                               : undefined,
                                         })
                                       }
+                                      downloadLabel={t('downloadTest.button')}
+                                      downloadTitle={t(
+                                        'downloadTest.buttonTitle',
+                                      )}
+                                      onDownloadTest={() =>
+                                        setDownloadSpeedTarget({
+                                          nodeName: m.nodeName,
+                                          profileId: m.profileId,
+                                          profileName: profileName || null,
+                                          runtimeKey: nodeKey,
+                                          portProbe:
+                                            m.enabled && isRunning
+                                              ? {
+                                                  port: m.port,
+                                                  protocol: m.protocol,
+                                                  isChain: isChainPort,
+                                                }
+                                              : undefined,
+                                        })
+                                      }
                                     />
                                   )}
                                 </div>
@@ -2799,6 +2825,21 @@ export const PortTableView: React.FC = () => {
                                         onOpenQuality={() => {
                                           if (!m.fallbackNodeName) return
                                           setIpQualityTarget({
+                                            nodeName: m.fallbackNodeName,
+                                            profileId:
+                                              m.fallbackProfileId ||
+                                              m.profileId,
+                                            profileName: fbProfileName || null,
+                                            runtimeKey: fbNodeKey,
+                                          })
+                                        }}
+                                        downloadLabel={t('downloadTest.button')}
+                                        downloadTitle={t(
+                                          'downloadTest.buttonTitle',
+                                        )}
+                                        onDownloadTest={() => {
+                                          if (!m.fallbackNodeName) return
+                                          setDownloadSpeedTarget({
                                             nodeName: m.fallbackNodeName,
                                             profileId:
                                               m.fallbackProfileId ||
@@ -3363,6 +3404,11 @@ export const PortTableView: React.FC = () => {
         isOpen={ipQualityTarget !== null}
         onClose={() => setIpQualityTarget(null)}
         target={ipQualityTarget}
+      />
+      <DownloadSpeedModal
+        isOpen={Boolean(downloadSpeedTarget)}
+        onClose={() => setDownloadSpeedTarget(null)}
+        target={downloadSpeedTarget}
       />
     </div>
   )

@@ -3,6 +3,7 @@ use crate::core::config_generator::chain_proxy_name;
 use crate::core::drift_guard::DriftGuard;
 use crate::core::port_probe::{PortTransport, is_port_available};
 use crate::error::CommandError;
+use crate::models::DownloadSpeedTestResult;
 use crate::models::{
     AppConfig, AppStatus, AutoUpdateEventPayload, AutoUpdaterStatus, ConnectionSnapshot, CoreStatus, DirectEgressInfo,
     DriftStatus, EnvProxyStatus, FIXED_DIRECT_PORT_ID, InboundProtocol, LanIpInfo, NodeIpQualityReport,
@@ -2179,6 +2180,59 @@ pub async fn retry_port_ip_quality_source(
     crate::core::ip_quality::query_port_ip_quality_single_source(port, protocol, &source, existing_report, timeout_ms)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn test_node_download_speed(
+    node_name: String,
+    profile_id: Option<String>,
+    source: Option<String>,
+    max_bytes: Option<u64>,
+    max_duration_ms: Option<u64>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<DownloadSpeedTestResult, String> {
+    with_node_probe_channel(&state, &node_name, profile_id.as_deref(), |port| async move {
+        let proxy_port = port.ok_or_else(|| "Temporary proxy port unavailable".to_string())?;
+        crate::core::download_speed_test::run_download_speed_test(
+            proxy_port,
+            InboundProtocol::Mixed,
+            source.as_deref(),
+            max_bytes,
+            max_duration_ms,
+            Some(app),
+        )
+        .await
+        .map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn test_port_download_speed(
+    port: u16,
+    protocol: InboundProtocol,
+    source: Option<String>,
+    max_bytes: Option<u64>,
+    max_duration_ms: Option<u64>,
+    app: AppHandle,
+) -> Result<DownloadSpeedTestResult, String> {
+    crate::core::download_speed_test::run_download_speed_test(
+        port,
+        protocol,
+        source.as_deref(),
+        max_bytes,
+        max_duration_ms,
+        Some(app),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn cancel_download_speed_test() -> Result<(), String> {
+    crate::core::download_speed_test::cancel_active_download_speed_test();
+    Ok(())
 }
 
 #[tauri::command]

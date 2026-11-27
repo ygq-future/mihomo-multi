@@ -1,4 +1,4 @@
-import { Copy, Loader2, ShieldCheck } from 'lucide-react'
+import { ArrowDownToLine, Copy, Loader2, ShieldCheck } from 'lucide-react'
 import type React from 'react'
 
 export interface NodeEgressActionsProps {
@@ -11,6 +11,9 @@ export interface NodeEgressActionsProps {
   qualityTitle: string
   onCopyIp: () => void
   onOpenQuality: () => void
+  onDownloadTest?: () => void
+  downloadLabel?: string
+  downloadTitle?: string
   hoverScope?: 'name' | 'fbname'
   hidden?: boolean
 }
@@ -30,6 +33,9 @@ export const NodeEgressActions: React.FC<NodeEgressActionsProps> = ({
   qualityTitle,
   onCopyIp,
   onOpenQuality,
+  onDownloadTest,
+  downloadLabel,
+  downloadTitle,
   hoverScope = 'name',
   hidden = false,
 }) => {
@@ -63,8 +69,8 @@ export const NodeEgressActions: React.FC<NodeEgressActionsProps> = ({
     onOpenQuality()
   }
 
-  const copyClassName = `inline-flex items-center gap-1 ${heightClass} rounded-md text-[10px] leading-none font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer disabled:opacity-70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary transition-opacity`
-  const qualityClassName = `inline-flex items-center gap-1 ${qualityHeightClass} rounded-md text-[10px] leading-none font-semibold bg-card/95 border border-border text-foreground hover:border-primary/50 hover:text-primary shadow-md backdrop-blur-xs cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary transition-colors`
+  const copyClassName = `inline-flex items-center gap-1 ${heightClass} rounded-md text-[10px] leading-none font-semibold whitespace-nowrap shrink-0 bg-primary text-primary-foreground hover:opacity-90 shadow-md cursor-pointer disabled:opacity-70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary transition-opacity`
+  const qualityClassName = `inline-flex items-center gap-1 ${qualityHeightClass} rounded-md text-[10px] leading-none font-semibold whitespace-nowrap shrink-0 bg-card/95 border border-border text-foreground hover:border-primary/50 hover:text-primary shadow-md backdrop-blur-xs cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary transition-colors`
 
   return (
     <div
@@ -109,6 +115,25 @@ export const NodeEgressActions: React.FC<NodeEgressActionsProps> = ({
         )}
         <span>{qualityLabel}</span>
       </button>
+      {onDownloadTest && (
+        <button
+          type="button"
+          data-no-drag="true"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation()
+            e.preventDefault()
+            if (e.detail > 0) e.currentTarget.blur()
+            onDownloadTest()
+          }}
+          className={qualityClassName}
+          title={downloadTitle}
+          aria-label={downloadTitle}
+        >
+          <ArrowDownToLine className="w-2.5 h-2.5 text-sky-500" />
+          {downloadLabel && <span>{downloadLabel}</span>}
+        </button>
+      )}
     </div>
   )
 }

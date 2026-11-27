@@ -6,6 +6,7 @@ pub mod cli_format;
 pub mod cli_manager;
 pub mod config_generator;
 pub mod ctl_server;
+pub mod download_speed_test;
 pub mod drift_guard;
 pub mod egress_probe;
 pub mod elevation;
