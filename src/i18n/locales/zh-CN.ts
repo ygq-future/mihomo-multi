@@ -652,7 +652,7 @@ export const zhCN = {
   'ipQuality.yes': '是',
   'ipQuality.no': '否',
   'ipQuality.mediaTitle': 'AI 与流媒体区域解锁探测',
-  'ipQuality.recheckMedia': '重测解锁',
+  'ipQuality.recheckMedia': '测试',
   'ipQuality.categoryAi': 'AI 服务',
   'ipQuality.categoryStreaming': '流媒体',
   'ipQuality.categorySocial': '社交平台',

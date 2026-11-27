@@ -10,6 +10,7 @@ const CLEANIP_REPORT_URL: &str = "https://sh.cd/report";
 const CLEANIP_USER_AGENT: &str = "sh.cd/1.3.6 (+https://sh.cd)";
 const IPPURE_INFO_URL: &str = "https://my.ippure.com/v1/info";
 const IPPURE_USER_AGENT: &str = "mihomo-multi/0.1.0 (clash.meta)";
+const IPKK_URL: &str = "https://ipkk.com/";
 const BROWSER_USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
@@ -362,6 +363,100 @@ async fn fetch_ippure_quality(proxy_port: Option<u16>, timeout: Duration) -> Res
     parse_ippure_response(&body, latency_ms)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IpkkFallbackSource {
+    pub ip: String,
+    pub country: Option<String>,
+    pub region: Option<String>,
+    pub city: Option<String>,
+    pub timezone: Option<String>,
+}
+
+pub fn parse_ipkk_response(body: &str) -> Result<IpkkFallbackSource, String> {
+    let mut ip = None;
+    let mut country = None;
+    let mut region = None;
+    let mut city = None;
+    let mut timezone = None;
+
+    for line in body.lines() {
+        let Some((key, val)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim();
+        let val = val.trim();
+        if val.is_empty() {
+            continue;
+        }
+        match key {
+            "ip" => ip = Some(val.to_string()),
+            "country" => country = Some(val.to_string()),
+            "region" => region = Some(val.to_string()),
+            "city" => city = Some(val.to_string()),
+            "timezone" => timezone = Some(val.to_string()),
+            _ => {}
+        }
+    }
+
+    let ip = ip.ok_or_else(|| "IPKK response missing ip field".to_string())?;
+    Ok(IpkkFallbackSource {
+        ip,
+        country,
+        region,
+        city,
+        timezone,
+    })
+}
+
+async fn fetch_ipkk_fallback(proxy_port: Option<u16>, timeout: Duration) -> Result<IpkkFallbackSource, String> {
+    let client = build_http_client(proxy_port, IPPURE_USER_AGENT, timeout, true).map_err(|e| e.to_string())?;
+    let resp = client.get(IPKK_URL).send().await.map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!("IPKK HTTP {status}"));
+    }
+    parse_ipkk_response(&body)
+}
+
+pub fn apply_ipkk_fallback(report: &mut NodeIpQualityReport, ipkk: &IpkkFallbackSource) {
+    if report.ip.is_empty() {
+        report.ip = ipkk.ip.clone();
+    }
+    if report.ip_consistent.is_none() && !report.ip.is_empty() {
+        report.ip_consistent = Some(report.ip == ipkk.ip);
+    }
+    if report.ippure.is_none() {
+        report.ippure = Some(IpPureQualitySource {
+            ip: ipkk.ip.clone(),
+            asn: None,
+            as_organization: Some("ipkk.com (fallback)".to_string()),
+            country: ipkk.country.clone(),
+            country_code: None,
+            region: ipkk.region.clone(),
+            city: ipkk.city.clone(),
+            timezone: ipkk.timezone.clone(),
+            fraud_score: None,
+            is_residential: None,
+            is_broadcast: None,
+            latency_ms: 0,
+        });
+        report.ippure_error = None;
+    }
+    if report.location_display.is_empty() {
+        let mut parts: Vec<&str> = Vec::new();
+        for seg in [&ipkk.country, &ipkk.region, &ipkk.city].into_iter().flatten() {
+            let trimmed = seg.trim();
+            if !trimmed.is_empty() && !parts.contains(&trimmed) {
+                parts.push(trimmed);
+            }
+        }
+        report.location_display = parts.join(" · ");
+    }
+    if report.timezone.is_none() {
+        report.timezone = ipkk.timezone.clone();
+    }
+}
 pub async fn query_ip_quality(proxy_port: Option<u16>, timeout_ms: Option<u64>) -> AppResult<NodeIpQualityReport> {
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_QUALITY_TIMEOUT_MS).clamp(2000, 30_000));
     let via_proxy = proxy_port.is_some();
@@ -371,7 +466,139 @@ pub async fn query_ip_quality(proxy_port: Option<u16>, timeout_ms: Option<u64>) 
         fetch_ippure_quality(proxy_port, timeout)
     );
 
-    synthesize_ip_quality_report(cleanip_res, ippure_res, now_epoch_ms())
+    let needs_fallback = cleanip_res.is_err() || ippure_res.is_err();
+    let ipkk_res = if needs_fallback {
+        Some(fetch_ipkk_fallback(proxy_port, timeout).await)
+    } else {
+        None
+    };
+
+    match synthesize_ip_quality_report(cleanip_res, ippure_res, now_epoch_ms()) {
+        Ok(mut report) => {
+            if let Some(ipkk_result) = ipkk_res.as_ref() {
+                match ipkk_result {
+                    Ok(ipkk) => apply_ipkk_fallback(&mut report, ipkk),
+                    Err(ipkk_err) => {
+                        if let Some(err) = report.ippure_error.as_mut() {
+                            err.push_str(&format!(" | IPKK fallback: {ipkk_err}"));
+                        }
+                    }
+                }
+            }
+            Ok(report)
+        }
+        Err(err) => {
+            if let Some(Ok(ipkk)) = ipkk_res {
+                let mut report = NodeIpQualityReport {
+                    ip: String::new(),
+                    ip_consistent: None,
+                    country_code: None,
+                    location_display: String::new(),
+                    asn: None,
+                    asn_org: None,
+                    timezone: None,
+                    purity_score: None,
+                    network_category: IpNetworkCategory::Unknown,
+                    native_status: IpNativeStatus::Unknown,
+                    cleanip: None,
+                    ippure: None,
+                    cleanip_error: Some(err.to_string()),
+                    ippure_error: None,
+                    probed_at_ms: now_epoch_ms(),
+                };
+                apply_ipkk_fallback(&mut report, &ipkk);
+                Ok(report)
+            } else {
+                Err(err)
+            }
+        }
+    }
+}
+pub async fn query_ip_quality_single_source(
+    proxy_port: Option<u16>,
+    source: &str,
+    existing: NodeIpQualityReport,
+    timeout_ms: Option<u64>,
+) -> AppResult<NodeIpQualityReport> {
+    let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_QUALITY_TIMEOUT_MS).clamp(2000, 30_000));
+    let via_proxy = proxy_port.is_some();
+
+    let (cleanip_res, ippure_res, ipkk_res) = match source {
+        "cleanip" => {
+            let c_res = fetch_cleanip_quality(proxy_port, via_proxy, timeout).await;
+            let ipkk = if c_res.is_err() {
+                Some(fetch_ipkk_fallback(proxy_port, timeout).await)
+            } else {
+                None
+            };
+            let p_res = existing.ippure.ok_or_else(|| {
+                existing
+                    .ippure_error
+                    .unwrap_or_else(|| "IPPure unavailable".to_string())
+            });
+            (c_res, p_res, ipkk)
+        }
+        "ippure" => {
+            let p_res = fetch_ippure_quality(proxy_port, timeout).await;
+            let ipkk = if p_res.is_err() {
+                Some(fetch_ipkk_fallback(proxy_port, timeout).await)
+            } else {
+                None
+            };
+            let c_res = existing.cleanip.ok_or_else(|| {
+                existing
+                    .cleanip_error
+                    .unwrap_or_else(|| "CleanIP unavailable".to_string())
+            });
+            (c_res, p_res, ipkk)
+        }
+        _ => return Err(AppError::Internal(format!("Unknown IP quality source: {source}"))),
+    };
+
+    match synthesize_ip_quality_report(cleanip_res, ippure_res, now_epoch_ms()) {
+        Ok(mut report) => {
+            if let Some(ipkk_result) = ipkk_res.as_ref() {
+                match ipkk_result {
+                    Ok(ipkk) => apply_ipkk_fallback(&mut report, ipkk),
+                    Err(ipkk_err) => {
+                        if source == "ippure" {
+                            if let Some(err) = report.ippure_error.as_mut() {
+                                err.push_str(&format!(" | IPKK fallback: {ipkk_err}"));
+                            }
+                        } else if let Some(err) = report.cleanip_error.as_mut() {
+                            err.push_str(&format!(" | IPKK fallback: {ipkk_err}"));
+                        }
+                    }
+                }
+            }
+            Ok(report)
+        }
+        Err(err) => {
+            if let Some(Ok(ipkk)) = ipkk_res {
+                let mut report = NodeIpQualityReport {
+                    ip: String::new(),
+                    ip_consistent: None,
+                    country_code: None,
+                    location_display: String::new(),
+                    asn: None,
+                    asn_org: None,
+                    timezone: None,
+                    purity_score: None,
+                    network_category: IpNetworkCategory::Unknown,
+                    native_status: IpNativeStatus::Unknown,
+                    cleanip: None,
+                    ippure: None,
+                    cleanip_error: Some(err.to_string()),
+                    ippure_error: None,
+                    probed_at_ms: now_epoch_ms(),
+                };
+                apply_ipkk_fallback(&mut report, &ipkk);
+                Ok(report)
+            } else {
+                Err(err)
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1142,5 +1369,38 @@ mod tests {
             parse_reddit_probe(200, r#"<shreddit-app country="GB">"#),
             (MediaUnlockStatus::Unlocked, Some("GB".to_string()))
         );
+    }
+    #[test]
+    fn test_parse_ipkk_response_and_fallback() {
+        let body =
+            "ip: 35.208.17.17\ncountry: United States\nregion: Iowa\ncity: Council Bluffs\ntimezone: America/Chicago\n";
+        let parsed = parse_ipkk_response(body).expect("parse ipkk");
+        assert_eq!(parsed.ip, "35.208.17.17");
+        assert_eq!(parsed.country.as_deref(), Some("United States"));
+        assert_eq!(parsed.region.as_deref(), Some("Iowa"));
+        assert_eq!(parsed.city.as_deref(), Some("Council Bluffs"));
+        assert_eq!(parsed.timezone.as_deref(), Some("America/Chicago"));
+
+        let mut report = NodeIpQualityReport {
+            ip: "35.208.17.17".to_string(),
+            ip_consistent: None,
+            country_code: None,
+            location_display: String::new(),
+            asn: None,
+            asn_org: None,
+            timezone: None,
+            purity_score: None,
+            network_category: IpNetworkCategory::Unknown,
+            native_status: IpNativeStatus::Unknown,
+            cleanip: None,
+            ippure: None,
+            cleanip_error: Some("timeout".to_string()),
+            ippure_error: None,
+            probed_at_ms: 0,
+        };
+        apply_ipkk_fallback(&mut report, &parsed);
+        assert_eq!(report.ip_consistent, Some(true));
+        assert_eq!(report.location_display, "United States · Iowa · Council Bluffs");
+        assert_eq!(report.timezone.as_deref(), Some("America/Chicago"));
     }
 }

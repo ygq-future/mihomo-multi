@@ -407,6 +407,24 @@ export async function queryNodeEgressInfo(
   })
 }
 
+export async function retryNodeIpQualitySource(
+  nodeName: string,
+  source: 'cleanip' | 'ippure',
+  existingReport: NodeIpQualityReport,
+  profileId?: string | null,
+  timeoutMs?: number | null,
+): Promise<NodeIpQualityReport> {
+  if (!isTauriEnvironment()) {
+    return existingReport
+  }
+  return invoke<NodeIpQualityReport>('retry_node_ip_quality_source', {
+    nodeName,
+    profileId: profileId ?? null,
+    source,
+    existingReport,
+    timeoutMs: timeoutMs ?? null,
+  })
+}
 export async function queryNodeIpQuality(
   nodeName: string,
   profileId?: string | null,

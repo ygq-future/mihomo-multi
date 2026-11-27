@@ -17,6 +17,7 @@ import {
   type TranslationParams,
   useTranslation,
 } from '../../i18n'
+import * as api from '../../services/tauri'
 import { useAppStore } from '../../stores/appStore'
 import type {
   CleanIpQualitySource,
@@ -207,6 +208,9 @@ export const IpQualityModal: React.FC<IpQualityModalProps> = ({
   const [qualityError, setQualityError] = useState<string | null>(null)
   const [mediaLoading, setMediaLoading] = useState(false)
   const [mediaError, setMediaError] = useState<string | null>(null)
+  const [retryingSource, setRetryingSource] = useState<
+    'cleanip' | 'ippure' | null
+  >(null)
   const qualitySeqRef = useRef(0)
   const mediaSeqRef = useRef(0)
   const targetRef = useRef(target)
@@ -223,7 +227,6 @@ export const IpQualityModal: React.FC<IpQualityModalProps> = ({
     const currentTarget = targetRef.current
     if (!currentTarget) return
     const qSeq = ++qualitySeqRef.current
-    const mSeq = ++mediaSeqRef.current
 
     setQualityError(null)
     setMediaError(null)
@@ -232,9 +235,6 @@ export const IpQualityModal: React.FC<IpQualityModalProps> = ({
     const needQuality =
       forceRefresh ||
       !lookupCachedRecord(storeState.nodeIpQualities, currentTarget)
-    const needMedia =
-      forceRefresh ||
-      !lookupCachedRecord(storeState.nodeMediaUnlocks, currentTarget)
 
     if (needQuality) {
       setQualityLoading(true)
@@ -256,32 +256,39 @@ export const IpQualityModal: React.FC<IpQualityModalProps> = ({
     } else {
       setQualityLoading(false)
     }
-
-    if (mediaSeqRef.current !== mSeq) return
-
-    if (needMedia) {
-      setMediaLoading(true)
-      try {
-        await useAppStore
-          .getState()
-          .probeNodeMediaUnlock(
-            currentTarget.nodeName,
-            currentTarget.profileId,
-            currentTarget.runtimeKey,
-            forceRefresh,
-          )
-      } catch (err) {
-        if (mediaSeqRef.current !== mSeq) return
-        setMediaError(err instanceof Error ? err.message : String(err))
-      } finally {
-        if (mediaSeqRef.current === mSeq) {
-          setMediaLoading(false)
-        }
-      }
-    } else {
-      setMediaLoading(false)
-    }
   }, [])
+
+  const handleRetrySource = useCallback(
+    async (source: 'cleanip' | 'ippure') => {
+      const currentTarget = targetRef.current
+      if (!currentTarget || !cachedQuality || retryingSource) return
+      setRetryingSource(source)
+      try {
+        const updated = await api.retryNodeIpQualitySource(
+          currentTarget.nodeName,
+          source,
+          cachedQuality,
+          currentTarget.profileId ?? null,
+        )
+        const key = getNodeQualityCacheKey(
+          currentTarget.nodeName,
+          currentTarget.profileId,
+          currentTarget.runtimeKey,
+        )
+        useAppStore.setState((state) => ({
+          nodeIpQualities: {
+            ...state.nodeIpQualities,
+            [key]: updated,
+          },
+        }))
+      } catch (err) {
+        setQualityError(String(err))
+      } finally {
+        setRetryingSource(null)
+      }
+    },
+    [cachedQuality, retryingSource],
+  )
 
   const runMediaOnly = useCallback(async () => {
     const currentTarget = targetRef.current
@@ -529,9 +536,21 @@ export const IpQualityModal: React.FC<IpQualityModalProps> = ({
                 {/* CleanIP Card */}
                 <div className="p-3 rounded-xl border border-border bg-background/50 space-y-2 text-xs">
                   <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-border/60">
-                    <span className="font-semibold text-foreground">
-                      {t('ipQuality.cleanipTitle')}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-semibold text-foreground">
+                        {t('ipQuality.cleanipTitle')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void handleRetrySource('cleanip')}
+                        disabled={retryingSource !== null || qualityLoading}
+                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-40"
+                      >
+                        <RefreshCw
+                          className={`w-3 h-3 ${retryingSource === 'cleanip' ? 'animate-spin' : ''}`}
+                        />
+                      </button>
+                    </div>
                     {cachedQuality.cleanip ? (
                       <div className="flex items-center gap-1.5">
                         <Badge
@@ -638,9 +657,21 @@ export const IpQualityModal: React.FC<IpQualityModalProps> = ({
                 {/* IPPure Card */}
                 <div className="p-3 rounded-xl border border-border bg-background/50 space-y-2 text-xs">
                   <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-border/60">
-                    <span className="font-semibold text-foreground">
-                      {t('ipQuality.ippureTitle')}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-semibold text-foreground">
+                        {t('ipQuality.ippureTitle')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void handleRetrySource('ippure')}
+                        disabled={retryingSource !== null || qualityLoading}
+                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-40"
+                      >
+                        <RefreshCw
+                          className={`w-3 h-3 ${retryingSource === 'ippure' ? 'animate-spin' : ''}`}
+                        />
+                      </button>
+                    </div>
                     {cachedQuality.ippure ? (
                       <div className="flex items-center gap-1.5">
                         <Badge

@@ -2075,6 +2075,22 @@ pub async fn query_node_ip_quality(
     })
     .await
 }
+#[tauri::command]
+pub async fn retry_node_ip_quality_source(
+    node_name: String,
+    profile_id: Option<String>,
+    source: String,
+    existing_report: NodeIpQualityReport,
+    timeout_ms: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<NodeIpQualityReport, String> {
+    with_node_probe_channel(&state, &node_name, profile_id.as_deref(), |port| async move {
+        crate::core::ip_quality::query_ip_quality_single_source(port, &source, existing_report, timeout_ms)
+            .await
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
 
 #[tauri::command]
 pub async fn query_node_media_unlock(

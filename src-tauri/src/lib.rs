@@ -439,6 +439,7 @@ pub fn run() {
             query_direct_egress_info,
             query_node_egress_info,
             query_node_ip_quality,
+            retry_node_ip_quality_source,
             query_node_media_unlock,
             test_residential_proxy,
             test_chain_node_exit,

@@ -711,7 +711,7 @@ export const enUS: Record<TranslationKey, string> = {
   'ipQuality.yes': 'Yes',
   'ipQuality.no': 'No',
   'ipQuality.mediaTitle': 'AI & Streaming Region Unlock',
-  'ipQuality.recheckMedia': 'Re-test',
+  'ipQuality.recheckMedia': 'Test',
   'ipQuality.categoryAi': 'AI Services',
   'ipQuality.categoryStreaming': 'Streaming',
   'ipQuality.categorySocial': 'Social',
