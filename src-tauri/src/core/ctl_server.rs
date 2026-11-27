@@ -461,6 +461,7 @@ async fn dispatch_request(req: &HttpRequest, state: &AppState) -> HttpResponse {
         ("GET", "/v1/nodes") => handle_list_nodes(req, state),
         ("POST", "/v1/test/node") => handle_test_node(req, state).await,
         ("POST", "/v1/test/sub") => handle_test_sub(req, state).await,
+        ("POST", "/v1/test/port") => handle_test_port(req, state).await,
         ("GET", "/v1/sysproxy") => HttpResponse::ok(&state.build_system_proxy_status()),
         ("POST", "/v1/sysproxy") => handle_set_sysproxy(req, state).await,
         ("GET", "/v1/tun") => HttpResponse::ok(&state.build_tun_status()),
@@ -854,6 +855,155 @@ async fn handle_test_node(req: &HttpRequest, state: &AppState) -> HttpResponse {
             }
         }
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestPortRequest {
+    port: u16,
+    #[serde(default)]
+    mode: Option<String>,
+    test_url: Option<String>,
+    timeout_ms: Option<u32>,
+}
+
+async fn handle_test_port(req: &HttpRequest, state: &AppState) -> HttpResponse {
+    let body: TestPortRequest = match parse_json_body(&req.body) {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    if !state.engine.get_status().running {
+        return HttpResponse::err(409, "Conflict", "Mihomo core is not running");
+    }
+
+    let Some(mapping) = state
+        .port_router
+        .get_port_mappings()
+        .into_iter()
+        .find(|m| m.port == body.port)
+    else {
+        return HttpResponse::err(404, "Not Found", format!("port {} not found", body.port));
+    };
+
+    let has_backup = mapping
+        .fallback_node_name
+        .as_ref()
+        .is_some_and(|fb| !fb.trim().is_empty());
+    let (test_primary, test_backup) = match body.mode.as_deref() {
+        Some("primary") => (true, false),
+        Some("backup") => (false, true),
+        None | Some("all") => (true, has_backup),
+        Some(other) => {
+            return HttpResponse::err(
+                400,
+                "Bad Request",
+                format!("invalid mode '{other}'; expected 'primary', 'backup', or 'all'"),
+            );
+        }
+    };
+
+    if test_backup && !has_backup {
+        return HttpResponse::err(
+            400,
+            "Bad Request",
+            format!("port {} has no backup node configured", body.port),
+        );
+    }
+
+    let (default_url, default_timeout) = {
+        let cfg = state.config.read();
+        (cfg.test_url.clone(), cfg.timeout_ms)
+    };
+    let actual_url = body.test_url.as_deref().unwrap_or(&default_url);
+    let actual_timeout = body.timeout_ms.unwrap_or(default_timeout);
+
+    let primary_result = if test_primary {
+        if mapping.has_chain_exit() {
+            if !mapping.enabled {
+                return HttpResponse::err(
+                    409,
+                    "Conflict",
+                    "Enable the residential proxy chain port before testing latency",
+                );
+            }
+            let target = format!("chain-{}", mapping.port);
+            let res = state
+                .latency_probe
+                .test_node(&target, None, Some(actual_url), Some(actual_timeout), Some(&mapping.id))
+                .await;
+            let _ = state
+                .port_router
+                .update_port_latency(&mapping.id, res.as_ref().ok().copied());
+            Some((mapping.node_name.clone(), res))
+        } else {
+            let profile = state.profile_manager.get_profile_by_id(&mapping.profile_id);
+            let runtime_name = if let Some(prof) = profile.as_ref() {
+                format!("[{}] {}", prof.name, mapping.node_name)
+            } else {
+                mapping.node_name.clone()
+            };
+            let res = state
+                .latency_probe
+                .test_node(
+                    &mapping.node_name,
+                    Some(&runtime_name),
+                    Some(actual_url),
+                    Some(actual_timeout),
+                    Some(&mapping.id),
+                )
+                .await;
+            let _ = state
+                .port_router
+                .update_port_latency(&mapping.id, res.as_ref().ok().copied());
+            Some((mapping.node_name.clone(), res))
+        }
+    } else {
+        None
+    };
+
+    let backup_result = if test_backup {
+        let fb_name = mapping.fallback_node_name.as_deref().unwrap_or_default();
+        let fb_profile_id = mapping.fallback_profile_id.as_deref().unwrap_or(&mapping.profile_id);
+        let fb_profile = state.profile_manager.get_profile_by_id(fb_profile_id);
+        let fb_runtime_name = if let Some(prof) = fb_profile.as_ref() {
+            format!("[{}] {}", prof.name, fb_name)
+        } else {
+            fb_name.to_string()
+        };
+        let res = state
+            .latency_probe
+            .test_node(
+                fb_name,
+                Some(&fb_runtime_name),
+                Some(actual_url),
+                Some(actual_timeout),
+                None,
+            )
+            .await;
+        if mapping.enabled && !mapping.manual_fallback {
+            let group_name = format!("fb-{}", mapping.port);
+            let _ = state
+                .engine
+                .test_group_delay(&group_name, Some(actual_url), Some(actual_timeout))
+                .await;
+        }
+        Some((fb_name.to_string(), res))
+    } else {
+        None
+    };
+
+    let format_entry = |(node, res): (String, crate::error::AppResult<u32>)| match res {
+        Ok(delay) => serde_json::json!({ "node": node, "delay": delay }),
+        Err(err) => serde_json::json!({ "node": node, "delay": serde_json::Value::Null, "error": err.to_string() }),
+    };
+
+    HttpResponse::ok(&serde_json::json!({
+        "port": mapping.port,
+        "hasChainExit": mapping.has_chain_exit(),
+        "primary": primary_result.map(format_entry),
+        "backup": backup_result.map(format_entry),
+    }))
 }
 
 fn strip_flag_prefix(raw: &str) -> String {

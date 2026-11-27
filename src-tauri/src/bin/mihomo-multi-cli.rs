@@ -248,6 +248,24 @@ enum TestAction {
         #[arg(long)]
         timeout: Option<u32>,
     },
+
+    /// Test latency of a listener port (primary and/or backup)
+    Port {
+        /// Listening port number
+        port: u16,
+        /// Test primary node only
+        #[arg(long, conflicts_with = "backup")]
+        primary: bool,
+        /// Test backup (fallback) node only
+        #[arg(long, conflicts_with = "primary")]
+        backup: bool,
+        /// Custom test URL
+        #[arg(long)]
+        url: Option<String>,
+        /// Timeout in milliseconds
+        #[arg(long)]
+        timeout: Option<u32>,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -1068,6 +1086,58 @@ fn run(cli: Cli) -> Result<(), String> {
                     .map(|(name, d)| vec![clean_node_name(&name), palette.delay_badge(d, "timeout")])
                     .collect();
                 print_table(&["NODE", "DELAY"], &rows, palette);
+            }
+            Some(TestAction::Port {
+                port,
+                primary,
+                backup,
+                url,
+                timeout,
+            }) => {
+                let mode = if primary {
+                    Some("primary")
+                } else if backup {
+                    Some("backup")
+                } else {
+                    None
+                };
+                let data = client.post(
+                    "/v1/test/port",
+                    &json!({
+                        "port": port,
+                        "mode": mode,
+                        "testUrl": url,
+                        "timeoutMs": timeout
+                    }),
+                    Duration::from_secs(30),
+                )?;
+                if cli.json {
+                    print_json(&data);
+                } else {
+                    let chain_tag = if data["hasChainExit"].as_bool().unwrap_or(false) {
+                        " (chain)"
+                    } else {
+                        ""
+                    };
+                    if let Some(p) = data.get("primary").filter(|v| !v.is_null()) {
+                        let node = clean_node_name(p["node"].as_str().unwrap_or("-"));
+                        let delay = palette.delay_badge(p["delay"].as_u64(), "timeout");
+                        println!(
+                            "{} {}: {delay}",
+                            palette.dim(&format!("Port {port} [primary{chain_tag}]")),
+                            palette.bold_cyan(&node)
+                        );
+                    }
+                    if let Some(b) = data.get("backup").filter(|v| !v.is_null()) {
+                        let node = clean_node_name(b["node"].as_str().unwrap_or("-"));
+                        let delay = palette.delay_badge(b["delay"].as_u64(), "timeout");
+                        println!(
+                            "{} {}: {delay}",
+                            palette.dim(&format!("Port {port} [backup]")),
+                            palette.bold_cyan(&node)
+                        );
+                    }
+                }
             }
         },
         Commands::Sysproxy { target } => {
